@@ -1,0 +1,38 @@
+name: Build and Release IMG_SPLT
+
+on:
+  push:
+    tags:
+      - 'v*' # Tự động chạy khi bạn đẩy một tag có tên bắt đầu bằng "v" (ví dụ: v1.0.0)
+  workflow_dispatch: # Cho phép bạn bấm nút chạy bằng tay trên trang web Github
+
+jobs:
+  build-and-release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest # Sử dụng máy chủ Linux miễn phí của Github
+    
+    # Cấp quyền cho Action được tạo Release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Tải mã nguồn về máy chủ
+        uses: actions/checkout@v4
+
+      - name: Cài đặt ngôn ngữ Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Biên dịch phần mềm
+        run: |
+          cd RS_AI/IMG_SPLT.rs
+          cargo build --release
+
+      - name: Tạo Release và đính kèm File chạy
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Lần phát hành ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          files: RS_AI/IMG_SPLT.rs/target/release/img_splt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
