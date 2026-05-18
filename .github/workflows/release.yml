@@ -9,8 +9,15 @@ on:
 jobs:
   build-and-release:
     name: Build & Publish Release
-    runs-on: ubuntu-latest # Sử dụng máy chủ Linux miễn phí của Github
-    
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            file_name: img_splt
+          - os: windows-latest
+            file_name: img_splt.exe
+            
     # Cấp quyền cho Action được tạo Release
     permissions:
       contents: write
@@ -30,9 +37,9 @@ jobs:
       - name: Tạo Release và đính kèm File chạy
         uses: softprops/action-gh-release@v2
         with:
-          name: Lần phát hành ${{ github.ref_name }}
+          name: Phiên bản ${{ github.ref_name }}
           draft: false
           prerelease: false
-          files: RS_AI/IMG_SPLT.rs/target/release/img_splt
+          files: RS_AI/IMG_SPLT.rs/target/release/${{ matrix.file_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
