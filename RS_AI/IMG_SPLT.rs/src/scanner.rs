@@ -2,7 +2,6 @@ use inquire::{Password, Select};
 use std::env;
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -52,10 +51,16 @@ pub fn scan_files() -> Vec<PathBuf> {
                 
                 // Lọc file thực thi (Linux ELF hoặc .exe, .bat)
                 if let Ok(metadata) = entry.metadata() {
-                    let permissions = metadata.permissions();
-                    let mode = permissions.mode();
+                    let mut is_exec = false;
+                    
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        is_exec = metadata.permissions().mode() & 0o111 != 0;
+                    }
+                    
                     // Nếu là executable trên Linux hoặc file .exe/.bat trên Windows
-                    if mode & 0o111 != 0 || file_name.ends_with(".exe") || file_name.ends_with(".bat") {
+                    if is_exec || file_name.ends_with(".exe") || file_name.ends_with(".bat") {
                         continue;
                     }
                 }
