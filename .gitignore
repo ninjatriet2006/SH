@@ -1,0 +1,27 @@
+# === Compiled binaries ===
+a.out
+demo
+Code/main
+Code/lab3bai2
+Code/lab3bai3
+Code/lab3bai4
+Code/lab3bai4a
+Code/lab3bai4b
+Code/lab3bai4c
+
+# === Rust build artifacts ===
+**/target/
+
+# === Sensitive / Secret files ===
+Google APP ID.json
+
+# === OS generated files ===
+.DS_Store
+Thumbs.db
+
+# === IDE / Editor ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
