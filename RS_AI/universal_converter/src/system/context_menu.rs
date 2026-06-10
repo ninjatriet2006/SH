@@ -33,13 +33,13 @@ pub fn install_nemo_action(mode: &str) -> anyhow::Result<()> {
         let current_exe = env::current_exe()?;
         let exe_str = current_exe.to_string_lossy();
 
-        let filename = format!("uni_conv_{}.nemo_action", mode);
+        let filename = format!("universal_converter_{}.nemo_action", mode);
         let filepath = dir.join(filename);
 
         let name = match mode {
-            "default" => "Chuyển đổi với UNI_CONV (Default)",
-            "config" => "Chuyển đổi với UNI_CONV (Config)",
-            _ => "UNI_CONV",
+            "default" => "Chuyển đổi với Universal Converter (Default)",
+            "config" => "Chuyển đổi với Universal Converter (Config)",
+            _ => "Universal Converter",
         };
 
         // We use x-terminal-emulator or gnome-terminal to run the command
@@ -65,9 +65,9 @@ Extensions=any;
         let exe_str = current_exe.to_string_lossy().replace('/', "\\");
 
         let (key_name, display_name) = match mode {
-            "default" => ("uni_conv_default", "Chuyển đổi với UNI_CONV (Default)"),
-            "config" => ("uni_conv_config", "Chuyển đổi với UNI_CONV (Config)"),
-            _ => ("uni_conv", "UNI_CONV"),
+            "default" => ("universal_converter_default", "Chuyển đổi với Universal Converter (Default)"),
+            "config" => ("universal_converter_config", "Chuyển đổi với Universal Converter (Config)"),
+            _ => ("universal_converter", "Universal Converter"),
         };
 
         // Command to run Registry Add via run_as_admin
@@ -89,14 +89,14 @@ pub fn uninstall_all() -> anyhow::Result<()> {
     #[cfg(target_os = "linux")]
     {
         let dir = get_nemo_actions_dir();
-        let _ = fs::remove_file(dir.join("uni_conv_default.nemo_action"));
-        let _ = fs::remove_file(dir.join("uni_conv_config.nemo_action"));
+        let _ = fs::remove_file(dir.join("universal_converter_default.nemo_action"));
+        let _ = fs::remove_file(dir.join("universal_converter_config.nemo_action"));
         println!("[✅] Đã gỡ tích hợp khỏi Nemo Action!");
     }
 
     #[cfg(target_os = "windows")]
     {
-        let cmd = "reg delete \"HKCR\\*\\shell\\uni_conv_default\" /f && reg delete \"HKCR\\*\\shell\\uni_conv_config\" /f";
+        let cmd = "reg delete \"HKCR\\*\\shell\\universal_converter_default\" /f && reg delete \"HKCR\\*\\shell\\universal_converter_config\" /f";
         let _ = run_as_admin(cmd);
         println!("[✅] Đã gỡ tích hợp khỏi Windows Registry!");
     }

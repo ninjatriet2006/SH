@@ -1,5 +1,5 @@
 [package]
-name = "uni_conv2"
+name = "universal_converter"
 version = "0.1.0"
 edition = "2024"
 

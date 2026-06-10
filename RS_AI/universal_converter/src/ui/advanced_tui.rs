@@ -44,7 +44,7 @@ impl TuiApp {
             file_list_state,
             active_tab: 0,
             system,
-            logs: vec!["UNI_CONV2 Advanced Terminal GUI initialized.".to_string()],
+            logs: vec!["UNIVERSAL CONVERTER Advanced Terminal GUI initialized.".to_string()],
             should_quit: false,
             config_mgr: ConfigManager::new(),
         }
@@ -166,7 +166,7 @@ fn draw_ui(f: &mut ratatui::Frame, app: &mut TuiApp) {
     // Banner & Tab titles
     let titles = vec!["📁 Tệp Tin & Hàng Đợi", "⚙️ Cấu Hình Hệ Thống", "📊 Giám Sát CPU/RAM"];
     let tabs = Tabs::new(titles)
-        .block(Block::default().borders(Borders::ALL).title(" UNI_CONV2 - DASHBOARD NÂNG CAO "))
+        .block(Block::default().borders(Borders::ALL).title(" UNIVERSAL CONVERTER - DASHBOARD NÂNG CAO "))
         .select(app.active_tab)
         .style(Style::default().fg(Color::Cyan))
         .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));

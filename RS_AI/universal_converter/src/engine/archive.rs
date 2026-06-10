@@ -45,7 +45,7 @@ impl Compressor for ArchiveEngine {
             // CLI Fallback
             let output = std::process::Command::new("7z")
                 .arg("t")
-                .arg("-p_uni_conv_dummy_pass")
+                .arg("-p_universal_converter_dummy_pass")
                 .arg(archive)
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())

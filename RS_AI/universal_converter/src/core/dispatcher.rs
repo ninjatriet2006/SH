@@ -6,8 +6,9 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
 use crate::core::scanner::{ScannedFile, FileType};
 use crate::core::watchdog;
+use crate::core::traits::{Compressor, MediaConverter, DocConverter};
 use crate::config::ConfigManager;
-use crate::engine;
+use crate::engine::{ArchiveEngine, MediaEngine, DocEngine};
 
 #[derive(Clone)]
 pub enum ProcessMode {
@@ -44,10 +45,15 @@ pub async fn run_batch_processing(
     let d_cfg = config_mgr.load_doc_config().unwrap_or_default();
     let arc_cfg = config_mgr.load_archive_config().unwrap_or_default();
 
+    // Setup Engines via Traits
+    let archive_engine: Arc<dyn Compressor> = Arc::new(ArchiveEngine::new());
+    let media_engine: Arc<dyn MediaConverter> = Arc::new(MediaEngine::new());
+    let doc_engine: Arc<dyn DocConverter> = Arc::new(DocEngine::new());
+
     // 2. Setup MultiProgress bars
     let mp = Arc::new(MultiProgress::new());
     
-    // Concurrency throttle: max 3 concurrent tasks to prevent disk bottleneck (Disk Thrashing)
+    // Concurrency throttle: max 3 concurrent tasks to prevent disk bottleneck
     let semaphore = Arc::new(Semaphore::new(3));
 
     let mut tasks = Vec::new();
@@ -72,6 +78,10 @@ pub async fn run_batch_processing(
         let d_cfg_clone = d_cfg.clone();
         let arc_cfg_clone = arc_cfg.clone();
 
+        let arc_eng = archive_engine.clone();
+        let med_eng = media_engine.clone();
+        let doc_eng = doc_engine.clone();
+
         let pb = mp_clone.add(ProgressBar::new(100));
         pb.set_style(
             ProgressStyle::default_bar()
@@ -94,11 +104,11 @@ pub async fn run_batch_processing(
                     match dir_mode {
                         ProcessMode::Default(ext) => {
                             let out_path = f_path.with_extension(ext);
-                            engine::archive::compress_files(&[f_path.clone()], &out_path, None, &pb)
+                            arc_eng.compress_files(&[f_path.clone()], &out_path, None, &pb)
                         }
                         ProcessMode::YamlConfig => {
                             let out_path = f_path.with_extension(&arc_cfg_clone.format);
-                            engine::archive::compress_files(&[f_path.clone()], &out_path, None, &pb)
+                            arc_eng.compress_files(&[f_path.clone()], &out_path, None, &pb)
                         }
                         ProcessMode::Skip => {
                             pb.finish_with_message("Đã bỏ qua");
@@ -110,11 +120,11 @@ pub async fn run_batch_processing(
                     match v_mode {
                         ProcessMode::Default(ext) => {
                             let out_path = f_path.with_extension(ext);
-                            engine::media::convert_video(&f_path, &out_path, None, &pb)
+                            med_eng.convert_video(&f_path, &out_path, None, &pb)
                         }
                         ProcessMode::YamlConfig => {
                             let out_path = f_path.with_extension(&v_cfg_clone.format);
-                            engine::media::convert_video(&f_path, &out_path, Some(&v_cfg_clone), &pb)
+                            med_eng.convert_video(&f_path, &out_path, Some(&v_cfg_clone), &pb)
                         }
                         ProcessMode::Skip => {
                             pb.finish_with_message("Đã bỏ qua");
@@ -126,11 +136,11 @@ pub async fn run_batch_processing(
                     match a_mode {
                         ProcessMode::Default(ext) => {
                             let out_path = f_path.with_extension(ext);
-                            engine::media::convert_audio(&f_path, &out_path, None, &pb)
+                            med_eng.convert_audio(&f_path, &out_path, None, &pb)
                         }
                         ProcessMode::YamlConfig => {
                             let out_path = f_path.with_extension(&a_cfg_clone.format);
-                            engine::media::convert_audio(&f_path, &out_path, Some(&a_cfg_clone), &pb)
+                            med_eng.convert_audio(&f_path, &out_path, Some(&a_cfg_clone), &pb)
                         }
                         ProcessMode::Skip => {
                             pb.finish_with_message("Đã bỏ qua");
@@ -142,11 +152,11 @@ pub async fn run_batch_processing(
                     match i_mode {
                         ProcessMode::Default(ext) => {
                             let out_path = f_path.with_extension(ext);
-                            engine::media::convert_image(&f_path, &out_path, None, &pb)
+                            med_eng.convert_image(&f_path, &out_path, None, &pb)
                         }
                         ProcessMode::YamlConfig => {
                             let out_path = f_path.with_extension(&i_cfg_clone.format);
-                            engine::media::convert_image(&f_path, &out_path, Some(&i_cfg_clone), &pb)
+                            med_eng.convert_image(&f_path, &out_path, Some(&i_cfg_clone), &pb)
                         }
                         ProcessMode::Skip => {
                             pb.finish_with_message("Đã bỏ qua");
@@ -158,11 +168,11 @@ pub async fn run_batch_processing(
                     match d_mode {
                         ProcessMode::Default(ext) => {
                             let out_dir = f_path.parent().unwrap_or_else(|| Path::new("."));
-                            engine::document::convert_document(&f_path, out_dir, &ext, &pb)
+                            doc_eng.convert_document(&f_path, out_dir, &ext, &pb)
                         }
                         ProcessMode::YamlConfig => {
                             let out_dir = f_path.parent().unwrap_or_else(|| Path::new("."));
-                            engine::document::convert_document(&f_path, out_dir, &d_cfg_clone.format, &pb)
+                            doc_eng.convert_document(&f_path, out_dir, &d_cfg_clone.format, &pb)
                         }
                         ProcessMode::Skip => {
                             pb.finish_with_message("Đã bỏ qua");
@@ -172,9 +182,7 @@ pub async fn run_batch_processing(
                 }
                 FileType::Archive => {
                     let pass = passwords.get(&f_path).map(|s| s.as_str());
-                    
-                    // Skip password-protected files that failed verification in prompt
-                    let needs_pass = engine::archive::is_password_protected(&f_path);
+                    let needs_pass = arc_eng.is_password_protected(&f_path);
                     if needs_pass && pass.is_none() {
                         pb.finish_with_message("Bỏ qua (không có mật khẩu hợp lệ)");
                         Ok(())
@@ -182,29 +190,29 @@ pub async fn run_batch_processing(
                         match &arc_mode {
                             ArchiveMode::ExtractHere => {
                                 let out_dir = f_path.parent().unwrap_or_else(|| Path::new("."));
-                                engine::archive::extract_archive(&f_path, out_dir, pass, &pb)
+                                arc_eng.extract_archive(&f_path, out_dir, pass, &pb)
                             }
                             ArchiveMode::ExtractToFolder => {
-                                let stem = f_path.file_stem().unwrap_or_default();
-                                let out_dir = f_path.parent().unwrap_or_else(|| Path::new(".")).join(stem);
+                                let folder_name = get_archive_folder_name(&f_path);
+                                let out_dir = f_path.parent().unwrap_or_else(|| Path::new(".")).join(folder_name);
                                 let _ = std::fs::create_dir_all(&out_dir);
-                                engine::archive::extract_archive(&f_path, &out_dir, pass, &pb)
+                                arc_eng.extract_archive(&f_path, &out_dir, pass, &pb)
                             }
                             ArchiveMode::ExtractToCustom(dest) => {
                                 let _ = std::fs::create_dir_all(dest);
-                                engine::archive::extract_archive(&f_path, dest, pass, &pb)
+                                arc_eng.extract_archive(&f_path, dest, pass, &pb)
                             }
                             ArchiveMode::ConvertFormat(ext) => {
                                 // Extract to temp then compress to target format
-                                let temp_dir = std::env::temp_dir().join(format!("uni_conv_arc_{}", std::process::id()));
+                                let temp_dir = std::env::temp_dir().join(format!("universal_converter_arc_{}", std::process::id()));
                                 let _ = std::fs::create_dir_all(&temp_dir);
                                 
-                                let ext_res = engine::archive::extract_archive(&f_path, &temp_dir, pass, &pb);
+                                let ext_res = arc_eng.extract_archive(&f_path, &temp_dir, pass, &pb);
                                 if ext_res.is_ok() {
                                     pb.set_position(50);
                                     pb.set_message(format!("{} -> Nén lại thành {}", filename, ext));
                                     let target_path = f_path.with_extension(ext);
-                                    let comp_res = engine::archive::compress_files(&[temp_dir.clone()], &target_path, None, &pb);
+                                    let comp_res = arc_eng.compress_files(&[temp_dir.clone()], &target_path, None, &pb);
                                     let _ = std::fs::remove_dir_all(&temp_dir);
                                     comp_res
                                 } else {
@@ -240,3 +248,45 @@ pub async fn run_batch_processing(
     println!("\n[✅] Đã xử lý xong loạt file!");
     Ok(())
 }
+
+fn get_archive_folder_name(path: &Path) -> String {
+    let filename = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let filename_lower = filename.to_lowercase();
+    
+    if filename_lower.ends_with(".tar.gz") {
+        filename[..filename.len() - 7].to_string()
+    } else if filename_lower.ends_with(".tar.bz2") {
+        filename[..filename.len() - 8].to_string()
+    } else if filename_lower.ends_with(".tar.xz") {
+        filename[..filename.len() - 7].to_string()
+    } else if filename_lower.ends_with(".tgz") {
+        filename[..filename.len() - 4].to_string()
+    } else if filename_lower.ends_with(".tbz2") {
+        filename[..filename.len() - 5].to_string()
+    } else if filename_lower.ends_with(".txz") {
+        filename[..filename.len() - 4].to_string()
+    } else {
+        path.file_stem().unwrap_or_default().to_string_lossy().to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_get_archive_folder_name() {
+        assert_eq!(get_archive_folder_name(Path::new("my_app.tar.gz")), "my_app");
+        assert_eq!(get_archive_folder_name(Path::new("my_app.tar.bz2")), "my_app");
+        assert_eq!(get_archive_folder_name(Path::new("my_app.tar.xz")), "my_app");
+        assert_eq!(get_archive_folder_name(Path::new("my_app.tgz")), "my_app");
+        assert_eq!(get_archive_folder_name(Path::new("my_app.tbz2")), "my_app");
+        assert_eq!(get_archive_folder_name(Path::new("my_app.txz")), "my_app");
+        assert_eq!(get_archive_folder_name(Path::new("my_app.zip")), "my_app");
+        assert_eq!(get_archive_folder_name(Path::new("my_app.7z")), "my_app");
+        assert_eq!(get_archive_folder_name(Path::new("my_app.tar")), "my_app");
+    }
+}
+
+

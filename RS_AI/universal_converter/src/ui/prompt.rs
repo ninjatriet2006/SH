@@ -6,36 +6,43 @@ use crate::system::context_menu;
 use crate::config::ConfigManager;
 use crate::core::scanner::{self, FileType, ScannedFile};
 use crate::core::dispatcher::{ProcessMode, ArchiveMode};
-use crate::engine;
+use crate::engine::ArchiveEngine;
+use crate::core::traits::Compressor;
 
 pub async fn show_main_menu() -> anyhow::Result<()> {
     let config_mgr = ConfigManager::new();
     let _ = config_mgr.init_all_configs();
 
     loop {
-        println!("\n=== UNI_CONV - CÔNG CỤ CHUYỂN ĐỔI ĐA NĂNG ===");
+        println!("\n=== UNIVERSAL CONVERTER - CÔNG CỤ CHUYỂN ĐỔI ĐA NĂNG ===");
         let options = vec![
-            "1. Bắt đầu Xử lý File",
-            "2. Quản lý Config hệ thống (Sửa YAML)",
-            "3. Quản lý Tích hợp Context Menu (Chuột phải OS)",
-            "4. Uninstaller (Gỡ bỏ và Dọn dẹp)",
+            "1. Bắt đầu Xử lý File (Simple TUI)",
+            "2. Bắt đầu Xử lý File (Advanced Terminal GUI)",
+            "3. Quản lý Config hệ thống (Sửa YAML)",
+            "4. Quản lý Tích hợp Context Menu (Chuột phải OS)",
+            "5. Uninstaller (Gỡ bỏ và Dọn dẹp)",
             "0. Thoát chương trình",
         ];
 
         let ans = Select::new("Chọn chức năng:", options).prompt();
         match ans {
-            Ok("1. Bắt đầu Xử lý File") => {
-                if let Err(e) = handle_file_processing().await {
+            Ok("1. Bắt đầu Xử lý File (Simple TUI)") => {
+                if let Err(e) = handle_file_processing(false).await {
                     println!("[❌] Có lỗi xảy ra trong quá trình xử lý: {}", e);
                 }
             }
-            Ok("2. Quản lý Config hệ thống (Sửa YAML)") => {
+            Ok("2. Bắt đầu Xử lý File (Advanced Terminal GUI)") => {
+                if let Err(e) = handle_file_processing(true).await {
+                    println!("[❌] Có lỗi xảy ra trong quá trình xử lý: {}", e);
+                }
+            }
+            Ok("3. Quản lý Config hệ thống (Sửa YAML)") => {
                 let _ = handle_config_menu(&config_mgr);
             }
-            Ok("3. Quản lý Tích hợp Context Menu (Chuột phải OS)") => {
+            Ok("4. Quản lý Tích hợp Context Menu (Chuột phải OS)") => {
                 let _ = handle_context_menu_setup();
             }
-            Ok("4. Uninstaller (Gỡ bỏ và Dọn dẹp)") => {
+            Ok("5. Uninstaller (Gỡ bỏ và Dọn dẹp)") => {
                 let _ = handle_uninstaller(&config_mgr);
             }
             Ok("0. Thoát chương trình") | Err(_) => {
@@ -49,7 +56,7 @@ pub async fn show_main_menu() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn handle_file_processing() -> anyhow::Result<()> {
+async fn handle_file_processing(use_advanced_tui: bool) -> anyhow::Result<()> {
     // 1. Ask input method
     let methods = vec![
         "1. Từng file cụ thể (Kéo thả vào terminal)",
@@ -100,7 +107,13 @@ async fn handle_file_processing() -> anyhow::Result<()> {
         files = scanner::scan_directory(&dir_path, &allowed_types)?;
     }
 
-    process_selected_files(files, None).await
+    if use_advanced_tui {
+        crate::ui::advanced_tui::start_advanced_tui(files)?;
+    } else {
+        process_selected_files(files, None).await?;
+    }
+
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -120,6 +133,8 @@ pub async fn process_selected_files(files: Vec<ScannedFile>, context_mode: Optio
         println!("[⚠️] Không tìm thấy file hợp lệ nào để xử lý!");
         return Ok(());
     }
+
+    let archive_engine = ArchiveEngine::new();
 
     // 1. Show scrollable multi-select menu for selected files
     let items: Vec<FileItem> = files.iter().enumerate().map(|(idx, f)| {
@@ -218,7 +233,7 @@ pub async fn process_selected_files(files: Vec<ScannedFile>, context_mode: Optio
         println!("Đang thực hiện nén tất cả file/thư mục...");
         let pb = ProgressBar::new(100);
         let paths: Vec<PathBuf> = files.iter().map(|f| f.path.clone()).collect();
-        let res = engine::archive::compress_files(&paths, &out_path, password.as_deref(), &pb);
+        let res = archive_engine.compress_files(&paths, &out_path, password.as_deref(), &pb);
         if let Err(e) = res {
             println!("[❌] Nén thất bại: {}", e);
         } else {
@@ -272,7 +287,12 @@ pub async fn process_selected_files(files: Vec<ScannedFile>, context_mode: Optio
         if has_video {
             let mode = Select::new(
                 "Chọn cấu hình cho VIDEO:",
-                vec!["1. Chuyển đổi định dạng (Chọn đuôi đích)", "2. Xử lý theo Config YAML (Tùy chỉnh nâng cao)", "3. Bỏ qua"]
+                vec![
+                    "1. Chuyển đổi định dạng (Chọn đuôi đích)", 
+                    "2. Trích xuất âm thanh (Tách nhạc sang MP3)",
+                    "3. Xử lý theo Config YAML (Tùy chỉnh nâng cao)", 
+                    "4. Bỏ qua"
+                ]
             )
             .with_starting_cursor(default_cursor)
             .prompt()?;
@@ -280,12 +300,14 @@ pub async fn process_selected_files(files: Vec<ScannedFile>, context_mode: Optio
                 let all_exts = vec!["mp4", "avi", "mkv", "mov", "wmv", "flv", "m4v", "webm", "3gp", "ts", "mpg"];
                 let filtered: Vec<&str> = all_exts.into_iter().filter(|e| !video_src_exts.contains(&e.to_string())).collect();
                 if filtered.is_empty() {
-                    println!("[⚠️] Không có định dạng đích khả dụng (file gốc đã dùng hết các đuôi hỗ trợ).");
+                    println!("[⚠️] Không có định dạng đích khả dụng.");
                 } else {
                     let ext = Select::new("Chọn định dạng đích cho Video:", filtered).prompt()?;
                     video_mode = ProcessMode::Default(ext.to_string());
                 }
             } else if mode.starts_with('2') {
+                video_mode = ProcessMode::Default("mp3".to_string());
+            } else if mode.starts_with('3') {
                 video_mode = ProcessMode::YamlConfig;
             }
         }
@@ -359,23 +381,46 @@ pub async fn process_selected_files(files: Vec<ScannedFile>, context_mode: Optio
             let mode = Select::new(
                 "Chọn hành động cho FILE NÉN (Archive):",
                 vec![
-                    "1. Giải nén tại đây (Extract Here)",
-                    "2. Giải nén vào thư mục riêng (Extract to <Folder>)",
-                    "3. Giải nén tới một thư mục tùy ý...",
-                    "4. Chuyển đổi sang định dạng nén khác (ví dụ: zip -> 7z)",
-                    "5. Bỏ qua"
+                    "1. Xem danh sách tệp tin bên trong (List Contents)",
+                    "2. Giải nén tại đây (Extract Here)",
+                    "3. Giải nén vào thư mục riêng (Extract to <Folder>)",
+                    "4. Giải nén tới một thư mục tùy ý...",
+                    "5. Chuyển đổi sang định dạng nén khác (ví dụ: zip -> 7z)",
+                    "6. Bỏ qua"
                 ]
             ).prompt()?;
-            if mode.starts_with('1') {
-                archive_mode = ArchiveMode::ExtractHere;
-            } else if mode.starts_with('2') {
+            
+            if mode.starts_with("1") {
+                // List files and then re-prompt archive action
+                for f in &files {
+                    if let FileType::Archive = f.file_type {
+                        println!("\n--- Danh sách tệp trong {:?} ---", f.path.file_name().unwrap_or_default());
+                        match archive_engine.list_archive_contents(&f.path) {
+                            Ok(contents) => {
+                                for entry in contents {
+                                    println!("  - {}", entry);
+                                }
+                            }
+                            Err(e) => println!("[❌] Không thể đọc danh sách tệp: {}", e),
+                        }
+                    }
+                }
+                println!("--------------------------------------");
+                let _ = inquire::Confirm::new("Nhấn Enter để tiếp tục hành động giải nén...")
+                    .with_default(true)
+                    .prompt()?;
+                // Default to extract to folder after listing
                 archive_mode = ArchiveMode::ExtractToFolder;
+            } else if mode.starts_with('2') {
+                archive_mode = ArchiveMode::ExtractHere;
             } else if mode.starts_with('3') {
+                archive_mode = ArchiveMode::ExtractToFolder;
+            } else if mode.starts_with('4') {
                 let dest = Text::new("Nhập/Kéo thả thư mục đích:").prompt()?;
                 let paths = scanner::parse_drag_drop_paths(&dest);
                 let final_path = if paths.is_empty() { PathBuf::from(dest) } else { paths[0].clone() };
                 archive_mode = ArchiveMode::ExtractToCustom(final_path);
-            } else if mode.starts_with('4') {
+            } else if mode.starts_with('5') {
                 let ext = Text::new("Nhập định dạng đích (ví dụ: 7z, zip):").prompt()?;
                 archive_mode = ArchiveMode::ConvertFormat(ext);
             }
@@ -385,7 +430,7 @@ pub async fn process_selected_files(files: Vec<ScannedFile>, context_mode: Optio
                 ArchiveMode::ExtractHere | ArchiveMode::ExtractToFolder | ArchiveMode::ExtractToCustom(_) => {
                     for f in &files {
                         if let FileType::Archive = f.file_type {
-                            if engine::archive::is_password_protected(&f.path) {
+                            if archive_engine.is_password_protected(&f.path) {
                                 let fname = f.path.file_name().unwrap_or_default().to_string_lossy();
                                 println!("\n[🔑] Phát hiện file nén có mật khẩu: {}", fname);
                                 
@@ -398,8 +443,8 @@ pub async fn process_selected_files(files: Vec<ScannedFile>, context_mode: Optio
                                     .with_display_mode(inquire::PasswordDisplayMode::Masked)
                                     .prompt()?;
 
-                                    // Verify password with 7z test
-                                    if engine::archive::verify_password(&f.path, &pass) {
+                                    // Verify password with test
+                                    if archive_engine.verify_password(&f.path, &pass) {
                                         println!("[✅] Mật khẩu chính xác!");
                                         archive_passwords.insert(f.path.clone(), pass);
                                         success = true;
@@ -413,7 +458,7 @@ pub async fn process_selected_files(files: Vec<ScannedFile>, context_mode: Optio
                                     }
                                 }
                                 if !success {
-                                    // Mark this file to be skipped by not adding password
+                                    // Mark this file to be skipped
                                     println!("[⚠️] File {} sẽ bị bỏ qua do không có mật khẩu hợp lệ.", fname);
                                 }
                             }
@@ -513,18 +558,18 @@ fn open_in_editor(path: &Path) -> anyhow::Result<()> {
 fn handle_context_menu_setup() -> anyhow::Result<()> {
     loop {
         let options = vec![
-            "1. Thêm 'UNI_CONV (Default)' vào Menu Chuột Phải",
-            "2. Thêm 'UNI_CONV (Config Mode)' vào Menu Chuột Phải",
+            "1. Thêm 'Universal Converter (Default)' vào Menu Chuột Phải",
+            "2. Thêm 'Universal Converter (Config Mode)' vào Menu Chuột Phải",
             "3. Gỡ bỏ tích hợp khỏi Menu Chuột Phải",
             "0. Quay lại",
         ];
 
         let ans = Select::new("Quản lý Context Menu:", options).prompt();
         match ans {
-            Ok("1. Thêm 'UNI_CONV (Default)' vào Menu Chuột Phải") => {
+            Ok("1. Thêm 'Universal Converter (Default)' vào Menu Chuột Phải") => {
                 let _ = context_menu::install_nemo_action("default");
             }
-            Ok("2. Thêm 'UNI_CONV (Config Mode)' vào Menu Chuột Phải") => {
+            Ok("2. Thêm 'Universal Converter (Config Mode)' vào Menu Chuột Phải") => {
                 let _ = context_menu::install_nemo_action("config");
             }
             Ok("3. Gỡ bỏ tích hợp khỏi Menu Chuột Phải") => {

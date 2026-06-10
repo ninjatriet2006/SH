@@ -23,7 +23,7 @@ impl DocConverter for DocEngine {
         // Construct temp user profile URL for LibreOffice
         let temp_dir = std::env::temp_dir();
         let temp_dir_str = temp_dir.to_string_lossy().replace('\\', "/");
-        let user_installation = format!("file:///{}/uni_conv_soffice_{}", temp_dir_str, std::process::id());
+        let user_installation = format!("file:///{}/universal_converter_soffice_{}", temp_dir_str, std::process::id());
 
         let mut cmd = Command::new("soffice");
         cmd.arg("--headless")
@@ -45,7 +45,7 @@ impl DocConverter for DocEngine {
         watchdog::deregister_child(pid);
 
         // Clean up the temp user profile directory
-        let profile_path = temp_dir.join(format!("uni_conv_soffice_{}", std::process::id()));
+        let profile_path = temp_dir.join(format!("universal_converter_soffice_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(profile_path);
 
         if status.success() {

@@ -1,0 +1,79 @@
+name: Build and Release All RS_AI Projects
+
+on:
+  push:
+    tags:
+      - 'v*' # Tự động chạy khi đẩy tag có tên bắt đầu bằng "v" (ví dụ: v1.0.0)
+  workflow_dispatch: # Cho phép kích hoạt chạy bằng tay từ trang Github Actions
+
+jobs:
+  build-and-release:
+    name: Build & Publish Release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    # Cấp quyền ghi nội dung để tạo Release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Tải mã nguồn về máy chủ
+        uses: actions/checkout@v4
+
+      - name: Cài đặt ngôn ngữ Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Biên dịch tất cả dự án dưới RS_AI
+        shell: bash
+        run: |
+          # Định nghĩa danh sách thư mục và tên binary tương ứng
+          projects=(
+            "CLS_STRT.rs:cls_strt"
+            "filen_tui:filen_tui"
+            "IMG_SPLT.rs:img_splt"
+            "opencode_manager:opencode_manager"
+            "universal_converter:universal_converter"
+            "universe_manager:universe_manager"
+          )
+          
+          mkdir -p artifacts
+          
+          for item in "${projects[@]}"; do
+            dir="${item%%:*}"
+            bin="${item#*:}"
+            
+            echo "::group::Biên dịch $bin trong thư mục RS_AI/$dir"
+            cd "RS_AI/$dir"
+            cargo build --release
+            cd ../..
+            
+            # Đổi tên file nhị phân để phân biệt hệ điều hành và copy vào thư mục artifacts
+            if [ "${{ matrix.os }}" = "windows-latest" ]; then
+              src="RS_AI/$dir/target/release/$bin.exe"
+              dest="artifacts/$bin-windows.exe"
+            else
+              src="RS_AI/$dir/target/release/$bin"
+              dest="artifacts/$bin-linux"
+            fi
+            
+            if [ -f "$src" ]; then
+              cp "$src" "$dest"
+              echo "Đã copy $src sang $dest"
+            else
+              echo "[❌] Không tìm thấy file nhị phân tại $src"
+              exit 1
+            fi
+            echo "::endgroup::"
+          done
+
+      - name: Tạo Release và tải lên các file chạy
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Phiên bản ${{ github.ref_name || github.sha }}
+          draft: false
+          prerelease: false
+          files: artifacts/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
