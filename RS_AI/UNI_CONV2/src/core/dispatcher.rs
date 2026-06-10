@@ -193,8 +193,8 @@ pub async fn run_batch_processing(
                                 arc_eng.extract_archive(&f_path, out_dir, pass, &pb)
                             }
                             ArchiveMode::ExtractToFolder => {
-                                let stem = f_path.file_stem().unwrap_or_default();
-                                let out_dir = f_path.parent().unwrap_or_else(|| Path::new(".")).join(stem);
+                                let folder_name = get_archive_folder_name(&f_path);
+                                let out_dir = f_path.parent().unwrap_or_else(|| Path::new(".")).join(folder_name);
                                 let _ = std::fs::create_dir_all(&out_dir);
                                 arc_eng.extract_archive(&f_path, &out_dir, pass, &pb)
                             }
@@ -248,3 +248,45 @@ pub async fn run_batch_processing(
     println!("\n[✅] Đã xử lý xong loạt file!");
     Ok(())
 }
+
+fn get_archive_folder_name(path: &Path) -> String {
+    let filename = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let filename_lower = filename.to_lowercase();
+    
+    if filename_lower.ends_with(".tar.gz") {
+        filename[..filename.len() - 7].to_string()
+    } else if filename_lower.ends_with(".tar.bz2") {
+        filename[..filename.len() - 8].to_string()
+    } else if filename_lower.ends_with(".tar.xz") {
+        filename[..filename.len() - 7].to_string()
+    } else if filename_lower.ends_with(".tgz") {
+        filename[..filename.len() - 4].to_string()
+    } else if filename_lower.ends_with(".tbz2") {
+        filename[..filename.len() - 5].to_string()
+    } else if filename_lower.ends_with(".txz") {
+        filename[..filename.len() - 4].to_string()
+    } else {
+        path.file_stem().unwrap_or_default().to_string_lossy().to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_get_archive_folder_name() {
+        assert_eq!(get_archive_folder_name(Path::new("my_app.tar.gz")), "my_app");
+        assert_eq!(get_archive_folder_name(Path::new("my_app.tar.bz2")), "my_app");
+        assert_eq!(get_archive_folder_name(Path::new("my_app.tar.xz")), "my_app");
+        assert_eq!(get_archive_folder_name(Path::new("my_app.tgz")), "my_app");
+        assert_eq!(get_archive_folder_name(Path::new("my_app.tbz2")), "my_app");
+        assert_eq!(get_archive_folder_name(Path::new("my_app.txz")), "my_app");
+        assert_eq!(get_archive_folder_name(Path::new("my_app.zip")), "my_app");
+        assert_eq!(get_archive_folder_name(Path::new("my_app.7z")), "my_app");
+        assert_eq!(get_archive_folder_name(Path::new("my_app.tar")), "my_app");
+    }
+}
+
+

@@ -159,6 +159,17 @@ impl Compressor for ArchiveEngine {
             // Fall back to CLI if library fails
         }
 
+        if (filename.ends_with(".tar.gz") || filename.ends_with(".tgz")) && password.is_none() {
+            pb.set_message("Đang giải nén TAR.GZ (Native)...");
+            let file = File::open(archive)?;
+            let gz = flate2::read::GzDecoder::new(file);
+            let mut tar = tar::Archive::new(gz);
+            tar.unpack(output_dir)?;
+            pb.set_position(100);
+            pb.finish_with_message("Hoàn thành giải nén TAR.GZ");
+            return Ok(());
+        }
+
         // CLI general fallback (for tar.gz, double archives, etc.)
         let is_tar_gz = filename.ends_with(".tar.gz") || filename.ends_with(".tgz");
         let is_tar_bz2 = filename.ends_with(".tar.bz2") || filename.ends_with(".tbz2");
@@ -434,3 +445,52 @@ impl Compressor for ArchiveEngine {
         Ok(file_list)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::traits::Compressor;
+    use std::fs::{self, File};
+    use std::io::Write;
+    use indicatif::ProgressBar;
+
+    #[test]
+    fn test_extract_tar_gz() -> anyhow::Result<()> {
+        let test_dir = Path::new("test_extract_src");
+        let _ = fs::remove_dir_all(test_dir);
+        let _ = fs::remove_dir_all("test_extracted_output");
+        let _ = fs::remove_file("test_archive.tar.gz");
+
+        fs::create_dir_all(test_dir)?;
+        let sub_dir = test_dir.join("inner_folder");
+        fs::create_dir_all(&sub_dir)?;
+        
+        let mut f1 = File::create(sub_dir.join("hello.txt"))?;
+        f1.write_all(b"Hello World from hello.txt")?;
+        
+        let mut f2 = File::create(test_dir.join("root.txt"))?;
+        f2.write_all(b"Hello from root.txt")?;
+        
+        let status = std::process::Command::new("tar")
+            .args(&["-czf", "test_archive.tar.gz", "-C", "test_extract_src", "inner_folder", "root.txt"])
+            .status()?;
+        assert!(status.success());
+        
+        let engine = ArchiveEngine::new();
+        let out_dir = Path::new("test_extracted_output");
+        let pb = ProgressBar::hidden();
+        
+        engine.extract_archive(Path::new("test_archive.tar.gz"), out_dir, None, &pb)?;
+        
+        // Assert files exist in test_extracted_output
+        assert!(out_dir.join("inner_folder/hello.txt").exists());
+        assert!(out_dir.join("root.txt").exists());
+        
+        // Clean up
+        let _ = fs::remove_dir_all(test_dir);
+        let _ = fs::remove_file("test_archive.tar.gz");
+        let _ = fs::remove_dir_all("test_extracted_output");
+        Ok(())
+    }
+}
+
