@@ -57,7 +57,7 @@ fn draw_header(app: &App, f: &mut Frame, area: Rect) {
 }
 
 fn operations_whoami_cache(app: &App) -> String {
-    app.active_account.clone().unwrap_or_else(|| "Default Session".to_string())
+    app.active_account.clone().unwrap_or_else(|| "Chưa đăng nhập".to_string())
 }
 
 fn parse_storage_pct(used: &str, max: &str) -> f64 {
@@ -172,7 +172,9 @@ fn draw_explorer(app: &mut App, f: &mut Frame, area: Rect) {
         format!("📋 Đang giữ {} mục trong Clipboard để {}. Bấm Ctrl+V ở pane đích để dán.", app.clipboard.len(), action)
     } else {
         let active_pane = if app.active_pane_left { &app.left_pane } else { &app.right_pane };
-        if !active_pane.items.is_empty() {
+        if let Some(ref err) = active_pane.error {
+            format!("❌ Lỗi: {} (Thử kiểm tra lại mạng hoặc đăng nhập lại)", err)
+        } else if !active_pane.items.is_empty() && active_pane.selected_idx < active_pane.items.len() {
             let item = &active_pane.items[active_pane.selected_idx];
             let type_str = if item.is_dir { "Thư mục" } else { "Tệp" };
             format!(
@@ -222,6 +224,14 @@ fn draw_pane(f: &mut Frame, pane: &mut PaneState, area: Rect, is_active: bool) {
 
     let items: Vec<ListItem> = if pane.loading {
         vec![ListItem::new(" Đang tải dữ liệu Cloud... (Loading)")]
+    } else if let Some(ref err) = pane.error {
+        vec![
+            ListItem::new(""),
+            ListItem::new(" ❌ LỖI PHẢN HỒI TỪ TIẾN TRÌNH CLOUD:"),
+            ListItem::new(format!("   {}", err)),
+            ListItem::new(""),
+            ListItem::new("   Hãy đăng nhập lại hoặc kiểm tra kết nối mạng."),
+        ]
     } else if pane.items.is_empty() {
         vec![ListItem::new(" (Thư mục trống)")]
     } else {
@@ -298,7 +308,11 @@ fn draw_account(app: &App, f: &mut Frame, area: Rect) {
             Span::raw(" 📊 Bộ nhớ Cloud:  "),
             Span::styled(progress_bar, Style::default().fg(Color::LightGreen)),
         ]),
-        Line::from(" 🟢 Trạng thái:    Đang trực tuyến (Online)"),
+        if app.active_account.is_some() {
+            Line::from(" 🟢 Trạng thái:    Đang trực tuyến (Online)")
+        } else {
+            Line::from(" 🔴 Trạng thái:    Chưa đăng nhập (Offline)")
+        },
     ];
 
     let info_block = Block::default()
@@ -485,8 +499,8 @@ fn draw_popups(app: &App, f: &mut Frame) {
             let paragraph = Paragraph::new(text).block(block);
             f.render_widget(paragraph, area);
         }
-        PopupState::LoginInput { email_buffer, pass_buffer, active_field } => {
-            let area = centered_rect(60, 45, size);
+        PopupState::LoginInput { email_buffer, pass_buffer, keep_logged, active_field, error_msg } => {
+            let area = centered_rect(60, 50, size);
             f.render_widget(Clear, area);
             let block = Block::default()
                 .title(Span::styled(" ĐĂNG NHẬP TÀI KHOẢN MỚI ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
@@ -495,22 +509,103 @@ fn draw_popups(app: &App, f: &mut Frame) {
                 
             let email_style = if *active_field == 0 { Style::default().fg(Color::Black).bg(Color::Cyan) } else { Style::default().fg(Color::White) };
             let pass_style = if *active_field == 1 { Style::default().fg(Color::Black).bg(Color::Cyan) } else { Style::default().fg(Color::White) };
+            let keep_style = if *active_field == 2 { Style::default().fg(Color::Black).bg(Color::Cyan) } else { Style::default().fg(Color::White) };
             
             let masked_pass = "*".repeat(pass_buffer.len());
+            let email_val = if *active_field == 0 { format!(" {}█", email_buffer) } else { format!(" {} ", email_buffer) };
+            let pass_val = if *active_field == 1 { format!(" {}█", masked_pass) } else { format!(" {} ", masked_pass) };
+            let keep_val = if *active_field == 2 { format!(" {}█", keep_logged) } else { format!(" {} ", keep_logged) };
             
-            let text = vec![
+            let mut text = vec![
                 Line::from(" Vui lòng nhập thông tin đăng nhập Cloud Filen:"),
-                Line::from(" (Nhấn TAB để di chuyển giữa các trường, Enter để Xác nhận)"),
+                Line::from(" (TAB: Di chuyển trường nhập | ENTER: Tiếp tục / Xác nhận)"),
                 Line::from(""),
                 Line::from(vec![
                     Span::raw(" 📧 Địa chỉ Email: "),
-                    Span::styled(format!(" {} ", email_buffer), email_style),
+                    Span::styled(email_val, email_style),
                 ]),
                 Line::from(""),
                 Line::from(vec![
                     Span::raw(" 🔑 Mật khẩu:      "),
-                    Span::styled(format!(" {} ", masked_pass), pass_style),
+                    Span::styled(pass_val, pass_style),
                 ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::raw(" 💾 Duy trì đăng nhập (y/N): "),
+                    Span::styled(keep_val, keep_style),
+                ]),
+            ];
+
+            if let Some(err) = error_msg {
+                text.push(Line::from(""));
+                text.push(Line::from(vec![
+                    Span::styled(" ❌ Lỗi: ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                    Span::styled(err, Style::default().fg(Color::Red)),
+                ]));
+            }
+
+            let paragraph = Paragraph::new(text).block(block);
+            f.render_widget(paragraph, area);
+        }
+        PopupState::QuickLoginSelect { options, selected_idx } => {
+            let area = centered_rect(50, 45, size);
+            f.render_widget(Clear, area);
+
+            let mut list_items = vec![];
+            
+            // Tùy chọn đăng nhập thủ công ở index 0
+            let manual_style = if *selected_idx == 0 {
+                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Cyan)
+            };
+            list_items.push(ListItem::new(" [+] Đăng nhập thủ công (Email/Password)").style(manual_style));
+
+            // Danh sách tài khoản đã lưu
+            for (i, acc) in options.iter().enumerate() {
+                let idx = i + 1;
+                let style = if *selected_idx == idx {
+                    Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                list_items.push(ListItem::new(format!(" 📧 {}", acc.email)).style(style));
+            }
+
+            let block = Block::default()
+                .title(Span::styled(" ĐĂNG NHẬP NHANH (QUICK LOGIN) ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan));
+
+            let list = List::new(list_items).block(block);
+            f.render_widget(list, area);
+        }
+        PopupState::TwoFAInput { email, twofa_buffer, .. } => {
+            let area = centered_rect(55, 40, size);
+            f.render_widget(Clear, area);
+            let block = Block::default()
+                .title(Span::styled(" NHẬP MÃ XÁC THỰC 2FA ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow));
+            
+            let text = vec![
+                Line::from(vec![
+                    Span::raw(" Tài khoản "),
+                    Span::styled(email.as_str(), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::raw(" yêu cầu xác thực 2 bước."),
+                ]),
+                Line::from(""),
+                Line::from(" Vui lòng nhập mã TOTP từ ứng dụng Authenticator:"),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(" 🔐 Mã 2FA: ", Style::default().fg(Color::Yellow)),
+                    Span::styled(
+                        format!(" {} █", twofa_buffer),
+                        Style::default().fg(Color::Black).bg(Color::Yellow),
+                    ),
+                ]),
+                Line::from(""),
+                Line::from(Span::styled(" Nhấn Enter để xác nhận, Esc để hủy", Style::default().fg(Color::DarkGray))),
             ];
             let paragraph = Paragraph::new(text).block(block);
             f.render_widget(paragraph, area);
@@ -582,7 +677,7 @@ fn draw_popups(app: &App, f: &mut Frame) {
                 .map(|line| ListItem::new(line.as_str()))
                 .collect();
                 
-            let footer = format!(" [▲/▼] Cuộn | [Esc] Thoát | Dòng {} - {} / {}", scroll + 1, (scroll + height).min(content.len()), content.len());
+            let footer = format!(" [▲/▼] Cuộn | [C] Sao chép | [Esc] Thoát | Dòng {} - {} / {}", scroll + 1, (scroll + height).min(content.len()), content.len());
             let block = Block::default()
                 .title(Span::styled(format!(" {} ", name), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
                 .borders(Borders::ALL)
@@ -634,16 +729,48 @@ fn draw_popups(app: &App, f: &mut Frame) {
 
     // Vẽ Loading overlay nếu đang tải
     if app.is_loading {
-        let area = centered_rect(35, 12, size);
-        f.render_widget(Clear, area);
-        let block = Block::default()
-            .title(Span::styled(" THÔNG BÁO ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow));
-        let paragraph = Paragraph::new("\n   Đang xử lý dữ liệu... ⏳\n   Vui lòng đợi trong giây lát.")
-            .block(block)
-            .style(Style::default().fg(Color::White));
-        f.render_widget(paragraph, area);
+        if !app.login_logs.is_empty() {
+            let area = centered_rect(80, 65, size);
+            f.render_widget(Clear, area);
+            
+            let block = Block::default()
+                .title(Span::styled(" GIÁM SÁT TIẾN TRÌNH CLI (BACKEND LOGS) ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow));
+                
+            let inner_height = area.height.saturating_sub(2) as usize;
+            let skip_count = app.login_logs.len().saturating_sub(inner_height);
+            let log_lines: Vec<Line> = app.login_logs.iter()
+                .skip(skip_count)
+                .map(|log| {
+                    if log.starts_with("->") {
+                        Line::from(Span::styled(log.as_str(), Style::default().fg(Color::LightGreen)))
+                    } else if log.starts_with("<-") {
+                        Line::from(Span::styled(log.as_str(), Style::default().fg(Color::Cyan)))
+                    } else if log.starts_with("===") {
+                        Line::from(Span::styled(log.as_str(), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
+                    } else {
+                        Line::from(Span::styled(log.as_str(), Style::default().fg(Color::Gray)))
+                    }
+                })
+                .collect();
+                
+            let paragraph = Paragraph::new(log_lines)
+                .block(block)
+                .wrap(Wrap { trim: false });
+            f.render_widget(paragraph, area);
+        } else {
+            let area = centered_rect(35, 12, size);
+            f.render_widget(Clear, area);
+            let block = Block::default()
+                .title(Span::styled(" THÔNG BÁO ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow));
+            let paragraph = Paragraph::new("\n   Đang xử lý dữ liệu... ⏳\n   Vui lòng đợi trong giây lát.")
+                .block(block)
+                .style(Style::default().fg(Color::White));
+            f.render_widget(paragraph, area);
+        }
     }
 }
 

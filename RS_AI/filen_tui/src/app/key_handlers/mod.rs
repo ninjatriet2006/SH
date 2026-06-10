@@ -46,9 +46,7 @@ async fn handle_menu_key(app: &mut App, key: KeyEvent, quit: &mut bool) {
                 0 => app.current_screen = Screen::Explorer,
                 1 => {
                     app.current_screen = Screen::Account;
-                    app.is_loading = true;
-                    app.refresh_storage_info().await;
-                    app.is_loading = false;
+                    app.trigger_refresh_storage_info();
                 }
                 2 => {
                     // Mở Thùng rác: Phím Alt+O -> mục 3/4 trong Explorer

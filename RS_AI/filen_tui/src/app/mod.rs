@@ -7,9 +7,21 @@ use tokio::sync::mpsc;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use crossterm::event::KeyEvent;
+use serde::{Serialize, Deserialize};
 
 use crate::ui;
 use operations::{FileItem, Operations};
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StoredAccount {
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountConfig {
+    pub accounts: Vec<StoredAccount>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Screen {
@@ -24,7 +36,8 @@ pub enum PopupState {
     None,
     RenameInput { old_name: String, buffer: String },
     NewFolderInput { buffer: String },
-    LoginInput { email_buffer: String, pass_buffer: String, active_field: usize }, // 0: email, 1: password
+    LoginInput { email_buffer: String, pass_buffer: String, keep_logged: String, active_field: usize, error_msg: Option<String> }, // 0: email, 1: password, 2: keep_logged
+    TwoFAInput { email: String, password: String, keep_logged: String, twofa_buffer: String }, // bước 2: nhập mã 2FA
     ConfirmDelete { name: String },
     #[allow(dead_code)]
     ConfirmEmptyTrash,
@@ -32,6 +45,7 @@ pub enum PopupState {
     ViewFile { name: String, content: Vec<String>, scroll: usize },
     Message { title: String, message: String },
     SwitchAccountMenu { selected_idx: usize },
+    QuickLoginSelect { options: Vec<StoredAccount>, selected_idx: usize },
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +61,7 @@ pub struct PaneState {
     pub shift_anchor: Option<usize>,
     pub shift_active: bool,
     pub loading: bool,
+    pub error: Option<String>,
 }
 
 impl PaneState {
@@ -62,6 +77,7 @@ impl PaneState {
             shift_anchor: None,
             shift_active: false,
             loading: false,
+            error: None,
         }
     }
 
@@ -87,6 +103,11 @@ pub enum AppEvent {
     Tick,
     AsyncFinished(Result<(), String>),
     RemoteLoadFinished { is_left: bool, result: Result<Vec<FileItem>, String> },
+    LoginFinished { email: String, password: String, keep_logged: String, result: Result<(), String> },
+    AccountsRefreshed { accounts: Vec<String>, default_email: Option<String> },
+    StorageInfoRefreshed { used: String, max: String },
+    LoginLog(String),
+    ExportFinished { is_api_key: bool, result: Result<String, String> },
 }
 
 pub struct WebDavServerState {
@@ -114,6 +135,7 @@ pub struct App {
     pub main_menu_selected: usize,
     pub accounts: Vec<String>,
     pub active_account: Option<String>,
+    pub default_email: Option<String>,
     pub active_account_idx: usize, // index of active account in accounts list (including Default)
     pub storage_used: String,
     pub storage_max: String,
@@ -132,6 +154,7 @@ pub struct App {
     pub edit_cursor_idx: usize,
     pub msg_tx: Option<mpsc::UnboundedSender<AppEvent>>,
     pub is_loading: bool,
+    pub login_logs: Vec<String>,
     
     pub webdav_server: WebDavServerState,
     pub s3_server: S3ServerState,
@@ -146,8 +169,9 @@ impl App {
         App {
             current_screen: Screen::MainMenu,
             main_menu_selected: 0,
-            accounts: vec!["Default (Default Session)".to_string()],
+            accounts: Vec::new(),
             active_account: None,
+            default_email: None,
             active_account_idx: 0,
             storage_used: "0 B".to_string(),
             storage_max: "20 GiB".to_string(),
@@ -166,6 +190,7 @@ impl App {
             edit_cursor_idx: 0,
             msg_tx: None,
             is_loading: false,
+            login_logs: Vec::new(),
             
             webdav_server: WebDavServerState {
                 running: false,
@@ -189,37 +214,174 @@ impl App {
             server_selected_field: 0,
         }
     }
+}
+
+fn has_saved_session(data_path: &std::path::Path) -> bool {
+    data_path.join(".filen-cli-keep-me-logged-in").exists()
+        || data_path.join(".filen-cli-credentials").exists()
+}
+
+fn get_default_data_dir() -> Option<PathBuf> {
+    if let Some(home) = dirs::home_dir() {
+        let dot_filen = home.join(".filen-cli");
+        if dot_filen.is_dir() {
+            Some(dot_filen)
+        } else {
+            Some(home.join(".config/filen-cli"))
+        }
+    } else {
+        None
+    }
+}
+
+pub(crate) fn load_stored_accounts() -> Vec<StoredAccount> {
+    if let Some(home) = dirs::home_dir() {
+        let file_path = home.join(".config/filen-cli/accounts.yaml");
+        if file_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&file_path) {
+                if let Ok(config) = serde_yaml::from_str::<AccountConfig>(&content) {
+                    return config.accounts;
+                }
+            }
+        }
+    }
+    Vec::new()
+}
+
+pub(crate) fn save_stored_accounts(accounts: &[StoredAccount]) {
+    if let Some(home) = dirs::home_dir() {
+        let config_dir = home.join(".config/filen-cli");
+        let _ = std::fs::create_dir_all(&config_dir);
+        let file_path = config_dir.join("accounts.yaml");
+        let config = AccountConfig {
+            accounts: accounts.to_vec(),
+        };
+        if let Ok(content) = serde_yaml::to_string(&config) {
+            if let Ok(_) = std::fs::write(&file_path, content) {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o600));
+                }
+            }
+        }
+    }
+}
+
+impl App {
+    pub fn sync_active_credentials(&self) {
+        if let Some(ref email) = self.active_account {
+            if let Some(home) = dirs::home_dir() {
+                let active_cred_path = home.join(".config/filen-cli/accounts").join(email).join(".filen-cli-credentials");
+                if active_cred_path.exists() {
+                    if let Some(default_dir) = get_default_data_dir() {
+                        let default_cred_path = default_dir.join(".filen-cli-credentials");
+                        if let Ok(_) = std::fs::copy(&active_cred_path, &default_cred_path) {
+                            #[cfg(unix)]
+                            {
+                                use std::os::unix::fs::PermissionsExt;
+                                let _ = std::fs::set_permissions(&default_cred_path, std::fs::Permissions::from_mode(0o600));
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            if let Some(default_dir) = get_default_data_dir() {
+                let default_cred_path = default_dir.join(".filen-cli-credentials");
+                if default_cred_path.exists() {
+                    let _ = std::fs::remove_file(default_cred_path);
+                }
+            }
+        }
+    }
 
     // Làm mới danh sách tài khoản đã lưu
-    pub fn refresh_accounts(&mut self) {
-        self.accounts = vec!["Default (Default Session)".to_string()];
+    pub async fn refresh_accounts(&mut self) {
+        let mut loaded_accounts = Vec::new();
+
+        // 1. Kiểm tra Default Session xem có đăng nhập không
+        let mut default_logged_in = false;
+        if let Some(default_dir) = get_default_data_dir() {
+            if has_saved_session(&default_dir) {
+                default_logged_in = true;
+            }
+        }
+
+        if default_logged_in {
+            let default_res = Operations::whoami(&None).await;
+            if let Ok(email) = default_res {
+                let email_clean = email.trim().to_string();
+                if !email_clean.is_empty() 
+                    && !email_clean.contains("Please enter") 
+                    && !email_clean.contains("credentials") 
+                    && email_clean != "anonymous@filen.io" 
+                {
+                    self.default_email = Some(email_clean.clone());
+                    loaded_accounts.push(email_clean);
+                } else {
+                    self.default_email = None;
+                }
+            } else {
+                self.default_email = None;
+            }
+        } else {
+            self.default_email = None;
+        }
+
+        // 2. Kiểm tra các tài khoản tùy chỉnh lưu trên máy tính
         if let Some(home) = dirs::home_dir() {
             let accounts_dir = home.join(".config/filen-cli/accounts");
             if accounts_dir.is_dir() {
                 if let Ok(entries) = std::fs::read_dir(accounts_dir) {
                     for entry in entries {
                         if let Ok(entry) = entry {
-                            let name = entry.file_name().to_string_lossy().to_string();
-                            if entry.path().is_dir() {
-                                self.accounts.push(name);
+                            let path = entry.path();
+                            if path.is_dir() {
+                                let name = entry.file_name().to_string_lossy().to_string();
+                                if has_saved_session(&path) {
+                                    // Kiểm tra xem session của tài khoản này còn hiệu lực không
+                                    if let Ok(email) = Operations::whoami(&Some(name.clone())).await {
+                                        let email_clean = email.trim().to_string();
+                                        if !email_clean.is_empty() 
+                                            && !email_clean.contains("Please enter") 
+                                            && !email_clean.contains("credentials") 
+                                            && email_clean != "anonymous@filen.io" 
+                                        {
+                                            if !loaded_accounts.contains(&email_clean) {
+                                                loaded_accounts.push(email_clean);
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        
+
+        self.accounts = loaded_accounts;
+
         // Điều chỉnh con trỏ index tài khoản active
+        if let Some(ref active) = self.active_account {
+            if !self.accounts.contains(active) {
+                self.active_account = self.accounts.first().cloned();
+            }
+        } else {
+            self.active_account = self.accounts.first().cloned();
+        }
+
         if let Some(ref active) = self.active_account {
             if let Some(pos) = self.accounts.iter().position(|a| a == active) {
                 self.active_account_idx = pos;
             } else {
-                self.active_account = None;
                 self.active_account_idx = 0;
             }
         } else {
             self.active_account_idx = 0;
         }
+        self.sync_active_credentials();
     }
 
     // Di chuyển con trỏ duyệt file
@@ -256,20 +418,22 @@ impl App {
                 Ok(items) => {
                     let pane = if is_left { &mut self.left_pane } else { &mut self.right_pane };
                     pane.items = items;
+                    pane.error = None;
                     if pane.selected_idx >= pane.items.len() {
                         pane.selected_idx = 0;
                     }
                 }
                 Err(e) => {
-                    self.popup_state = PopupState::Message {
-                        title: "Lỗi đọc Local".to_string(),
-                        message: e,
-                    };
+                    let pane = if is_left { &mut self.left_pane } else { &mut self.right_pane };
+                    pane.items = Vec::new();
+                    pane.error = Some(e);
                 }
             }
             let pane = if is_left { &mut self.left_pane } else { &mut self.right_pane };
             pane.loading = false;
         } else {
+            let pane = if is_left { &mut self.left_pane } else { &mut self.right_pane };
+            pane.error = None;
             // Thực hiện gọi CLI bất đồng bộ để không treo UI
             let tx = self.msg_tx.clone();
             tokio::spawn(async move {
@@ -284,12 +448,22 @@ impl App {
         }
     }
 
-    // Làm mới thông số bộ nhớ đám mây
-    pub async fn refresh_storage_info(&mut self) {
-        if let Ok((used, max)) = Operations::statfs(&self.active_account).await {
-            self.storage_used = used;
-            self.storage_max = max;
+    // Làm mới thông số bộ nhớ đám mây (bất đồng bộ)
+    pub fn trigger_refresh_storage_info(&mut self) {
+        if self.active_account.is_none() {
+            self.storage_used = "0 B".to_string();
+            self.storage_max = "0 B".to_string();
+            return;
         }
+        let tx = self.msg_tx.clone();
+        let active_account = self.active_account.clone();
+        tokio::spawn(async move {
+            if let Ok((used, max)) = Operations::statfs(&active_account).await {
+                if let Some(tx) = tx {
+                    let _ = tx.send(AppEvent::StorageInfoRefreshed { used, max });
+                }
+            }
+        });
     }
 
     // Thực chạy vòng lặp TUI chính
@@ -297,14 +471,82 @@ impl App {
         let (tx, mut rx) = mpsc::unbounded_channel();
         self.msg_tx = Some(tx.clone());
 
-        // Lấy danh sách tài khoản ban đầu (chỉ đọc file cục bộ, không gọi mạng)
-        self.refresh_accounts();
-        
-        // Load danh sách file ban đầu
-        self.refresh_active_pane().await;
-        self.active_pane_left = false;
-        self.refresh_active_pane().await;
-        self.active_pane_left = true;
+        // Khởi chạy tác vụ nền để load danh sách tài khoản ban đầu (không chặn startup)
+        let tx_accounts = tx.clone();
+        tokio::spawn(async move {
+            let mut loaded_accounts = Vec::new();
+            let mut default_email = None;
+
+            let mut default_logged_in = false;
+            if let Some(default_dir) = get_default_data_dir() {
+                if has_saved_session(&default_dir) {
+                    default_logged_in = true;
+                }
+            }
+
+            if default_logged_in {
+                if let Ok(email) = Operations::whoami(&None).await {
+                    let email_clean = email.trim().to_string();
+                    if !email_clean.is_empty() 
+                        && !email_clean.contains("Please enter") 
+                        && !email_clean.contains("credentials") 
+                        && email_clean != "anonymous@filen.io" 
+                    {
+                        default_email = Some(email_clean.clone());
+                        loaded_accounts.push(email_clean);
+                    }
+                }
+            }
+
+            if let Some(home) = dirs::home_dir() {
+                let accounts_dir = home.join(".config/filen-cli/accounts");
+                if accounts_dir.is_dir() {
+                    if let Ok(entries) = std::fs::read_dir(accounts_dir) {
+                        for entry in entries {
+                            if let Ok(entry) = entry {
+                                let path = entry.path();
+                                if path.is_dir() {
+                                    let name = entry.file_name().to_string_lossy().to_string();
+                                    if has_saved_session(&path) {
+                                        if let Ok(email) = Operations::whoami(&Some(name.clone())).await {
+                                            let email_clean = email.trim().to_string();
+                                            if !email_clean.is_empty() 
+                                                && !email_clean.contains("Please enter") 
+                                                && !email_clean.contains("credentials") 
+                                                && email_clean != "anonymous@filen.io" 
+                                            {
+                                                if !loaded_accounts.contains(&email_clean) {
+                                                    loaded_accounts.push(email_clean);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            let _ = tx_accounts.send(AppEvent::AccountsRefreshed {
+                accounts: loaded_accounts,
+                default_email,
+            });
+        });
+
+        // Nạp danh sách file local ban đầu (chạy ngay lập tức vì không gọi mạng)
+        if self.left_pane.is_local {
+            if let Ok(items) = Operations::list_local(&self.left_pane.path) {
+                self.left_pane.items = items;
+            }
+        }
+        if self.right_pane.is_local {
+            if let Ok(items) = Operations::list_local(&self.right_pane.path) {
+                self.right_pane.items = items;
+            }
+        } else {
+            self.right_pane.loading = true; // Hiện trạng thái đang tải Cloud khi mới khởi động
+        }
 
         // Thread đọc bàn phím
         let tx_key = tx.clone();
@@ -375,13 +617,183 @@ impl App {
                         match result {
                             Ok(items) => {
                                 pane.items = items;
+                                pane.error = None;
                                 if pane.selected_idx >= pane.items.len() {
                                     pane.selected_idx = 0;
                                 }
                             }
                             Err(e) => {
+                                pane.items = Vec::new();
+                                pane.error = Some(e);
+                            }
+                        }
+                    }
+                    AppEvent::AccountsRefreshed { accounts, default_email } => {
+                        self.accounts = accounts;
+                        self.default_email = default_email;
+
+                        // Điều chỉnh con trỏ index tài khoản active
+                        if let Some(ref active) = self.active_account {
+                            if !self.accounts.contains(active) {
+                                self.active_account = self.accounts.first().cloned();
+                            }
+                        } else {
+                            self.active_account = self.accounts.first().cloned();
+                        }
+
+                        if let Some(ref active) = self.active_account {
+                            if let Some(pos) = self.accounts.iter().position(|a| a == active) {
+                                self.active_account_idx = pos;
+                            } else {
+                                self.active_account_idx = 0;
+                            }
+                        } else {
+                            self.active_account_idx = 0;
+                        }
+
+                        self.sync_active_credentials();
+
+                        // Sau khi nạp xong danh sách tài khoản, chúng ta mới bắt đầu load file Cloud!
+                        self.trigger_refresh_storage_info();
+                        self.refresh_active_pane().await;
+                        self.active_pane_left = false;
+                        self.refresh_active_pane().await;
+                        self.active_pane_left = true;
+                    }
+                    AppEvent::StorageInfoRefreshed { used, max } => {
+                        self.storage_used = used;
+                        self.storage_max = max;
+                    }
+                    AppEvent::LoginFinished { email, password, keep_logged, result } => {
+                        self.is_loading = false;
+                        match result {
+                            Ok(()) => {
+                                // Ghi file credentials cục bộ nếu chọn duy trì đăng nhập (y/Y)
+                                if keep_logged.trim().to_lowercase() == "y" {
+                                    if let Some(home) = dirs::home_dir() {
+                                        let data_dir = home.join(".config/filen-cli/accounts").join(&email);
+                                        let file_path = data_dir.join(".filen-cli-credentials");
+                                        let cred_content = format!("{}\n{}\n", email, password);
+                                        if let Ok(_) = std::fs::write(&file_path, cred_content) {
+                                            #[cfg(unix)]
+                                            {
+                                                use std::os::unix::fs::PermissionsExt;
+                                                let _ = std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o600));
+                                            }
+                                        }
+
+                                        // Lưu/Cập nhật vào tệp accounts.yaml
+                                        let mut stored = load_stored_accounts();
+                                        if let Some(pos) = stored.iter().position(|acc| acc.email == email) {
+                                            stored[pos].password = password.clone();
+                                        } else {
+                                            stored.push(StoredAccount {
+                                                email: email.clone(),
+                                                password: password.clone(),
+                                            });
+                                        }
+                                        save_stored_accounts(&stored);
+                                    }
+                                }
+                                self.refresh_accounts().await;
                                 self.popup_state = PopupState::Message {
-                                    title: "Lỗi kết nối Cloud".to_string(),
+                                    title: "Đăng nhập thành công".to_string(),
+                                    message: format!("Tài khoản {} đã được nạp thành công trên TUI.", email),
+                                };
+                            }
+                            Err(e) => {
+                                let err_lower = e.to_lowercase();
+                                if err_lower.contains("twofactorcode") || err_lower.contains("2fa") || err_lower.contains("two_factor") || err_lower.contains("xác thực") {
+                                    self.popup_state = PopupState::TwoFAInput {
+                                        email,
+                                        password,
+                                        keep_logged,
+                                        twofa_buffer: String::new(),
+                                    };
+                                } else {
+                                    self.popup_state = PopupState::LoginInput {
+                                        email_buffer: email,
+                                        pass_buffer: password,
+                                        keep_logged,
+                                        active_field: 1, // Di chuyển tiêu điểm lại ô Password
+                                        error_msg: Some(e),
+                                    };
+                                }
+                            }
+                        }
+                    }
+                    AppEvent::LoginLog(msg) => {
+                        self.login_logs.push(msg);
+                    }
+                    AppEvent::ExportFinished { is_api_key, result } => {
+                        self.is_loading = false;
+                        match result {
+                            Ok(text) => {
+                                let mut lines = Vec::new();
+                                if is_api_key {
+                                    let mut display_text = text.trim().to_string();
+                                    if let Some(pos) = display_text.find("API Key for") {
+                                        display_text = display_text[pos..].to_string();
+                                    }
+                                    lines.push(display_text.clone());
+                                    lines.push("".to_string());
+
+                                    // Extract hex key
+                                    let parsed_key = if let Some(pos) = text.find("API Key for") {
+                                        let slice = &text[pos..];
+                                        if let Some(colon_pos) = slice.rfind(':') {
+                                            slice[colon_pos + 1..].trim().to_string()
+                                        } else {
+                                            slice.to_string()
+                                        }
+                                    } else {
+                                        text.trim().to_string()
+                                    };
+
+                                    match operations::Operations::copy_to_clipboard(&parsed_key) {
+                                        Ok(_) => {
+                                            lines.push("✨ Đã tự động sao chép API Key vào clipboard hệ thống!".to_string());
+                                        }
+                                        Err(e) => {
+                                            lines.push(format!("⚠️ Lỗi sao chép clipboard: {}", e));
+                                        }
+                                    }
+                                    lines.push("".to_string());
+                                    lines.push("Bấm [C] để sao chép lại API Key vào clipboard.".to_string());
+
+                                    self.popup_state = PopupState::ViewFile {
+                                        name: "API Key cho Rclone".to_string(),
+                                        content: lines,
+                                        scroll: 0,
+                                    };
+                                } else {
+                                    // Auth Config
+                                    for line in text.lines() {
+                                        lines.push(line.to_string());
+                                    }
+                                    lines.push("".to_string());
+
+                                    match operations::Operations::copy_to_clipboard(&text) {
+                                        Ok(_) => {
+                                            lines.push("✨ Đã tự động sao chép Auth Config vào clipboard hệ thống!".to_string());
+                                        }
+                                        Err(e) => {
+                                            lines.push(format!("⚠️ Lỗi sao chép clipboard: {}", e));
+                                        }
+                                    }
+                                    lines.push("".to_string());
+                                    lines.push("Bấm [C] để sao chép lại Auth Config vào clipboard.".to_string());
+
+                                    self.popup_state = PopupState::ViewFile {
+                                        name: "Cấu hình đăng nhập (Auth Config)".to_string(),
+                                        content: lines,
+                                        scroll: 0,
+                                    };
+                                }
+                            }
+                            Err(e) => {
+                                self.popup_state = PopupState::Message {
+                                    title: if is_api_key { "Lỗi xuất API Key".to_string() } else { "Lỗi xuất cấu hình".to_string() },
                                     message: e,
                                 };
                             }

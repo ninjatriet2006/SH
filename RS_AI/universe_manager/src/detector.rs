@@ -180,9 +180,15 @@ pub fn detect<P: AsRef<Path>>(target: P) -> Result<DetectionResult, std::io::Err
             let is_exec = mode & 0o111 != 0;
 
             if is_exec {
-                // Filter out common false positives
+                // Filter out common false positives and helper tools
                 let is_lib = name.contains(".so") || name.ends_with(".a") || name.ends_with(".node");
-                let is_help_tool = name == "chrome-sandbox" || name == "chrome_crashpad_handler" || name == "crashpad_handler";
+                let is_help_tool = name == "chrome-sandbox" 
+                    || name == "chrome_crashpad_handler" 
+                    || name == "crashpad_handler"
+                    || name == "updater"
+                    || name == "Updater"
+                    || name == "update"
+                    || name == "Update";
                 
                 if !is_lib && !is_help_tool {
                     executables.push(file_path.to_path_buf());
@@ -193,8 +199,9 @@ pub fn detect<P: AsRef<Path>>(target: P) -> Result<DetectionResult, std::io::Err
 
     // Sort executables:
     // 1. Files in the root directory come first (more likely to be the main launcher).
-    // 2. Shortest name length (more likely to be `app` rather than `app_helper`).
-    // 3. Alphabetical.
+    // 2. Files matching the suggested name (case-insensitive) come first.
+    // 3. Shortest name length (more likely to be `app` rather than `app_helper`).
+    // 4. Alphabetical.
     executables.sort_by(|a, b| {
         let a_in_root = a.parent() == Some(&path);
         let b_in_root = b.parent() == Some(&path);
@@ -204,9 +211,21 @@ pub fn detect<P: AsRef<Path>>(target: P) -> Result<DetectionResult, std::io::Err
         } else if !a_in_root && b_in_root {
             std::cmp::Ordering::Greater
         } else {
-            let a_len = a.file_name().unwrap_or_default().len();
-            let b_len = b.file_name().unwrap_or_default().len();
-            a_len.cmp(&b_len).then_with(|| a.cmp(b))
+            let a_name = a.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+            let b_name = b.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+            let clean_suggested = suggested_name.to_lowercase().replace(' ', "");
+            let a_matches = a_name == clean_suggested;
+            let b_matches = b_name == clean_suggested;
+
+            if a_matches && !b_matches {
+                std::cmp::Ordering::Less
+            } else if !a_matches && b_matches {
+                std::cmp::Ordering::Greater
+            } else {
+                let a_len = a.file_name().unwrap_or_default().len();
+                let b_len = b.file_name().unwrap_or_default().len();
+                a_len.cmp(&b_len).then_with(|| a.cmp(b))
+            }
         }
     });
 

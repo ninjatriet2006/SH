@@ -175,6 +175,14 @@ pub async fn handle_explorer_key(app: &mut App, key: KeyEvent) {
                         app.popup_state = PopupState::ViewFile { name, content, scroll: scroll + 1 };
                     }
                 }
+                KeyCode::Char('c') | KeyCode::Char('C') => {
+                    let text_to_copy = content.join("\n");
+                    let _ = Operations::copy_to_clipboard(&text_to_copy);
+                    app.popup_state = PopupState::Message {
+                        title: "Sao chép thành công".to_string(),
+                        message: "Đã sao chép nội dung tệp vào clipboard hệ thống!".to_string(),
+                    };
+                }
                 KeyCode::Enter => {
                     // Nếu đây là popup thùng rác (Trash List)
                     if name.contains("Thùng rác") {
@@ -217,12 +225,10 @@ pub async fn handle_explorer_key(app: &mut App, key: KeyEvent) {
                 }
                 KeyCode::Enter => {
                     app.popup_state = PopupState::None;
-                    app.active_account_idx = selected_idx;
-                    app.active_account = if selected_idx == 0 {
-                        None
-                    } else {
-                        Some(app.accounts[selected_idx].clone())
-                    };
+                    if selected_idx < app.accounts.len() {
+                        app.active_account_idx = selected_idx;
+                        app.active_account = Some(app.accounts[selected_idx].clone());
+                    }
                     
                     app.is_loading = true;
                     if !app.left_pane.is_local {

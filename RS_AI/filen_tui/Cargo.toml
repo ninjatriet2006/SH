@@ -13,3 +13,6 @@ chrono = "0.4"
 tui-textarea = "0.4"
 dirs = "5.0"
 which = "5.0"
+libc = "0.2"
+serde_yaml = "0.9"
+

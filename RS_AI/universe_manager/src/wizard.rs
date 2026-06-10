@@ -21,6 +21,7 @@ fn is_archive(path: &Path) -> bool {
         || name.ends_with(".txz")
         || name.ends_with(".tar.bz2")
         || name.ends_with(".tbz2")
+        || name.ends_with(".tar")
 }
 
 /// Helper function to extract a compressed archive file to a target directory.
@@ -46,6 +47,13 @@ fn extract_archive(file_path: &Path, target_dir: &Path) -> Result<(), String> {
     } else if file_name.ends_with(".tar.bz2") || file_name.ends_with(".tbz2") {
         std::process::Command::new("tar")
             .arg("-xjf")
+            .arg(file_path)
+            .arg("-C")
+            .arg(target_dir)
+            .status()
+    } else if file_name.ends_with(".tar") {
+        std::process::Command::new("tar")
+            .arg("-xf")
             .arg(file_path)
             .arg("-C")
             .arg(target_dir)
@@ -77,6 +85,65 @@ fn find_app_folder(extracted_path: &Path) -> PathBuf {
         }
     }
     extracted_path.to_path_buf()
+}
+
+struct OnlineIcon {
+    app_ids: &'static [&'static str],
+    url: &'static str,
+    filename: &'static str,
+}
+
+const ONLINE_ICONS: &[OnlineIcon] = &[
+    OnlineIcon {
+        app_ids: &["telegram", "telegram-desktop", "tsetup"],
+        url: "https://raw.githubusercontent.com/telegramdesktop/tdesktop/master/Telegram/Resources/art/icon256.png",
+        filename: "telegram.png",
+    },
+    OnlineIcon {
+        app_ids: &["vscode", "code", "visual-studio-code"],
+        url: "https://raw.githubusercontent.com/microsoft/vscode/main/resources/linux/code.png",
+        filename: "code.png",
+    },
+    OnlineIcon {
+        app_ids: &["obsidian"],
+        url: "https://raw.githubusercontent.com/linuxserver/docker-templates/master/linuxserver.io/img/obsidian-logo.png",
+        filename: "obsidian.png",
+    },
+    OnlineIcon {
+        app_ids: &["discord"],
+        url: "https://raw.githubusercontent.com/flathub/com.discordapp.Discord/master/com.discordapp.Discord.svg",
+        filename: "discord.svg",
+    },
+];
+
+fn download_icon(url: &str, dest: &Path) -> Result<(), String> {
+    // Try curl first
+    let status_curl = std::process::Command::new("curl")
+        .arg("-sL")
+        .arg("-o")
+        .arg(dest)
+        .arg(url)
+        .status();
+
+    if let Ok(s) = status_curl {
+        if s.success() {
+            return Ok(());
+        }
+    }
+
+    // Try wget as fallback
+    let status_wget = std::process::Command::new("wget")
+        .arg("-q")
+        .arg("-O")
+        .arg(dest)
+        .arg(url)
+        .status();
+
+    match status_wget {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => Err(format!("Lệnh tải icon kết thúc với mã lỗi: {:?}", s.code())),
+        Err(e) => Err(format!("Không thể chạy công cụ tải (yêu cầu curl hoặc wget): {}", e)),
+    }
 }
 
 /// Helper function to read user text input in raw mode, enabling Escape key cancellation.
@@ -304,7 +371,7 @@ pub fn run_wizard(initial_path: Option<String>) -> Result<bool, String> {
         final_source_path = find_app_folder(temp_dir_holder.path());
         println!("Giải nén thành công tại: {:?}", final_source_path);
     } else {
-        final_source_path = original_source_path.clone();
+        final_source_path = find_app_folder(&original_source_path);
     }
 
     // 4. Perform detection
@@ -697,17 +764,16 @@ pub fn run_wizard(initial_path: Option<String>) -> Result<bool, String> {
         None => return Ok(false),
     };
 
+    let app_id = app_name.to_lowercase()
+        .replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_', "-")
+        .replace(' ', "-");
 
     // Find the old app folder if it is an update
     let mut delete_old_dir = false;
     let mut old_app_dir = None;
     if is_update {
         let all_scanned = crate::manager::scan_all_system_apps();
-        let old_id = update_target_id.clone().unwrap_or_else(|| {
-            app_name.to_lowercase()
-                .replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_', "-")
-                .replace(' ', "-")
-        });
+        let old_id = update_target_id.clone().unwrap_or_else(|| app_id.clone());
         
         if let Some(existing) = all_scanned.iter().find(|a| a.id == old_id) {
             let path = Path::new(&existing.exec_path);
@@ -724,9 +790,6 @@ pub fn run_wizard(initial_path: Option<String>) -> Result<bool, String> {
             InstallType::InPlace => final_source_path.clone(),
             InstallType::Moved => {
                 let managed_dir = PathBuf::from(&config.settings.managed_dir);
-                let app_id = app_name.to_lowercase()
-                    .replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_', "-")
-                    .replace(' ', "-");
                 managed_dir.join(&app_id)
             }
         };
@@ -755,17 +818,74 @@ pub fn run_wizard(initial_path: Option<String>) -> Result<bool, String> {
             let old_icon_path = Path::new(old_icon_str);
             if old_icon_path.exists() {
                 let file_name = old_icon_path.file_name().unwrap_or_default();
-                let sanitized_app_name = app_name.to_lowercase()
-                    .replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_', "-")
-                    .replace(' ', "-");
                 let temp_icon = std::env::temp_dir().join(format!(
                     "um_icon_{}_{}",
-                    sanitized_app_name,
+                    app_id,
                     file_name.to_string_lossy()
                 ));
                 if fs::copy(old_icon_path, &temp_icon).is_ok() {
                     final_icon = Some(temp_icon);
                 }
+            }
+        }
+    }
+
+    // If still no icon found, prompt for online icon download or system icon fallback
+    if final_icon.is_none() {
+        let registry_match = ONLINE_ICONS.iter().find(|item| {
+            item.app_ids.contains(&app_id.as_str())
+        });
+
+        let mut downloaded = false;
+        if let Some(online_item) = registry_match {
+            println!("\nKhông tìm thấy file icon cục bộ. Tìm thấy link tải icon trực tuyến cho ứng dụng: {}", app_name);
+            println!("  [Phím tắt: Enter để chọn mặc định | Esc để huỷ/thoát]");
+            let confirm_dl = Confirm::new()
+                .with_prompt("Bạn có muốn tự động tải về icon trực tuyến này không?")
+                .default(true)
+                .interact_opt()
+                .map_err(|e| format!("Lỗi xác nhận: {}", e))?;
+
+            if let Some(true) = confirm_dl {
+                let temp_dest = std::env::temp_dir().join(online_item.filename);
+                println!("Đang tải icon từ: {} ...", online_item.url);
+                match download_icon(online_item.url, &temp_dest) {
+                    Ok(_) => {
+                        println!("Tải icon thành công!");
+                        final_icon = Some(temp_dest);
+                        downloaded = true;
+                    }
+                    Err(e) => {
+                        println!("Cảnh báo: Không thể tải icon từ internet: {}", e);
+                    }
+                }
+            }
+        }
+
+        if !downloaded {
+            println!("\nKhông tìm thấy file icon nào trong thư mục ứng dụng.");
+            println!("  [Phím tắt: Enter để chọn mặc định | Esc để huỷ/thoát]");
+            let use_sys_icon_opt = Confirm::new()
+                .with_prompt(format!("Bạn có muốn sử dụng icon hệ thống (ví dụ: '{}')?", app_id))
+                .default(true)
+                .interact_opt()
+                .map_err(|e| format!("Lỗi xác nhận: {}", e))?;
+
+            match use_sys_icon_opt {
+                Some(true) => {
+                    final_icon = Some(PathBuf::from(&app_id));
+                }
+                Some(false) => {
+                    // Let user type it
+                    let typed_icon_opt = read_line_with_esc("Nhập đường dẫn file icon hoặc tên icon hệ thống (để trống nếu không dùng)", None)
+                        .map_err(|e| format!("Lỗi nhập: {}", e))?;
+                    if let Some(typed_icon) = typed_icon_opt {
+                        if !typed_icon.trim().is_empty() {
+                            final_icon = Some(PathBuf::from(typed_icon.trim()));
+                        }
+                    }
+                }
+                None => return Ok(false), // Esc pressed
             }
         }
     }
