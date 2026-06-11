@@ -103,7 +103,7 @@ pub enum AppEvent {
     Tick,
     AsyncFinished(Result<(), String>),
     RemoteLoadFinished { is_left: bool, result: Result<Vec<FileItem>, String> },
-    LoginFinished { email: String, password: String, keep_logged: String, result: Result<(), String> },
+    LoginFinished { email: String, password: String, keep_logged: String, twofa_used: bool, result: Result<(), String> },
     AccountsRefreshed { accounts: Vec<String>, default_email: Option<String> },
     StorageInfoRefreshed { used: String, max: String },
     LoginLog(String),
@@ -341,7 +341,28 @@ impl App {
                                 let name = entry.file_name().to_string_lossy().to_string();
                                 if has_saved_session(&path) {
                                     // Kiểm tra xem session của tài khoản này còn hiệu lực không
-                                    if let Ok(email) = Operations::whoami(&Some(name.clone())).await {
+                                    let mut email_res = Operations::whoami(&Some(name.clone())).await;
+
+                                    let is_2fa_prompt = match &email_res {
+                                        Ok(out) => {
+                                            let out_lower = out.to_lowercase();
+                                            out_lower.contains("2fa") || out_lower.contains("twofactor") || out_lower.contains("please enter")
+                                        }
+                                        Err(err) => {
+                                            let err_lower = err.to_lowercase();
+                                            err_lower.contains("2fa") || err_lower.contains("twofactor") || err_lower.contains("please enter")
+                                        }
+                                    };
+
+                                    if is_2fa_prompt {
+                                        let cred_path = path.join(".filen-cli-credentials");
+                                        if cred_path.exists() {
+                                            let _ = std::fs::remove_file(&cred_path);
+                                            email_res = Operations::whoami(&Some(name.clone())).await;
+                                        }
+                                    }
+
+                                    if let Ok(email) = email_res {
                                         let email_clean = email.trim().to_string();
                                         if !email_clean.is_empty() 
                                             && !email_clean.contains("Please enter") 
@@ -508,7 +529,28 @@ impl App {
                                 if path.is_dir() {
                                     let name = entry.file_name().to_string_lossy().to_string();
                                     if has_saved_session(&path) {
-                                        if let Ok(email) = Operations::whoami(&Some(name.clone())).await {
+                                        let mut email_res = Operations::whoami(&Some(name.clone())).await;
+
+                                        let is_2fa_prompt = match &email_res {
+                                            Ok(out) => {
+                                                let out_lower = out.to_lowercase();
+                                                out_lower.contains("2fa") || out_lower.contains("twofactor") || out_lower.contains("please enter")
+                                            }
+                                            Err(err) => {
+                                                let err_lower = err.to_lowercase();
+                                                err_lower.contains("2fa") || err_lower.contains("twofactor") || err_lower.contains("please enter")
+                                            }
+                                        };
+
+                                        if is_2fa_prompt {
+                                            let cred_path = path.join(".filen-cli-credentials");
+                                            if cred_path.exists() {
+                                                let _ = std::fs::remove_file(&cred_path);
+                                                email_res = Operations::whoami(&Some(name.clone())).await;
+                                            }
+                                        }
+
+                                        if let Ok(email) = email_res {
                                             let email_clean = email.trim().to_string();
                                             if !email_clean.is_empty() 
                                                 && !email_clean.contains("Please enter") 
@@ -664,7 +706,7 @@ impl App {
                         self.storage_used = used;
                         self.storage_max = max;
                     }
-                    AppEvent::LoginFinished { email, password, keep_logged, result } => {
+                    AppEvent::LoginFinished { email, password, keep_logged, twofa_used, result } => {
                         self.is_loading = false;
                         match result {
                             Ok(()) => {
@@ -672,13 +714,23 @@ impl App {
                                 if keep_logged.trim().to_lowercase() == "y" {
                                     if let Some(home) = dirs::home_dir() {
                                         let data_dir = home.join(".config/filen-cli/accounts").join(&email);
-                                        let file_path = data_dir.join(".filen-cli-credentials");
-                                        let cred_content = format!("{}\n{}\n", email, password);
-                                        if let Ok(_) = std::fs::write(&file_path, cred_content) {
-                                            #[cfg(unix)]
-                                            {
-                                                use std::os::unix::fs::PermissionsExt;
-                                                let _ = std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o600));
+                                        
+                                        // Chỉ ghi file credentials nếu KHÔNG sử dụng 2FA
+                                        if !twofa_used {
+                                            let file_path = data_dir.join(".filen-cli-credentials");
+                                            let cred_content = format!("{}\n{}\n", email, password);
+                                            if let Ok(_) = std::fs::write(&file_path, cred_content) {
+                                                #[cfg(unix)]
+                                                {
+                                                    use std::os::unix::fs::PermissionsExt;
+                                                    let _ = std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o600));
+                                                }
+                                            }
+                                        } else {
+                                            // Nếu dùng 2FA, đảm bảo xóa file credentials cũ nếu có để tránh kẹt đăng nhập
+                                            let file_path = data_dir.join(".filen-cli-credentials");
+                                            if file_path.exists() {
+                                                let _ = std::fs::remove_file(&file_path);
                                             }
                                         }
 
@@ -695,10 +747,17 @@ impl App {
                                         save_stored_accounts(&stored);
                                     }
                                 }
+                                self.active_account = Some(email.clone());
                                 self.refresh_accounts().await;
+                                self.trigger_refresh_storage_info();
+                                self.refresh_active_pane().await;
+                                self.active_pane_left = false;
+                                self.refresh_active_pane().await;
+                                self.active_pane_left = true;
+
                                 self.popup_state = PopupState::Message {
                                     title: "Đăng nhập thành công".to_string(),
-                                    message: format!("Tài khoản {} đã được nạp thành công trên TUI.", email),
+                                    message: format!("Tài khoản {} đã được nạp và kích hoạt thành công trên TUI.", email),
                                 };
                             }
                             Err(e) => {

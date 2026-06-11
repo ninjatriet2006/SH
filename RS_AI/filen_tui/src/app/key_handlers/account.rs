@@ -95,6 +95,7 @@ pub async fn handle_account_key(app: &mut App, key: KeyEvent) {
                                 email: email_clone,
                                 password: pass_clone,
                                 keep_logged: keep_logged_clone,
+                                twofa_used: true,
                                 result: res,
                             });
                         }
@@ -165,6 +166,7 @@ pub async fn handle_account_key(app: &mut App, key: KeyEvent) {
                                 email: email_clone,
                                 password: pass_clone,
                                 keep_logged: keep_clone,
+                                twofa_used: false,
                                 result: res,
                             });
                         }
@@ -289,6 +291,7 @@ pub async fn handle_account_key(app: &mut App, key: KeyEvent) {
                                     email: email_clone,
                                     password: pass_clone,
                                     keep_logged: keep_clone,
+                                    twofa_used: false,
                                     result: res,
                                 });
                             }
