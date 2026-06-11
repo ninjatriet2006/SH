@@ -103,7 +103,7 @@ pub enum AppEvent {
     Tick,
     AsyncFinished(Result<(), String>),
     RemoteLoadFinished { is_left: bool, result: Result<Vec<FileItem>, String> },
-    LoginFinished { email: String, password: String, keep_logged: String, twofa_used: bool, result: Result<(), String> },
+    LoginFinished { email: String, password: String, keep_logged: String, result: Result<(), String> },
     AccountsRefreshed { accounts: Vec<String>, default_email: Option<String> },
     StorageInfoRefreshed { used: String, max: String },
     LoginLog(String),
@@ -216,12 +216,8 @@ impl App {
     }
 }
 
-fn has_saved_session(data_path: &std::path::Path) -> bool {
-    data_path.join(".filen-cli-keep-me-logged-in").exists()
-        || data_path.join(".filen-cli-credentials").exists()
-}
 
-fn get_default_data_dir() -> Option<PathBuf> {
+pub fn get_default_data_dir() -> Option<PathBuf> {
     if let Some(home) = dirs::home_dir() {
         let dot_filen = home.join(".filen-cli");
         if dot_filen.is_dir() {
@@ -269,150 +265,40 @@ pub(crate) fn save_stored_accounts(accounts: &[StoredAccount]) {
 }
 
 impl App {
-    pub fn sync_active_credentials(&self) {
-        if let Some(ref email) = self.active_account {
-            if let Some(home) = dirs::home_dir() {
-                let active_cred_path = home.join(".config/filen-cli/accounts").join(email).join(".filen-cli-credentials");
-                if active_cred_path.exists() {
-                    if let Some(default_dir) = get_default_data_dir() {
-                        let default_cred_path = default_dir.join(".filen-cli-credentials");
-                        if let Ok(_) = std::fs::copy(&active_cred_path, &default_cred_path) {
-                            #[cfg(unix)]
-                            {
-                                use std::os::unix::fs::PermissionsExt;
-                                let _ = std::fs::set_permissions(&default_cred_path, std::fs::Permissions::from_mode(0o600));
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            if let Some(default_dir) = get_default_data_dir() {
-                let default_cred_path = default_dir.join(".filen-cli-credentials");
-                if default_cred_path.exists() {
-                    let _ = std::fs::remove_file(default_cred_path);
-                }
-            }
-        }
-    }
+
 
     // Làm mới danh sách tài khoản đã lưu
     pub async fn refresh_accounts(&mut self) {
         let mut loaded_accounts = Vec::new();
 
-        // 1. Kiểm tra Default Session xem có đăng nhập không
-        let mut default_logged_in = false;
-        if let Some(default_dir) = get_default_data_dir() {
-            if has_saved_session(&default_dir) {
-                default_logged_in = true;
-            }
-        }
-
-        let mut default_email_handle = None;
-        if default_logged_in {
-            default_email_handle = Some(tokio::spawn(async move {
-                let default_res = Operations::whoami(&None).await;
-                if let Ok(email) = default_res {
-                    let email_clean = email.trim().to_string();
-                    if !email_clean.is_empty() 
-                        && !email_clean.contains("Please enter") 
-                        && !email_clean.contains("credentials") 
-                        && email_clean != "anonymous@filen.io" 
-                    {
-                        return Some(email_clean);
-                    }
-                }
-                None
-            }));
-        }
-
-        // 2. Kiểm tra các tài khoản tùy chỉnh lưu trên máy tính
-        let mut custom_handles = Vec::new();
-        if let Some(home) = dirs::home_dir() {
-            let accounts_dir = home.join(".config/filen-cli/accounts");
-            if accounts_dir.is_dir() {
-                if let Ok(entries) = std::fs::read_dir(accounts_dir) {
-                    for entry in entries {
-                        if let Ok(entry) = entry {
-                            let path = entry.path();
-                            if path.is_dir() {
-                                let name = entry.file_name().to_string_lossy().to_string();
-                                if has_saved_session(&path) {
-                                    let path_clone = path.clone();
-                                    let name_clone = name.clone();
-                                    custom_handles.push(tokio::spawn(async move {
-                                        let mut email_res = Operations::whoami(&Some(name_clone.clone())).await;
-
-                                        let is_2fa_prompt = match &email_res {
-                                            Ok(out) => {
-                                                let out_lower = out.to_lowercase();
-                                                out_lower.contains("2fa") || out_lower.contains("twofactor") || out_lower.contains("please enter")
-                                            }
-                                            Err(err) => {
-                                                let err_lower = err.to_lowercase();
-                                                err_lower.contains("2fa") || err_lower.contains("twofactor") || err_lower.contains("please enter")
-                                            }
-                                        };
-
-                                        if is_2fa_prompt {
-                                            let cred_path = path_clone.join(".filen-cli-credentials");
-                                            if cred_path.exists() {
-                                                let _ = std::fs::remove_file(&cred_path);
-                                                email_res = Operations::whoami(&Some(name_clone.clone())).await;
-                                            }
-                                        }
-
-                                        if let Ok(email) = email_res {
-                                            let email_clean = email.trim().to_string();
-                                            if !email_clean.is_empty() 
-                                                && !email_clean.contains("Please enter") 
-                                                && !email_clean.contains("credentials") 
-                                                && email_clean != "anonymous@filen.io" 
-                                            {
-                                                return Some(email_clean);
-                                            }
-                                        }
-                                        None
-                                    }));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3. Chờ đợi kết quả song song
-        if let Some(handle) = default_email_handle {
-            if let Ok(Some(email)) = handle.await {
-                self.default_email = Some(email.clone());
-                loaded_accounts.push(email);
-            } else {
-                self.default_email = None;
-            }
-        } else {
-            self.default_email = None;
-        }
-
-        for handle in custom_handles {
-            if let Ok(Some(email)) = handle.await {
-                if !loaded_accounts.contains(&email) {
-                    loaded_accounts.push(email);
-                }
+        // 1. Load tất cả các tài khoản lưu trong accounts.yaml
+        let stored = load_stored_accounts();
+        for acc in &stored {
+            if !loaded_accounts.contains(&acc.email) {
+                loaded_accounts.push(acc.email.clone());
             }
         }
 
         self.accounts = loaded_accounts;
 
-        // Điều chỉnh con trỏ index tài khoản active
-        if let Some(ref active) = self.active_account {
-            if !self.accounts.contains(active) {
-                self.active_account = self.accounts.first().cloned();
+        // 2. Kiểm tra xem tài khoản nào đang thực sự đăng nhập trên CLI mặc định
+        let default_res = Operations::whoami(&None).await;
+        if let Ok(email) = default_res {
+            let email_clean = email.trim().to_string();
+            if !email_clean.is_empty() 
+                && !email_clean.contains("Please enter") 
+                && !email_clean.contains("credentials") 
+                && email_clean != "anonymous@filen.io" 
+            {
+                self.active_account = Some(email_clean);
+            } else {
+                self.active_account = None;
             }
         } else {
-            self.active_account = self.accounts.first().cloned();
+            self.active_account = None;
         }
 
+        // 3. Điều chỉnh con trỏ index tài khoản active
         if let Some(ref active) = self.active_account {
             if let Some(pos) = self.accounts.iter().position(|a| a == active) {
                 self.active_account_idx = pos;
@@ -422,7 +308,6 @@ impl App {
         } else {
             self.active_account_idx = 0;
         }
-        self.sync_active_credentials();
     }
 
     // Di chuyển con trỏ duyệt file
@@ -518,99 +403,24 @@ impl App {
             let mut loaded_accounts = Vec::new();
             let mut default_email = None;
 
-            let mut default_logged_in = false;
-            if let Some(default_dir) = get_default_data_dir() {
-                if has_saved_session(&default_dir) {
-                    default_logged_in = true;
+            // Load tất cả các tài khoản lưu trong accounts.yaml
+            let stored = load_stored_accounts();
+            for acc in &stored {
+                if !loaded_accounts.contains(&acc.email) {
+                    loaded_accounts.push(acc.email.clone());
                 }
             }
 
-            let mut default_email_handle = None;
-            if default_logged_in {
-                default_email_handle = Some(tokio::spawn(async move {
-                    let default_res = Operations::whoami(&None).await;
-                    if let Ok(email) = default_res {
-                        let email_clean = email.trim().to_string();
-                        if !email_clean.is_empty() 
-                            && !email_clean.contains("Please enter") 
-                            && !email_clean.contains("credentials") 
-                            && email_clean != "anonymous@filen.io" 
-                        {
-                            return Some(email_clean);
-                        }
-                    }
-                    None
-                }));
-            }
-
-            let mut custom_handles = Vec::new();
-            if let Some(home) = dirs::home_dir() {
-                let accounts_dir = home.join(".config/filen-cli/accounts");
-                if accounts_dir.is_dir() {
-                    if let Ok(entries) = std::fs::read_dir(accounts_dir) {
-                        for entry in entries {
-                            if let Ok(entry) = entry {
-                                let path = entry.path();
-                                if path.is_dir() {
-                                    let name = entry.file_name().to_string_lossy().to_string();
-                                    if has_saved_session(&path) {
-                                        let path_clone = path.clone();
-                                        let name_clone = name.clone();
-                                        custom_handles.push(tokio::spawn(async move {
-                                            let mut email_res = Operations::whoami(&Some(name_clone.clone())).await;
-
-                                            let is_2fa_prompt = match &email_res {
-                                                Ok(out) => {
-                                                    let out_lower = out.to_lowercase();
-                                                    out_lower.contains("2fa") || out_lower.contains("twofactor") || out_lower.contains("please enter")
-                                                }
-                                                Err(err) => {
-                                                    let err_lower = err.to_lowercase();
-                                                    err_lower.contains("2fa") || err_lower.contains("twofactor") || err_lower.contains("please enter")
-                                                }
-                                            };
-
-                                            if is_2fa_prompt {
-                                                let cred_path = path_clone.join(".filen-cli-credentials");
-                                                if cred_path.exists() {
-                                                    let _ = std::fs::remove_file(&cred_path);
-                                                    email_res = Operations::whoami(&Some(name_clone.clone())).await;
-                                                }
-                                            }
-
-                                            if let Ok(email) = email_res {
-                                                let email_clean = email.trim().to_string();
-                                                if !email_clean.is_empty() 
-                                                    && !email_clean.contains("Please enter") 
-                                                    && !email_clean.contains("credentials") 
-                                                    && email_clean != "anonymous@filen.io" 
-                                                {
-                                                    return Some(email_clean);
-                                                }
-                                            }
-                                            None
-                                        }));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Chờ đợi tất cả hoàn thành song song
-            if let Some(handle) = default_email_handle {
-                if let Ok(Some(email)) = handle.await {
-                    default_email = Some(email.clone());
-                    loaded_accounts.push(email);
-                }
-            }
-
-            for handle in custom_handles {
-                if let Ok(Some(email)) = handle.await {
-                    if !loaded_accounts.contains(&email) {
-                        loaded_accounts.push(email);
-                    }
+            // Kiểm tra xem tài khoản nào đang thực sự đăng nhập trên CLI mặc định
+            let default_res = Operations::whoami(&None).await;
+            if let Ok(email) = default_res {
+                let email_clean = email.trim().to_string();
+                if !email_clean.is_empty() 
+                    && !email_clean.contains("Please enter") 
+                    && !email_clean.contains("credentials") 
+                    && email_clean != "anonymous@filen.io" 
+                {
+                    default_email = Some(email_clean);
                 }
             }
 
@@ -716,16 +526,8 @@ impl App {
                     }
                     AppEvent::AccountsRefreshed { accounts, default_email } => {
                         self.accounts = accounts;
-                        self.default_email = default_email;
-
-                        // Điều chỉnh con trỏ index tài khoản active
-                        if let Some(ref active) = self.active_account {
-                            if !self.accounts.contains(active) {
-                                self.active_account = self.accounts.first().cloned();
-                            }
-                        } else {
-                            self.active_account = self.accounts.first().cloned();
-                        }
+                        self.default_email = default_email.clone();
+                        self.active_account = default_email;
 
                         if let Some(ref active) = self.active_account {
                             if let Some(pos) = self.accounts.iter().position(|a| a == active) {
@@ -736,8 +538,6 @@ impl App {
                         } else {
                             self.active_account_idx = 0;
                         }
-
-                        self.sync_active_credentials();
 
                         // Sau khi nạp xong danh sách tài khoản, chúng ta mới bắt đầu load file Cloud!
                         self.trigger_refresh_storage_info();
@@ -750,47 +550,24 @@ impl App {
                         self.storage_used = used;
                         self.storage_max = max;
                     }
-                    AppEvent::LoginFinished { email, password, keep_logged, twofa_used, result } => {
+                    AppEvent::LoginFinished { email, password, keep_logged, result } => {
                         self.is_loading = false;
                         match result {
                             Ok(()) => {
-                                // Ghi file credentials cục bộ nếu chọn duy trì đăng nhập (y/Y)
+                                // Lưu/Cập nhật vào tệp accounts.yaml để phục vụ Quick Login / chuyển tài khoản sau này
                                 if keep_logged.trim().to_lowercase() == "y" {
-                                    if let Some(home) = dirs::home_dir() {
-                                        let data_dir = home.join(".config/filen-cli/accounts").join(&email);
-                                        
-                                        // Chỉ ghi file credentials nếu KHÔNG sử dụng 2FA
-                                        if !twofa_used {
-                                            let file_path = data_dir.join(".filen-cli-credentials");
-                                            let cred_content = format!("{}\n{}\n", email, password);
-                                            if let Ok(_) = std::fs::write(&file_path, cred_content) {
-                                                #[cfg(unix)]
-                                                {
-                                                    use std::os::unix::fs::PermissionsExt;
-                                                    let _ = std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o600));
-                                                }
-                                            }
-                                        } else {
-                                            // Nếu dùng 2FA, đảm bảo xóa file credentials cũ nếu có để tránh kẹt đăng nhập
-                                            let file_path = data_dir.join(".filen-cli-credentials");
-                                            if file_path.exists() {
-                                                let _ = std::fs::remove_file(&file_path);
-                                            }
-                                        }
-
-                                        // Lưu/Cập nhật vào tệp accounts.yaml
-                                        let mut stored = load_stored_accounts();
-                                        if let Some(pos) = stored.iter().position(|acc| acc.email == email) {
-                                            stored[pos].password = password.clone();
-                                        } else {
-                                            stored.push(StoredAccount {
-                                                email: email.clone(),
-                                                password: password.clone(),
-                                            });
-                                        }
-                                        save_stored_accounts(&stored);
+                                    let mut stored = load_stored_accounts();
+                                    if let Some(pos) = stored.iter().position(|acc| acc.email == email) {
+                                        stored[pos].password = password.clone();
+                                    } else {
+                                        stored.push(StoredAccount {
+                                            email: email.clone(),
+                                            password: password.clone(),
+                                        });
                                     }
+                                    save_stored_accounts(&stored);
                                 }
+
                                 self.active_account = Some(email.clone());
                                 self.refresh_accounts().await;
                                 self.trigger_refresh_storage_info();

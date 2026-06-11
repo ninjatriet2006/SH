@@ -1,5 +1,4 @@
-mod app;
-mod ui;
+use filen_tui::app;
 
 use std::env;
 use std::io::{self, IsTerminal};

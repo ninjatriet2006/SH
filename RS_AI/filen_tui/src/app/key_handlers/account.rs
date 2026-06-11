@@ -95,7 +95,6 @@ pub async fn handle_account_key(app: &mut App, key: KeyEvent) {
                                 email: email_clone,
                                 password: pass_clone,
                                 keep_logged: keep_logged_clone,
-                                twofa_used: true,
                                 result: res,
                             });
                         }
@@ -166,7 +165,6 @@ pub async fn handle_account_key(app: &mut App, key: KeyEvent) {
                                 email: email_clone,
                                 password: pass_clone,
                                 keep_logged: keep_clone,
-                                twofa_used: false,
                                 result: res,
                             });
                         }
@@ -291,7 +289,6 @@ pub async fn handle_account_key(app: &mut App, key: KeyEvent) {
                                     email: email_clone,
                                     password: pass_clone,
                                     keep_logged: keep_clone,
-                                    twofa_used: false,
                                     result: res,
                                 });
                             }
@@ -330,27 +327,50 @@ pub async fn handle_account_key(app: &mut App, key: KeyEvent) {
     if key.modifiers.contains(KeyModifiers::ALT) {
         match key.code {
             KeyCode::Char('s') | KeyCode::Char('S') => {
-                // Alt+S: Đổi tài khoản hoạt động
+                // Alt+S: Đổi tài khoản hoạt động bằng cách tái đăng nhập vào mặc định
                 if app.accounts.is_empty() {
                     return;
                 }
                 let selected = app.accounts[app.active_account_idx].clone();
-                app.active_account = Some(selected.clone());
-                app.sync_active_credentials();
-                
-                app.is_loading = true;
-                // Làm mới Explorer & Storage Info
-                app.trigger_refresh_storage_info();
-                app.refresh_active_pane().await;
-                app.active_pane_left = false;
-                app.refresh_active_pane().await;
-                app.active_pane_left = true;
-                app.is_loading = false;
+                if Some(selected.clone()) == app.active_account {
+                    app.popup_state = PopupState::Message {
+                        title: "Thông báo".to_string(),
+                        message: format!("Tài khoản {} đang hoạt động rồi.", selected),
+                    };
+                    return;
+                }
 
-                app.popup_state = PopupState::Message {
-                    title: "Chuyển tài khoản".to_string(),
-                    message: format!("Đã chuyển sang tài khoản hoạt động: {}", selected),
-                };
+                // Tìm thông tin mật khẩu từ accounts.yaml
+                let stored = load_stored_accounts();
+                if let Some(acc) = stored.iter().find(|a| a.email == selected) {
+                    let email = acc.email.clone();
+                    let password = acc.password.clone();
+                    
+                    app.popup_state = PopupState::None;
+                    app.is_loading = true;
+                    app.login_logs.clear();
+                    
+                    let tx = app.msg_tx.clone();
+                    let email_clone = email.clone();
+                    let pass_clone = password.clone();
+                    let keep_clone = "y".to_string();
+                    tokio::spawn(async move {
+                        let res = Operations::login_new(&email_clone, &pass_clone, None, &keep_clone, tx.clone()).await;
+                        if let Some(tx) = tx {
+                            let _ = tx.send(AppEvent::LoginFinished {
+                                email: email_clone,
+                                password: pass_clone,
+                                keep_logged: keep_clone,
+                                result: res,
+                            });
+                        }
+                    });
+                } else {
+                    app.popup_state = PopupState::Message {
+                        title: "Lỗi".to_string(),
+                        message: format!("Không tìm thấy mật khẩu đã lưu của tài khoản {}.", selected),
+                    };
+                }
             }
             KeyCode::Char('n') | KeyCode::Char('N') => {
                 // Alt+N: Đăng nhập tài khoản mới (Quick Login nếu có sẵn)
@@ -376,25 +396,36 @@ pub async fn handle_account_key(app: &mut App, key: KeyEvent) {
                     return;
                 }
                 let email = app.accounts[app.active_account_idx].clone();
-                let is_default = app.default_email.as_ref().map_or(false, |d| *d == email);
-                if is_default {
-                    app.popup_state = PopupState::Message {
-                        title: "Không thể gỡ".to_string(),
-                        message: "Tài khoản mặc định không thể bị gỡ bỏ cấu hình riêng. Vui lòng dùng Alt+L để Đăng xuất.".to_string(),
-                    };
-                } else {
-                    if let Some(home) = dirs::home_dir() {
-                        let path = home.join(".config/filen-cli/accounts").join(&email);
-                        if path.is_dir() {
-                            let _ = std::fs::remove_dir_all(path);
-                        }
-                    }
-                    app.refresh_accounts().await;
-                    app.popup_state = PopupState::Message {
-                        title: "Gỡ tài khoản".to_string(),
-                        message: format!("Đã xóa cấu hình tài khoản {} khỏi máy tính.", email),
-                    };
+                
+                // Xóa khỏi accounts.yaml
+                let mut stored = load_stored_accounts();
+                if let Some(pos) = stored.iter().position(|acc| acc.email == email) {
+                    stored.remove(pos);
+                    save_stored_accounts(&stored);
                 }
+
+                // Nếu tài khoản bị xóa là tài khoản đang hoạt động, thực hiện Logout khỏi CLI mặc định
+                let was_active = Some(email.clone()) == app.active_account;
+                if was_active {
+                    app.is_loading = true;
+                    let _ = Operations::logout(&app.active_account).await;
+                    app.active_account = None;
+                    app.is_loading = false;
+                }
+
+                app.refresh_accounts().await;
+                
+                // Cập nhật lại dung lượng và explorer về trạng thái chưa đăng nhập/trống
+                app.trigger_refresh_storage_info();
+                app.refresh_active_pane().await;
+                app.active_pane_left = false;
+                app.refresh_active_pane().await;
+                app.active_pane_left = true;
+
+                app.popup_state = PopupState::Message {
+                    title: "Gỡ tài khoản".to_string(),
+                    message: format!("Đã xóa tài khoản {} khỏi TUI và đăng xuất.", email),
+                };
             }
             KeyCode::Char('l') | KeyCode::Char('L') => {
                 // Alt+L: Đăng xuất

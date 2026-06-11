@@ -61,17 +61,10 @@ impl Operations {
     }
 
     // Lấy đối tượng Command cấu hình sẵn cờ --data-dir dựa trên tài khoản active
-    pub fn get_command(active_account: &Option<String>) -> Command {
+    pub fn get_command(_active_account: &Option<String>) -> Command {
         let mut cmd = Command::new(FILEN_BIN);
-        if let Some(email) = active_account {
-            if let Some(home) = dirs::home_dir() {
-                let data_path = home.join(".config/filen-cli/accounts").join(email);
-                if data_path.join(".filen-cli-keep-me-logged-in").exists()
-                    || data_path.join(".filen-cli-credentials").exists()
-                {
-                    cmd.arg("--data-dir").arg(data_path);
-                }
-            }
+        if let Some(data_path) = super::get_default_data_dir() {
+            cmd.arg("--data-dir").arg(data_path);
         }
         cmd.kill_on_drop(true);
         cmd
@@ -559,8 +552,7 @@ impl Operations {
             }
         };
 
-        if let Some(home) = dirs::home_dir() {
-            let data_path = home.join(".config/filen-cli/accounts").join(email);
+        if let Some(data_path) = super::get_default_data_dir() {
             std::fs::create_dir_all(&data_path).map_err(|e| e.to_string())?;
 
             // Xóa session cũ nếu có để tránh việc CLI cố đọc cấu hình hỏng và tự động báo lỗi crash decryption
