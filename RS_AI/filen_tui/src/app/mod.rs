@@ -308,28 +308,26 @@ impl App {
             }
         }
 
+        let mut default_email_handle = None;
         if default_logged_in {
-            let default_res = Operations::whoami(&None).await;
-            if let Ok(email) = default_res {
-                let email_clean = email.trim().to_string();
-                if !email_clean.is_empty() 
-                    && !email_clean.contains("Please enter") 
-                    && !email_clean.contains("credentials") 
-                    && email_clean != "anonymous@filen.io" 
-                {
-                    self.default_email = Some(email_clean.clone());
-                    loaded_accounts.push(email_clean);
-                } else {
-                    self.default_email = None;
+            default_email_handle = Some(tokio::spawn(async move {
+                let default_res = Operations::whoami(&None).await;
+                if let Ok(email) = default_res {
+                    let email_clean = email.trim().to_string();
+                    if !email_clean.is_empty() 
+                        && !email_clean.contains("Please enter") 
+                        && !email_clean.contains("credentials") 
+                        && email_clean != "anonymous@filen.io" 
+                    {
+                        return Some(email_clean);
+                    }
                 }
-            } else {
-                self.default_email = None;
-            }
-        } else {
-            self.default_email = None;
+                None
+            }));
         }
 
         // 2. Kiểm tra các tài khoản tùy chỉnh lưu trên máy tính
+        let mut custom_handles = Vec::new();
         if let Some(home) = dirs::home_dir() {
             let accounts_dir = home.join(".config/filen-cli/accounts");
             if accounts_dir.is_dir() {
@@ -340,44 +338,66 @@ impl App {
                             if path.is_dir() {
                                 let name = entry.file_name().to_string_lossy().to_string();
                                 if has_saved_session(&path) {
-                                    // Kiểm tra xem session của tài khoản này còn hiệu lực không
-                                    let mut email_res = Operations::whoami(&Some(name.clone())).await;
+                                    let path_clone = path.clone();
+                                    let name_clone = name.clone();
+                                    custom_handles.push(tokio::spawn(async move {
+                                        let mut email_res = Operations::whoami(&Some(name_clone.clone())).await;
 
-                                    let is_2fa_prompt = match &email_res {
-                                        Ok(out) => {
-                                            let out_lower = out.to_lowercase();
-                                            out_lower.contains("2fa") || out_lower.contains("twofactor") || out_lower.contains("please enter")
-                                        }
-                                        Err(err) => {
-                                            let err_lower = err.to_lowercase();
-                                            err_lower.contains("2fa") || err_lower.contains("twofactor") || err_lower.contains("please enter")
-                                        }
-                                    };
+                                        let is_2fa_prompt = match &email_res {
+                                            Ok(out) => {
+                                                let out_lower = out.to_lowercase();
+                                                out_lower.contains("2fa") || out_lower.contains("twofactor") || out_lower.contains("please enter")
+                                            }
+                                            Err(err) => {
+                                                let err_lower = err.to_lowercase();
+                                                err_lower.contains("2fa") || err_lower.contains("twofactor") || err_lower.contains("please enter")
+                                            }
+                                        };
 
-                                    if is_2fa_prompt {
-                                        let cred_path = path.join(".filen-cli-credentials");
-                                        if cred_path.exists() {
-                                            let _ = std::fs::remove_file(&cred_path);
-                                            email_res = Operations::whoami(&Some(name.clone())).await;
-                                        }
-                                    }
-
-                                    if let Ok(email) = email_res {
-                                        let email_clean = email.trim().to_string();
-                                        if !email_clean.is_empty() 
-                                            && !email_clean.contains("Please enter") 
-                                            && !email_clean.contains("credentials") 
-                                            && email_clean != "anonymous@filen.io" 
-                                        {
-                                            if !loaded_accounts.contains(&email_clean) {
-                                                loaded_accounts.push(email_clean);
+                                        if is_2fa_prompt {
+                                            let cred_path = path_clone.join(".filen-cli-credentials");
+                                            if cred_path.exists() {
+                                                let _ = std::fs::remove_file(&cred_path);
+                                                email_res = Operations::whoami(&Some(name_clone.clone())).await;
                                             }
                                         }
-                                    }
+
+                                        if let Ok(email) = email_res {
+                                            let email_clean = email.trim().to_string();
+                                            if !email_clean.is_empty() 
+                                                && !email_clean.contains("Please enter") 
+                                                && !email_clean.contains("credentials") 
+                                                && email_clean != "anonymous@filen.io" 
+                                            {
+                                                return Some(email_clean);
+                                            }
+                                        }
+                                        None
+                                    }));
                                 }
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // 3. Chờ đợi kết quả song song
+        if let Some(handle) = default_email_handle {
+            if let Ok(Some(email)) = handle.await {
+                self.default_email = Some(email.clone());
+                loaded_accounts.push(email);
+            } else {
+                self.default_email = None;
+            }
+        } else {
+            self.default_email = None;
+        }
+
+        for handle in custom_handles {
+            if let Ok(Some(email)) = handle.await {
+                if !loaded_accounts.contains(&email) {
+                    loaded_accounts.push(email);
                 }
             }
         }
@@ -505,20 +525,25 @@ impl App {
                 }
             }
 
+            let mut default_email_handle = None;
             if default_logged_in {
-                if let Ok(email) = Operations::whoami(&None).await {
-                    let email_clean = email.trim().to_string();
-                    if !email_clean.is_empty() 
-                        && !email_clean.contains("Please enter") 
-                        && !email_clean.contains("credentials") 
-                        && email_clean != "anonymous@filen.io" 
-                    {
-                        default_email = Some(email_clean.clone());
-                        loaded_accounts.push(email_clean);
+                default_email_handle = Some(tokio::spawn(async move {
+                    let default_res = Operations::whoami(&None).await;
+                    if let Ok(email) = default_res {
+                        let email_clean = email.trim().to_string();
+                        if !email_clean.is_empty() 
+                            && !email_clean.contains("Please enter") 
+                            && !email_clean.contains("credentials") 
+                            && email_clean != "anonymous@filen.io" 
+                        {
+                            return Some(email_clean);
+                        }
                     }
-                }
+                    None
+                }));
             }
 
+            let mut custom_handles = Vec::new();
             if let Some(home) = dirs::home_dir() {
                 let accounts_dir = home.join(".config/filen-cli/accounts");
                 if accounts_dir.is_dir() {
@@ -529,43 +554,62 @@ impl App {
                                 if path.is_dir() {
                                     let name = entry.file_name().to_string_lossy().to_string();
                                     if has_saved_session(&path) {
-                                        let mut email_res = Operations::whoami(&Some(name.clone())).await;
+                                        let path_clone = path.clone();
+                                        let name_clone = name.clone();
+                                        custom_handles.push(tokio::spawn(async move {
+                                            let mut email_res = Operations::whoami(&Some(name_clone.clone())).await;
 
-                                        let is_2fa_prompt = match &email_res {
-                                            Ok(out) => {
-                                                let out_lower = out.to_lowercase();
-                                                out_lower.contains("2fa") || out_lower.contains("twofactor") || out_lower.contains("please enter")
-                                            }
-                                            Err(err) => {
-                                                let err_lower = err.to_lowercase();
-                                                err_lower.contains("2fa") || err_lower.contains("twofactor") || err_lower.contains("please enter")
-                                            }
-                                        };
+                                            let is_2fa_prompt = match &email_res {
+                                                Ok(out) => {
+                                                    let out_lower = out.to_lowercase();
+                                                    out_lower.contains("2fa") || out_lower.contains("twofactor") || out_lower.contains("please enter")
+                                                }
+                                                Err(err) => {
+                                                    let err_lower = err.to_lowercase();
+                                                    err_lower.contains("2fa") || err_lower.contains("twofactor") || err_lower.contains("please enter")
+                                                }
+                                            };
 
-                                        if is_2fa_prompt {
-                                            let cred_path = path.join(".filen-cli-credentials");
-                                            if cred_path.exists() {
-                                                let _ = std::fs::remove_file(&cred_path);
-                                                email_res = Operations::whoami(&Some(name.clone())).await;
-                                            }
-                                        }
-
-                                        if let Ok(email) = email_res {
-                                            let email_clean = email.trim().to_string();
-                                            if !email_clean.is_empty() 
-                                                && !email_clean.contains("Please enter") 
-                                                && !email_clean.contains("credentials") 
-                                                && email_clean != "anonymous@filen.io" 
-                                            {
-                                                if !loaded_accounts.contains(&email_clean) {
-                                                    loaded_accounts.push(email_clean);
+                                            if is_2fa_prompt {
+                                                let cred_path = path_clone.join(".filen-cli-credentials");
+                                                if cred_path.exists() {
+                                                    let _ = std::fs::remove_file(&cred_path);
+                                                    email_res = Operations::whoami(&Some(name_clone.clone())).await;
                                                 }
                                             }
-                                        }
+
+                                            if let Ok(email) = email_res {
+                                                let email_clean = email.trim().to_string();
+                                                if !email_clean.is_empty() 
+                                                    && !email_clean.contains("Please enter") 
+                                                    && !email_clean.contains("credentials") 
+                                                    && email_clean != "anonymous@filen.io" 
+                                                {
+                                                    return Some(email_clean);
+                                                }
+                                            }
+                                            None
+                                        }));
                                     }
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            // Chờ đợi tất cả hoàn thành song song
+            if let Some(handle) = default_email_handle {
+                if let Ok(Some(email)) = handle.await {
+                    default_email = Some(email.clone());
+                    loaded_accounts.push(email);
+                }
+            }
+
+            for handle in custom_handles {
+                if let Ok(Some(email)) = handle.await {
+                    if !loaded_accounts.contains(&email) {
+                        loaded_accounts.push(email);
                     }
                 }
             }
