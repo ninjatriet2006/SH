@@ -186,21 +186,94 @@ pub async fn handle_explorer_key(app: &mut App, key: KeyEvent) {
                 KeyCode::Enter => {
                     // Nếu đây là popup thùng rác (Trash List)
                     if name.contains("Thùng rác") {
-                        app.popup_state = PopupState::None;
                         app.is_loading = true;
                         // Khôi phục mục tương ứng: index 1-based bằng scroll + 1
                         let restore_idx = scroll + 1;
                         match Operations::trash_restore(&app.active_account, restore_idx).await {
                             Ok(_) => {
-                                app.popup_state = PopupState::Message {
-                                    title: "Thành công".to_string(),
-                                    message: "Đã khôi phục thành công mục được chọn từ thùng rác.".to_string(),
-                                };
+                                // Tải lại danh sách thùng rác để cập nhật giao diện
+                                match Operations::list_trash(&app.active_account).await {
+                                    Ok(trash_items) => {
+                                        if trash_items.is_empty() {
+                                            app.popup_state = PopupState::Message {
+                                                title: "Thao tác thành công".to_string(),
+                                                message: "Khôi phục mục thành công! Thùng rác hiện đã trống.".to_string(),
+                                            };
+                                        } else {
+                                            let lines: Vec<String> = trash_items.iter().enumerate().map(|(i, item)| {
+                                                let type_prefix = if item.is_dir { "[DIR]" } else { "[FILE]" };
+                                                format!("({}) {} - {} - {}", i + 1, type_prefix, item.name, item.mod_time)
+                                            }).collect();
+                                            let new_scroll = if scroll >= lines.len() {
+                                                if !lines.is_empty() { lines.len() - 1 } else { 0 }
+                                            } else {
+                                                scroll
+                                            };
+                                            app.popup_state = PopupState::ViewFile {
+                                                name: "Danh sách Thùng rác (Enter: Khôi phục | Delete: Xóa vĩnh viễn)".to_string(),
+                                                content: lines,
+                                                scroll: new_scroll,
+                                            };
+                                        }
+                                    }
+                                    Err(_) => {
+                                        app.popup_state = PopupState::None;
+                                    }
+                                }
                                 app.refresh_active_pane().await;
                             }
                             Err(e) => {
                                 app.popup_state = PopupState::Message {
                                     title: "Lỗi khôi phục".to_string(),
+                                    message: e,
+                                };
+                            }
+                        }
+                        app.is_loading = false;
+                    }
+                }
+                KeyCode::Delete => {
+                    // Nếu đây là popup thùng rác (Trash List)
+                    if name.contains("Thùng rác") {
+                        app.is_loading = true;
+                        // Xóa vĩnh viễn mục tương ứng: index 1-based bằng scroll + 1
+                        let delete_idx = scroll + 1;
+                        match Operations::trash_delete(&app.active_account, delete_idx).await {
+                            Ok(_) => {
+                                // Tải lại danh sách thùng rác để cập nhật giao diện
+                                match Operations::list_trash(&app.active_account).await {
+                                    Ok(trash_items) => {
+                                        if trash_items.is_empty() {
+                                            app.popup_state = PopupState::Message {
+                                                title: "Thao tác thành công".to_string(),
+                                                message: "Đã xóa vĩnh viễn mục được chọn! Thùng rác hiện đã trống.".to_string(),
+                                            };
+                                        } else {
+                                            let lines: Vec<String> = trash_items.iter().enumerate().map(|(i, item)| {
+                                                let type_prefix = if item.is_dir { "[DIR]" } else { "[FILE]" };
+                                                format!("({}) {} - {} - {}", i + 1, type_prefix, item.name, item.mod_time)
+                                            }).collect();
+                                            let new_scroll = if scroll >= lines.len() {
+                                                if !lines.is_empty() { lines.len() - 1 } else { 0 }
+                                            } else {
+                                                scroll
+                                            };
+                                            app.popup_state = PopupState::ViewFile {
+                                                name: "Danh sách Thùng rác (Enter: Khôi phục | Delete: Xóa vĩnh viễn)".to_string(),
+                                                content: lines,
+                                                scroll: new_scroll,
+                                            };
+                                        }
+                                    }
+                                    Err(_) => {
+                                        app.popup_state = PopupState::None;
+                                    }
+                                }
+                                app.refresh_active_pane().await;
+                            }
+                            Err(e) => {
+                                app.popup_state = PopupState::Message {
+                                    title: "Lỗi xóa vĩnh viễn".to_string(),
                                     message: e,
                                 };
                             }
@@ -698,7 +771,7 @@ async fn trigger_special_action(app: &mut App, selected_idx: usize) {
                             format!("({}) {} - {} - {}", i + 1, type_prefix, item.name, item.mod_time)
                         }).collect();
                         app.popup_state = PopupState::ViewFile {
-                            name: "Danh sách Thùng rác (Nhấn Enter để khôi phục)".to_string(),
+                            name: "Danh sách Thùng rác (Enter: Khôi phục | Delete: Xóa vĩnh viễn)".to_string(),
                             content: lines,
                             scroll: 0,
                         };

@@ -93,8 +93,7 @@ fn draw_main_menu(app: &App, f: &mut Frame, area: Rect) {
     let menu_items = vec![
         " 📂 1. Duyệt File (Explorer - Dual Pane Local/Cloud) ",
         " 👤 2. Quản lý Tài khoản (Multi-account & Config) ",
-        " 🗑️ 3. Quản lý Thùng rác (Trash Bin) ",
-        " 🌐 4. Cấu hình Máy chủ (WebDAV & S3 Server) ",
+        " 🌐 3. Cấu hình Máy chủ (WebDAV & S3 Server) ",
     ];
 
     let items: Vec<ListItem> = menu_items

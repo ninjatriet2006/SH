@@ -33,13 +33,13 @@ async fn handle_menu_key(app: &mut App, key: KeyEvent, quit: &mut bool) {
     match key.code {
         KeyCode::Up => {
             if app.main_menu_selected == 0 {
-                app.main_menu_selected = 3;
+                app.main_menu_selected = 2;
             } else {
                 app.main_menu_selected -= 1;
             }
         }
         KeyCode::Down => {
-            app.main_menu_selected = (app.main_menu_selected + 1) % 4;
+            app.main_menu_selected = (app.main_menu_selected + 1) % 3;
         }
         KeyCode::Enter => {
             match app.main_menu_selected {
@@ -48,12 +48,7 @@ async fn handle_menu_key(app: &mut App, key: KeyEvent, quit: &mut bool) {
                     app.current_screen = Screen::Account;
                     app.trigger_refresh_storage_info();
                 }
-                2 => {
-                    // Mở Thùng rác: Phím Alt+O -> mục 3/4 trong Explorer
-                    app.current_screen = Screen::Explorer;
-                    app.popup_state = PopupState::SpecialActionsMenu { selected_idx: 2 };
-                }
-                3 => app.current_screen = Screen::Servers,
+                2 => app.current_screen = Screen::Servers,
                 _ => {}
             }
         }
