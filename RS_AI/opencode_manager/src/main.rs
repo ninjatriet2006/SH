@@ -106,7 +106,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Poll sự kiện từ Crossterm
         let timeout = tick_rate.saturating_sub(last_tick.elapsed());
         if event::poll(timeout)? {
-            if let Event::Key(key) = event::read()? {
+            let ev = event::read()?;
+            if let Event::Resize(_, _) = ev {
+                draw_needed = true;
+            }
+            if let Event::Key(key) = ev {
                 if key.kind == event::KeyEventKind::Release {
                     continue;
                 }
@@ -297,29 +301,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             app.current_screen = Screen::Main;
                             draw_needed = true;
                         }
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            if app.selected_model_idx > 0 {
+                        KeyCode::Up => {
+                            let filtered = app.filtered_scanned_models();
+                            if !filtered.is_empty() && app.selected_model_idx > 0 {
                                 app.selected_model_idx -= 1;
                                 draw_needed = true;
                             }
                         }
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            if app.selected_model_idx + 1 < app.scanned_models.len() {
+                        KeyCode::Down => {
+                            let filtered = app.filtered_scanned_models();
+                            if !filtered.is_empty() && app.selected_model_idx + 1 < filtered.len() {
                                 app.selected_model_idx += 1;
                                 draw_needed = true;
                             }
                         }
                         KeyCode::Char(' ') => {
-                            if let Some(item) = app.scanned_models.get_mut(app.selected_model_idx) {
-                                item.1 = !item.1;
-                                draw_needed = true;
+                            let filtered = app.filtered_scanned_models();
+                            if !filtered.is_empty() && app.selected_model_idx < filtered.len() {
+                                let (original_idx, _, _) = filtered[app.selected_model_idx];
+                                if let Some(item) = app.scanned_models.get_mut(original_idx) {
+                                    item.1 = !item.1;
+                                    draw_needed = true;
+                                }
                             }
+                        }
+                        KeyCode::Backspace => {
+                            app.model_search_query.pop();
+                            app.selected_model_idx = 0;
+                            app.models_list_state = ratatui::widgets::ListState::default();
+                            draw_needed = true;
                         }
                         KeyCode::Enter => {
                             if let Err(e) = app.add_scanned_models() {
                                 app.log(format!("Lỗi lưu models: {}", e));
                             }
                             draw_needed = true;
+                        }
+                        KeyCode::Char(c) => {
+                            if !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) {
+                                app.model_search_query.push(c);
+                                app.selected_model_idx = 0;
+                                app.models_list_state = ratatui::widgets::ListState::default();
+                                draw_needed = true;
+                            }
                         }
                         _ => {}
                     }

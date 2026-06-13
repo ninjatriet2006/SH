@@ -424,13 +424,14 @@ fn draw_form_modal(f: &mut Frame, area: Rect, app: &App) {
 }
 
 // === MODELS SCAN MODAL ===
-// === MODELS SCAN MODAL ===
 fn draw_models_modal(f: &mut Frame, area: Rect, app: &mut App) {
-    let popup_area = centered_rect(50, 70, area);
+    let popup_area = centered_rect(60, 75, area);
     f.render_widget(Clear, popup_area);
 
+    let filtered = app.filtered_scanned_models();
+
     let block = Block::default()
-        .title(format!(" 🤖 CHỌN CÁC MODEL ĐỂ ĐỒNG BỘ ({}) ", app.scanned_models.len()))
+        .title(format!(" 🤖 CHỌN CÁC MODEL ĐỂ ĐỒNG BỘ ({}/{}) ", filtered.len(), app.scanned_models.len()))
         .borders(Borders::ALL)
         .border_type(BorderType::Double)
         .border_style(Style::default().fg(Color::Yellow))
@@ -442,34 +443,59 @@ fn draw_models_modal(f: &mut Frame, area: Rect, app: &mut App) {
         .direction(Direction::Vertical)
         .margin(2)
         .constraints([
-            Constraint::Min(5),
+            Constraint::Length(3), // Search bar
+            Constraint::Min(5),    // List of models
             Constraint::Length(3), // Footer hướng dẫn
         ])
         .split(popup_area);
 
-    // Tạo danh sách checkbox
-    let items: Vec<ListItem> = app.scanned_models.iter().map(|(name, checked)| {
-        let prefix = if *checked { "[x] " } else { "[ ] " };
-        let style = Style::default().fg(Color::Gray);
+    // 1. Ô tìm kiếm (Search bar)
+    let search_style = Style::default().fg(Color::Yellow);
+    let search_text = format!(" {}", app.model_search_query);
+    let search_paragraph = Paragraph::new(search_text)
+        .block(Block::default()
+            .title(" 🔍 Nhập từ khoá tìm kiếm model (Ví dụ: llama, qwen...) ")
+            .borders(Borders::ALL)
+            .border_style(search_style)
+        );
+    f.render_widget(search_paragraph, inner_chunks[0]);
 
-        let span_prefix = Span::styled(prefix, if *checked { Style::default().fg(Color::Green) } else { Style::default().fg(Color::DarkGray) });
-        let span_name = Span::raw(name);
+    // Đặt con trỏ nhấp nháy trong ô tìm kiếm để tránh cảm giác bị "đơ" (frozen input)
+    let cursor_x = (inner_chunks[0].x + 2 + app.model_search_query.len() as u16)
+        .min(inner_chunks[0].x + inner_chunks[0].width - 2);
+    let cursor_y = inner_chunks[0].y + 1;
+    f.set_cursor(cursor_x, cursor_y);
 
-        ListItem::new(Line::from(vec![span_prefix, span_name])).style(style)
-    }).collect();
+    // 2. Tạo danh sách checkbox
+    if filtered.is_empty() {
+        let empty_msg = Paragraph::new("❌ Không tìm thấy model nào phù hợp. Nhập chữ khác hoặc Esc để huỷ.")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(Color::Red));
+        f.render_widget(empty_msg, inner_chunks[1]);
+    } else {
+        let items: Vec<ListItem> = filtered.iter().map(|(_, name, checked)| {
+            let prefix = if *checked { "[x] " } else { "[ ] " };
+            let style = Style::default().fg(Color::Gray);
 
-    let list = List::new(items)
-        .highlight_style(Style::default().bg(Color::Rgb(40, 50, 70)).fg(Color::White).add_modifier(Modifier::BOLD))
-        .highlight_symbol("> ");
+            let span_prefix = Span::styled(prefix, if *checked { Style::default().fg(Color::Green) } else { Style::default().fg(Color::DarkGray) });
+            let span_name = Span::raw(name.as_str());
 
-    app.models_list_state.select(Some(app.selected_model_idx));
-    f.render_stateful_widget(list, inner_chunks[0], &mut app.models_list_state);
+            ListItem::new(Line::from(vec![span_prefix, span_name])).style(style)
+        }).collect();
 
-    let footer_text = " [Space] Chọn/Bỏ chọn | [Enter] Đồng bộ | [Esc] Huỷ ";
+        let list = List::new(items)
+            .highlight_style(Style::default().bg(Color::Rgb(40, 50, 70)).fg(Color::White).add_modifier(Modifier::BOLD))
+            .highlight_symbol("> ");
+
+        app.models_list_state.select(Some(app.selected_model_idx));
+        f.render_stateful_widget(list, inner_chunks[1], &mut app.models_list_state);
+    }
+
+    let footer_text = " [Gõ chữ] Tìm kiếm | [Space] Chọn/Bỏ chọn | [Enter] Đồng bộ | [Esc] Huỷ ";
     let footer = Paragraph::new(footer_text)
         .alignment(Alignment::Center)
         .style(Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD));
-    f.render_widget(footer, inner_chunks[1]);
+    f.render_widget(footer, inner_chunks[2]);
 }
 
 // === AUTH KEYS MANAGER MODAL ===
@@ -660,21 +686,38 @@ fn draw_confirmation_modal(f: &mut Frame, area: Rect, app: &App) {
 
 // === UTILS ===
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    // Nếu màn hình nhỏ, tự động giãn rộng phần trăm diện tích để tránh lỗi tràn/cắt chữ
+    let dynamic_percent_x = if r.width < 100 {
+        90
+    } else if r.width < 140 {
+        75
+    } else {
+        percent_x
+    };
+
+    let dynamic_percent_y = if r.height < 30 {
+        90
+    } else if r.height < 45 {
+        80
+    } else {
+        percent_y
+    };
+
     let popup_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage((100 - dynamic_percent_y) / 2),
+            Constraint::Percentage(dynamic_percent_y),
+            Constraint::Percentage((100 - dynamic_percent_y) / 2),
         ])
         .split(r);
 
     Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage((100 - dynamic_percent_x) / 2),
+            Constraint::Percentage(dynamic_percent_x),
+            Constraint::Percentage((100 - dynamic_percent_x) / 2),
         ])
         .split(popup_layout[1])[1]
 }

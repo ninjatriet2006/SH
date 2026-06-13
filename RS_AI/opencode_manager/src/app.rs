@@ -72,6 +72,7 @@ pub struct App {
     pub scanned_models: Vec<(String, bool)>, // (model_id, is_checked)
     pub selected_model_idx: usize,
     pub scanning_provider_id: String,
+    pub model_search_query: String,
     
     // Auth keys manager
     pub auth_keys: Vec<(String, String)>, // (key_name, key_value)
@@ -158,6 +159,7 @@ impl App {
             scanned_models: Vec::new(),
             selected_model_idx: 0,
             scanning_provider_id: String::new(),
+            model_search_query: String::new(),
             auth_keys: Vec::new(),
             selected_auth_idx: 0,
             clean_list: Vec::new(),
@@ -316,6 +318,16 @@ impl App {
                 p.id.to_lowercase().contains(&query) ||
                 p.base_url.to_lowercase().contains(&query)
             })
+            .collect()
+    }
+
+    pub fn filtered_scanned_models(&self) -> Vec<(usize, String, bool)> {
+        let query = self.model_search_query.to_lowercase();
+        self.scanned_models.iter().enumerate()
+            .filter(|(_, (name, _))| {
+                name.to_lowercase().contains(&query)
+            })
+            .map(|(idx, (name, checked))| (idx, name.clone(), *checked))
             .collect()
     }
 
@@ -698,6 +710,7 @@ impl App {
                                 .collect();
 
                             self.selected_model_idx = 0;
+                            self.model_search_query = String::new();
                             self.models_list_state = ratatui::widgets::ListState::default();
                             self.current_screen = Screen::ModelScanResult;
                         }
