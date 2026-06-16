@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use dialoguer::{Select, Confirm};
+use dialoguer::{Select, Confirm, MultiSelect};
 use crossterm::event::{self, Event, KeyCode};
 use std::io::{self, Write};
 use crate::detector;
@@ -238,141 +238,71 @@ fn parse_terminal_from_desktop(desktop_file: &str) -> Option<bool> {
     None
 }
 
-pub fn run_wizard(initial_path: Option<String>) -> Result<bool, String> {
-    let mut config = crate::config::Config::load();
+fn parse_paths(input: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+    let mut current = String::new();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
     
-    // Load all system apps and filter to find portable ones
-    let all_scanned_apps = crate::manager::scan_all_system_apps();
-    let local_apps: Vec<_> = all_scanned_apps.into_iter()
-        .filter(|a| {
-            a.package_type.as_deref().unwrap_or("Local") == "Local"
-                || is_portable_path(&a.exec_path)
-        })
-        .collect();
-
-    let mut default_app_name: Option<String> = None;
-    let mut default_install_type: Option<crate::config::InstallType> = None;
-    let mut default_symlink_name: Option<String> = None;
-    let mut default_terminal: Option<bool> = None;
-    let mut default_icon_path: Option<String> = None;
-
-    let mut is_update = false;
-    let mut update_target_id: Option<String> = None;
-
-    // 1. Choose action
-    let mut mode = 0; // 0: new, 1: auto update, 2: manual update
-    if initial_path.is_none() {
-        let choices = vec![
-            "1. Tích hợp ứng dụng Portable mới",
-            "2. Cập nhật ứng dụng Portable (Tự động quét trùng)",
-            "3. Cập nhật ứng dụng Portable (Thủ công chọn app)",
-        ];
-        
-        println!("  [Phím tắt: Mũi tên ↑/↓ để di chuyển | Enter để chọn | Esc để huỷ/thoát]");
-        let choice_opt = Select::new()
-            .with_prompt("Chọn thao tác:")
-            .items(&choices)
-            .default(0)
-            .interact_opt()
-            .map_err(|e| format!("Lỗi chọn: {}", e))?;
-            
-        let choice = match choice_opt {
-            Some(c) => c,
-            None => return Ok(false), // Esc pressed
-        };
-        
-        mode = choice;
-    }
-
-    // Handle Manual Update App Selection first
-    if mode == 2 {
-        if local_apps.is_empty() {
-            println!("\nKhông có ứng dụng portable nào được tích hợp trước đó để cập nhật!");
-            println!("Nhấn Enter để quay lại...");
-            let mut buf = String::new();
-            let _ = io::stdin().read_line(&mut buf);
-            return Ok(false);
+    let chars: Vec<char> = input.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '\\' && i + 1 < chars.len() {
+            current.push(chars[i + 1]);
+            i += 2;
+            continue;
         }
-        
-        let app_selections: Vec<String> = local_apps.iter()
-            .map(|a| format!("{} (ID: {})", a.name, a.id))
-            .collect();
-            
-        println!("\n  [Phím tắt: Mũi tên ↑/↓ để di chuyển | Enter để chọn | Esc để huỷ/thoát]");
-        let app_choice_opt = Select::new()
-            .with_prompt("Chọn ứng dụng portable cần cập nhật:")
-            .items(&app_selections)
-            .default(0)
-            .interact_opt()
-            .map_err(|e| format!("Lỗi chọn: {}", e))?;
-            
-        let app_choice = match app_choice_opt {
-            Some(c) => c,
-            None => return Ok(false), // Esc pressed
-        };
-        
-        let selected_app = &local_apps[app_choice];
-        update_target_id = Some(selected_app.id.clone());
-        default_app_name = Some(selected_app.name.clone());
-        default_install_type = Some(selected_app.install_type.clone());
-        default_symlink_name = selected_app.symlink_file.as_ref()
-            .and_then(|s| Path::new(s).file_name())
-            .map(|f| f.to_string_lossy().to_string());
-        default_terminal = parse_terminal_from_desktop(&selected_app.desktop_file).or(selected_app.is_custom);
-        default_icon_path = selected_app.icon_path.clone();
-        is_update = true;
-    }
-
-    // 2. Prompt for application source path (archive or folder or file)
-    let source_str_opt = if let Some(path) = initial_path {
-        Some(path)
-    } else {
-        loop {
-            let prompt_msg = if is_update {
-                format!("Nhập đường dẫn thư mục hoặc file (nén) MỚI cho '{}'", default_app_name.as_deref().unwrap_or(""))
-            } else {
-                "Nhập đường dẫn thư mục ứng dụng hoặc file (nén)".to_string()
-            };
-            
-            let path_opt = read_line_with_esc(&prompt_msg, None)
-                .map_err(|e| format!("Lỗi nhập liệu: {}", e))?;
-                
-            match path_opt {
-                Some(p) => {
-                    let path = Path::new(&p);
-                    if !path.exists() {
-                        println!("Đường dẫn không tồn tại! Vui lòng nhập lại.");
-                    } else {
-                        break Some(p);
-                    }
-                }
-                None => break None, // Esc pressed
+        if c == '\'' && !in_double_quote {
+            in_single_quote = !in_single_quote;
+        } else if c == '"' && !in_single_quote {
+            in_double_quote = !in_double_quote;
+        } else if c.is_whitespace() && !in_single_quote && !in_double_quote {
+            if !current.trim().is_empty() {
+                paths.push(current.trim().to_string());
+                current.clear();
             }
+        } else {
+            current.push(c);
         }
-    };
+        i += 1;
+    }
     
-    let source_str = match source_str_opt {
-        Some(s) => s,
-        None => return Ok(false), // Cancelled
-    };
+    if !current.trim().is_empty() {
+        paths.push(current.trim().to_string());
+    }
+    
+    paths
+}
 
-    let original_source_path = PathBuf::from(&source_str);
+fn integrate_single_app(
+    path_str: &str,
+    mode: usize,
+    initial_is_update: bool,
+    initial_update_target_id: Option<String>,
+    initial_default_app_name: Option<String>,
+    initial_default_install_type: Option<crate::config::InstallType>,
+    initial_default_symlink_name: Option<String>,
+    initial_default_terminal: Option<bool>,
+    initial_default_icon_path: Option<String>,
+    local_apps: &[crate::config::AppEntry],
+    config: &mut crate::config::Config,
+) -> Result<bool, String> {
+    let original_source_path = PathBuf::from(path_str);
 
     // 3. Handle extraction if it is an archive
-    let temp_dir_holder;
-    let final_source_path;
-    
-    if is_archive(&original_source_path) {
+    let (final_source_path, _temp_dir) = if is_archive(&original_source_path) {
         println!("\nĐang giải nén tệp tin...");
-        temp_dir_holder = tempfile::Builder::new().prefix("um-extract").tempdir()
+        let dir = tempfile::Builder::new().prefix("um-extract").tempdir()
             .map_err(|e| format!("Không thể tạo thư mục tạm để giải nén: {}", e))?;
         
-        extract_archive(&original_source_path, temp_dir_holder.path())?;
-        final_source_path = find_app_folder(temp_dir_holder.path());
-        println!("Giải nén thành công tại: {:?}", final_source_path);
+        extract_archive(&original_source_path, dir.path())?;
+        let path = find_app_folder(dir.path());
+        println!("Giải nén thành công tại: {:?}", path);
+        (path, Some(dir))
     } else {
-        final_source_path = find_app_folder(&original_source_path);
-    }
+        (find_app_folder(&original_source_path), None)
+    };
 
     // 4. Perform detection
     let detection = detector::detect(&final_source_path)
@@ -543,6 +473,14 @@ pub fn run_wizard(initial_path: Option<String>) -> Result<bool, String> {
             }
         }
     }
+
+    let mut is_update = initial_is_update;
+    let mut update_target_id = initial_update_target_id;
+    let mut default_app_name = initial_default_app_name;
+    let mut default_install_type = initial_default_install_type;
+    let mut default_symlink_name = initial_default_symlink_name;
+    let mut default_terminal = initial_default_terminal;
+    let mut default_icon_path = initial_default_icon_path;
 
     // 5. Flow Routing (Based on mode)
     let app_name;
@@ -923,4 +861,211 @@ pub fn run_wizard(initial_path: Option<String>) -> Result<bool, String> {
     }
 
     Ok(true)
+}
+
+pub fn run_wizard(initial_path: Option<String>) -> Result<bool, String> {
+    let mut config = crate::config::Config::load();
+    
+    // Load all system apps and filter to find portable ones
+    let all_scanned_apps = crate::manager::scan_all_system_apps();
+    let local_apps: Vec<_> = all_scanned_apps.into_iter()
+        .filter(|a| {
+            a.package_type.as_deref().unwrap_or("Local") == "Local"
+                || is_portable_path(&a.exec_path)
+        })
+        .collect();
+
+    // 1. Choose action
+    let mut mode = 0; // 0: new, 1: auto update, 2: manual update
+    if initial_path.is_none() {
+        let choices = vec![
+            "1. Tích hợp ứng dụng Portable mới",
+            "2. Cập nhật ứng dụng Portable (Tự động quét trùng)",
+            "3. Cập nhật ứng dụng Portable (Thủ công chọn app)",
+        ];
+        
+        println!("  [Phím tắt: Mũi tên ↑/↓ để di chuyển | Enter để chọn | Esc để huỷ/thoát]");
+        let choice_opt = Select::new()
+            .with_prompt("Chọn thao tác:")
+            .items(&choices)
+            .default(0)
+            .interact_opt()
+            .map_err(|e| format!("Lỗi chọn: {}", e))?;
+            
+        let choice = match choice_opt {
+            Some(c) => c,
+            None => return Ok(false), // Esc pressed
+        };
+        
+        mode = choice;
+    }
+
+    let mut integrated_any = false;
+
+    if mode == 2 {
+        if local_apps.is_empty() {
+            println!("\nKhông có ứng dụng portable nào được tích hợp trước đó để cập nhật!");
+            println!("Nhấn Enter để quay lại...");
+            let mut buf = String::new();
+            let _ = io::stdin().read_line(&mut buf);
+            return Ok(false);
+        }
+        
+        let app_selections: Vec<String> = local_apps.iter()
+            .map(|a| format!("{} (ID: {})", a.name, a.id))
+            .collect();
+            
+        println!("\n  [Phím tắt: Mũi tên ↑/↓ để di chuyển | Space để chọn/bỏ chọn | Enter để xác nhận | Esc để huỷ/thoát]");
+        let app_choices_opt = MultiSelect::new()
+            .with_prompt("Chọn các ứng dụng portable cần cập nhật (Nhấn Space để chọn nhiều):")
+            .items(&app_selections)
+            .interact_opt()
+            .map_err(|e| format!("Lỗi chọn: {}", e))?;
+            
+        let app_choices = match app_choices_opt {
+            Some(choices) => {
+                if choices.is_empty() {
+                    return Ok(false);
+                }
+                choices
+            }
+            None => return Ok(false), // Esc pressed
+        };
+
+        for choice in app_choices {
+            let selected_app = &local_apps[choice];
+            println!("\n==================================================");
+            println!("Cập nhật ứng dụng: {} (ID: {})", selected_app.name, selected_app.id);
+            println!("==================================================");
+
+            let prompt_msg = format!("Nhập đường dẫn thư mục hoặc file (nén) MỚI cho '{}'", selected_app.name);
+            let source_path_str = loop {
+                let path_opt = read_line_with_esc(&prompt_msg, None)
+                    .map_err(|e| format!("Lỗi nhập liệu: {}", e))?;
+                match path_opt {
+                    Some(p) => {
+                        let parsed = parse_paths(&p);
+                        if parsed.is_empty() {
+                            println!("Vui lòng nhập đường dẫn hợp lệ.");
+                            continue;
+                        }
+                        if parsed.len() > 1 {
+                            println!("Chỉ nhập duy nhất một đường dẫn cho ứng dụng này. Vui lòng nhập lại.");
+                            continue;
+                        }
+                        let path = Path::new(&parsed[0]);
+                        if !path.exists() {
+                            println!("Đường dẫn không tồn tại! Vui lòng nhập lại.");
+                        } else {
+                            break parsed[0].clone();
+                        }
+                    }
+                    None => return Ok(integrated_any), // Esc/Cancelled
+                }
+            };
+
+            let default_app_name = Some(selected_app.name.clone());
+            let default_install_type = Some(selected_app.install_type.clone());
+            let default_symlink_name = selected_app.symlink_file.as_ref()
+                .and_then(|s| Path::new(s).file_name())
+                .map(|f| f.to_string_lossy().to_string());
+            let default_terminal = parse_terminal_from_desktop(&selected_app.desktop_file).or(selected_app.is_custom);
+            let default_icon_path = selected_app.icon_path.clone();
+
+            match integrate_single_app(
+                &source_path_str,
+                mode,
+                true, // is_update
+                Some(selected_app.id.clone()),
+                default_app_name,
+                default_install_type,
+                default_symlink_name,
+                default_terminal,
+                default_icon_path,
+                &local_apps,
+                &mut config,
+            ) {
+                Ok(true) => {
+                    integrated_any = true;
+                }
+                Ok(false) => {
+                    println!("Tích hợp bị huỷ bởi người dùng cho ứng dụng '{}'.", selected_app.name);
+                }
+                Err(e) => {
+                    println!("Lỗi tích hợp ứng dụng '{}': {}", selected_app.name, e);
+                }
+            }
+        }
+    } else {
+        let source_str_opt = if let Some(path) = initial_path {
+            Some(path)
+        } else {
+            loop {
+                let prompt_msg = "Nhập đường dẫn thư mục ứng dụng hoặc file (nén)".to_string();
+                
+                let path_opt = read_line_with_esc(&prompt_msg, None)
+                    .map_err(|e| format!("Lỗi nhập liệu: {}", e))?;
+                    
+                match path_opt {
+                    Some(p) => {
+                        let parsed = parse_paths(&p);
+                        if parsed.is_empty() {
+                            println!("Vui lòng nhập đường dẫn hợp lệ.");
+                            continue;
+                        }
+                        let mut all_exist = true;
+                        for path_str in &parsed {
+                            if !Path::new(path_str).exists() {
+                                println!("Đường dẫn không tồn tại: {}! Vui lòng nhập lại.", path_str);
+                                all_exist = false;
+                                break;
+                            }
+                        }
+                        if all_exist {
+                            break Some(p);
+                        }
+                    }
+                    None => break None, // Esc pressed
+                }
+            }
+        };
+
+        let source_str = match source_str_opt {
+            Some(s) => s,
+            None => return Ok(false), // Cancelled
+        };
+
+        let parsed_paths = parse_paths(&source_str);
+        for path_str in parsed_paths {
+            println!("\n==================================================");
+            println!("Đang xử lý tích hợp: {}", path_str);
+            println!("==================================================");
+
+            match integrate_single_app(
+                &path_str,
+                mode,
+                false, // initial is_update
+                None, // update_target_id
+                None,
+                None,
+                None,
+                None,
+                None,
+                &local_apps,
+                &mut config,
+            ) {
+                Ok(true) => {
+                    integrated_any = true;
+                }
+                Ok(false) => {
+                    println!("Tích hợp bị huỷ bởi người dùng cho đường dẫn '{}'.", path_str);
+                }
+                Err(e) => {
+                    println!("Lỗi tích hợp đường dẫn '{}': {}", path_str, e);
+                }
+            }
+        }
+    }
+
+    Ok(integrated_any)
 }
