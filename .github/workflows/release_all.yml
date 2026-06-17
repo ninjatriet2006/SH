@@ -28,15 +28,23 @@ jobs:
       - name: Biên dịch tất cả dự án dưới RS_AI
         shell: bash
         run: |
-          # Định nghĩa danh sách thư mục và tên binary tương ứng
-          projects=(
-            "CLS_STRT.rs:cls_strt"
-            "filen_tui:filen_tui"
-            "IMG_SPLT.rs:img_splt"
-            "opencode_manager:opencode_manager"
-            "universal_converter:universal_converter"
-            "universe_manager:universe_manager"
-          )
+          # Định nghĩa danh sách thư mục và tên binary tương ứng dựa trên hệ điều hành
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            projects=(
+              "filen_tui:filen_tui"
+              "IMG_SPLT.rs:img_splt"
+              "opencode_manager:opencode_manager"
+              "universal_converter:universal_converter"
+            )
+          else
+            projects=(
+              "filen_tui:filen_tui"
+              "IMG_SPLT.rs:img_splt"
+              "opencode_manager:opencode_manager"
+              "universal_converter:universal_converter"
+              "universe_manager:universe_manager"
+            )
+          fi
           
           mkdir -p artifacts
           

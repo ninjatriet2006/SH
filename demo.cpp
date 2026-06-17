@@ -1,107 +1,54 @@
+/*######################################
+# University of Information Technology #
+# IT007 Operating System               #
+# Huynh Hoang Gia, 24520413            #
+# File: bai1.c                         #
+######################################*/
 #include <stdio.h>
-#define N 8
-void  xuatmang(int *pa, int len)
-{
-    for (int i = 0; i < len; i++)
-    {
-        printf("%d ", *(pa + i));
-    }
-    printf("\n");
-}
-void  nhapmang(int *pa, int len)
-{
-    for (int i = 0; i < len; i++)
-    {
-        printf("Nhap phan tu a[%d]: ", i);
-        scanf("%d", pa + i);
-    }
-}
-void    interchangesort(int *pa, int len)
-{
-    for (int i = 0; i < len - 1; i++)
-    {
-        for (int j = i + 1; j < len; j++)
-        {
-            if (*(pa + i) > *(pa + j))
-            {
-                int temp = *(pa + i);
-                *(pa + i) = *(pa + j);
-                *(pa + j) = temp;
-            }
-        }
-    }
-}
-  
-int linearsearch(int *pa, int len, int key)
-{
-    for (int i = 0; i < len; i++)
-    {
-        if (*(pa + i) == key)
-        {
-            return i;
-        }
-    }
-    return -1;
-}
-int binarysearch(int *pa, int len, int key)
-{
-    int left = 0;
-    int right = len - 1;
-    while (left <= right)
-    {
-        int mid = left + (right - left) / 2;
-        if (*(pa + mid) == key)
-        {
-            return mid;
-        }
-        else if (*(pa + mid) < key)
-        {
-            left = mid + 1;
-        }
-        else
-        {
-            right = mid - 1;
-        }
-    }
-    return -1;
-}
-int main()
-{
-    int a[N];
+#include <stdlib.h>
+#include <pthread.h>
+#include <semaphore.h>
+#include <unistd.h>
 
-    nhapmang(a, N);
+sem_t sem_sells;
+sem_t sem_products;
 
-    printf("Mang truoc khi sap xep:\n");
-    xuatmang(a, N);
+int sells = 0;
+int products = 0;
 
-/*    int key;
-    printf("Nhap khoa can tim kiem tuyen tinh: ");
-    scanf("%d", &key);
-    int pos_linear = linearsearch(a, N, key);
-    if (pos_linear != -1)
-    {
-        printf("Tim thay %d tai vi tri index %d (tuyen tinh)\n", key, pos_linear);
+void* processA(void* arg) {
+    while (1) {
+        sem_wait(&sem_sells);
+        sells++;
+        printf("Process A (Ban hang): sells = %d, products = %d\n", sells, products);
+        sem_post(&sem_products);
+        sleep(1);
     }
-    else
-    {
-        printf("Khong tim thay %d (tuyen tinh)\n", key);
+}
+
+void* processB(void* arg) {
+    while (1) {
+        sem_wait(&sem_products);
+        products++;
+        printf("Process B (San xuat): sells = %d, products = %d\n", sells, products);
+        sem_post(&sem_sells);
     }
-*/
-    interchangesort(a, N);
-    printf("Mang sau khi sap xep:\n");
-    xuatmang(a, N);
-/*
-    printf("Nhap khoa can tim kiem nhi phan: ");
-    scanf("%d", &key);
-    int pos_binary = binarysearch(a, N, key);
-    if (pos_binary != -1)
-    {
-        printf("Tim thay %d tai vi tri index %d (nhi phan)\n", key, pos_binary);
-    }
-    else
-    {
-        printf("Khong tim thay %d (nhi phan)\n", key);
-    }
-*/
+}
+
+int main() {
+    pthread_t threadA, threadB;
+
+    sem_init(&sem_sells, 0, 0);
+    sem_init(&sem_products, 0, 23);
+
+    pthread_create(&threadA, NULL, processA, NULL);
+    pthread_create(&threadB, NULL, processB, NULL);
+
+    pthread_join(threadA, NULL);
+    pthread_join(threadB, NULL);
+
+    sem_destroy(&sem_sells);
+    sem_destroy(&sem_products);
+
     return 0;
 }
