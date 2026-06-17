@@ -1,5 +1,6 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::OnceLock;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 
@@ -13,10 +14,84 @@ pub struct FileItem {
 
 pub struct Operations;
 
-const FILEN_BIN: &str = "/home/bimatkeo/.filen-cli/bin/filen";
+fn resolve_filen_bin() -> PathBuf {
+    static CACHE: OnceLock<PathBuf> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        // 1. Kiểm tra biến môi trường
+        if let Ok(val) = std::env::var("FILEN_BIN_PATH") {
+            let path = PathBuf::from(val);
+            if path.exists() {
+                return path;
+            }
+        }
+
+        // 2. Quét trong PATH của hệ thống sử dụng crate which
+        if let Ok(path) = which::which("filen") {
+            return path;
+        }
+
+        // 3. Quét các đường dẫn cài đặt mặc định thông thường
+        if let Some(home) = dirs::home_dir() {
+            // Đường dẫn trên Unix/Linux
+            let unix_path = home.join(".filen-cli/bin/filen");
+            if unix_path.exists() {
+                return unix_path;
+            }
+
+            let unix_config_path = home.join(".config/filen-cli/bin/filen");
+            if unix_config_path.exists() {
+                return unix_config_path;
+            }
+
+            // Đường dẫn trên Windows
+            let win_path = home.join(".filen-cli\\bin\\filen.exe");
+            if win_path.exists() {
+                return win_path;
+            }
+
+            let win_cmd_path = home.join(".filen-cli\\bin\\filen.cmd");
+            if win_cmd_path.exists() {
+                return win_cmd_path;
+            }
+
+            // Đường dẫn Global npm trên Windows
+            if cfg!(windows) {
+                if let Ok(appdata) = std::env::var("APPDATA") {
+                    let npm_path = PathBuf::from(appdata).join("npm\\filen.cmd");
+                    if npm_path.exists() {
+                        return npm_path;
+                    }
+                }
+            }
+        }
+
+        // Phương án dự phòng cuối cùng
+        if cfg!(windows) {
+            PathBuf::from("filen.cmd")
+        } else {
+            PathBuf::from("filen")
+        }
+    }).clone()
+}
 
 impl Operations {
     pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
+        // Dự phòng cho hệ điều hành Windows sử dụng clip.exe
+        if cfg!(target_os = "windows") {
+            let child = std::process::Command::new("clip")
+                .stdin(std::process::Stdio::piped())
+                .spawn();
+            if let Ok(mut c) = child {
+                if let Some(mut stdin) = c.stdin.take() {
+                    use std::io::Write;
+                    let _ = stdin.write_all(text.as_bytes());
+                }
+                let _ = c.wait();
+                return Ok(());
+            }
+        }
+
+        // Các công cụ cho Unix/Linux
         let child = std::process::Command::new("wl-copy")
             .stdin(std::process::Stdio::piped())
             .spawn();
@@ -57,12 +132,12 @@ impl Operations {
             return Ok(());
         }
 
-        Err("Không tìm thấy công cụ clipboard (wl-copy, xclip, xsel)".to_string())
+        Err("Không tìm thấy công cụ sao chép clipboard (clip, wl-copy, xclip, xsel)".to_string())
     }
 
     // Lấy đối tượng Command cấu hình sẵn cờ --data-dir dựa trên tài khoản active
     pub fn get_command(_active_account: &Option<String>) -> Command {
-        let mut cmd = Command::new(FILEN_BIN);
+        let mut cmd = Command::new(resolve_filen_bin());
         if let Some(data_path) = super::get_default_data_dir() {
             cmd.arg("--data-dir").arg(data_path);
         }
@@ -565,10 +640,16 @@ impl Operations {
                 let _ = std::fs::remove_file(creds_file);
             }
 
-            log("=== Khởi chạy tiến trình CLI: `filen whoami` qua `stdbuf` ===".to_string());
-            // Chạy lệnh whoami của filen qua stdbuf để vô hiệu hóa bộ đệm dòng
-            let mut cmd = Command::new("stdbuf");
-            cmd.arg("-o0").arg("-e0").arg(FILEN_BIN);
+            let bin = resolve_filen_bin();
+            let mut cmd = if cfg!(windows) {
+                log(format!("=== Khởi chạy tiến trình CLI: `{}` ===", bin.display()));
+                Command::new(&bin)
+            } else {
+                log(format!("=== Khởi chạy tiến trình CLI: `{}` qua `stdbuf` ===", bin.display()));
+                let mut c = Command::new("stdbuf");
+                c.arg("-o0").arg("-e0").arg(&bin);
+                c
+            };
             cmd.kill_on_drop(true);
             cmd.arg("--data-dir").arg(&data_path).arg("whoami");
             cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
