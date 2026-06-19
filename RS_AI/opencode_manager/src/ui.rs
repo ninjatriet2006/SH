@@ -268,7 +268,7 @@ fn draw_logs(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn draw_footer(f: &mut Frame, area: Rect, _app: &App) {
-    let helper = " [Enter] Check/Scan | [A] Thêm | [E] Sửa | [D] Xoá | [C] Clean | [S] Đồng bộ auth | [M] Keys | [Q] Thoát ";
+    let helper = " [Enter] Check/Scan | [A] Thêm | [E] Sửa | [D] Xoá | [C] Clean | [S] Đồng bộ auth | [M] Keys | [Alt+O] OpenCode | [Q] Thoát ";
     let paragraph = Paragraph::new(helper)
         .style(Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD))
         .alignment(Alignment::Center);

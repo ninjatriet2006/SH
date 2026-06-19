@@ -120,6 +120,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     break;
                 }
 
+                // Xử lý phím tắt Alt+O để khởi chạy OpenCode
+                if key.modifiers.contains(KeyModifiers::ALT) && (key.code == KeyCode::Char('o') || key.code == KeyCode::Char('O')) {
+                    app.launch_opencode();
+                    draw_needed = true;
+                    continue;
+                }
+
                 match app.current_screen {
                     Screen::Main => match key.code {
                         KeyCode::Char('q') => break,

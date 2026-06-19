@@ -49,6 +49,7 @@ pub enum AppMessage {
     Test { provider_id: String, status: ApiStatus },
     Scan { provider_id: String, models: Result<Vec<String>, String> },
     FormTest { status: ApiStatus },
+    Log(String),
 }
 
 pub struct App {
@@ -725,6 +726,9 @@ impl App {
                 self.form.test_status = Some(status.clone());
                 self.log(format!("Kết quả kiểm thử form: {}", status));
             }
+            AppMessage::Log(msg) => {
+                self.log(msg);
+            }
         }
     }
 
@@ -1078,6 +1082,113 @@ impl App {
         self.update_provider_keys();
         self.current_screen = Screen::Main;
         Ok(())
+    }
+
+    pub fn launch_opencode(&mut self) {
+        self.log("Đang tìm kiếm opencode trên máy...");
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let path_opt = tokio::task::spawn_blocking(|| {
+                let temp_dir = std::env::temp_dir();
+                let script_path = temp_dir.join("find_opencode.ps1");
+                let script_content = r#"
+$exe = Get-Command opencode -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+if ($exe -and (Test-Path $exe)) { Write-Output $exe; exit }
+
+$paths = @(
+    "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+    "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
+)
+$regItems = Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue | Where-Object {
+    $_.DisplayName -match "opencode" -or
+    $_.PSChildName -match "opencode" -or
+    $_.InstallLocation -match "opencode" -or
+    $_.UninstallString -match "opencode"
+}
+
+foreach ($item in $regItems) {
+    if ($item.InstallLocation -and (Test-Path $item.InstallLocation)) {
+        $p = Join-Path $item.InstallLocation "opencode.exe"
+        if (Test-Path $p) { Write-Output $p; exit }
+    }
+    if ($item.UninstallString -match '"([^"]+)"') {
+        $unpath = $Matches[1]
+        $dir = Split-Path $unpath -Parent
+        $p = Join-Path $dir "opencode.exe"
+        if (Test-Path $p) { Write-Output $p; exit }
+    }
+}
+
+$fallbacks = @(
+    "$env:LOCALAPPDATA\Programs\opencode\opencode.exe",
+    "$env:ProgramFiles\opencode\opencode.exe",
+    "$env:SystemDrive\Program Files (x86)\opencode\opencode.exe"
+)
+foreach ($fb in $fallbacks) {
+    if (Test-Path $fb) { Write-Output $fb; exit }
+}
+
+$wingetPath = Get-ChildItem -Path "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\SST.opencode*" -ErrorAction SilentlyContinue | 
+    ForEach-Object { Join-Path $_.FullName "opencode.exe" } | 
+    Where-Object { Test-Path $_ } | 
+    Select-Object -First 1
+if ($wingetPath) { Write-Output $wingetPath; exit }
+"#;
+
+                if std::fs::write(&script_path, script_content).is_err() {
+                    return None;
+                }
+
+                let output = std::process::Command::new("powershell")
+                    .arg("-NoProfile")
+                    .arg("-ExecutionPolicy")
+                    .arg("Bypass")
+                    .arg("-File")
+                    .arg(&script_path)
+                    .output();
+
+                let _ = std::fs::remove_file(&script_path);
+
+                if let Ok(out) = output {
+                    if out.status.success() {
+                        let stdout = String::from_utf8_lossy(&out.stdout);
+                        let path = stdout.trim().to_string();
+                        if !path.is_empty() {
+                            return Some(path);
+                        }
+                    }
+                }
+                None
+            }).await.unwrap_or(None);
+
+            if let Some(path) = path_opt {
+                let _ = tx.send(AppMessage::Log(format!("Tìm thấy opencode tại: {}", path)));
+                
+                let status_res = tokio::task::spawn_blocking(move || {
+                    std::process::Command::new("cmd")
+                        .arg("/c")
+                        .arg("start")
+                        .arg("")
+                        .arg(&path)
+                        .status()
+                }).await.unwrap_or_else(|e| Err(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())));
+
+                match status_res {
+                    Ok(status) if status.success() => {
+                        let _ = tx.send(AppMessage::Log("Đã khởi chạy opencode thành công.".to_string()));
+                    }
+                    Ok(status) => {
+                        let _ = tx.send(AppMessage::Log(format!("Khởi chạy opencode lỗi (Exit code: {}).", status)));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(AppMessage::Log(format!("Không thể khởi chạy opencode: {}", e)));
+                    }
+                }
+            } else {
+                let _ = tx.send(AppMessage::Log("Không tìm thấy opencode trên máy. Hãy cài đặt opencode trước.".to_string()));
+            }
+        });
     }
 }
 
