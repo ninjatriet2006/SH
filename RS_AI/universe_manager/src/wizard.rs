@@ -1000,33 +1000,87 @@ pub fn run_wizard(initial_path: Option<String>) -> Result<bool, String> {
         let source_str_opt = if let Some(path) = initial_path {
             Some(path)
         } else {
-            loop {
-                let prompt_msg = "Nhập đường dẫn thư mục ứng dụng hoặc file (nén)".to_string();
-                
-                let path_opt = read_line_with_esc(&prompt_msg, None)
-                    .map_err(|e| format!("Lỗi nhập liệu: {}", e))?;
-                    
-                match path_opt {
-                    Some(p) => {
-                        let parsed = parse_paths(&p);
-                        if parsed.is_empty() {
-                            println!("Vui lòng nhập đường dẫn hợp lệ.");
-                            continue;
-                        }
-                        let mut all_exist = true;
-                        for path_str in &parsed {
-                            if !Path::new(path_str).exists() {
-                                println!("Đường dẫn không tồn tại: {}! Vui lòng nhập lại.", path_str);
-                                all_exist = false;
-                                break;
+            let choices = vec![
+                "1. Nhập đường dẫn thủ công (Thư mục hoặc tệp nén)",
+                "2. Tự động quét và tìm kiếm AppImage/tệp chạy di động chưa tích hợp",
+            ];
+            println!("\n  [Phím tắt: Mũi tên ↑/↓ để di chuyển | Enter để chọn | Esc để huỷ/thoát]");
+            let choice_opt = Select::new()
+                .with_prompt("Chọn phương thức nhập nguồn ứng dụng:")
+                .items(&choices)
+                .default(0)
+                .interact_opt()
+                .map_err(|e| format!("Lỗi chọn: {}", e))?;
+
+            match choice_opt {
+                Some(0) => {
+                    let mut path_result = None;
+                    loop {
+                        let prompt_msg = "Nhập đường dẫn thư mục ứng dụng hoặc tệp chạy".to_string();
+                        let path_opt = read_line_with_esc(&prompt_msg, None)
+                            .map_err(|e| format!("Lỗi nhập liệu: {}", e))?;
+                        match path_opt {
+                            Some(p) => {
+                                let parsed = parse_paths(&p);
+                                if parsed.is_empty() {
+                                    println!("Vui lòng nhập đường dẫn hợp lệ.");
+                                    continue;
+                                }
+                                let mut all_exist = true;
+                                for path_str in &parsed {
+                                    if !Path::new(path_str).exists() {
+                                        println!("Đường dẫn không tồn tại: {}! Vui lòng nhập lại.", path_str);
+                                        all_exist = false;
+                                        break;
+                                    }
+                                }
+                                if all_exist {
+                                    path_result = Some(p);
+                                    break;
+                                }
                             }
-                        }
-                        if all_exist {
-                            break Some(p);
+                            None => break, // Esc
                         }
                     }
-                    None => break None, // Esc pressed
+                    path_result
                 }
+                Some(1) => {
+                    println!("\nĐang quét ổ đĩa tìm kiếm ứng dụng di động chưa tích hợp...");
+                    let discovered = detector::scan_for_unintegrated_apps(&config);
+                    if discovered.is_empty() {
+                        println!("Không tìm thấy ứng dụng di động chưa tích hợp nào trong các thư mục mặc định.");
+                        println!("Nhấn Enter để tiếp tục...");
+                        let mut buf = String::new();
+                        let _ = io::stdin().read_line(&mut buf);
+                        None
+                    } else {
+                        let selections: Vec<String> = discovered.iter()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .collect();
+                        
+                        println!("\n  [Phím tắt: Mũi tên ↑/↓ | Space để tích chọn | Enter để chạy | Esc để huỷ]");
+                        let chosen_opts = MultiSelect::new()
+                            .with_prompt("Tìm thấy các ứng dụng chưa tích hợp. Hãy tích chọn ứng dụng bạn muốn thêm:")
+                            .items(&selections)
+                            .interact_opt()
+                            .map_err(|e| format!("Lỗi chọn: {}", e))?;
+                        
+                        if let Some(choices) = chosen_opts {
+                            if choices.is_empty() {
+                                None
+                            } else {
+                                let paths_str = choices.iter()
+                                    .map(|&idx| format!("\"{}\"", discovered[idx].to_string_lossy()))
+                                    .collect::<Vec<String>>()
+                                    .join(" ");
+                                Some(paths_str)
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                }
+                _ => None,
             }
         };
 

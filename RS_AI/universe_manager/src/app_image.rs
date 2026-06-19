@@ -3,12 +3,15 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use crate::detector::DesktopMetadata;
 use tempfile::TempDir;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+
 
 /// Extracts the desktop file and icon from an AppImage using its `--appimage-extract` CLI option.
 /// Returns the parsed metadata, and optionally the extracted icon's bytes/path.
 pub fn extract_metadata(appimage_path: &Path) -> Result<(DesktopMetadata, Option<PathBuf>), std::io::Error> {
     // Ensure the AppImage has executable permission first, otherwise we cannot execute it to extract
+    #[cfg(unix)]
     if let Ok(metadata) = fs::metadata(appimage_path) {
         let mut permissions = metadata.permissions();
         let mode = permissions.mode();

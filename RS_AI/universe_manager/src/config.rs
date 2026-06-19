@@ -1,15 +1,17 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use serde::{Serialize, Deserialize};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
 pub enum InstallType {
+    #[default]
     InPlace,
     Moved,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct AppEntry {
     pub id: String,
     pub name: String,
@@ -26,6 +28,18 @@ pub struct AppEntry {
     pub stop_cmd: Option<String>,
     pub category: Option<String>,
     pub package_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub product_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub about_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uninstall_cmd: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -46,6 +60,47 @@ pub enum AppStatus {
     Broken(Vec<String>),
 }
 
+fn extract_exec_path(cmd: &str) -> Option<PathBuf> {
+    let trimmed = cmd.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    
+    let path_str = if trimmed.starts_with('"') {
+        if let Some(end_idx) = trimmed[1..].find('"') {
+            trimmed[1..end_idx + 1].to_string()
+        } else {
+            trimmed[1..].to_string()
+        }
+    } else {
+        let cmd_lower = trimmed.to_lowercase();
+        let mut found_ext = None;
+        for ext in &[".exe", ".bat", ".cmd", ".msi"] {
+            if let Some(idx) = cmd_lower.find(ext) {
+                found_ext = Some(idx + ext.len());
+                break;
+            }
+        }
+        if let Some(end_idx) = found_ext {
+            trimmed[..end_idx].to_string()
+        } else {
+            trimmed.split_whitespace().next().unwrap_or("").to_string()
+        }
+    };
+    
+    let clean_path = path_str.trim().to_string();
+    if clean_path.is_empty() {
+        return None;
+    }
+    
+    let name_lower = clean_path.to_lowercase();
+    if name_lower == "msiexec" || name_lower == "msiexec.exe" {
+        return Some(PathBuf::from("C:\\Windows\\System32\\msiexec.exe"));
+    }
+    
+    Some(PathBuf::from(clean_path))
+}
+
 impl AppEntry {
     /// Checks the health status of this integrated application.
     /// - Broken (Red): Install folder or main executable missing.
@@ -53,7 +108,27 @@ impl AppEntry {
     /// - Healthy (Green): All paths are intact.
     pub fn check_status(&self) -> AppStatus {
         if let Some(ref ptype) = self.package_type {
-            if ptype == "APT" || ptype == "Flatpak" || ptype == "Snap" {
+            if ptype == "Registry" {
+                let mut broken_issues = Vec::new();
+                if let Some(ref cmd) = self.uninstall_cmd {
+                    if cmd.trim().is_empty() {
+                        broken_issues.push("Không có lệnh gỡ cài đặt (UninstallString)".to_string());
+                    } else if let Some(exec_path) = extract_exec_path(cmd) {
+                        if !exec_path.exists() {
+                            broken_issues.push(format!("File chạy gỡ cài đặt không tồn tại: {}", exec_path.to_string_lossy()));
+                        }
+                    } else {
+                        broken_issues.push("Không thể phân tích file chạy từ lệnh gỡ cài đặt".to_string());
+                    }
+                } else {
+                    broken_issues.push("Không có thông tin lệnh gỡ cài đặt".to_string());
+                }
+                
+                if !broken_issues.is_empty() {
+                    return AppStatus::Broken(broken_issues);
+                }
+                return AppStatus::Healthy;
+            } else if ptype != "Local" {
                 return AppStatus::Healthy;
             }
         }
@@ -77,6 +152,7 @@ impl AppEntry {
             broken_issues.push(format!("Đường dẫn file chạy không phải là file: {}", self.exec_path));
         } else {
             // Check if executable permission is set
+            #[cfg(unix)]
             if let Ok(metadata) = fs::metadata(exec_path) {
                 let mode = metadata.permissions().mode();
                 if mode & 0o111 == 0 {

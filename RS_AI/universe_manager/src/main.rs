@@ -79,36 +79,36 @@ enum Commands {
 }
 
 fn main() {
+    #[cfg(target_os = "linux")]
     use std::io::IsTerminal;
     let cli = Cli::parse();
 
+    #[cfg(target_os = "linux")]
     let is_tui = match &cli.command {
         None | Some(Commands::Tui) => true,
         _ => false,
     };
 
+    #[cfg(target_os = "linux")]
     if is_tui && !std::io::stdout().is_terminal() && std::env::var("UNIVERSE_MANAGER_WRAPPED").is_err() {
         if let Ok(exe) = std::env::current_exe() {
-            #[cfg(target_os = "linux")]
-            {
-                let terminals = ["gnome-terminal", "konsole", "xfce4-terminal", "x-terminal-emulator", "xterm"];
-                for term in terminals {
-                    if std::process::Command::new(term)
-                        .arg("--")
-                        .arg(&exe)
-                        .env("UNIVERSE_MANAGER_WRAPPED", "1")
-                        .spawn()
-                        .is_ok()
-                        ||
-                       std::process::Command::new(term)
-                        .arg("-e")
-                        .arg(&exe)
-                        .env("UNIVERSE_MANAGER_WRAPPED", "1")
-                        .spawn()
-                        .is_ok()
-                    {
-                        return;
-                    }
+            let terminals = ["gnome-terminal", "konsole", "xfce4-terminal", "x-terminal-emulator", "xterm"];
+            for term in terminals {
+                if std::process::Command::new(term)
+                    .arg("--")
+                    .arg(&exe)
+                    .env("UNIVERSE_MANAGER_WRAPPED", "1")
+                    .spawn()
+                    .is_ok()
+                    ||
+                   std::process::Command::new(term)
+                    .arg("-e")
+                    .arg(&exe)
+                    .env("UNIVERSE_MANAGER_WRAPPED", "1")
+                    .spawn()
+                    .is_ok()
+                {
+                    return;
                 }
             }
         }

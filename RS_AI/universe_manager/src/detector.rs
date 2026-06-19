@@ -1,7 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+
 
 #[derive(Debug, Clone)]
 pub struct DetectionResult {
@@ -175,24 +177,30 @@ pub fn detect<P: AsRef<Path>>(target: P) -> Result<DetectionResult, std::io::Err
         // Check for executables:
         // - Must have executable permissions on unix
         // - Exclude common library or data files to reduce noise
-        if let Ok(metadata) = fs::metadata(file_path) {
+        #[cfg(unix)]
+        let is_exec = if let Ok(metadata) = fs::metadata(file_path) {
             let mode = metadata.permissions().mode();
-            let is_exec = mode & 0o111 != 0;
+            mode & 0o111 != 0
+        } else {
+            false
+        };
 
-            if is_exec {
-                // Filter out common false positives and helper tools
-                let is_lib = name.contains(".so") || name.ends_with(".a") || name.ends_with(".node");
-                let is_help_tool = name == "chrome-sandbox" 
-                    || name == "chrome_crashpad_handler" 
-                    || name == "crashpad_handler"
-                    || name == "updater"
-                    || name == "Updater"
-                    || name == "update"
-                    || name == "Update";
-                
-                if !is_lib && !is_help_tool {
-                    executables.push(file_path.to_path_buf());
-                }
+        #[cfg(not(unix))]
+        let is_exec = true;
+
+        if is_exec {
+            // Filter out common false positives and helper tools
+            let is_lib = name.contains(".so") || name.ends_with(".a") || name.ends_with(".node");
+            let is_help_tool = name == "chrome-sandbox" 
+                || name == "chrome_crashpad_handler" 
+                || name == "crashpad_handler"
+                || name == "updater"
+                || name == "Updater"
+                || name == "update"
+                || name == "Update";
+            
+            if !is_lib && !is_help_tool {
+                executables.push(file_path.to_path_buf());
             }
         }
     }
@@ -282,4 +290,177 @@ pub fn detect<P: AsRef<Path>>(target: P) -> Result<DetectionResult, std::io::Err
         icons,
         desktop_templates,
     })
+}
+
+/// Scans standard directories for unintegrated portable apps/AppImages.
+pub fn scan_for_unintegrated_apps(config: &crate::config::Config) -> Vec<PathBuf> {
+    let mut paths_to_scan = Vec::new();
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+
+    // Dynamic home folders
+    paths_to_scan.push(home.join("Applications"));
+    paths_to_scan.push(home.join("Downloads"));
+    paths_to_scan.push(home.join("Desktop"));
+
+    #[cfg(unix)]
+    {
+        paths_to_scan.push(PathBuf::from("/opt"));
+        paths_to_scan.push(home.join(".local/bin"));
+        paths_to_scan.push(PathBuf::from("/usr/local/bin"));
+    }
+
+    #[cfg(windows)]
+    {
+        paths_to_scan.push(home.join("Documents"));
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            paths_to_scan.push(PathBuf::from(appdata).join("Local").join("Programs"));
+        }
+    }
+
+    let mut unintegrated = Vec::new();
+    let mut registered_paths = std::collections::HashSet::new();
+
+    // Collect already registered executable/source paths
+    for app in &config.apps {
+        if let Some(ref sp) = app.source_path {
+            if let Ok(canon) = Path::new(sp).canonicalize() {
+                registered_paths.insert(canon);
+            }
+        }
+        if let Ok(canon) = Path::new(&app.exec_path).canonicalize() {
+            registered_paths.insert(canon);
+        }
+    }
+
+    for dir in paths_to_scan {
+        if !dir.exists() || !dir.is_dir() {
+            continue;
+        }
+
+        // Walk with max_depth 2 to keep it fast
+        for entry in WalkDir::new(&dir)
+            .max_depth(2)
+            .into_iter()
+            .filter_map(Result::ok)
+        {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+
+            let filename = path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+
+            #[cfg(unix)]
+            {
+                // On Linux, look for .AppImage or .appimage
+                if filename.ends_with(".appimage") {
+                    if let Ok(canon) = path.canonicalize() {
+                        if !registered_paths.contains(&canon) {
+                            unintegrated.push(path.to_path_buf());
+                        }
+                    }
+                }
+            }
+
+            #[cfg(windows)]
+            {
+                // On Windows, look for standalone executable (.exe) files
+                if filename.ends_with(".exe") {
+                    // Filter out common installers/uninstallers or helper executables
+                    let is_installer = filename.contains("setup") 
+                        || filename.contains("install") 
+                        || filename.contains("uninst") 
+                        || filename.contains("patch")
+                        || filename.contains("update");
+                    
+                    if !is_installer {
+                        if let Ok(canon) = path.canonicalize() {
+                            if !registered_paths.contains(&canon) {
+                                unintegrated.push(path.to_path_buf());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    unintegrated.sort();
+    unintegrated.dedup();
+    unintegrated
+}
+
+/// Detects which framework is used to build the application.
+pub fn detect_framework(dir: &Path) -> String {
+    if !dir.exists() {
+        return "Unknown".to_string();
+    }
+
+    let mut has_asar = false;
+    let mut has_flutter = false;
+    let mut has_qt = false;
+    let mut has_jvm = false;
+    let mut has_package_json = false;
+
+    // Scan the folder for files
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_lowercase();
+            let path = entry.path();
+
+            if name == "resources" && path.is_dir() {
+                if path.join("app.asar").exists() {
+                    has_asar = true;
+                }
+            }
+            if name == "package.json" {
+                has_package_json = true;
+            }
+            if name == "flutter_assets" && path.is_dir() {
+                has_flutter = true;
+            }
+            if name.contains("flutter") {
+                has_flutter = true;
+            }
+            if name.contains("qt5") || name.contains("qt6") {
+                has_qt = true;
+            }
+            if name.ends_with(".jar") || name.contains("jvm") {
+                has_jvm = true;
+            }
+        }
+    }
+
+    // Secondary scan via walkdir (max_depth 2)
+    for entry in WalkDir::new(dir)
+        .max_depth(2)
+        .into_iter()
+        .filter_map(Result::ok)
+    {
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        if name.contains("qt5core") || name.contains("qt6core") || name.contains("libqt5") || name.contains("libqt6") {
+            has_qt = true;
+        }
+        if name.contains("flutter") {
+            has_flutter = true;
+        }
+        if name == "app.asar" {
+            has_asar = true;
+        }
+        if name.ends_with(".jar") {
+            has_jvm = true;
+        }
+    }
+
+    if has_asar || (has_package_json && has_flutter == false) {
+        "Electron".to_string()
+    } else if has_flutter {
+        "Flutter".to_string()
+    } else if has_qt {
+        "Qt (C++)".to_string()
+    } else if has_jvm {
+        "Java".to_string()
+    } else {
+        "Native / C++".to_string()
+    }
 }

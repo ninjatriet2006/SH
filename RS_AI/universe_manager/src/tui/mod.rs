@@ -94,6 +94,12 @@ fn run_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result
                             app.toggle_checked();
                             draw_needed = true;
                         }
+                        KeyCode::Delete => {
+                            if app.current_screen == app::Screen::AutostartManager {
+                                app.delete_selected_autostart();
+                                draw_needed = true;
+                            }
+                        }
                         KeyCode::Insert => {
                             match app.current_screen {
                                 app::Screen::AppList => {

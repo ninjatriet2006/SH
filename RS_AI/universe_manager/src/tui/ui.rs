@@ -5,6 +5,7 @@ use ratatui::{
 use crate::config::{AppStatus, InstallType};
 use crate::tui::app::{App, Screen};
 use crate::manager;
+use std::path::Path;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let size = f.size();
@@ -52,6 +53,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         }
         Screen::UninstallList => {
             draw_uninstall_list(f, app, chunks[1]);
+        }
+        Screen::AutostartManager => {
+            draw_autostart_manager(f, app, chunks[1]);
         }
     }
 
@@ -107,6 +111,14 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             Span::styled(" | ", Style::default().fg(Color::DarkGray)),
             Span::styled("Backspace/Esc: Quay lại Menu chính", Style::default().fg(Color::LightRed)),
         ]),
+        Screen::AutostartManager => Line::from(vec![
+            Span::styled(" Phím tắt: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled("↑↓/j/k: Duyệt danh sách", Style::default().fg(Color::LightBlue)),
+            Span::styled(" | ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Enter/Delete: Gỡ bỏ chương trình khỏi Startup", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Span::styled(" | ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Backspace/Esc: Quay lại Menu chính", Style::default().fg(Color::LightRed)),
+        ]),
     };
     let footer_para = Paragraph::new(footer_text).alignment(Alignment::Center);
     f.render_widget(footer_para, chunks[3]);
@@ -118,8 +130,9 @@ fn draw_main_menu(f: &mut Frame, app: &App, area: Rect) {
         " 2. Tích hợp / Chuyển đổi / Cập nhật Portable ",
         " 3. Gỡ cài đặt ứng dụng (Xoá shortcut & dữ liệu) ",
         " 4. Kiểm tra Cập nhật hệ thống (APT, Flatpak, Snap) ",
-        " 5. Dọn dẹp Leftovers (Purge APT config & Flatpak unused) ",
-        " 6. Thoát chương trình ",
+        " 5. Dọn dẹp leftovers (Quét & dọn dẹp thư mục cấu hình rác) ",
+        " 6. Quản lý khởi động cùng hệ thống (Autostart Manager) ",
+        " 7. Thoát chương trình ",
     ];
 
     let items: Vec<ListItem> = menu_items.iter().enumerate().map(|(i, &item)| {
@@ -150,7 +163,6 @@ fn draw_main_menu(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_app_list(f: &mut Frame, app: &mut App, process_snapshot: &manager::ProcessSnapshot, area: Rect) {
-
     // Left: 60%, Right: 40%
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -199,9 +211,9 @@ fn draw_app_list(f: &mut Frame, app: &mut App, process_snapshot: &manager::Proce
 
             let category_str = entry.category.as_deref().unwrap_or("Other");
             let category_style = if i == app.selected_index {
-                Style::default().bg(Color::Blue).fg(Color::Rgb(244, 164, 96)).add_modifier(Modifier::BOLD) // SandyBrown on Blue
+                Style::default().bg(Color::Blue).fg(Color::Rgb(244, 164, 96)).add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::Rgb(210, 105, 30)) // Chocolate brown
+                Style::default().fg(Color::Rgb(210, 105, 30))
             };
 
             let source_str = entry.package_type.as_deref().unwrap_or("Local");
@@ -210,6 +222,12 @@ fn draw_app_list(f: &mut Frame, app: &mut App, process_snapshot: &manager::Proce
                     "APT" => Style::default().bg(Color::Blue).fg(Color::Cyan).add_modifier(Modifier::BOLD),
                     "Flatpak" => Style::default().bg(Color::Blue).fg(Color::Magenta).add_modifier(Modifier::BOLD),
                     "Snap" => Style::default().bg(Color::Blue).fg(Color::LightYellow).add_modifier(Modifier::BOLD),
+                    "Homebrew" => Style::default().bg(Color::Blue).fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    "Winget" => Style::default().bg(Color::Blue).fg(Color::LightGreen).add_modifier(Modifier::BOLD),
+                    "Scoop" => Style::default().bg(Color::Blue).fg(Color::LightYellow).add_modifier(Modifier::BOLD),
+                    "Chocolatey" => Style::default().bg(Color::Blue).fg(Color::Magenta).add_modifier(Modifier::BOLD),
+                    "Registry" => Style::default().bg(Color::Blue).fg(Color::LightCyan).add_modifier(Modifier::BOLD),
+                    "MSIX" => Style::default().bg(Color::Blue).fg(Color::Cyan).add_modifier(Modifier::BOLD),
                     _ => Style::default().bg(Color::Blue).fg(Color::Green).add_modifier(Modifier::BOLD),
                 }
             } else {
@@ -217,6 +235,12 @@ fn draw_app_list(f: &mut Frame, app: &mut App, process_snapshot: &manager::Proce
                     "APT" => Style::default().fg(Color::Cyan),
                     "Flatpak" => Style::default().fg(Color::Magenta),
                     "Snap" => Style::default().fg(Color::LightYellow),
+                    "Homebrew" => Style::default().fg(Color::Cyan),
+                    "Winget" => Style::default().fg(Color::LightGreen),
+                    "Scoop" => Style::default().fg(Color::LightYellow),
+                    "Chocolatey" => Style::default().fg(Color::Magenta),
+                    "Registry" => Style::default().fg(Color::LightCyan),
+                    "MSIX" => Style::default().fg(Color::Cyan),
                     _ => Style::default().fg(Color::Green),
                 }
             };
@@ -234,7 +258,7 @@ fn draw_app_list(f: &mut Frame, app: &mut App, process_snapshot: &manager::Proce
             Constraint::Length(6),
             Constraint::Min(20),
             Constraint::Length(12),
-            Constraint::Length(9),
+            Constraint::Length(10),
             Constraint::Length(10),
         ];
 
@@ -261,6 +285,14 @@ fn draw_app_list(f: &mut Frame, app: &mut App, process_snapshot: &manager::Proce
             InstallType::Moved => "Đã chuyển (Moved / Lưu tại thư mục quản lý tập trung)",
         };
 
+        let exec_path = Path::new(&entry.exec_path);
+        let app_dir = if exec_path.is_file() {
+            exec_path.parent().unwrap_or(Path::new(""))
+        } else {
+            Path::new(&entry.install_path)
+        };
+        let framework = crate::detector::detect_framework(app_dir);
+
         let mut details_text = vec![
             Line::from(vec![
                 Span::styled(" Tên ứng dụng:       ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
@@ -270,27 +302,83 @@ fn draw_app_list(f: &mut Frame, app: &mut App, process_snapshot: &manager::Proce
                 Span::styled(" App ID:             ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
                 Span::styled(&entry.id, Style::default().fg(Color::White)),
             ]),
-            Line::from(vec![
-                Span::styled(" Trạng thái chạy:    ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::styled(if is_running { "ĐANG CHẠY (RUNNING)" } else { "ĐÃ DỪNG (STOPPED)" }, Style::default().fg(if is_running { Color::Green } else { Color::Red }).add_modifier(Modifier::BOLD)),
-            ]),
-            Line::from(vec![
-                Span::styled(" Khởi động hệ thống: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::styled(if autostart_enabled { "ĐÃ BẬT (ENABLED)" } else { "ĐÃ TẮT (DISABLED)" }, Style::default().fg(if autostart_enabled { Color::Yellow } else { Color::DarkGray }).add_modifier(Modifier::BOLD)),
-            ]),
-            Line::from(vec![
+        ];
+
+        if let Some(ref ver) = entry.version {
+            details_text.push(Line::from(vec![
+                Span::styled(" Phiên bản:          ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(ver, Style::default().fg(Color::White)),
+            ]));
+        }
+
+        if let Some(ref pub_name) = entry.publisher {
+            details_text.push(Line::from(vec![
+                Span::styled(" Nhà phát triển:     ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(pub_name, Style::default().fg(Color::White)),
+            ]));
+        }
+
+        details_text.push(Line::from(vec![
+            Span::styled(" Trạng thái chạy:    ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(if is_running { "ĐANG CHẠY (RUNNING)" } else { "ĐÃ DỪNG (STOPPED)" }, Style::default().fg(if is_running { Color::Green } else { Color::Red }).add_modifier(Modifier::BOLD)),
+        ]));
+
+        details_text.push(Line::from(vec![
+            Span::styled(" Khởi động hệ thống: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(if autostart_enabled { "ĐÃ BẬT (ENABLED)" } else { "ĐÃ TẮT (DISABLED)" }, Style::default().fg(if autostart_enabled { Color::Yellow } else { Color::DarkGray }).add_modifier(Modifier::BOLD)),
+        ]));
+
+        if entry.package_type.as_deref() != Some("Registry") {
+            details_text.push(Line::from(vec![
                 Span::styled(" Kiểu cài đặt:       ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
                 Span::styled(install_type_str, Style::default().fg(Color::White)),
-            ]),
-            Line::from(vec![
+            ]));
+            details_text.push(Line::from(vec![
+                Span::styled(" Công nghệ/Framework:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(framework, Style::default().fg(Color::White)),
+            ]));
+            details_text.push(Line::from(vec![
                 Span::styled(" File chạy chính:    ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
                 Span::styled(&entry.exec_path, Style::default().fg(Color::White)),
-            ]),
-            Line::from(vec![
-                Span::styled(" Thư mục lưu:        ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::styled(&entry.install_path, Style::default().fg(Color::White)),
-            ]),
-        ];
+            ]));
+            if !entry.install_path.is_empty() {
+                details_text.push(Line::from(vec![
+                    Span::styled(" Thư mục lưu:        ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(&entry.install_path, Style::default().fg(Color::White)),
+                ]));
+            }
+        } else {
+            if let Some(ref reg_key) = entry.registry_key {
+                details_text.push(Line::from(vec![
+                    Span::styled(" Khóa Registry:      ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(reg_key, Style::default().fg(Color::White)),
+                ]));
+            }
+            if let Some(ref prod_code) = entry.product_code {
+                details_text.push(Line::from(vec![
+                    Span::styled(" Mã sản phẩm (GUID): ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(prod_code, Style::default().fg(Color::White)),
+                ]));
+            }
+            if let Some(ref url) = entry.about_url {
+                details_text.push(Line::from(vec![
+                    Span::styled(" URL thông tin:      ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(url, Style::default().fg(Color::White)),
+                ]));
+            }
+            if let Some(ref uninst) = entry.uninstall_cmd {
+                details_text.push(Line::from(vec![
+                    Span::styled(" Lệnh gỡ cài đặt:    ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(uninst, Style::default().fg(Color::White)),
+                ]));
+            }
+            if !entry.install_path.is_empty() {
+                details_text.push(Line::from(vec![
+                    Span::styled(" Thư mục lưu:        ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(&entry.install_path, Style::default().fg(Color::White)),
+                ]));
+            }
+        }
 
         if entry.is_custom.unwrap_or(false) {
             details_text.push(Line::from(""));
@@ -529,7 +617,7 @@ fn draw_uninstall_list(f: &mut Frame, app: &mut App, area: Rect) {
             let category_style = if i == app.selected_index {
                 Style::default().bg(Color::Blue).fg(Color::Rgb(244, 164, 96)).add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::Rgb(210, 105, 30)) // Chocolate brown
+                Style::default().fg(Color::Rgb(210, 105, 30))
             };
 
             let source_str = entry.package_type.as_deref().unwrap_or("Local");
@@ -538,6 +626,12 @@ fn draw_uninstall_list(f: &mut Frame, app: &mut App, area: Rect) {
                     "APT" => Style::default().bg(Color::Blue).fg(Color::Cyan).add_modifier(Modifier::BOLD),
                     "Flatpak" => Style::default().bg(Color::Blue).fg(Color::Magenta).add_modifier(Modifier::BOLD),
                     "Snap" => Style::default().bg(Color::Blue).fg(Color::LightYellow).add_modifier(Modifier::BOLD),
+                    "Homebrew" => Style::default().bg(Color::Blue).fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    "Winget" => Style::default().bg(Color::Blue).fg(Color::LightGreen).add_modifier(Modifier::BOLD),
+                    "Scoop" => Style::default().bg(Color::Blue).fg(Color::LightYellow).add_modifier(Modifier::BOLD),
+                    "Chocolatey" => Style::default().bg(Color::Blue).fg(Color::Magenta).add_modifier(Modifier::BOLD),
+                    "Registry" => Style::default().bg(Color::Blue).fg(Color::LightCyan).add_modifier(Modifier::BOLD),
+                    "MSIX" => Style::default().bg(Color::Blue).fg(Color::Cyan).add_modifier(Modifier::BOLD),
                     _ => Style::default().bg(Color::Blue).fg(Color::Green).add_modifier(Modifier::BOLD),
                 }
             } else {
@@ -545,6 +639,12 @@ fn draw_uninstall_list(f: &mut Frame, app: &mut App, area: Rect) {
                     "APT" => Style::default().fg(Color::Cyan),
                     "Flatpak" => Style::default().fg(Color::Magenta),
                     "Snap" => Style::default().fg(Color::LightYellow),
+                    "Homebrew" => Style::default().fg(Color::Cyan),
+                    "Winget" => Style::default().fg(Color::LightGreen),
+                    "Scoop" => Style::default().fg(Color::LightYellow),
+                    "Chocolatey" => Style::default().fg(Color::Magenta),
+                    "Registry" => Style::default().fg(Color::LightCyan),
+                    "MSIX" => Style::default().fg(Color::Cyan),
                     _ => Style::default().fg(Color::Green),
                 }
             };
@@ -561,7 +661,7 @@ fn draw_uninstall_list(f: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Length(6),
             Constraint::Min(20),
             Constraint::Length(12),
-            Constraint::Length(9),
+            Constraint::Length(10),
         ];
 
         let table = Table::new(rows, widths)
@@ -586,11 +686,11 @@ fn draw_uninstall_list(f: &mut Frame, app: &mut App, area: Rect) {
         Line::from(" Khi thực hiện gỡ cài đặt trên các app được tích:"),
         Line::from(vec![
             Span::styled("   1. ", Style::default().fg(Color::Red)),
-            Span::styled("Xoá toàn bộ launcher (.desktop) ra khỏi hệ thống.", Style::default().fg(Color::White)),
+            Span::styled("Xoá toàn bộ launcher (.desktop/.lnk) ra khỏi hệ thống.", Style::default().fg(Color::White)),
         ]),
         Line::from(vec![
             Span::styled("   2. ", Style::default().fg(Color::Red)),
-            Span::styled("Xoá các liên kết command-line symlink tại ~/.local/bin/.", Style::default().fg(Color::White)),
+            Span::styled("Xoá các liên kết CLI command symlink tại ~/.local/bin/.", Style::default().fg(Color::White)),
         ]),
         Line::from(vec![
             Span::styled("   3. ", Style::default().fg(Color::Red)),
@@ -598,7 +698,7 @@ fn draw_uninstall_list(f: &mut Frame, app: &mut App, area: Rect) {
         ]),
         Line::from(vec![
             Span::styled("   4. ", Style::default().fg(Color::Red)),
-            Span::styled("Đối với ứng dụng kiểu In-Place: Chỉ xoá file chạy nhị phân và icon đăng ký, KHÔNG xoá các file khác cùng thư mục để tránh mất mát dữ liệu người dùng.", Style::default().fg(Color::White)),
+            Span::styled("Đối với ứng dụng kiểu In-Place: Chỉ xoá tệp nhị phân chính và icon, KHÔNG xoá thư mục trừ phi ứng dụng nằm ở thư mục riêng biệt.", Style::default().fg(Color::White)),
         ]),
         Line::from(""),
         Line::from("-----------------------------------------------------------------"),
@@ -640,4 +740,64 @@ fn draw_uninstall_list(f: &mut Frame, app: &mut App, area: Rect) {
         .block(warn_block)
         .wrap(Wrap { trim: true });
     f.render_widget(paragraph, main_chunks[1]);
+}
+
+fn draw_autostart_manager(f: &mut Frame, app: &mut App, area: Rect) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Quản lý khởi động cùng hệ thống (Startup Entries) ")
+        .border_style(Style::default().fg(Color::Yellow));
+
+    if app.autostart_entries.is_empty() {
+        let empty_msg = Paragraph::new("\n Không có tiến trình khởi động nào được tìm thấy.")
+            .style(Style::default().fg(Color::Gray))
+            .alignment(Alignment::Center)
+            .block(block);
+        f.render_widget(empty_msg, area);
+    } else {
+        let header = Row::new(vec![
+            Cell::from("Tên chương trình"),
+            Cell::from("Lệnh thực thi"),
+            Cell::from("Vị trí khởi động"),
+            Cell::from("Trạng thái"),
+        ])
+        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+
+        let rows: Vec<Row> = app.autostart_entries.iter().enumerate().map(|(i, entry)| {
+            let highlight_style = if i == app.autostart_index {
+                Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+
+            let status_str = if entry.is_enabled { "ENABLED" } else { "DISABLED" };
+            let status_style = if entry.is_enabled {
+                Style::default().fg(Color::Green)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+
+            Row::new(vec![
+                Cell::from(entry.name.clone()).style(highlight_style),
+                Cell::from(entry.exec.clone()).style(highlight_style),
+                Cell::from(entry.location.clone()).style(highlight_style),
+                Cell::from(status_str).style(if i == app.autostart_index { status_style.bg(Color::Blue).add_modifier(Modifier::BOLD) } else { status_style }),
+            ])
+        }).collect();
+
+        let widths = [
+            Constraint::Percentage(25),
+            Constraint::Percentage(45),
+            Constraint::Percentage(20),
+            Constraint::Percentage(10),
+        ];
+
+        let table = Table::new(rows, widths)
+            .header(header)
+            .block(block)
+            .column_spacing(1);
+
+        app.autostart_state.select(Some(app.autostart_index));
+        f.render_stateful_widget(table, area, &mut app.autostart_state);
+    }
 }

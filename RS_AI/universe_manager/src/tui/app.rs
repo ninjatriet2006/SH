@@ -10,6 +10,7 @@ pub enum Screen {
     AppList,
     AppOperations,
     UninstallList,
+    AutostartManager,
 }
 
 pub struct App {
@@ -27,6 +28,9 @@ pub struct App {
     pub worker_thread: Option<std::thread::JoinHandle<()>>,
     pub app_list_state: TableState,
     pub uninstall_list_state: TableState,
+    pub autostart_entries: Vec<manager::AutostartEntry>,
+    pub autostart_index: usize,
+    pub autostart_state: TableState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,6 +77,9 @@ impl App {
             running_flag,
             app_list_state: TableState::default(),
             uninstall_list_state: TableState::default(),
+            autostart_entries: Vec::new(),
+            autostart_index: 0,
+            autostart_state: TableState::default(),
         };
         app.reload_apps();
         app
@@ -120,7 +127,7 @@ impl App {
     pub fn next(&mut self) {
         match self.current_screen {
             Screen::MainMenu => {
-                self.menu_index = (self.menu_index + 1) % 6;
+                self.menu_index = (self.menu_index + 1) % 7;
             }
             Screen::AppList | Screen::UninstallList => {
                 if !self.apps_with_status.is_empty() {
@@ -130,6 +137,11 @@ impl App {
             Screen::AppOperations => {
                 self.operations_index = (self.operations_index + 1) % 4;
             }
+            Screen::AutostartManager => {
+                if !self.autostart_entries.is_empty() {
+                    self.autostart_index = (self.autostart_index + 1) % self.autostart_entries.len();
+                }
+            }
         }
         self.status_message = None;
     }
@@ -138,7 +150,7 @@ impl App {
         match self.current_screen {
             Screen::MainMenu => {
                 if self.menu_index == 0 {
-                    self.menu_index = 5;
+                    self.menu_index = 6;
                 } else {
                     self.menu_index -= 1;
                 }
@@ -157,6 +169,15 @@ impl App {
                     self.operations_index = 3;
                 } else {
                     self.operations_index -= 1;
+                }
+            }
+            Screen::AutostartManager => {
+                if !self.autostart_entries.is_empty() {
+                    if self.autostart_index == 0 {
+                        self.autostart_index = self.autostart_entries.len() - 1;
+                    } else {
+                        self.autostart_index -= 1;
+                    }
                 }
             }
         }
@@ -182,7 +203,7 @@ impl App {
                     self.checked_operations.insert(self.operations_index);
                 }
             }
-            Screen::MainMenu => {}
+            _ => {}
         }
     }
 
@@ -212,13 +233,18 @@ impl App {
                         EnterResult::RunCleanLeftovers
                     }
                     5 => {
+                        self.current_screen = Screen::AutostartManager;
+                        self.autostart_entries = manager::scan_global_autostart();
+                        self.autostart_index = 0;
+                        EnterResult::None
+                    }
+                    6 => {
                         EnterResult::Exit
                     }
                     _ => EnterResult::None,
                 }
             }
             Screen::AppList => {
-                // Pressing Enter in AppList can trigger the operations screen directly
                 self.go_to_operations();
                 EnterResult::None
             }
@@ -228,6 +254,29 @@ impl App {
             }
             Screen::UninstallList => {
                 EnterResult::RunUninstalls
+            }
+            Screen::AutostartManager => {
+                self.delete_selected_autostart();
+                EnterResult::None
+            }
+        }
+    }
+
+    pub fn delete_selected_autostart(&mut self) {
+        if self.autostart_entries.is_empty() {
+            return;
+        }
+        let entry = &self.autostart_entries[self.autostart_index];
+        match manager::remove_autostart_entry(entry) {
+            Ok(_) => {
+                self.status_message = Some(format!("Đã gỡ bỏ '{}' khỏi khởi động cùng hệ thống!", entry.name));
+                self.autostart_entries = manager::scan_global_autostart();
+                if self.autostart_index >= self.autostart_entries.len() && !self.autostart_entries.is_empty() {
+                    self.autostart_index = self.autostart_entries.len() - 1;
+                }
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Lỗi khi gỡ autostart: {}", e));
             }
         }
     }
@@ -253,7 +302,7 @@ impl App {
     pub fn handle_back(&mut self) {
         match self.current_screen {
             Screen::MainMenu => {}
-            Screen::AppList | Screen::UninstallList => {
+            Screen::AppList | Screen::UninstallList | Screen::AutostartManager => {
                 self.current_screen = Screen::MainMenu;
                 self.status_message = None;
             }
