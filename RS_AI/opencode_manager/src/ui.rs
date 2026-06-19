@@ -99,7 +99,9 @@ fn draw_sidebar(f: &mut Frame, area: Rect, app: &mut App) {
 
     let items: Vec<ListItem> = app.providers_keys.iter().map(|key| {
         let provider = app.config.provider.get(key);
-        let name = provider.map(|p| p.name.as_str()).unwrap_or("Không tên");
+        let name = provider
+            .map(|p| if p.name.is_empty() { key.as_str() } else { p.name.as_str() })
+            .unwrap_or("Không tên");
         
         let status_str = match app.api_status_cache.get(key) {
             Some(Some(ApiStatus::Alive)) => ("● Hoạt động", Style::default().fg(Color::Green)),
@@ -170,6 +172,7 @@ fn draw_detail(f: &mut Frame, area: Rect, app: &mut App) {
         _ => "Chưa kiểm tra (Nhấn Enter để kiểm tra/quét)".to_string(),
     };
 
+    let name_display = if provider.name.is_empty() { "Không tên (Chưa thiết lập)" } else { &provider.name };
     let general_info = format!(
         "🔑 ID Provider:   {}\n\
          🏷️ Tên hiển thị:  {}\n\
@@ -177,7 +180,7 @@ fn draw_detail(f: &mut Frame, area: Rect, app: &mut App) {
          🔑 API Key:       {}\n\
          📊 Trạng thái:    {}",
         selected_id,
-        provider.name,
+        name_display,
         provider.options.base_url,
         obfuscated_key,
         status_desc
@@ -209,8 +212,8 @@ fn draw_detail(f: &mut Frame, area: Rect, app: &mut App) {
             let limit_str = if let Some(ref lim) = model.limit {
                 format!(
                     "In: {} / Out: {}", 
-                    lim.context.map(|c| format_num(c)).unwrap_or_else(|| "-".to_string()),
-                    lim.output.map(|o| format_num(o)).unwrap_or_else(|| "-".to_string())
+                    lim.context.map(format_num).unwrap_or_else(|| "-".to_string()),
+                    lim.output.map(format_num).unwrap_or_else(|| "-".to_string())
                 )
             } else {
                 "-".to_string()

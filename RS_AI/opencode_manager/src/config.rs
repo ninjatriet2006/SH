@@ -27,11 +27,11 @@ pub struct ModelEntry {
     pub modalities: Option<ModelModalities>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ProviderOptions {
-    #[serde(rename = "baseURL")]
+    #[serde(rename = "baseURL", default)]
     pub base_url: String,
-    #[serde(rename = "apiKey")]
+    #[serde(rename = "apiKey", default)]
     pub api_key: String,
 }
 
@@ -39,7 +39,9 @@ pub struct ProviderOptions {
 pub struct Provider {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub npm: Option<String>,
+    #[serde(default)]
     pub name: String,
+    #[serde(default)]
     pub options: ProviderOptions,
     #[serde(default)]
     pub models: HashMap<String, ModelEntry>,
@@ -49,6 +51,8 @@ pub struct Provider {
 pub struct OpencodeConfig {
     #[serde(rename = "$schema", skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     #[serde(default)]
     pub provider: HashMap<String, Provider>,
 }
@@ -62,9 +66,16 @@ pub struct AuthEntry {
 
 pub type AuthConfig = HashMap<String, AuthEntry>;
 
+pub fn get_home_dir() -> Option<PathBuf> {
+    std::env::var("OPENCODE_TEST_HOME")
+        .map(PathBuf::from)
+        .ok()
+        .or_else(dirs::home_dir)
+}
+
 impl OpencodeConfig {
     pub fn file_path() -> PathBuf {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home"));
+        let home = get_home_dir().unwrap_or_else(|| PathBuf::from("/home"));
         home.join(".config").join("opencode").join("opencode.json")
     }
 
@@ -73,6 +84,7 @@ impl OpencodeConfig {
         if !path.exists() {
             return Ok(OpencodeConfig {
                 schema: Some("https://opencode.ai/config.json".to_string()),
+                model: None,
                 provider: HashMap::new(),
             });
         }
@@ -112,7 +124,7 @@ impl OpencodeConfig {
 
 impl AuthEntry {
     pub fn file_path() -> PathBuf {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home"));
+        let home = get_home_dir().unwrap_or_else(|| PathBuf::from("/home"));
         home.join(".local").join("share").join("opencode").join("auth.json")
     }
 

@@ -18,7 +18,7 @@ use app::{App, Screen, AppMessage, ConfirmAction};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::io::IsTerminal;
     if !std::io::stdout().is_terminal() && std::env::var("OPENCODE_MANAGER_WRAPPED").is_err() {
-        if let Ok(exe) = std::env::current_exe() {
+        if let Ok(_exe) = std::env::current_exe() {
             #[cfg(target_os = "linux")]
             {
                 let terminals = ["gnome-terminal", "konsole", "xfce4-terminal", "x-terminal-emulator", "xterm"];
@@ -123,18 +123,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 match app.current_screen {
                     Screen::Main => match key.code {
                         KeyCode::Char('q') => break,
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            if app.selected_provider_idx > 0 {
+                        KeyCode::Up | KeyCode::Char('k')
+                            if app.selected_provider_idx > 0 => {
                                 app.selected_provider_idx -= 1;
                                 draw_needed = true;
                             }
-                        }
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            if app.selected_provider_idx + 1 < app.providers_keys.len() {
+                        KeyCode::Down | KeyCode::Char('j')
+                            if app.selected_provider_idx + 1 < app.providers_keys.len() => {
                                 app.selected_provider_idx += 1;
                                 draw_needed = true;
                             }
-                        }
                         KeyCode::Enter => {
                             // Vừa check trạng thái vừa quét models
                             app.check_selected_provider();
@@ -240,18 +238,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                     draw_needed = true;
                                 }
-                                KeyCode::Left | KeyCode::Char('h') => {
-                                    if focus == 0 {
+                                KeyCode::Left | KeyCode::Char('h')
+                                    if focus == 0 => {
                                         app.cycle_form_preset(false);
                                         draw_needed = true;
                                     }
-                                }
-                                KeyCode::Right | KeyCode::Char('l') => {
-                                    if focus == 0 {
+                                KeyCode::Right | KeyCode::Char('l')
+                                    if focus == 0 => {
                                         app.cycle_form_preset(true);
                                         draw_needed = true;
                                     }
-                                }
                                 KeyCode::Char('t') | KeyCode::Char('T') if focus > 3 => {
                                     app.test_form_connection();
                                     draw_needed = true;
@@ -271,7 +267,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             app.current_screen = Screen::SelectPreset;
                                             app.log("Mở màn hình tìm kiếm Preset.");
                                         }
-                                        1 | 2 | 3 => {
+                                        1..=3 => {
                                             app.form.is_editing_field = true;
                                             app.log("Bật chế độ sửa ô nhập. Gõ chữ xong nhấn Enter để hoàn tất.");
                                         }
@@ -337,14 +333,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             draw_needed = true;
                         }
-                        KeyCode::Char(c) => {
-                            if !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) {
+                        KeyCode::Char(c)
+                            if !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) => {
                                 app.model_search_query.push(c);
                                 app.selected_model_idx = 0;
                                 app.models_list_state = ratatui::widgets::ListState::default();
                                 draw_needed = true;
                             }
-                        }
                         _ => {}
                     }
 
@@ -353,18 +348,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             app.current_screen = Screen::Main;
                             draw_needed = true;
                         }
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            if app.selected_auth_idx > 0 {
+                        KeyCode::Up | KeyCode::Char('k')
+                            if app.selected_auth_idx > 0 => {
                                 app.selected_auth_idx -= 1;
                                 draw_needed = true;
                             }
-                        }
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            if app.selected_auth_idx + 1 < app.auth_keys.len() {
+                        KeyCode::Down | KeyCode::Char('j')
+                            if app.selected_auth_idx + 1 < app.auth_keys.len() => {
                                 app.selected_auth_idx += 1;
                                 draw_needed = true;
                             }
-                        }
                         KeyCode::Delete => {
                             app.open_delete_auth_key_confirm();
                             draw_needed = true;
@@ -377,18 +370,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             app.current_screen = Screen::Main;
                             draw_needed = true;
                         }
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            if app.selected_clean_idx > 0 {
+                        KeyCode::Up | KeyCode::Char('k')
+                            if app.selected_clean_idx > 0 => {
                                 app.selected_clean_idx -= 1;
                                 draw_needed = true;
                             }
-                        }
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            if app.selected_clean_idx + 1 < app.clean_list.len() {
+                        KeyCode::Down | KeyCode::Char('j')
+                            if app.selected_clean_idx + 1 < app.clean_list.len() => {
                                 app.selected_clean_idx += 1;
                                 draw_needed = true;
                             }
-                        }
                         KeyCode::Char(' ') => {
                             if let Some(item) = app.clean_list.get_mut(app.selected_clean_idx) {
                                 item.3 = !item.3;
@@ -536,14 +527,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             app.preset_list_state = ratatui::widgets::ListState::default();
                             draw_needed = true;
                         }
-                        KeyCode::Char(c) => {
-                            if !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) {
+                        KeyCode::Char(c)
+                            if !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) => {
                                 app.preset_search_query.push(c);
                                 app.selected_preset_search_idx = 0;
                                 app.preset_list_state = ratatui::widgets::ListState::default();
                                 draw_needed = true;
                             }
-                        }
                         KeyCode::Enter => {
                             let filtered = app.filtered_presets();
                             if !filtered.is_empty() && app.selected_preset_search_idx < filtered.len() {

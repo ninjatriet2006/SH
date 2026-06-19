@@ -46,9 +46,9 @@ pub enum ConfirmAction {
 }
 
 pub enum AppMessage {
-    TestResult { provider_id: String, status: ApiStatus },
-    ScanResult { provider_id: String, models: Result<Vec<String>, String> },
-    FormTestResult { status: ApiStatus },
+    Test { provider_id: String, status: ApiStatus },
+    Scan { provider_id: String, models: Result<Vec<String>, String> },
+    FormTest { status: ApiStatus },
 }
 
 pub struct App {
@@ -185,7 +185,7 @@ impl App {
         let mut presets = Vec::new();
         
         // 1. Cố gắng đọc từ ~/.cache/opencode/models.json
-        if let Some(home) = dirs::home_dir() {
+        if let Some(home) = crate::config::get_home_dir() {
             let path = home.join(".cache").join("opencode").join("models.json");
             if path.exists() {
                 if let Ok(content) = std::fs::read_to_string(&path) {
@@ -213,7 +213,7 @@ impl App {
         }
 
         // Sắp xếp danh sách preset theo tên
-        presets.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        presets.sort_by_key(|a| a.name.to_lowercase());
 
         // 2. Nếu danh sách rỗng (do lỗi đọc file hoặc chưa có cache), thêm các fallbacks mặc định
         if presets.is_empty() {
@@ -420,7 +420,7 @@ impl App {
             tokio::spawn(async move {
                 let client = ApiClient::new();
                 let status = client.test_api(&base_url_check, &api_key_check).await;
-                let _ = tx.send(AppMessage::TestResult { provider_id, status });
+                let _ = tx.send(AppMessage::Test { provider_id, status });
             });
         }
 
@@ -622,7 +622,7 @@ impl App {
                 tokio::spawn(async move {
                     let client = ApiClient::new();
                     let status = client.test_api(&base_url, &api_key).await;
-                    let _ = tx.send(AppMessage::TestResult { provider_id, status });
+                    let _ = tx.send(AppMessage::Test { provider_id, status });
                 });
             }
         }
@@ -643,7 +643,7 @@ impl App {
                 tokio::spawn(async move {
                     let client = ApiClient::new();
                     let status = client.test_api(&base_url, &api_key).await;
-                    let _ = tx.send(AppMessage::TestResult { provider_id, status });
+                    let _ = tx.send(AppMessage::Test { provider_id, status });
                 });
             }
         }
@@ -664,7 +664,7 @@ impl App {
                 tokio::spawn(async move {
                     let client = ApiClient::new();
                     let models = client.fetch_models(&base_url, &api_key).await;
-                    let _ = tx.send(AppMessage::ScanResult { provider_id, models });
+                    let _ = tx.send(AppMessage::Scan { provider_id, models });
                 });
             }
         }
@@ -672,7 +672,7 @@ impl App {
 
     pub fn handle_message(&mut self, msg: AppMessage) {
         match msg {
-            AppMessage::TestResult { provider_id, status } => {
+            AppMessage::Test { provider_id, status } => {
                 self.api_status_cache.insert(provider_id.clone(), Some(status.clone()));
                 if let Some(p) = self.config.provider.get(&provider_id) {
                     self.log(format!("Kiểm tra {}: {}", p.name, status));
@@ -687,7 +687,7 @@ impl App {
                     }
                 }
             }
-            AppMessage::ScanResult { provider_id, models } => {
+            AppMessage::Scan { provider_id, models } => {
                 if self.is_scanning && self.scanning_provider_id == provider_id {
                     self.is_scanning = false;
                     match models {
@@ -720,7 +720,7 @@ impl App {
                     }
                 }
             }
-            AppMessage::FormTestResult { status } => {
+            AppMessage::FormTest { status } => {
                 self.form.is_testing = false;
                 self.form.test_status = Some(status.clone());
                 self.log(format!("Kết quả kiểm thử form: {}", status));
@@ -744,7 +744,7 @@ impl App {
         tokio::spawn(async move {
             let client = ApiClient::new();
             let status = client.test_api(&base_url, &api_key).await;
-            let _ = tx.send(AppMessage::FormTestResult { status });
+            let _ = tx.send(AppMessage::FormTest { status });
         });
     }
 
@@ -929,7 +929,7 @@ impl App {
         tokio::spawn(async move {
             let client = ApiClient::new();
             let status = client.test_api(&base_url_check, &api_key_check).await;
-            let _ = tx.send(AppMessage::TestResult { provider_id, status });
+            let _ = tx.send(AppMessage::Test { provider_id, status });
         });
 
         self.current_screen = Screen::Main;
@@ -1095,8 +1095,10 @@ mod tests {
         }
         fs::create_dir_all(&test_dir).unwrap();
         
-        // Override HOME environment variable
+        // Override HOME, USERPROFILE and OPENCODE_TEST_HOME environment variables to isolate the test
         std::env::set_var("HOME", &test_dir);
+        std::env::set_var("USERPROFILE", &test_dir);
+        std::env::set_var("OPENCODE_TEST_HOME", &test_dir);
 
         let opencode_dir = test_dir.join(".config").join("opencode");
         fs::create_dir_all(&opencode_dir).unwrap();
@@ -1161,5 +1163,26 @@ mod tests {
 
         // Clean up
         let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_user_windows_config_format() {
+        let json_data = r#"{
+          "$schema": "https://opencode.ai/config.json",
+          "model": "google/gemini-2.5-pro",
+          "provider": {
+            "google": {}
+          }
+        }"#;
+
+        let config: Result<OpencodeConfig, _> = serde_json::from_str(json_data);
+        assert!(config.is_ok(), "Failed to parse user Windows config format: {:?}", config.err());
+        let config = config.unwrap();
+        assert_eq!(config.model, Some("google/gemini-2.5-pro".to_string()));
+        assert!(config.provider.contains_key("google"));
+        let google_provider = config.provider.get("google").unwrap();
+        assert_eq!(google_provider.name, "");
+        assert_eq!(google_provider.options.base_url, "");
+        assert_eq!(google_provider.options.api_key, "");
     }
 }

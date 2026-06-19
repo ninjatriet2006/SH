@@ -127,21 +127,18 @@ impl ApiClient {
                 .send()
                 .await;
 
-            match retry_resp {
-                Ok(resp) => {
-                    let retry_status = resp.status();
-                    if retry_status.is_success() {
-                        return ApiStatus::Alive;
-                    }
-                    if retry_status.as_u16() == 402 {
-                        return ApiStatus::InsufficientCredits("Hết tiền (402)".to_string());
-                    }
-                    if retry_status.as_u16() == 401 || retry_status.as_u16() == 403 {
-                        return ApiStatus::InvalidKey("API Key không hợp lệ".to_string());
-                    }
-                    return ApiStatus::InvalidKey(format!("Lỗi HTTP retry: {}", retry_status));
+            if let Ok(resp) = retry_resp {
+                let retry_status = resp.status();
+                if retry_status.is_success() {
+                    return ApiStatus::Alive;
                 }
-                Err(_) => {}
+                if retry_status.as_u16() == 402 {
+                    return ApiStatus::InsufficientCredits("Hết tiền (402)".to_string());
+                }
+                if retry_status.as_u16() == 401 || retry_status.as_u16() == 403 {
+                    return ApiStatus::InvalidKey("API Key không hợp lệ".to_string());
+                }
+                return ApiStatus::InvalidKey(format!("Lỗi HTTP retry: {}", retry_status));
             }
         }
 
