@@ -166,7 +166,6 @@ pub fn scan_all_system_apps() -> Vec<AppEntry> {
     let mut seen_ids = HashSet::new();
     let mut seen_names = HashSet::new();
     
-    // 1. Add locally registered portable apps first
     let config = Config::load();
     for mut app in config.apps {
         app.package_type = Some("Local".to_string());
@@ -176,6 +175,54 @@ pub fn scan_all_system_apps() -> Vec<AppEntry> {
         seen_ids.insert(app.id.clone());
         seen_names.insert(app.name.to_lowercase());
         apps.push(app);
+    }
+    
+    // 1.5 Scan managed_dir for Stateless Portable apps
+    let managed_dir = std::path::Path::new(&config.settings.managed_dir);
+    if managed_dir.exists() && managed_dir.is_dir() {
+        if let Ok(entries) = fs::read_dir(managed_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let folder_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    let app_id = folder_name.to_lowercase()
+                        .replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_', "-")
+                        .replace(' ', "-");
+                        
+                    if !seen_ids.contains(&app_id) {
+                        // Quick scan for main executable
+                        if let Ok(det) = crate::detector::detect(&path) {
+                            if !det.executables.is_empty() {
+                                let exec_path = det.executables[0].to_string_lossy().to_string();
+                                let name = det.suggested_name.clone();
+                                let name_lower = name.to_lowercase();
+                                
+                                seen_ids.insert(app_id.clone());
+                                seen_names.insert(name_lower);
+                                apps.push(AppEntry {
+                                    id: app_id,
+                                    name,
+                                    install_type: crate::config::InstallType::Moved,
+                                    source_path: None,
+                                    install_path: path.to_string_lossy().to_string(),
+                                    exec_path,
+                                    icon_path: det.icons.first().map(|p| p.to_string_lossy().to_string()),
+                                    desktop_file: "".to_string(),
+                                    symlink_file: None,
+                                    added_at: "".to_string(),
+                                    is_custom: Some(false),
+                                    start_cmd: None,
+                                    stop_cmd: None,
+                                    category: Some("Utility".to_string()),
+                                    package_type: Some("Local".to_string()),
+                                    ..Default::default()
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     
     // 2. Scan directories containing .desktop files

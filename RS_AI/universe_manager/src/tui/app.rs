@@ -40,6 +40,9 @@ pub struct App {
     pub update_state: TableState,
     pub checked_updates: HashSet<usize>,
     pub needs_update_scan: bool,
+    pub search_query: String,
+    pub is_searching: bool,
+    pub filtered_apps: Vec<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,6 +98,9 @@ impl App {
             update_state: TableState::default(),
             checked_updates: HashSet::new(),
             needs_update_scan: false,
+            search_query: String::new(),
+            is_searching: false,
+            filtered_apps: Vec::new(),
         };
         app.reload_local_apps();
         app
@@ -135,8 +141,28 @@ impl App {
             })
             .collect();
             
-        if self.selected_index >= self.apps_with_status.len() && !self.apps_with_status.is_empty() {
-            self.selected_index = self.apps_with_status.len() - 1;
+        self.update_filter();
+    }
+
+    pub fn update_filter(&mut self) {
+        let query = self.search_query.to_lowercase();
+        self.filtered_apps = self.apps_with_status.iter()
+            .enumerate()
+            .filter_map(|(i, (app, _))| {
+                if query.is_empty() || app.name.to_lowercase().contains(&query) || app.id.to_lowercase().contains(&query) {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        
+        if !self.filtered_apps.is_empty() {
+            if self.selected_index >= self.filtered_apps.len() {
+                self.selected_index = self.filtered_apps.len() - 1;
+            }
+        } else {
+            self.selected_index = 0;
         }
     }
 
@@ -151,11 +177,8 @@ impl App {
                 (entry, status)
             })
             .collect();
-        
-        // Adjust selected index if it exceeds list size
-        if self.selected_index >= self.apps_with_status.len() && !self.apps_with_status.is_empty() {
-            self.selected_index = self.apps_with_status.len() - 1;
-        }
+            
+        self.update_filter();
     }
 
     pub fn next(&mut self) {
@@ -164,8 +187,8 @@ impl App {
                 self.menu_index = (self.menu_index + 1) % 7;
             }
             Screen::AppList | Screen::UninstallList => {
-                if !self.apps_with_status.is_empty() {
-                    self.selected_index = (self.selected_index + 1) % self.apps_with_status.len();
+                if !self.filtered_apps.is_empty() {
+                    self.selected_index = (self.selected_index + 1) % self.filtered_apps.len();
                 }
             }
             Screen::AppOperations => {
@@ -195,9 +218,9 @@ impl App {
                 }
             }
             Screen::AppList | Screen::UninstallList => {
-                if !self.apps_with_status.is_empty() {
+                if !self.filtered_apps.is_empty() {
                     if self.selected_index == 0 {
-                        self.selected_index = self.apps_with_status.len() - 1;
+                        self.selected_index = self.filtered_apps.len() - 1;
                     } else {
                         self.selected_index -= 1;
                     }

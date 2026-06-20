@@ -43,12 +43,17 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .border_style(Style::default().fg(Color::Cyan))
         .title(" Universe Manager ");
     
-    let header_text = vec![
-        Line::from(vec![
-            Span::styled("Hệ thống quản lý ứng dụng đa năng ", Style::default().fg(Color::White)),
-            Span::styled(format!("(Tổng số app: {})", app.apps_with_status.len()), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        ])
+    let mut header_text_spans = vec![
+        Span::styled("Hệ thống quản lý ứng dụng đa năng ", Style::default().fg(Color::White)),
     ];
+    
+    if app.current_screen == Screen::UpdateManager {
+        header_text_spans.push(Span::styled(format!("(Tổng số bản cập nhật: {})", app.update_entries.len()), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+    } else {
+        header_text_spans.push(Span::styled(format!("(Tổng số app: {})", app.apps_with_status.len()), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+    }
+    
+    let header_text = vec![Line::from(header_text_spans)];
     let header_para = Paragraph::new(header_text)
         .block(header_block)
         .alignment(Alignment::Center);
@@ -200,18 +205,43 @@ fn draw_app_list(f: &mut Frame, app: &mut App, process_snapshot: &manager::Proce
         ])
         .split(area);
 
+    let left_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(0),
+        ])
+        .split(main_chunks[0]);
+
+    let search_title = if app.is_searching {
+        " Tìm kiếm (Đang nhập...) "
+    } else {
+        " Tìm kiếm (Nhấn '/' để bật) "
+    };
+    
+    let search_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(if app.is_searching { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::DarkGray) })
+        .title(search_title);
+        
+    let search_text = Paragraph::new(app.search_query.clone() + if app.is_searching { "█" } else { "" })
+        .block(search_block)
+        .style(Style::default().fg(if app.is_searching { Color::White } else { Color::Gray }));
+        
+    f.render_widget(search_text, left_chunks[0]);
+
     // Left Pane: Table of Apps with Checkboxes
     let list_block = Block::default()
         .borders(Borders::ALL)
         .title(" Danh sách ứng dụng ")
         .border_style(Style::default().fg(Color::DarkGray));
 
-    if app.apps_with_status.is_empty() {
-        let empty_msg = Paragraph::new("\n Không có ứng dụng nào.\n Quay lại Menu chọn mục 2 để thêm mới.")
+    if app.filtered_apps.is_empty() {
+        let empty_msg = Paragraph::new("\n Không có ứng dụng nào.\n Nhấn '/' để tìm kiếm hoặc quay lại Menu chọn mục 2 để thêm mới.")
             .style(Style::default().fg(Color::Gray))
             .alignment(Alignment::Center)
             .block(list_block);
-        f.render_widget(empty_msg, main_chunks[0]);
+        f.render_widget(empty_msg, left_chunks[1]);
     } else {
         let header = Row::new(vec![
             Cell::from(" Chọn"),
@@ -222,7 +252,8 @@ fn draw_app_list(f: &mut Frame, app: &mut App, process_snapshot: &manager::Proce
         ])
         .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
 
-        let rows: Vec<Row> = app.apps_with_status.iter().enumerate().map(|(i, (entry, _status))| {
+        let rows: Vec<Row> = app.filtered_apps.iter().enumerate().map(|(i, &app_idx)| {
+            let (entry, _status) = &app.apps_with_status[app_idx];
             let is_checked = app.checked_app_ids.contains(&entry.id);
             let check_str = if is_checked { " [x]" } else { " [ ]" };
             let check_style = if is_checked { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::DarkGray) };
@@ -295,7 +326,7 @@ fn draw_app_list(f: &mut Frame, app: &mut App, process_snapshot: &manager::Proce
             .block(list_block)
             .column_spacing(1);
         app.app_list_state.select(Some(app.selected_index));
-        f.render_stateful_widget(table, main_chunks[0], &mut app.app_list_state);
+        f.render_stateful_widget(table, left_chunks[1], &mut app.app_list_state);
     }
 
     // Right Pane: Detail View

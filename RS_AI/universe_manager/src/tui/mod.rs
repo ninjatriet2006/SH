@@ -88,7 +88,32 @@ fn run_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result
                         continue;
                     }
                     
+                    if app.is_searching {
+                        match key.code {
+                            KeyCode::Esc | KeyCode::Enter => {
+                                app.is_searching = false;
+                                draw_needed = true;
+                            }
+                            KeyCode::Backspace => {
+                                app.search_query.pop();
+                                app.update_filter();
+                                draw_needed = true;
+                            }
+                            KeyCode::Char(c) => {
+                                app.search_query.push(c);
+                                app.update_filter();
+                                draw_needed = true;
+                            }
+                            _ => {}
+                        }
+                        continue;
+                    }
+                    
                     match key.code {
+                        KeyCode::Char('/') | KeyCode::Char('f') if app.current_screen == crate::tui::app::Screen::AppList => {
+                            app.is_searching = true;
+                            draw_needed = true;
+                        }
                         KeyCode::Char('r') if key.modifiers.contains(event::KeyModifiers::ALT) => {
                             app.needs_initial_scan = true;
                             draw_needed = true;

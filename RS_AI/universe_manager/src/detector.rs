@@ -311,10 +311,8 @@ pub fn scan_for_unintegrated_apps(config: &crate::config::Config) -> Vec<PathBuf
 
     #[cfg(windows)]
     {
-        paths_to_scan.push(home.join("Documents"));
-        if let Ok(appdata) = std::env::var("APPDATA") {
-            paths_to_scan.push(PathBuf::from(appdata).join("Local").join("Programs"));
-        }
+        // Removed Documents and APPDATA to keep the scan lightning fast.
+        // Now only scans Downloads, Desktop, and Applications.
     }
 
     let mut unintegrated = Vec::new();

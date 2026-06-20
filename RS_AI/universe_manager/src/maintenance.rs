@@ -18,7 +18,7 @@ pub fn execute_updates(entries: Vec<&UpdateEntry>) -> Result<String, String> {
         result.push_str(&format!("Đang cập nhật {} qua {}...\n", entry.name, entry.source));
         let status = match entry.source.as_str() {
             "winget" | "msstore" => {
-                Command::new("winget").args(&["upgrade", "--id", &entry.id, "--silent", "--accept-package-agreements", "--accept-source-agreements"]).status()
+                Command::new("winget").args(&["upgrade", "--id", &entry.id, "--silent", "--accept-package-agreements", "--accept-source-agreements", "--include-unknown"]).status()
             }
             "chocolatey" => {
                 Command::new("choco").args(&["upgrade", &entry.id, "-y"]).status()
@@ -56,18 +56,25 @@ pub fn check_system_updates() -> Result<Vec<UpdateEntry>, String> {
 
     // 1. Winget & MSStore
     if Command::new("winget").arg("--version").output().is_ok() {
-        if let Ok(out) = Command::new("winget").args(&["upgrade"]).output() {
+        if let Ok(out) = Command::new("winget").args(&["upgrade", "--include-unknown"]).output() {
             let combined = String::from_utf8_lossy(&out.stdout).to_string();
             let mut started = false;
             for line in combined.lines() {
                 let tline = line.trim();
-                if tline.starts_with("Name") && tline.contains("Id") && tline.contains("Version") {
+                if tline.contains("Name") && tline.contains("Id") && tline.contains("Version") {
                     started = true;
                     continue;
                 }
-                if started && tline.starts_with('-') { continue; }
-                if started && tline.is_empty() { continue; }
                 if started {
+                    if tline.starts_with('-') || tline.is_empty() { continue; }
+                    // Skip summary and warning lines
+                    if tline.ends_with("upgrades available.") || tline.contains("package(s) have version numbers that cannot be determined") || tline.starts_with("The following packages") {
+                        continue;
+                    }
+                    if tline.contains("Name") && tline.contains("Id") && tline.contains("Version") {
+                        continue;
+                    }
+
                     let parts: Vec<&str> = tline.split_whitespace().collect();
                     if parts.len() >= 4 {
                         let source = parts.last().unwrap().to_string();
@@ -98,13 +105,16 @@ pub fn check_system_updates() -> Result<Vec<UpdateEntry>, String> {
                 }
                 if started && tline.contains("Chocolatey has determined") { break; }
                 if started && tline.contains('|') {
+                    if tline.starts_with("Output is Id") || tline.contains("Available Version") {
+                        continue;
+                    }
                     let parts: Vec<&str> = tline.split('|').collect();
                     if parts.len() >= 3 {
                         updates.push(UpdateEntry {
-                            id: parts[0].to_string(),
-                            name: parts[0].to_string(),
-                            current_version: parts[1].to_string(),
-                            available_version: parts[2].to_string(),
+                            id: parts[0].trim().to_string(),
+                            name: parts[0].trim().to_string(),
+                            current_version: parts[1].trim().to_string(),
+                            available_version: parts[2].trim().to_string(),
                             source: "chocolatey".to_string(),
                         });
                     }
