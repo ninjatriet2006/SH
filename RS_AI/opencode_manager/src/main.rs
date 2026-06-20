@@ -18,7 +18,7 @@ use app::{App, Screen, AppMessage, ConfirmAction};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::io::IsTerminal;
     if !std::io::stdout().is_terminal() && std::env::var("OPENCODE_MANAGER_WRAPPED").is_err() {
-        if let Ok(_exe) = std::env::current_exe() {
+        if let Ok(exe) = std::env::current_exe() {
             #[cfg(target_os = "linux")]
             {
                 let terminals = ["gnome-terminal", "konsole", "xfce4-terminal", "x-terminal-emulator", "xterm"];
@@ -40,6 +40,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         return Ok(());
                     }
                 }
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = exe;
             }
         }
     }
