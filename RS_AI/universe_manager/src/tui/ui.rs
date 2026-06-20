@@ -69,8 +69,11 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Screen::UninstallList => {
             draw_uninstall_list(f, app, chunks[1]);
         }
-        Screen::AutostartManager => {
+                Screen::AutostartManager => {
             draw_autostart_manager(f, app, chunks[1]);
+        }
+        Screen::UpdateManager => {
+            draw_update_manager(f, app, chunks[1]);
         }
     }
 
@@ -126,11 +129,21 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             Span::styled(" | ", Style::default().fg(Color::DarkGray)),
             Span::styled("Backspace/Esc: Quay lại Menu chính", Style::default().fg(Color::LightRed)),
         ]),
-        Screen::AutostartManager => Line::from(vec![
+                Screen::AutostartManager => Line::from(vec![
             Span::styled(" Phím tắt: ", Style::default().add_modifier(Modifier::BOLD)),
             Span::styled("↑↓/j/k: Duyệt danh sách", Style::default().fg(Color::LightBlue)),
             Span::styled(" | ", Style::default().fg(Color::DarkGray)),
             Span::styled("Enter/Delete: Gỡ bỏ chương trình khỏi Startup", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Span::styled(" | ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Backspace/Esc: Quay lại Menu chính", Style::default().fg(Color::LightRed)),
+        ]),
+        Screen::UpdateManager => Line::from(vec![
+            Span::styled(" Phím tắt: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled("↑↓/j/k: Duyệt danh sách", Style::default().fg(Color::LightBlue)),
+            Span::styled(" | ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Space: Chọn/Huỷ chọn", Style::default().fg(Color::Yellow)),
+            Span::styled(" | ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Enter/i: Tiến hành cập nhật", Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)),
             Span::styled(" | ", Style::default().fg(Color::DarkGray)),
             Span::styled("Backspace/Esc: Quay lại Menu chính", Style::default().fg(Color::LightRed)),
         ]),
@@ -144,7 +157,7 @@ fn draw_main_menu(f: &mut Frame, app: &App, area: Rect) {
         " 1. Quản lý ứng dụng (Bật/Tắt/Khởi động lại/Tự khởi động) ",
         " 2. Tích hợp / Chuyển đổi / Cập nhật Portable ",
         " 3. Gỡ cài đặt ứng dụng (Xoá shortcut & dữ liệu) ",
-        " 4. Kiểm tra Cập nhật hệ thống (APT, Flatpak, Snap) ",
+        " 4. Kiểm tra Cập nhật phần mềm/hệ thống ",
         " 5. Dọn dẹp leftovers (Quét & dọn dẹp thư mục cấu hình rác) ",
         " 6. Quản lý khởi động cùng hệ thống (Autostart Manager) ",
         " 7. Thoát chương trình ",
@@ -814,5 +827,72 @@ fn draw_autostart_manager(f: &mut Frame, app: &mut App, area: Rect) {
 
         app.autostart_state.select(Some(app.autostart_index));
         f.render_stateful_widget(table, area, &mut app.autostart_state);
+    }
+}
+
+fn draw_update_manager(f: &mut Frame, app: &mut App, area: Rect) {
+    if app.needs_update_scan {
+        let loading_block = Block::default().borders(Borders::ALL).title("Cập nhật phần mềm/hệ thống");
+        let loading_text = Paragraph::new("\n\nĐang kiểm tra thông tin cập nhật từ các nguồn (Winget, Scoop, Choco, v.v...), vui lòng chờ...\n(Quá trình này có thể mất vài chục giây tuỳ thuộc vào hệ thống)")
+            .alignment(ratatui::layout::Alignment::Center)
+            .block(loading_block);
+        f.render_widget(loading_text, area);
+    } else {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(" Danh sách Cập nhật khả dụng ")
+            .border_style(Style::default().fg(Color::Cyan));
+
+        if app.update_entries.is_empty() {
+            let empty_msg = Paragraph::new("\n Không có bản cập nhật nào khả dụng ở thời điểm hiện tại.")
+                .style(Style::default().fg(Color::Gray))
+                .alignment(Alignment::Center)
+                .block(block);
+            f.render_widget(empty_msg, area);
+        } else {
+            let header = Row::new(vec![
+                Cell::from(" Chọn"),
+                Cell::from("Tên phần mềm"),
+                Cell::from("Bản hiện tại"),
+                Cell::from("Bản mới"),
+                Cell::from("Nguồn"),
+            ])
+            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+
+            let items: Vec<Row> = app.update_entries.iter().enumerate().map(|(i, entry)| {
+                let checked = if app.checked_updates.contains(&i) { " [x]" } else { " [ ]" };
+                let check_style = if app.checked_updates.contains(&i) { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::DarkGray) };
+                
+                let highlight_style = if i == app.update_index {
+                    Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                
+                Row::new(vec![
+                    Cell::from(checked).style(check_style),
+                    Cell::from(entry.name.clone()).style(highlight_style),
+                    Cell::from(entry.current_version.clone()).style(highlight_style),
+                    Cell::from(entry.available_version.clone()).style(if i == app.update_index { Style::default().bg(Color::Blue).fg(Color::Green).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::Green) }),
+                    Cell::from(entry.source.clone()).style(if i == app.update_index { Style::default().bg(Color::Blue).fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::Yellow) }),
+                ])
+            }).collect();
+
+            let widths = [
+                Constraint::Length(6),
+                Constraint::Percentage(40),
+                Constraint::Percentage(20),
+                Constraint::Percentage(20),
+                Constraint::Percentage(14),
+            ];
+
+            let table = Table::new(items, widths)
+                .header(header)
+                .block(block)
+                .column_spacing(1);
+
+            app.update_state.select(Some(app.update_index));
+            f.render_stateful_widget(table, area, &mut app.update_state);
+        }
     }
 }

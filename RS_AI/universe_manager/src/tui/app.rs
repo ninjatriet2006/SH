@@ -13,6 +13,7 @@ pub enum Screen {
     AppOperations,
     UninstallList,
     AutostartManager,
+    UpdateManager,
 }
 
 pub struct App {
@@ -31,16 +32,21 @@ pub struct App {
     pub app_list_state: TableState,
     pub uninstall_list_state: TableState,
     pub autostart_entries: Vec<autostart::AutostartEntry>,
-    pub autostart_index: usize,
+        pub autostart_index: usize,
     pub autostart_state: TableState,
     pub needs_initial_scan: bool,
+    pub update_entries: Vec<crate::maintenance::UpdateEntry>,
+    pub update_index: usize,
+    pub update_state: TableState,
+    pub checked_updates: HashSet<usize>,
+    pub needs_update_scan: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnterResult {
     None,
     RunWizard,
-    RunCheckUpdates,
+
     RunCleanLeftovers,
     RunUninstalls,
     Exit,
@@ -80,10 +86,15 @@ impl App {
             running_flag,
             app_list_state: TableState::default(),
             uninstall_list_state: TableState::default(),
-            autostart_entries: Vec::new(),
+                        autostart_entries: Vec::new(),
             autostart_index: 0,
             autostart_state: TableState::default(),
             needs_initial_scan: true,
+            update_entries: Vec::new(),
+            update_index: 0,
+            update_state: TableState::default(),
+            checked_updates: HashSet::new(),
+            needs_update_scan: false,
         };
         app.reload_local_apps();
         app
@@ -165,6 +176,11 @@ impl App {
                     self.autostart_index = (self.autostart_index + 1) % self.autostart_entries.len();
                 }
             }
+            Screen::UpdateManager => {
+                if !self.update_entries.is_empty() {
+                    self.update_index = (self.update_index + 1) % self.update_entries.len();
+                }
+            }
         }
         self.status_message = None;
     }
@@ -200,6 +216,15 @@ impl App {
                         self.autostart_index = self.autostart_entries.len() - 1;
                     } else {
                         self.autostart_index -= 1;
+                    }
+                }
+            }
+            Screen::UpdateManager => {
+                if !self.update_entries.is_empty() {
+                    if self.update_index == 0 {
+                        self.update_index = self.update_entries.len() - 1;
+                    } else {
+                        self.update_index -= 1;
                     }
                 }
             }
@@ -250,7 +275,12 @@ impl App {
                         EnterResult::None
                     }
                     3 => {
-                        EnterResult::RunCheckUpdates
+                        self.current_screen = Screen::UpdateManager;
+                        self.needs_update_scan = true;
+                        self.update_index = 0;
+                        self.checked_updates.clear();
+                        self.update_state.select(Some(0));
+                        EnterResult::None
                     }
                     4 => {
                         EnterResult::RunCleanLeftovers
@@ -278,8 +308,11 @@ impl App {
             Screen::UninstallList => {
                 EnterResult::RunUninstalls
             }
-            Screen::AutostartManager => {
+                        Screen::AutostartManager => {
                 self.delete_selected_autostart();
+                EnterResult::None
+            }
+            Screen::UpdateManager => {
                 EnterResult::None
             }
         }
@@ -325,7 +358,7 @@ impl App {
     pub fn handle_back(&mut self) {
         match self.current_screen {
             Screen::MainMenu => {}
-            Screen::AppList | Screen::UninstallList | Screen::AutostartManager => {
+            Screen::AppList | Screen::UninstallList | Screen::AutostartManager | Screen::UpdateManager => {
                 self.current_screen = Screen::MainMenu;
                 self.status_message = None;
             }

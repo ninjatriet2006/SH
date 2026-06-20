@@ -2,267 +2,234 @@ use std::process::Command;
 use std::fs;
 
 
-pub fn check_system_updates() -> Result<String, String> {
+
+#[derive(Clone, Debug)]
+pub struct UpdateEntry {
+    pub id: String,
+    pub name: String,
+    pub current_version: String,
+    pub available_version: String,
+    pub source: String,
+}
+
+pub fn execute_updates(entries: Vec<&UpdateEntry>) -> Result<String, String> {
     let mut result = String::new();
-
-    // 1. Winget upgrade check
-    result.push_str("=== KIỂM TRA CẬP NHẬT WINGET ===\n");
-    if Command::new("winget").arg("--version").output().is_ok() {
-        match Command::new("winget").args(&["upgrade", "--source", "winget"]).output() {
-            Ok(out) => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                let combined = format!("{}{}", stdout, stderr);
-                if combined.contains("No upgrades available") || combined.contains("No installed package found matching input criteria") {
-                    result.push_str("-> Không có bản cập nhật Winget nào khả dụng.\n");
-                } else {
-                    let mut lines_to_print = Vec::new();
-                    for line in combined.lines() {
-                        let trim_line = line.trim();
-                        if trim_line.is_empty() 
-                            || trim_line.starts_with('-') 
-                            || trim_line.starts_with('\\') 
-                            || trim_line.starts_with('|') 
-                            || trim_line.starts_with('/')
-                        {
-                            if trim_line.chars().all(|c| c == '-') && trim_line.len() > 3 {
-                                lines_to_print.push(line.to_string());
-                            }
-                            continue;
-                        }
-                        lines_to_print.push(line.to_string());
-                    }
-                    result.push_str(&lines_to_print.join("\n"));
-                    result.push_str("\n");
-                }
+    for entry in entries {
+        result.push_str(&format!("Đang cập nhật {} qua {}...\n", entry.name, entry.source));
+        let status = match entry.source.as_str() {
+            "winget" | "msstore" => {
+                Command::new("winget").args(&["upgrade", "--id", &entry.id, "--silent", "--accept-package-agreements", "--accept-source-agreements"]).status()
             }
-            Err(e) => {
-                result.push_str(&format!("-> Lỗi khi thực thi Winget: {}\n", e));
+            "chocolatey" => {
+                Command::new("choco").args(&["upgrade", &entry.id, "-y"]).status()
+            }
+            "scoop" => {
+                Command::new("powershell").args(&["-NoProfile", "-Command", &format!("scoop update {}", entry.id)]).status()
+            }
+            "apt" => {
+                Command::new("sudo").args(&["apt-get", "install", "--only-upgrade", "-y", &entry.id]).status()
+            }
+            "flatpak" => {
+                Command::new("flatpak").args(&["update", "-y", &entry.id]).status()
+            }
+            "snap" => {
+                Command::new("sudo").args(&["snap", "refresh", &entry.id]).status()
+            }
+            _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "Unknown source")),
+        };
+        match status {
+            Ok(s) if s.success() => {
+                result.push_str(&format!("-> Cập nhật {} thành công!\n", entry.name));
+            }
+            _ => {
+                result.push_str(&format!("-> Cập nhật {} thất bại!\n", entry.name));
             }
         }
-    } else {
-        result.push_str("-> Winget chưa được cài đặt hoặc không nằm trong PATH.\n");
     }
-    result.push_str("\n");
-
-    // 2. Microsoft Store update check
-    result.push_str("=== KIỂM TRA CẬP NHẬT MICROSOFT STORE ===\n");
-    if Command::new("winget").arg("--version").output().is_ok() {
-        match Command::new("winget").args(&["upgrade", "--source", "msstore"]).output() {
-            Ok(out) => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                let combined = format!("{}{}", stdout, stderr);
-                if combined.contains("No upgrades available") || combined.contains("No installed package found matching input criteria") {
-                    result.push_str("-> Không có bản cập nhật Microsoft Store nào khả dụng.\n");
-                } else {
-                    let mut lines_to_print = Vec::new();
-                    for line in combined.lines() {
-                        let trim_line = line.trim();
-                        if trim_line.is_empty() 
-                            || trim_line.starts_with('-') 
-                            || trim_line.starts_with('\\') 
-                            || trim_line.starts_with('|') 
-                            || trim_line.starts_with('/')
-                        {
-                            if trim_line.chars().all(|c| c == '-') && trim_line.len() > 3 {
-                                lines_to_print.push(line.to_string());
-                            }
-                            continue;
-                        }
-                        lines_to_print.push(line.to_string());
-                    }
-                    result.push_str(&lines_to_print.join("\n"));
-                    result.push_str("\n");
-                }
-            }
-            Err(e) => {
-                result.push_str(&format!("-> Lỗi khi kiểm tra Microsoft Store: {}\n", e));
-            }
-        }
-    } else {
-        result.push_str("-> Winget chưa được cài đặt (không thể kiểm tra Microsoft Store).\n");
-    }
-    result.push_str("\n");
-
-    // 3. Chocolatey outdated check
-    result.push_str("=== KIỂM TRA CẬP NHẬT CHOCOLATEY ===\n");
-    if Command::new("choco").arg("--version").output().is_ok() {
-        match Command::new("choco").arg("outdated").output() {
-            Ok(out) => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                let combined = format!("{}{}", stdout, stderr);
-                
-                if combined.contains("0 package(s) are outdated") {
-                    result.push_str("-> Các gói Chocolatey đã được cập nhật đầy đủ.\n");
-                } else if combined.contains("Chocolatey has determined") {
-                    let mut lines_to_print = Vec::new();
-                    let mut started = false;
-                    for line in combined.lines() {
-                        let trim_line = line.trim();
-                        if trim_line.starts_with("Outdated Packages") {
-                            started = true;
-                            continue;
-                        }
-                        if started {
-                            if trim_line.contains("Chocolatey has determined") {
-                                lines_to_print.push(line.to_string());
-                                break;
-                            }
-                            lines_to_print.push(line.to_string());
-                        }
-                    }
-                    if lines_to_print.is_empty() {
-                        result.push_str(&combined);
-                    } else {
-                        result.push_str(&lines_to_print.join("\n"));
-                    }
-                    result.push_str("\n");
-                } else {
-                    result.push_str(&combined);
-                    result.push_str("\n");
-                }
-            }
-            Err(e) => {
-                result.push_str(&format!("-> Lỗi khi thực thi Chocolatey: {}\n", e));
-            }
-        }
-    } else {
-        result.push_str("-> Chocolatey chưa được cài đặt hoặc không nằm trong PATH.\n");
-    }
-    result.push_str("\n");
-
-    // 4. Scoop status check
-    result.push_str("=== KIỂM TRA CẬP NHẬT SCOOP ===\n");
-    if Command::new("scoop").arg("--version").output().is_ok() {
-        match Command::new("powershell").args(&["-NoProfile", "-Command", "scoop status"]).output() {
-            Ok(out) => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                let combined = format!("{}{}", stdout, stderr);
-                if combined.contains("Everything is ok") || combined.contains("is up to date") {
-                    result.push_str("-> Các ứng dụng Scoop đã được cập nhật đầy đủ.\n");
-                } else {
-                    result.push_str(&combined);
-                    result.push_str("\n");
-                }
-            }
-            Err(e) => {
-                result.push_str(&format!("-> Lỗi khi kiểm tra Scoop: {}\n", e));
-            }
-        }
-    } else {
-        result.push_str("-> Scoop chưa được cài đặt hoặc không nằm trong PATH.\n");
-    }
-
     Ok(result)
 }
 
-/// Checks system updates for APT, Flatpak, and Snap without requiring sudo password.
-#[cfg(not(windows))]
-pub fn check_system_updates() -> Result<String, String> {
-    let mut result = String::new();
+
+#[cfg(target_os = "windows")]
+pub fn check_system_updates() -> Result<Vec<UpdateEntry>, String> {
+    let mut updates = Vec::new();
+
+    // 1. Winget & MSStore
+    if Command::new("winget").arg("--version").output().is_ok() {
+        if let Ok(out) = Command::new("winget").args(&["upgrade"]).output() {
+            let combined = String::from_utf8_lossy(&out.stdout).to_string();
+            let mut started = false;
+            for line in combined.lines() {
+                let tline = line.trim();
+                if tline.starts_with("Name") && tline.contains("Id") && tline.contains("Version") {
+                    started = true;
+                    continue;
+                }
+                if started && tline.starts_with('-') { continue; }
+                if started && tline.is_empty() { continue; }
+                if started {
+                    let parts: Vec<&str> = tline.split_whitespace().collect();
+                    if parts.len() >= 4 {
+                        let source = parts.last().unwrap().to_string();
+                        if parts.len() >= 5 {
+                            let available = parts[parts.len()-2].to_string();
+                            let current = parts[parts.len()-3].to_string();
+                            let id = parts[parts.len()-4].to_string();
+                            let name = parts[..parts.len()-4].join(" ");
+                            updates.push(UpdateEntry {
+                                id, name, current_version: current, available_version: available, source
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Chocolatey
+    if Command::new("choco").arg("--version").output().is_ok() {
+        if let Ok(out) = Command::new("choco").arg("outdated").output() {
+            let combined = String::from_utf8_lossy(&out.stdout).to_string();
+            let mut started = false;
+            for line in combined.lines() {
+                let tline = line.trim();
+                if tline.starts_with("Outdated Packages") {
+                    started = true; continue;
+                }
+                if started && tline.contains("Chocolatey has determined") { break; }
+                if started && tline.contains('|') {
+                    let parts: Vec<&str> = tline.split('|').collect();
+                    if parts.len() >= 3 {
+                        updates.push(UpdateEntry {
+                            id: parts[0].to_string(),
+                            name: parts[0].to_string(),
+                            current_version: parts[1].to_string(),
+                            available_version: parts[2].to_string(),
+                            source: "chocolatey".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Scoop
+    if Command::new("scoop").arg("--version").output().is_ok() {
+        if let Ok(out) = Command::new("powershell").args(&["-NoProfile", "-Command", "scoop status"]).output() {
+            let combined = String::from_utf8_lossy(&out.stdout).to_string();
+            let mut started = false;
+            for line in combined.lines() {
+                let tline = line.trim();
+                if tline.starts_with("Name") && tline.contains("Version") {
+                    started = true; continue;
+                }
+                if started && tline.starts_with('-') { continue; }
+                if started && tline.is_empty() { break; }
+                if started {
+                    let parts: Vec<&str> = tline.split_whitespace().collect();
+                    if parts.len() >= 4 && parts[2] == "->" {
+                        updates.push(UpdateEntry {
+                            id: parts[0].to_string(),
+                            name: parts[0].to_string(),
+                            current_version: parts[1].to_string(),
+                            available_version: parts[3].to_string(),
+                            source: "scoop".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(updates)
+}
+
+
+#[cfg(not(target_os = "windows"))]
+pub fn check_system_updates() -> Result<Vec<UpdateEntry>, String> {
+    let mut updates = Vec::new();
     
     // 1. APT Simulation check (does not require root)
-    result.push_str("=== KIỂM TRA CẬP NHẬT APT ===\n");
-    match Command::new("apt-get")
-        .arg("-s")
-        .arg("upgrade")
-        .output()
-    {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let upgradable = stdout.lines()
-                .filter(|l| l.contains("Inst ") || l.contains("Conf "))
-                .count();
-            if upgradable > 0 {
-                result.push_str(&format!("-> Có {} gói có sẵn bản nâng cấp thông qua APT.\n", upgradable));
-                // Show first 5 packages
-                let pkgs: Vec<&str> = stdout.lines()
-                    .filter(|l| l.contains("Inst "))
-                    .take(5)
-                    .map(|l| l.split_whitespace().nth(1).unwrap_or(""))
-                    .collect();
-                result.push_str(&format!("   Các gói đề xuất: {}\n", pkgs.join(", ")));
-            } else {
-                result.push_str("-> Hệ thống APT đã được cập nhật đầy đủ.\n");
+    if let Ok(output) = Command::new("apt-get").arg("-s").arg("upgrade").output() {
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        for line in stdout.lines() {
+            if line.starts_with("Inst ") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 4 {
+                    let id = parts[1].to_string();
+                    let current = parts[2].trim_matches('[').trim_matches(']').to_string();
+                    let available = parts[3].trim_matches('(').to_string();
+                    updates.push(UpdateEntry {
+                        id: id.clone(),
+                        name: id,
+                        current_version: current,
+                        available_version: available,
+                        source: "apt".to_string(),
+                    });
+                }
             }
         }
-        Err(e) => {
-            result.push_str(&format!("-> Không thể kiểm tra APT: {}\n", e));
-        }
     }
-    result.push_str("\n");
 
     // 2. Flatpak update check
-    result.push_str("=== KIỂM TRA CẬP NHẬT FLATPAK ===\n");
-    match Command::new("flatpak")
-        .arg("update")
-        .arg("--check")
-        .output()
-    {
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let combined = format!("{}{}", stdout, stderr);
-            
-            if combined.contains("Nothing to do") || combined.trim().is_empty() {
-                result.push_str("-> Các ứng dụng Flatpak đã được cập nhật đầy đủ.\n");
-            } else {
-                result.push_str("-> Tìm thấy bản cập nhật Flatpak khả dụng:\n");
-                // Print first 5 non-empty lines
-                let lines: Vec<&str> = combined.lines().filter(|l| !l.trim().is_empty()).take(5).collect();
-                for l in lines {
-                    result.push_str(&format!("   {}\n", l));
+    if let Ok(output) = Command::new("flatpak").arg("update").arg("--check").output() {
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let mut started = false;
+        for line in stdout.lines() {
+            let tline = line.trim();
+            if tline.starts_with("Name") && tline.contains("Application ID") {
+                started = true; continue;
+            }
+            if started && tline.is_empty() { break; }
+            if started {
+                let parts: Vec<&str> = tline.split_whitespace().collect();
+                if parts.len() >= 4 {
+                    let id = parts[parts.len()-4].to_string();
+                    let name = parts[..parts.len()-4].join(" ");
+                    let available = parts[parts.len()-3].to_string();
+                    updates.push(UpdateEntry {
+                        id: id.clone(),
+                        name,
+                        current_version: "unknown".to_string(),
+                        available_version: available,
+                        source: "flatpak".to_string(),
+                    });
                 }
             }
         }
-        Err(e) => {
-            result.push_str(&format!("-> Không thể kiểm tra Flatpak: {}\n", e));
-        }
     }
-    result.push_str("\n");
 
     // 3. Snap check
-    result.push_str("=== KIỂM TRA CẬP NHẬT SNAP ===\n");
-    match Command::new("snap")
-        .arg("refresh")
-        .arg("--list")
-        .output()
-    {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            
-            if output.status.success() {
-                let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
-                if lines.len() > 1 {
-                    result.push_str(&format!("-> Có {} gói Snap có thể nâng cấp.\n", lines.len() - 1));
-                    for l in lines.iter().skip(1).take(5) {
-                        result.push_str(&format!("   {}\n", l));
-                    }
-                } else {
-                    result.push_str("-> Toàn bộ gói Snap đã được cập nhật.\n");
-                }
-            } else {
-                let err_msg = if stderr.contains("no updates") {
-                    "-> Toàn bộ gói Snap đã được cập nhật."
-                } else {
-                    "-> Snap daemon không phản hồi hoặc không có cập nhật."
-                };
-                result.push_str(&format!("{}\n", err_msg));
+    if let Ok(output) = Command::new("snap").arg("refresh").arg("--list").output() {
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let mut started = false;
+        for line in stdout.lines() {
+            let tline = line.trim();
+            if tline.starts_with("Name") && tline.contains("Version") {
+                started = true; continue;
             }
-        }
-        Err(e) => {
-            result.push_str(&format!("-> Không thể kiểm tra Snap: {}\n", e));
+            if started && tline.is_empty() { break; }
+            if started {
+                let parts: Vec<&str> = tline.split_whitespace().collect();
+                if parts.len() >= 3 {
+                    let id = parts[0].to_string();
+                    let current_version = "unknown".to_string();
+                    let available_version = parts[1].to_string();
+                    updates.push(UpdateEntry {
+                        id: id.clone(),
+                        name: id,
+                        current_version,
+                        available_version,
+                        source: "snap".to_string(),
+                    });
+                }
+            }
         }
     }
 
-    Ok(result)
+    Ok(updates)
 }
 
-/// Executes Flatpak leftover cleaning directly.
 pub fn clean_flatpak_unused() -> Result<String, String> {
     match Command::new("flatpak")
         .arg("uninstall")

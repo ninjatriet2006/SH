@@ -68,6 +68,17 @@ fn run_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result
             continue; // redraw immediately without waiting for events
         }
 
+        if app.needs_update_scan {
+            if let Ok(updates) = crate::maintenance::check_system_updates() {
+                app.update_entries = updates;
+            } else {
+                app.update_entries = Vec::new();
+            }
+            app.needs_update_scan = false;
+            draw_needed = true;
+            continue;
+        }
+
         // Wait for event up to 100ms
         if event::poll(Duration::from_millis(100))? {
             match event::read()? {
@@ -112,7 +123,7 @@ fn run_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result
                                 draw_needed = true;
                             }
                         }
-                        KeyCode::Insert => {
+                                                KeyCode::Char('i') | KeyCode::Insert => {
                             match app.current_screen {
                                 app::Screen::AppList => {
                                     app.go_to_operations();
@@ -126,19 +137,25 @@ fn run_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result
                                     let _ = run_uninstalls_outside_raw(terminal, app);
                                     draw_needed = true;
                                 }
+                                app::Screen::UpdateManager => {
+                                    let _ = run_update_selected_outside_raw(terminal, app);
+                                    draw_needed = true;
+                                }
                                 _ => {}
                             }
                         }
-                        KeyCode::Enter => {
+                                                KeyCode::Enter => {
+                            if app.current_screen == app::Screen::UpdateManager {
+                                let _ = run_update_selected_outside_raw(terminal, app);
+                                draw_needed = true;
+                                continue;
+                            }
                             match app.handle_enter() {
                                 EnterResult::RunWizard => {
                                     let _ = run_wizard_outside_raw(terminal, app);
                                     draw_needed = true;
                                 }
-                                EnterResult::RunCheckUpdates => {
-                                    let _ = run_check_updates_outside_raw(terminal, app);
-                                    draw_needed = true;
-                                }
+                                
                                 EnterResult::RunCleanLeftovers => {
                                     let _ = run_clean_leftovers_outside_raw(terminal, app);
                                     draw_needed = true;
@@ -165,6 +182,41 @@ fn run_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result
             }
         }
     }
+    Ok(())
+}
+
+
+fn run_update_selected_outside_raw<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<()> {
+    if app.checked_updates.is_empty() {
+        return Ok(());
+    }
+    disable_raw_mode()?;
+    execute!(io::stdout(), LeaveAlternateScreen)?;
+    
+    println!("\n=== Bắt đầu Cập nhật Phần mềm ===");
+    let mut selected_entries = Vec::new();
+    for &idx in &app.checked_updates {
+        if let Some(entry) = app.update_entries.get(idx) {
+            selected_entries.push(entry);
+        }
+    }
+    match crate::maintenance::execute_updates(selected_entries) {
+        Ok(res) => println!("{}", res),
+        Err(e) => println!("Lỗi cập nhật: {}", e),
+    }
+    
+    println!("\nNhấn Enter để tiếp tục...");
+    let mut buf = String::new();
+    let _ = io::stdin().read_line(&mut buf);
+
+    enable_raw_mode()?;
+    execute!(io::stdout(), EnterAlternateScreen)?;
+    terminal.clear()?;
+    
+    // Rescan after update
+    app.needs_update_scan = true;
+    app.checked_updates.clear();
+    
     Ok(())
 }
 
@@ -215,26 +267,6 @@ fn run_wizard_outside_raw<B: Backend>(terminal: &mut Terminal<B>, app: &mut App)
             let _ = io::stdin().read_line(&mut buf);
         }
     }
-
-    enable_raw_mode()?;
-    execute!(io::stdout(), EnterAlternateScreen)?;
-    terminal.clear()?;
-    app.reload_apps();
-    Ok(())
-}
-
-fn run_check_updates_outside_raw<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<()> {
-    disable_raw_mode()?;
-    execute!(io::stdout(), LeaveAlternateScreen)?;
-    
-    println!("\n=== Đang kiểm tra cập nhật hệ thống ===");
-    match crate::maintenance::check_system_updates() {
-        Ok(res) => println!("\n{}", res),
-        Err(e) => println!("\nLỗi: {}", e),
-    }
-    println!("Nhấn Enter để quay lại...");
-    let mut buf = String::new();
-    let _ = io::stdin().read_line(&mut buf);
 
     enable_raw_mode()?;
     execute!(io::stdout(), EnterAlternateScreen)?;
