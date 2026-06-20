@@ -1183,7 +1183,167 @@ pub fn scan_all_system_apps() -> Vec<AppEntry> {
     apps
 }
 
+/// Checks system updates. On Windows checks Winget, MS Store, Chocolatey, and Scoop. On Unix/Linux checks APT, Flatpak, and Snap.
+#[cfg(windows)]
+pub fn check_system_updates() -> Result<String, String> {
+    let mut result = String::new();
+
+    // 1. Winget upgrade check
+    result.push_str("=== KIỂM TRA CẬP NHẬT WINGET ===\n");
+    if Command::new("winget").arg("--version").output().is_ok() {
+        match Command::new("winget").args(&["upgrade", "--source", "winget"]).output() {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let combined = format!("{}{}", stdout, stderr);
+                if combined.contains("No upgrades available") || combined.contains("No installed package found matching input criteria") {
+                    result.push_str("-> Không có bản cập nhật Winget nào khả dụng.\n");
+                } else {
+                    let mut lines_to_print = Vec::new();
+                    for line in combined.lines() {
+                        let trim_line = line.trim();
+                        if trim_line.is_empty() 
+                            || trim_line.starts_with('-') 
+                            || trim_line.starts_with('\\') 
+                            || trim_line.starts_with('|') 
+                            || trim_line.starts_with('/')
+                        {
+                            if trim_line.chars().all(|c| c == '-') && trim_line.len() > 3 {
+                                lines_to_print.push(line.to_string());
+                            }
+                            continue;
+                        }
+                        lines_to_print.push(line.to_string());
+                    }
+                    result.push_str(&lines_to_print.join("\n"));
+                    result.push_str("\n");
+                }
+            }
+            Err(e) => {
+                result.push_str(&format!("-> Lỗi khi thực thi Winget: {}\n", e));
+            }
+        }
+    } else {
+        result.push_str("-> Winget chưa được cài đặt hoặc không nằm trong PATH.\n");
+    }
+    result.push_str("\n");
+
+    // 2. Microsoft Store update check
+    result.push_str("=== KIỂM TRA CẬP NHẬT MICROSOFT STORE ===\n");
+    if Command::new("winget").arg("--version").output().is_ok() {
+        match Command::new("winget").args(&["upgrade", "--source", "msstore"]).output() {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let combined = format!("{}{}", stdout, stderr);
+                if combined.contains("No upgrades available") || combined.contains("No installed package found matching input criteria") {
+                    result.push_str("-> Không có bản cập nhật Microsoft Store nào khả dụng.\n");
+                } else {
+                    let mut lines_to_print = Vec::new();
+                    for line in combined.lines() {
+                        let trim_line = line.trim();
+                        if trim_line.is_empty() 
+                            || trim_line.starts_with('-') 
+                            || trim_line.starts_with('\\') 
+                            || trim_line.starts_with('|') 
+                            || trim_line.starts_with('/')
+                        {
+                            if trim_line.chars().all(|c| c == '-') && trim_line.len() > 3 {
+                                lines_to_print.push(line.to_string());
+                            }
+                            continue;
+                        }
+                        lines_to_print.push(line.to_string());
+                    }
+                    result.push_str(&lines_to_print.join("\n"));
+                    result.push_str("\n");
+                }
+            }
+            Err(e) => {
+                result.push_str(&format!("-> Lỗi khi kiểm tra Microsoft Store: {}\n", e));
+            }
+        }
+    } else {
+        result.push_str("-> Winget chưa được cài đặt (không thể kiểm tra Microsoft Store).\n");
+    }
+    result.push_str("\n");
+
+    // 3. Chocolatey outdated check
+    result.push_str("=== KIỂM TRA CẬP NHẬT CHOCOLATEY ===\n");
+    if Command::new("choco").arg("--version").output().is_ok() {
+        match Command::new("choco").arg("outdated").output() {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let combined = format!("{}{}", stdout, stderr);
+                
+                if combined.contains("0 package(s) are outdated") {
+                    result.push_str("-> Các gói Chocolatey đã được cập nhật đầy đủ.\n");
+                } else if combined.contains("Chocolatey has determined") {
+                    let mut lines_to_print = Vec::new();
+                    let mut started = false;
+                    for line in combined.lines() {
+                        let trim_line = line.trim();
+                        if trim_line.starts_with("Outdated Packages") {
+                            started = true;
+                            continue;
+                        }
+                        if started {
+                            if trim_line.contains("Chocolatey has determined") {
+                                lines_to_print.push(line.to_string());
+                                break;
+                            }
+                            lines_to_print.push(line.to_string());
+                        }
+                    }
+                    if lines_to_print.is_empty() {
+                        result.push_str(&combined);
+                    } else {
+                        result.push_str(&lines_to_print.join("\n"));
+                    }
+                    result.push_str("\n");
+                } else {
+                    result.push_str(&combined);
+                    result.push_str("\n");
+                }
+            }
+            Err(e) => {
+                result.push_str(&format!("-> Lỗi khi thực thi Chocolatey: {}\n", e));
+            }
+        }
+    } else {
+        result.push_str("-> Chocolatey chưa được cài đặt hoặc không nằm trong PATH.\n");
+    }
+    result.push_str("\n");
+
+    // 4. Scoop status check
+    result.push_str("=== KIỂM TRA CẬP NHẬT SCOOP ===\n");
+    if Command::new("scoop").arg("--version").output().is_ok() {
+        match Command::new("powershell").args(&["-NoProfile", "-Command", "scoop status"]).output() {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let combined = format!("{}{}", stdout, stderr);
+                if combined.contains("Everything is ok") || combined.contains("is up to date") {
+                    result.push_str("-> Các ứng dụng Scoop đã được cập nhật đầy đủ.\n");
+                } else {
+                    result.push_str(&combined);
+                    result.push_str("\n");
+                }
+            }
+            Err(e) => {
+                result.push_str(&format!("-> Lỗi khi kiểm tra Scoop: {}\n", e));
+            }
+        }
+    } else {
+        result.push_str("-> Scoop chưa được cài đặt hoặc không nằm trong PATH.\n");
+    }
+
+    Ok(result)
+}
+
 /// Checks system updates for APT, Flatpak, and Snap without requiring sudo password.
+#[cfg(not(windows))]
 pub fn check_system_updates() -> Result<String, String> {
     let mut result = String::new();
     
