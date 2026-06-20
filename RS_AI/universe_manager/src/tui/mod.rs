@@ -10,7 +10,7 @@ use crossterm::{
 };
 use ratatui::prelude::*;
 use app::{App, EnterResult};
-use crate::manager;
+
 
 pub fn run_tui() -> Result<(), Box<dyn std::error::Error>> {
     // Setup terminal

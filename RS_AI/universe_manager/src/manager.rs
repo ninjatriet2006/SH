@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::collections::HashSet;
-use crate::config::{Config, AppEntry};
+use crate::config::AppEntry;
 
 pub fn get_real_id(id: &str) -> &str {
     id.strip_suffix("-flatpak")
