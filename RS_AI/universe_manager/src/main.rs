@@ -9,6 +9,7 @@ mod manager;
 mod scanner;
 mod maintenance;
 mod autostart;
+pub mod installer;
 
 use clap::{Parser, Subcommand};
 use config::{Config, AppStatus};

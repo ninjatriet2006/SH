@@ -108,10 +108,47 @@ fn run_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result
                         }
                         continue;
                     }
+
+                    if app.is_install_searching {
+                        match key.code {
+                            KeyCode::Esc => {
+                                app.is_install_searching = false;
+                                draw_needed = true;
+                            }
+                            KeyCode::Enter => {
+                                app.is_install_searching = false;
+                                app.status_message = Some("Đang tìm kiếm phần mềm...".to_string());
+                                terminal.draw(|f| ui::draw(f, app))?;
+                                
+                                app.install_search_results = crate::installer::search_apps(&app.install_search_query);
+                                if app.install_search_results.is_empty() {
+                                    app.status_message = Some("Không tìm thấy kết quả nào!".to_string());
+                                } else {
+                                    app.status_message = Some(format!("Tìm thấy {} kết quả.", app.install_search_results.len()));
+                                }
+                                app.install_selected_index = 0;
+                                draw_needed = true;
+                            }
+                            KeyCode::Backspace => {
+                                app.install_search_query.pop();
+                                draw_needed = true;
+                            }
+                            KeyCode::Char(c) => {
+                                app.install_search_query.push(c);
+                                draw_needed = true;
+                            }
+                            _ => {}
+                        }
+                        continue;
+                    }
                     
                     match key.code {
                         KeyCode::Char('/') | KeyCode::Char('f') if app.current_screen == crate::tui::app::Screen::AppList => {
                             app.is_searching = true;
+                            draw_needed = true;
+                        }
+                        KeyCode::Char('/') if app.current_screen == crate::tui::app::Screen::AppInstaller => {
+                            app.is_install_searching = true;
                             draw_needed = true;
                         }
                         KeyCode::Char('r') if key.modifiers.contains(event::KeyModifiers::ALT) => {
@@ -172,6 +209,16 @@ fn run_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result
                                                 KeyCode::Enter => {
                             if app.current_screen == app::Screen::UpdateManager {
                                 let _ = run_update_selected_outside_raw(terminal, app);
+                                draw_needed = true;
+                                continue;
+                            }
+                            if app.current_screen == app::Screen::PackageManagerInstaller {
+                                let _ = run_pm_install_outside_raw(terminal, app);
+                                draw_needed = true;
+                                continue;
+                            }
+                            if app.current_screen == app::Screen::AppInstaller {
+                                let _ = run_app_install_outside_raw(terminal, app);
                                 draw_needed = true;
                                 continue;
                             }
@@ -317,5 +364,66 @@ fn run_clean_leftovers_outside_raw<B: Backend>(terminal: &mut Terminal<B>, app: 
     execute!(io::stdout(), EnterAlternateScreen)?;
     terminal.clear()?;
     app.reload_apps();
+    Ok(())
+}
+
+fn run_pm_install_outside_raw<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<()> {
+    if app.checked_pms.is_empty() {
+        return Ok(());
+    }
+    disable_raw_mode()?;
+    execute!(io::stdout(), LeaveAlternateScreen)?;
+    
+    println!("\n=== Bắt đầu Cài đặt Công cụ Nền tảng ===");
+    for &idx in &app.checked_pms {
+        if let Some((name, _)) = app.pm_entries.get(idx) {
+            println!("Đang cài đặt {}...", name);
+            match crate::installer::install_package_manager(name) {
+                Ok(msg) => println!("{}", msg),
+                Err(e) => println!("Lỗi: {}", e),
+            }
+        }
+    }
+    
+    println!("\nNhấn Enter để tiếp tục...");
+    let mut buf = String::new();
+    let _ = io::stdin().read_line(&mut buf);
+
+    enable_raw_mode()?;
+    execute!(io::stdout(), EnterAlternateScreen)?;
+    terminal.clear()?;
+    
+    // Rescan after update
+    app.pm_entries = crate::installer::check_package_managers();
+    app.checked_pms.clear();
+    
+    Ok(())
+}
+
+fn run_app_install_outside_raw<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<()> {
+    if app.install_search_results.is_empty() {
+        return Ok(());
+    }
+    let selected = app.install_search_results.get(app.install_selected_index).cloned();
+    if let Some(entry) = selected {
+        disable_raw_mode()?;
+        execute!(io::stdout(), LeaveAlternateScreen)?;
+        
+        println!("\n=== Bắt đầu Cài đặt Phần mềm ===");
+        println!("Đang cài đặt {} (ID: {}) qua {}...", entry.name, entry.id, entry.source);
+        match crate::installer::install_app(&entry.id, &entry.source) {
+            Ok(msg) => println!("{}", msg),
+            Err(e) => println!("Lỗi: {}", e),
+        }
+        
+        println!("\nNhấn Enter để tiếp tục...");
+        let mut buf = String::new();
+        let _ = io::stdin().read_line(&mut buf);
+
+        enable_raw_mode()?;
+        execute!(io::stdout(), EnterAlternateScreen)?;
+        terminal.clear()?;
+    }
+    
     Ok(())
 }

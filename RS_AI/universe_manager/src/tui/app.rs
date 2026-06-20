@@ -14,6 +14,8 @@ pub enum Screen {
     UninstallList,
     AutostartManager,
     UpdateManager,
+    PackageManagerInstaller,
+    AppInstaller,
 }
 
 pub struct App {
@@ -43,6 +45,13 @@ pub struct App {
     pub search_query: String,
     pub is_searching: bool,
     pub filtered_apps: Vec<usize>,
+    pub pm_entries: Vec<(String, bool)>,
+    pub pm_index: usize,
+    pub checked_pms: HashSet<usize>,
+    pub install_search_query: String,
+    pub is_install_searching: bool,
+    pub install_search_results: Vec<crate::installer::SearchResult>,
+    pub install_selected_index: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +110,13 @@ impl App {
             search_query: String::new(),
             is_searching: false,
             filtered_apps: Vec::new(),
+            pm_entries: Vec::new(),
+            pm_index: 0,
+            checked_pms: HashSet::new(),
+            install_search_query: String::new(),
+            is_install_searching: false,
+            install_search_results: Vec::new(),
+            install_selected_index: 0,
         };
         app.reload_local_apps();
         app
@@ -184,7 +200,7 @@ impl App {
     pub fn next(&mut self) {
         match self.current_screen {
             Screen::MainMenu => {
-                self.menu_index = (self.menu_index + 1) % 7;
+                self.menu_index = (self.menu_index + 1) % 9;
             }
             Screen::AppList | Screen::UninstallList => {
                 if !self.filtered_apps.is_empty() {
@@ -204,6 +220,16 @@ impl App {
                     self.update_index = (self.update_index + 1) % self.update_entries.len();
                 }
             }
+            Screen::PackageManagerInstaller => {
+                if !self.pm_entries.is_empty() {
+                    self.pm_index = (self.pm_index + 1) % self.pm_entries.len();
+                }
+            }
+            Screen::AppInstaller => {
+                if !self.install_search_results.is_empty() {
+                    self.install_selected_index = (self.install_selected_index + 1) % self.install_search_results.len();
+                }
+            }
         }
         self.status_message = None;
     }
@@ -212,7 +238,7 @@ impl App {
         match self.current_screen {
             Screen::MainMenu => {
                 if self.menu_index == 0 {
-                    self.menu_index = 6;
+                    self.menu_index = 8;
                 } else {
                     self.menu_index -= 1;
                 }
@@ -251,6 +277,24 @@ impl App {
                     }
                 }
             }
+            Screen::PackageManagerInstaller => {
+                if !self.pm_entries.is_empty() {
+                    if self.pm_index == 0 {
+                        self.pm_index = self.pm_entries.len() - 1;
+                    } else {
+                        self.pm_index -= 1;
+                    }
+                }
+            }
+            Screen::AppInstaller => {
+                if !self.install_search_results.is_empty() {
+                    if self.install_selected_index == 0 {
+                        self.install_selected_index = self.install_search_results.len() - 1;
+                    } else {
+                        self.install_selected_index -= 1;
+                    }
+                }
+            }
         }
         self.status_message = None;
     }
@@ -272,6 +316,13 @@ impl App {
                     self.checked_operations.remove(&self.operations_index);
                 } else {
                     self.checked_operations.insert(self.operations_index);
+                }
+            }
+            Screen::PackageManagerInstaller => {
+                if self.checked_pms.contains(&self.pm_index) {
+                    self.checked_pms.remove(&self.pm_index);
+                } else {
+                    self.checked_pms.insert(self.pm_index);
                 }
             }
             _ => {}
@@ -315,6 +366,21 @@ impl App {
                         EnterResult::None
                     }
                     6 => {
+                        self.current_screen = Screen::PackageManagerInstaller;
+                        self.pm_entries = crate::installer::check_package_managers();
+                        self.pm_index = 0;
+                        self.checked_pms.clear();
+                        EnterResult::None
+                    }
+                    7 => {
+                        self.current_screen = Screen::AppInstaller;
+                        self.install_search_query.clear();
+                        self.install_search_results.clear();
+                        self.is_install_searching = true;
+                        self.install_selected_index = 0;
+                        EnterResult::None
+                    }
+                    8 => {
                         EnterResult::Exit
                     }
                     _ => EnterResult::None,
@@ -336,6 +402,12 @@ impl App {
                 EnterResult::None
             }
             Screen::UpdateManager => {
+                EnterResult::None
+            }
+            Screen::PackageManagerInstaller => {
+                EnterResult::None
+            }
+            Screen::AppInstaller => {
                 EnterResult::None
             }
         }
@@ -381,7 +453,7 @@ impl App {
     pub fn handle_back(&mut self) {
         match self.current_screen {
             Screen::MainMenu => {}
-            Screen::AppList | Screen::UninstallList | Screen::AutostartManager | Screen::UpdateManager => {
+            Screen::AppList | Screen::UninstallList | Screen::AutostartManager | Screen::UpdateManager | Screen::PackageManagerInstaller | Screen::AppInstaller => {
                 self.current_screen = Screen::MainMenu;
                 self.status_message = None;
             }

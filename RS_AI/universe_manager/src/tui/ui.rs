@@ -80,6 +80,12 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Screen::UpdateManager => {
             draw_update_manager(f, app, chunks[1]);
         }
+        Screen::PackageManagerInstaller => {
+            draw_pm_installer(f, app, chunks[1]);
+        }
+        Screen::AppInstaller => {
+            draw_app_installer(f, app, chunks[1]);
+        }
     }
 
     // 3. Draw Status Bar
@@ -152,6 +158,26 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             Span::styled(" | ", Style::default().fg(Color::DarkGray)),
             Span::styled("Backspace/Esc: Quay lại Menu chính", Style::default().fg(Color::LightRed)),
         ]),
+        Screen::PackageManagerInstaller => Line::from(vec![
+            Span::styled(" Phím tắt: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled("↑↓/j/k: Duyệt danh sách", Style::default().fg(Color::LightBlue)),
+            Span::styled(" | ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Space: Chọn/Huỷ chọn", Style::default().fg(Color::Yellow)),
+            Span::styled(" | ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Enter: Cài đặt công cụ đã chọn", Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)),
+            Span::styled(" | ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Backspace/Esc: Quay lại Menu chính", Style::default().fg(Color::LightRed)),
+        ]),
+        Screen::AppInstaller => Line::from(vec![
+            Span::styled(" Phím tắt: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled("↑↓/j/k: Duyệt danh sách", Style::default().fg(Color::LightBlue)),
+            Span::styled(" | ", Style::default().fg(Color::DarkGray)),
+            Span::styled("/: Gõ tìm kiếm", Style::default().fg(Color::Yellow)),
+            Span::styled(" | ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Enter: Cài đặt phần mềm", Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)),
+            Span::styled(" | ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Backspace/Esc: Quay lại Menu chính", Style::default().fg(Color::LightRed)),
+        ]),
     };
     let footer_para = Paragraph::new(footer_text).alignment(Alignment::Center);
     f.render_widget(footer_para, chunks[3]);
@@ -165,7 +191,9 @@ fn draw_main_menu(f: &mut Frame, app: &App, area: Rect) {
         " 4. Kiểm tra Cập nhật phần mềm/hệ thống ",
         " 5. Dọn dẹp leftovers (Quét & dọn dẹp thư mục cấu hình rác) ",
         " 6. Quản lý khởi động cùng hệ thống (Autostart Manager) ",
-        " 7. Thoát chương trình ",
+        " 7. Cài đặt các công cụ nền tảng (Winget, Choco, Scoop) ",
+        " 8. Tìm kiếm & Cài đặt phần mềm mới ",
+        " 9. Thoát chương trình ",
     ];
 
     let items: Vec<ListItem> = menu_items.iter().enumerate().map(|(i, &item)| {
@@ -925,5 +953,135 @@ fn draw_update_manager(f: &mut Frame, app: &mut App, area: Rect) {
             app.update_state.select(Some(app.update_index));
             f.render_stateful_widget(table, area, &mut app.update_state);
         }
+    }
+}
+
+
+fn draw_pm_installer(f: &mut Frame, app: &mut App, area: Rect) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Cài đặt Package Manager ")
+        .border_style(Style::default().fg(Color::LightBlue));
+
+    if app.pm_entries.is_empty() {
+        let text = Paragraph::new("\n Đang kiểm tra hệ thống...")
+            .alignment(Alignment::Center)
+            .block(block);
+        f.render_widget(text, area);
+        return;
+    }
+
+    let header = Row::new(vec![
+        Cell::from(" Chọn"),
+        Cell::from("Tên công cụ"),
+        Cell::from("Trạng thái"),
+    ])
+    .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+
+    let rows: Vec<Row> = app.pm_entries.iter().enumerate().map(|(i, (name, is_installed))| {
+        let is_checked = app.checked_pms.contains(&i);
+        let check_str = if is_checked { " [x]" } else { " [ ]" };
+        let check_style = if is_checked { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::DarkGray) };
+
+        let status_str = if *is_installed { "Đã cài đặt" } else { "Chưa cài đặt" };
+        let status_style = if *is_installed { Style::default().fg(Color::Green) } else { Style::default().fg(Color::Red) };
+
+        let highlight_style = if i == app.pm_index {
+            Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::White)
+        };
+
+        Row::new(vec![
+            Cell::from(Span::styled(check_str, check_style)),
+            Cell::from(Span::styled(name.clone(), highlight_style)),
+            Cell::from(Span::styled(status_str, status_style)),
+        ])
+    }).collect();
+
+    let table = Table::new(rows, [
+        Constraint::Length(8),
+        Constraint::Percentage(40),
+        Constraint::Percentage(52),
+    ])
+    .header(header)
+    .block(block)
+    .column_spacing(2);
+
+    f.render_widget(table, area);
+}
+
+fn draw_app_installer(f: &mut Frame, app: &mut App, area: Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(0),
+        ])
+        .split(area);
+
+    let search_title = if app.is_install_searching {
+        " Tìm kiếm phần mềm (Đang nhập...) "
+    } else {
+        " Tìm kiếm phần mềm (Nhấn '/' để nhập từ khoá, Enter để tìm) "
+    };
+    
+    let search_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(if app.is_install_searching { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::DarkGray) })
+        .title(search_title);
+        
+    let search_text = Paragraph::new(app.install_search_query.clone() + if app.is_install_searching { "█" } else { "" })
+        .block(search_block)
+        .style(Style::default().fg(if app.is_install_searching { Color::White } else { Color::Gray }));
+        
+    f.render_widget(search_text, chunks[0]);
+
+    let list_block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Kết quả tìm kiếm ")
+        .border_style(Style::default().fg(Color::DarkGray));
+
+    if app.install_search_results.is_empty() {
+        let empty_msg = Paragraph::new("\n Không có kết quả tìm kiếm nào.\n Hãy gõ từ khoá (ví dụ: vlc) rồi nhấn Enter để quét qua các kênh ứng dụng.")
+            .style(Style::default().fg(Color::Gray))
+            .alignment(Alignment::Center)
+            .block(list_block);
+        f.render_widget(empty_msg, chunks[1]);
+    } else {
+        let header = Row::new(vec![
+            Cell::from("Tên ứng dụng"),
+            Cell::from("ID Gói"),
+            Cell::from("Phiên bản"),
+            Cell::from("Nguồn (Kênh)"),
+        ])
+        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+
+        let rows: Vec<Row> = app.install_search_results.iter().enumerate().map(|(i, res)| {
+            let style = if i == app.install_selected_index {
+                Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+
+            Row::new(vec![
+                Cell::from(Span::styled(res.name.clone(), style)),
+                Cell::from(Span::styled(res.id.clone(), style)),
+                Cell::from(Span::styled(res.version.clone(), style)),
+                Cell::from(Span::styled(res.source.clone(), style)),
+            ])
+        }).collect();
+
+        let table = Table::new(rows, [
+            Constraint::Percentage(35),
+            Constraint::Percentage(35),
+            Constraint::Percentage(15),
+            Constraint::Percentage(15),
+        ])
+        .header(header)
+        .block(list_block)
+        .column_spacing(2);
+
+        f.render_widget(table, chunks[1]);
     }
 }
