@@ -710,7 +710,7 @@ fn integrate_single_app(
     let mut delete_old_dir = false;
     let mut old_app_dir = None;
     if is_update {
-        let all_scanned = crate::manager::scan_all_system_apps();
+        let all_scanned = crate::scanner::scan_all_system_apps();
         let old_id = update_target_id.clone().unwrap_or_else(|| app_id.clone());
         
         if let Some(existing) = all_scanned.iter().find(|a| a.id == old_id) {
@@ -867,7 +867,7 @@ pub fn run_wizard(initial_path: Option<String>) -> Result<bool, String> {
     let mut config = crate::config::Config::load();
     
     // Load all system apps and filter to find portable ones
-    let all_scanned_apps = crate::manager::scan_all_system_apps();
+    let all_scanned_apps = crate::scanner::scan_all_system_apps();
     let local_apps: Vec<_> = all_scanned_apps.into_iter()
         .filter(|a| {
             a.package_type.as_deref().unwrap_or("Local") == "Local"

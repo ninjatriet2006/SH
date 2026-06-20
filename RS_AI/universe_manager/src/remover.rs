@@ -145,7 +145,7 @@ pub fn clean_mime_associations(app_id: &str) {
 
 /// Finds orphaned application configurations/data on the system.
 pub fn find_orphaned_leftovers() -> Vec<PathBuf> {
-    let all_scanned = crate::manager::scan_all_system_apps();
+    let all_scanned = crate::scanner::scan_all_system_apps();
     let mut active_names = std::collections::HashSet::new();
     let mut active_ids = std::collections::HashSet::new();
 
@@ -475,7 +475,7 @@ pub fn uninstall(app_id: &str) -> Result<(), String> {
     if let Some(entry) = entry_opt {
         uninstall_local_portable(&entry)
     } else {
-        let system_apps = crate::manager::scan_all_system_apps();
+        let system_apps = crate::scanner::scan_all_system_apps();
         if let Some(entry) = system_apps.iter().find(|a| a.id == app_id) {
             match entry.package_type.as_deref() {
                 Some("Flatpak") => {

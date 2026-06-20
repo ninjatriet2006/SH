@@ -60,6 +60,14 @@ fn run_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result
             draw_needed = false;
         }
 
+        // If the app needs an initial/forced scan, do it NOW after drawing the loading screen
+        if app.needs_initial_scan {
+            app.reload_apps();
+            app.needs_initial_scan = false;
+            draw_needed = true;
+            continue; // redraw immediately without waiting for events
+        }
+
         // Wait for event up to 100ms
         if event::poll(Duration::from_millis(100))? {
             match event::read()? {
@@ -70,6 +78,10 @@ fn run_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result
                     }
                     
                     match key.code {
+                        KeyCode::Char('r') if key.modifiers.contains(event::KeyModifiers::ALT) => {
+                            app.needs_initial_scan = true;
+                            draw_needed = true;
+                        }
                         KeyCode::Char('q') | KeyCode::Esc => {
                             if app.current_screen == app::Screen::MainMenu {
                                 break;
@@ -216,7 +228,7 @@ fn run_check_updates_outside_raw<B: Backend>(terminal: &mut Terminal<B>, app: &m
     execute!(io::stdout(), LeaveAlternateScreen)?;
     
     println!("\n=== Đang kiểm tra cập nhật hệ thống ===");
-    match manager::check_system_updates() {
+    match crate::maintenance::check_system_updates() {
         Ok(res) => println!("\n{}", res),
         Err(e) => println!("\nLỗi: {}", e),
     }
@@ -236,7 +248,7 @@ fn run_clean_leftovers_outside_raw<B: Backend>(terminal: &mut Terminal<B>, app: 
     execute!(io::stdout(), LeaveAlternateScreen)?;
     
     println!("\n=== Đang dọn dẹp leftovers ===");
-    match manager::clean_system_leftovers() {
+    match crate::maintenance::clean_system_leftovers() {
         Ok(res) => println!("\n{}", res),
         Err(e) => println!("\nLỗi: {}", e),
     }

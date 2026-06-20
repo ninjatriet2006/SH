@@ -8,6 +8,21 @@ use crate::manager;
 use std::path::Path;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
+    if app.needs_initial_scan {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(100)].as_ref())
+            .split(f.size());
+            
+        let loading_block = Block::default().borders(Borders::ALL).title("Universe Manager - Loading");
+        let loading_text = Paragraph::new("\n\nĐang quét danh sách ứng dụng hệ thống, vui lòng chờ...\n(Quá trình này có thể mất vài giây)")
+            .alignment(ratatui::layout::Alignment::Center)
+            .block(loading_block);
+        
+        f.render_widget(loading_text, chunks[0]);
+        return;
+    }
+
     let size = f.size();
 
     // Base layout: Header (3), Main (Min 10), Status Message (3), Footer (1)
@@ -278,7 +293,7 @@ fn draw_app_list(f: &mut Frame, app: &mut App, process_snapshot: &manager::Proce
 
     if let Some((entry, status)) = app.apps_with_status.get(app.selected_index) {
         let is_running = process_snapshot.is_running(entry);
-        let autostart_enabled = manager::is_autostart_enabled(entry);
+        let autostart_enabled = crate::autostart::is_autostart_enabled(entry);
         
         let install_type_str = match entry.install_type {
             InstallType::InPlace => "Tại chỗ (In-Place / Giữ nguyên thư mục gốc)",

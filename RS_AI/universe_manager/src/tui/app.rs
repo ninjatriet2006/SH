@@ -1,6 +1,8 @@
 use crate::config::{AppEntry, AppStatus};
 use crate::remover;
 use crate::manager;
+use crate::scanner;
+use crate::autostart;
 use std::collections::HashSet;
 use ratatui::widgets::TableState;
 
@@ -28,9 +30,10 @@ pub struct App {
     pub worker_thread: Option<std::thread::JoinHandle<()>>,
     pub app_list_state: TableState,
     pub uninstall_list_state: TableState,
-    pub autostart_entries: Vec<manager::AutostartEntry>,
+    pub autostart_entries: Vec<autostart::AutostartEntry>,
     pub autostart_index: usize,
     pub autostart_state: TableState,
+    pub needs_initial_scan: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,8 +83,9 @@ impl App {
             autostart_entries: Vec::new(),
             autostart_index: 0,
             autostart_state: TableState::default(),
+            needs_initial_scan: true,
         };
-        app.reload_apps();
+        app.reload_local_apps();
         app
     }
 
@@ -107,8 +111,27 @@ impl App {
         });
     }
 
+    pub fn reload_local_apps(&mut self) {
+        let config = crate::config::Config::load();
+        self.apps_with_status = config.apps.into_iter()
+            .map(|mut entry| {
+                entry.package_type = Some("Local".to_string());
+                if entry.category.is_none() {
+                    entry.category = Some("Utility".to_string());
+                }
+                let status = entry.check_status();
+                (entry, status)
+            })
+            .collect();
+            
+        if self.selected_index >= self.apps_with_status.len() && !self.apps_with_status.is_empty() {
+            self.selected_index = self.apps_with_status.len() - 1;
+        }
+    }
+
     pub fn reload_apps(&mut self) {
-        let system_apps = manager::scan_all_system_apps();
+        // Now only called when explicitly wanting to full reload, but usually we just keep the cached state
+        let system_apps = scanner::scan_all_system_apps();
         
         // Scan status for each app
         self.apps_with_status = system_apps.into_iter()
@@ -234,7 +257,7 @@ impl App {
                     }
                     5 => {
                         self.current_screen = Screen::AutostartManager;
-                        self.autostart_entries = manager::scan_global_autostart();
+                        self.autostart_entries = autostart::scan_global_autostart();
                         self.autostart_index = 0;
                         EnterResult::None
                     }
@@ -267,10 +290,10 @@ impl App {
             return;
         }
         let entry = &self.autostart_entries[self.autostart_index];
-        match manager::remove_autostart_entry(entry) {
+        match autostart::remove_autostart_entry(entry) {
             Ok(_) => {
                 self.status_message = Some(format!("Đã gỡ bỏ '{}' khỏi khởi động cùng hệ thống!", entry.name));
-                self.autostart_entries = manager::scan_global_autostart();
+                self.autostart_entries = autostart::scan_global_autostart();
                 if self.autostart_index >= self.autostart_entries.len() && !self.autostart_entries.is_empty() {
                     self.autostart_index = self.autostart_entries.len() - 1;
                 }
@@ -343,11 +366,11 @@ impl App {
             }
             // 3. Toggle Autostart
             if self.checked_operations.contains(&3) {
-                let autostart_enabled = manager::is_autostart_enabled(&app);
+                let autostart_enabled = autostart::is_autostart_enabled(&app);
                 if autostart_enabled {
-                    app_actions.push(("Tắt Autostart", manager::disable_autostart(&app)));
+                    app_actions.push(("Tắt Autostart", autostart::disable_autostart(&app)));
                 } else {
-                    app_actions.push(("Bật Autostart", manager::enable_autostart(&app)));
+                    app_actions.push(("Bật Autostart", autostart::enable_autostart(&app)));
                 }
             }
 
