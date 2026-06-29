@@ -1,5 +1,7 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+#[cfg(windows)]
+use std::path::Path;
 use std::process::Command;
 use std::collections::HashSet;
 use crate::config::AppEntry;
@@ -11,6 +13,7 @@ pub fn get_real_id(id: &str) -> &str {
 }
 
 /// Helper to robustly parse registry query line
+#[cfg(windows)]
 pub fn parse_reg_line(line: &str) -> Option<(String, String)> {
     let trimmed = line.trim();
     if trimmed.is_empty() {
@@ -348,6 +351,7 @@ pub fn is_app_running(app: &AppEntry) -> bool {
 
 /// Spawns the application process in the background.
 pub fn start_app(app: &AppEntry) -> Result<(), String> {
+    #[allow(unused_variables)]
     let ptype = app.package_type.as_deref().unwrap_or("Local");
 
     #[cfg(unix)]
@@ -588,8 +592,6 @@ pub fn restart_app(app: &AppEntry) -> Result<(), String> {
 
 /// Checks if the autostart launcher for this app exists.
 
-/// Checks system updates. On Windows checks Winget, MS Store, Chocolatey, and Scoop. On Unix/Linux checks APT, Flatpak, and Snap.
-#[cfg(windows)]
 pub struct AppPaths {
     pub config_dir: Option<String>,
     pub data_dir: Option<String>,

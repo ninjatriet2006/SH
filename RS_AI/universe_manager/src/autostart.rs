@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use crate::config::AppEntry;
+#[cfg(windows)]
 use std::process::Command;
 
 pub fn is_autostart_enabled(app: &AppEntry) -> bool {
