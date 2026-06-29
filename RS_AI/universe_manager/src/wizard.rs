@@ -239,6 +239,10 @@ fn parse_terminal_from_desktop(desktop_file: &str) -> Option<bool> {
 }
 
 fn parse_paths(input: &str) -> Vec<String> {
+    let trimmed = input.trim();
+    if std::path::Path::new(trimmed).exists() {
+        return vec![trimmed.to_string()];
+    }
     let mut paths = Vec::new();
     let mut current = String::new();
     let mut in_single_quote = false;
