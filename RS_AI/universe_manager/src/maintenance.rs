@@ -12,8 +12,36 @@ pub struct UpdateEntry {
     pub source: String,
 }
 
+fn check_git_updates(updates: &mut Vec<UpdateEntry>) {
+    let config = crate::config::Config::load();
+    for app in config.apps {
+        let install_path = std::path::Path::new(&app.install_path);
+        let git_dir = install_path.join(".git");
+        if git_dir.exists() && git_dir.is_dir() {
+            // Check git status
+            if Command::new("git").current_dir(install_path).args(&["fetch"]).status().is_ok() {
+                if let Ok(out) = Command::new("git").current_dir(install_path).args(&["rev-list", "HEAD...@{u}", "--count"]).output() {
+                    let count_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    if let Ok(count) = count_str.parse::<u32>() {
+                        if count > 0 {
+                            updates.push(UpdateEntry {
+                                id: app.id.clone(),
+                                name: app.name.clone(),
+                                current_version: "local".to_string(),
+                                available_version: format!("+{} commits", count),
+                                source: "git".to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub fn execute_updates(entries: Vec<&UpdateEntry>) -> Result<String, String> {
     let mut result = String::new();
+    let config = crate::config::Config::load();
     for entry in entries {
         result.push_str(&format!("Đang cập nhật {} qua {}...\n", entry.name, entry.source));
         let status = match entry.source.as_str() {
@@ -34,6 +62,13 @@ pub fn execute_updates(entries: Vec<&UpdateEntry>) -> Result<String, String> {
             }
             "snap" => {
                 Command::new("sudo").args(&["snap", "refresh", &entry.id]).status()
+            }
+            "git" => {
+                if let Some(app) = config.apps.iter().find(|a| a.id == entry.id) {
+                    Command::new("git").current_dir(&app.install_path).args(&["pull", "--rebase", "--autostash"]).status()
+                } else {
+                    Err(std::io::Error::new(std::io::ErrorKind::NotFound, "App not found"))
+                }
             }
             _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "Unknown source")),
         };
@@ -151,6 +186,8 @@ pub fn check_system_updates() -> Result<Vec<UpdateEntry>, String> {
         }
     }
 
+    check_git_updates(&mut updates);
+
     Ok(updates)
 }
 
@@ -236,6 +273,8 @@ pub fn check_system_updates() -> Result<Vec<UpdateEntry>, String> {
             }
         }
     }
+
+    check_git_updates(&mut updates);
 
     Ok(updates)
 }
