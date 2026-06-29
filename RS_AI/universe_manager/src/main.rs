@@ -6,6 +6,10 @@ mod remover;
 mod wizard;
 mod tui;
 mod manager;
+mod scanner;
+mod maintenance;
+mod autostart;
+pub mod installer;
 
 use clap::{Parser, Subcommand};
 use config::{Config, AppStatus};
@@ -79,36 +83,36 @@ enum Commands {
 }
 
 fn main() {
+    #[cfg(target_os = "linux")]
     use std::io::IsTerminal;
     let cli = Cli::parse();
 
+    #[cfg(target_os = "linux")]
     let is_tui = match &cli.command {
         None | Some(Commands::Tui) => true,
         _ => false,
     };
 
+    #[cfg(target_os = "linux")]
     if is_tui && !std::io::stdout().is_terminal() && std::env::var("UNIVERSE_MANAGER_WRAPPED").is_err() {
         if let Ok(exe) = std::env::current_exe() {
-            #[cfg(target_os = "linux")]
-            {
-                let terminals = ["gnome-terminal", "konsole", "xfce4-terminal", "x-terminal-emulator", "xterm"];
-                for term in terminals {
-                    if std::process::Command::new(term)
-                        .arg("--")
-                        .arg(&exe)
-                        .env("UNIVERSE_MANAGER_WRAPPED", "1")
-                        .spawn()
-                        .is_ok()
-                        ||
-                       std::process::Command::new(term)
-                        .arg("-e")
-                        .arg(&exe)
-                        .env("UNIVERSE_MANAGER_WRAPPED", "1")
-                        .spawn()
-                        .is_ok()
-                    {
-                        return;
-                    }
+            let terminals = ["gnome-terminal", "konsole", "xfce4-terminal", "x-terminal-emulator", "xterm"];
+            for term in terminals {
+                if std::process::Command::new(term)
+                    .arg("--")
+                    .arg(&exe)
+                    .env("UNIVERSE_MANAGER_WRAPPED", "1")
+                    .spawn()
+                    .is_ok()
+                    ||
+                   std::process::Command::new(term)
+                    .arg("-e")
+                    .arg(&exe)
+                    .env("UNIVERSE_MANAGER_WRAPPED", "1")
+                    .spawn()
+                    .is_ok()
+                {
+                    return;
                 }
             }
         }
@@ -248,7 +252,7 @@ fn main() {
             if let Some(app) = config.apps.iter().find(|a| a.id == id) {
                 if enable {
                     println!("Đang cấu hình '{}' tự khởi động cùng hệ thống...", app.name);
-                    match manager::enable_autostart(app) {
+                    match autostart::enable_autostart(app) {
                         Ok(_) => println!("Thành công: Đã bật tự động khởi động."),
                         Err(e) => {
                             eprintln!("Lỗi: {}", e);
@@ -257,7 +261,7 @@ fn main() {
                     }
                 } else if disable {
                     println!("Đang tắt tự khởi động của '{}'...", app.name);
-                    match manager::disable_autostart(app) {
+                    match autostart::disable_autostart(app) {
                         Ok(_) => println!("Thành công: Đã huỷ tự động khởi động."),
                         Err(e) => {
                             eprintln!("Lỗi: {}", e);
@@ -265,7 +269,7 @@ fn main() {
                         }
                     }
                 } else {
-                    let status = if manager::is_autostart_enabled(app) { "ĐÃ BẬT" } else { "ĐÃ TẮT" };
+                    let status = if autostart::is_autostart_enabled(app) { "ĐÃ BẬT" } else { "ĐÃ TẮT" };
                     println!("Cấu hình tự khởi động cùng hệ thống của '{}': {}", app.name, status);
                 }
             } else {

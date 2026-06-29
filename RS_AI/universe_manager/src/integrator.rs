@@ -1,8 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
 use std::os::unix::fs::symlink;
+#[cfg(windows)]
+use std::os::windows::fs::symlink_file as symlink;
 use chrono::Local;
 
 use crate::config::{Config, AppEntry, InstallType};
@@ -152,6 +156,7 @@ pub fn integrate(params: IntegrationParams) -> Result<AppEntry, String> {
     }
 
     // 5. Ensure executable permission
+    #[cfg(unix)]
     if let Ok(metadata) = fs::metadata(&final_exec_path) {
         let mut permissions = metadata.permissions();
         let mode = permissions.mode();
@@ -235,6 +240,7 @@ pub fn integrate(params: IntegrationParams) -> Result<AppEntry, String> {
         .map_err(|e| format!("Không thể ghi file launcher .desktop: {}", e))?;
 
     // Set +x permission on .desktop file just in case
+    #[cfg(unix)]
     if let Ok(metadata) = fs::metadata(&desktop_file_path) {
         let mut permissions = metadata.permissions();
         let mode = permissions.mode();
@@ -286,6 +292,7 @@ pub fn integrate(params: IntegrationParams) -> Result<AppEntry, String> {
         stop_cmd: None,
         category: Some(categories.replace(';', "")),
         package_type: Some("Local".to_string()),
+        ..Default::default()
     };
 
     config.add_app(entry.clone());

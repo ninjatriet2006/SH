@@ -2,15 +2,168 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::collections::HashSet;
-use crate::config::{Config, AppEntry};
+use crate::config::AppEntry;
 
-fn get_real_id(id: &str) -> &str {
+pub fn get_real_id(id: &str) -> &str {
     id.strip_suffix("-flatpak")
         .or_else(|| id.strip_suffix("-snap"))
         .unwrap_or(id)
 }
 
-/// A snapshot of all running processes in the system, collected in a single scan of /proc.
+/// Helper to robustly parse registry query line
+pub fn parse_reg_line(line: &str) -> Option<(String, String)> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let types = ["REG_SZ", "REG_EXPAND_SZ", "REG_DWORD", "REG_BINARY", "REG_MULTI_SZ", "REG_QWORD"];
+    for t in &types {
+        if let Some(idx) = trimmed.find(t) {
+            let before = &trimmed[..idx];
+            let after = &trimmed[idx + t.len()..];
+            if (before.is_empty() || before.ends_with(char::is_whitespace)) &&
+               (after.is_empty() || after.starts_with(char::is_whitespace)) {
+                let name = before.trim().to_string();
+                let data = after.trim().to_string();
+                if !name.is_empty() && !data.is_empty() {
+                    return Some((name, data));
+                }
+            }
+        }
+    }
+    // Fallback to splitting by multiple spaces
+    let parts: Vec<&str> = trimmed.split("    ").map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    if parts.len() >= 3 {
+        return Some((parts[0].to_string(), parts[2].to_string()));
+    }
+    None
+}
+
+#[cfg(windows)]
+pub fn find_exec_path_on_windows(app: &AppEntry) -> Option<String> {
+    // 1. If the exec_path exists as a file, return it
+    if Path::new(&app.exec_path).exists() {
+        return Some(app.exec_path.clone());
+    }
+
+    // 2. Try clean names for registry App Paths lookup
+    let clean_names = vec![
+        app.name.clone(),
+        app.name.replace(' ', ""),
+        app.id.clone(),
+        get_real_id(&app.id).to_string(),
+        get_real_id(&app.id).replace(|c: char| !c.is_alphanumeric(), ""),
+    ];
+
+    let registry_bases = [
+        "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths",
+        "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths",
+    ];
+
+    for name in clean_names {
+        if name.trim().is_empty() {
+            continue;
+        }
+        let extensions = ["", ".exe", ".cmd", ".bat"];
+        for ext in &extensions {
+            let key_name = format!("{}{}", name, ext);
+            for base in &registry_bases {
+                let full_key = format!("{}\\{}", base, key_name);
+                if let Ok(out) = Command::new("reg").args(&["query", &full_key, "/ve"]).output() {
+                    if out.status.success() {
+                        let stdout = String::from_utf8_lossy(&out.stdout);
+                        for line in stdout.lines() {
+                            if let Some((name, data)) = parse_reg_line(line) {
+                                if name == "(Default)" && !data.is_empty() {
+                                    let clean_data = data.replace('"', "").replace('\'', "");
+                                    if Path::new(&clean_data).exists() {
+                                        return Some(clean_data);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Try Uninstall registry subkeys
+    let uninstall_bases = [
+        "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+        "HKLM\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+        "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+    ];
+
+    for base in &uninstall_bases {
+        if let Ok(out) = Command::new("reg").args(&["query", base]).output() {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for subkey in stdout.lines() {
+                let subkey = subkey.trim();
+                if subkey.is_empty() {
+                    continue;
+                }
+                let subkey_lower = subkey.to_lowercase();
+                let clean_id = get_real_id(&app.id).to_lowercase().replace(|c: char| !c.is_alphanumeric(), "");
+                let clean_name = app.name.to_lowercase().replace(|c: char| !c.is_alphanumeric(), "");
+
+                if subkey_lower.contains(&clean_id) || subkey_lower.contains(&clean_name) {
+                    if let Ok(val_out) = Command::new("reg").args(&["query", subkey]).output() {
+                        let val_stdout = String::from_utf8_lossy(&val_out.stdout);
+                        let mut install_loc = None;
+                        let mut display_name_matches = false;
+
+                        for line in val_stdout.lines() {
+                            if let Some((name, data)) = parse_reg_line(line) {
+                                if name == "DisplayName" {
+                                    let display_lower = data.to_lowercase();
+                                    if display_lower.contains(&app.name.to_lowercase()) {
+                                        display_name_matches = true;
+                                    }
+                                } else if name == "InstallLocation" {
+                                    install_loc = Some(data.replace('"', "").replace('\'', ""));
+                                }
+                            }
+                        }
+
+                        if display_name_matches || subkey_lower.contains(&clean_id) {
+                            if let Some(loc) = install_loc {
+                                if !loc.trim().is_empty() {
+                                    let loc_path = Path::new(&loc);
+                                    if loc_path.exists() && loc_path.is_dir() {
+                                        if let Ok(entries) = fs::read_dir(loc_path) {
+                                            for entry in entries.flatten() {
+                                                if let Ok(meta) = entry.metadata() {
+                                                    if meta.is_file() {
+                                                        let path = entry.path();
+                                                        if path.extension().map_or(false, |e| e.to_ascii_lowercase() == "exe") {
+                                                            let filename = path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+                                                            if filename.contains(&clean_name) || clean_name.contains(&filename.replace(".exe", "")) {
+                                                                return Some(path.to_string_lossy().to_string());
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        let common_exe = loc_path.join(format!("{}.exe", app.name.replace(' ', "")));
+                                        if common_exe.exists() {
+                                            return Some(common_exe.to_string_lossy().to_string());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// A snapshot of all running processes in the system.
 #[derive(Clone)]
 pub struct ProcessSnapshot {
     pub canonical_exes: HashSet<PathBuf>,
@@ -20,31 +173,60 @@ pub struct ProcessSnapshot {
 
 impl ProcessSnapshot {
     pub fn collect() -> Self {
+        #[allow(unused_mut)]
         let mut canonical_exes = HashSet::new();
         let mut names = HashSet::new();
+        #[allow(unused_mut)]
         let mut cmdlines = Vec::new();
         
-        if let Ok(entries) = fs::read_dir("/proc") {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let file_name = entry.file_name();
-                let name_str = file_name.to_string_lossy();
-                if name_str.chars().all(|c| c.is_ascii_digit()) {
-                    // Method 1: Check exe link
-                    let exe_link = path.join("exe");
-                    if let Ok(target) = fs::read_link(&exe_link) {
-                        if let Some(n) = target.file_name() {
-                            names.insert(n.to_string_lossy().to_string());
+        #[cfg(unix)]
+        {
+            if let Ok(entries) = fs::read_dir("/proc") {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let file_name = entry.file_name();
+                    let name_str = file_name.to_string_lossy();
+                    if name_str.chars().all(|c| c.is_ascii_digit()) {
+                        // Method 1: Check exe link
+                        let exe_link = path.join("exe");
+                        if let Ok(target) = fs::read_link(&exe_link) {
+                            if let Some(n) = target.file_name() {
+                                names.insert(n.to_string_lossy().to_string());
+                            }
+                            canonical_exes.insert(target);
                         }
-                        canonical_exes.insert(target);
+                        
+                        // Method 2: Check cmdline
+                        let cmd_file = path.join("cmdline");
+                        if let Ok(cmd_bytes) = fs::read(cmd_file) {
+                            let cmd_str = String::from_utf8_lossy(&cmd_bytes).replace('\0', " ");
+                            if !cmd_str.trim().is_empty() {
+                                cmdlines.push(cmd_str);
+                            }
+                        }
                     }
-                    
-                    // Method 2: Check cmdline
-                    let cmd_file = path.join("cmdline");
-                    if let Ok(cmd_bytes) = fs::read(cmd_file) {
-                        let cmd_str = String::from_utf8_lossy(&cmd_bytes).replace('\0', " ");
-                        if !cmd_str.trim().is_empty() {
-                            cmdlines.push(cmd_str);
+                }
+            }
+        }
+
+        #[cfg(windows)]
+        {
+            // Call tasklist to get running processes on Windows
+            if let Ok(out) = Command::new("tasklist").args(&["/FO", "CSV", "/NH"]).output() {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                for line in stdout.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    // CSV output format: "Image Name","PID","Session Name","Session#","Mem Usage"
+                    let parts: Vec<&str> = trimmed.split(',').map(|s| s.trim_matches('"')).collect();
+                    if !parts.is_empty() {
+                        let proc_name = parts[0].to_string();
+                        names.insert(proc_name.clone());
+                        // Also insert without .exe extension to make matching simpler
+                        if proc_name.to_lowercase().ends_with(".exe") {
+                            names.insert(proc_name[..proc_name.len() - 4].to_string());
                         }
                     }
                 }
@@ -59,214 +241,341 @@ impl ProcessSnapshot {
     }
     
     pub fn is_running(&self, app: &AppEntry) -> bool {
-        let is_custom = app.is_custom.unwrap_or(false);
+        let ptype = app.package_type.as_deref().unwrap_or("Local");
         
-        let exec_path_buf = PathBuf::from(&app.exec_path);
-        
-        // Check path directly
-        if self.canonical_exes.contains(&exec_path_buf) {
-            return true;
-        }
-        
-        let exec_name = exec_path_buf.file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
-        
-        // Check exe name
-        if !exec_name.is_empty() && self.names.contains(&exec_name) {
-            return true;
-        }
-        
-        let real_id = get_real_id(&app.id);
-        // Check cmdline
-        for cmd_str in &self.cmdlines {
-            if is_custom {
-                if cmd_str.contains(real_id) {
-                    return true;
-                }
-                if let Some(ref start) = app.start_cmd {
-                    let first_word = start.split_whitespace().next().unwrap_or("");
-                    if !first_word.is_empty() && cmd_str.contains(first_word) {
-                        if start.contains("flatpak") && start.contains(real_id) {
-                            return true;
+        if ptype == "Local" {
+            let is_custom = app.is_custom.unwrap_or(false);
+            let exec_path_buf = PathBuf::from(&app.exec_path);
+            
+            // Check path directly
+            if self.canonical_exes.contains(&exec_path_buf) {
+                return true;
+            }
+            
+            let exec_name = exec_path_buf.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            
+            // Check exe name
+            if !exec_name.is_empty() && self.names.contains(&exec_name) {
+                return true;
+            }
+            
+            let real_id = get_real_id(&app.id);
+            // Check cmdline
+            for cmd_str in &self.cmdlines {
+                if is_custom {
+                    if cmd_str.contains(real_id) {
+                        return true;
+                    }
+                    if let Some(ref start) = app.start_cmd {
+                        let first_word = start.split_whitespace().next().unwrap_or("");
+                        if !first_word.is_empty() && cmd_str.contains(first_word) {
+                            if start.contains("flatpak") && start.contains(real_id) {
+                                return true;
+                            }
                         }
                     }
+                } else {
+                    if cmd_str.contains(&app.exec_path) {
+                        return true;
+                    }
                 }
-            } else {
-                if cmd_str.contains(&app.exec_path) {
+            }
+            return false;
+        }
+
+        // For system package managers (APT, Flatpak, Snap, Homebrew, Winget, Scoop, Chocolatey):
+        // Match name, ID, and initials case-insensitively.
+        let app_name_lower = app.name.to_lowercase();
+        let app_id_lower = app.id.to_lowercase();
+        
+        let clean_id = get_real_id(&app_id_lower).replace(|c: char| !c.is_alphanumeric(), "");
+        let initials: String = app.name.split_whitespace()
+            .filter_map(|w| w.chars().next())
+            .collect::<String>()
+            .to_lowercase();
+
+        for name in &self.names {
+            let name_lower = name.to_lowercase();
+            // Ignore generic commands
+            if name_lower == "winget" || name_lower == "scoop" || name_lower == "choco" || name_lower == "brew" || name_lower == "cmd" || name_lower == "powershell" {
+                continue;
+            }
+
+            let clean_name = name_lower.replace(|c: char| !c.is_alphanumeric(), "");
+
+            if name_lower == app_name_lower {
+                return true;
+            }
+            if clean_name == clean_id {
+                return true;
+            }
+            if clean_name.contains(&clean_id) || clean_id.contains(&clean_name) {
+                if clean_name.len() > 3 && clean_id.len() > 3 {
                     return true;
                 }
             }
+            if initials.len() >= 3 && clean_name == initials {
+                return true;
+            }
+            for word in app.name.split_whitespace() {
+                let clean_word = word.to_lowercase().replace(|c: char| !c.is_alphanumeric(), "");
+                if clean_word.len() > 3 && clean_name.contains(&clean_word) {
+                    if clean_word != "client" && clean_word != "player" && clean_word != "manager" && clean_word != "free" && clean_word != "open" {
+                        return true;
+                    }
+                }
+            }
         }
-        
+
+        for cmd_str in &self.cmdlines {
+            let cmd_lower = cmd_str.to_lowercase();
+            if cmd_lower.contains(&app_name_lower) || cmd_lower.contains(&clean_id) {
+                return true;
+            }
+        }
+
         false
     }
 }
 
 /// Checks if the application process is currently running.
 pub fn is_app_running(app: &AppEntry) -> bool {
-    let is_custom = app.is_custom.unwrap_or(false);
-    
-    let exec_path_buf = PathBuf::from(&app.exec_path);
-    let exec_canonical = fs::canonicalize(&exec_path_buf).ok();
-    
-    let exec_name = exec_path_buf.file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
-    
-    if let Ok(entries) = fs::read_dir("/proc") {
-        for entry in entries.flatten() {
-            if let Ok(metadata) = entry.metadata() {
-                if metadata.is_dir() {
-                    let name = entry.file_name();
-                    let name_str = name.to_string_lossy();
-                    if name_str.chars().all(|c| c.is_ascii_digit()) {
-                        // Method 1: Check executable path symbolic link
-                        let exe_link = entry.path().join("exe");
-                        if let Ok(target) = fs::read_link(&exe_link) {
-                            if let Some(ref canon) = exec_canonical {
-                                if &target == canon {
-                                    return true;
-                                }
-                            }
-                            if !exec_name.is_empty() && target.to_string_lossy().contains(&exec_name) {
-                                return true;
-                            }
-                        }
-                        
-                        // Method 2: Check cmdline arguments
-                        let cmd_file = entry.path().join("cmdline");
-                        if let Ok(cmd_bytes) = fs::read(cmd_file) {
-                            let cmd_str = String::from_utf8_lossy(&cmd_bytes).replace('\0', " ");
-                            if is_custom {
-                                let real_id = get_real_id(&app.id);
-                                if cmd_str.contains(real_id) {
-                                    return true;
-                                }
-                                if let Some(ref start) = app.start_cmd {
-                                    let first_word = start.split_whitespace().next().unwrap_or("");
-                                    if !first_word.is_empty() && cmd_str.contains(first_word) {
-                                        if start.contains("flatpak") && start.contains(real_id) {
-                                            return true;
-                                        }
-                                    }
-                                }
-                            } else {
-                                if cmd_str.contains(&app.exec_path) {
-                                    return true;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    false
+    let snapshot = ProcessSnapshot::collect();
+    snapshot.is_running(app)
 }
 
 /// Spawns the application process in the background.
 pub fn start_app(app: &AppEntry) -> Result<(), String> {
-    let stdout = fs::File::create("/dev/null").map(std::process::Stdio::from).unwrap_or(std::process::Stdio::null());
-    let stderr = fs::File::create("/dev/null").map(std::process::Stdio::from).unwrap_or(std::process::Stdio::null());
-    
-    if app.is_custom.unwrap_or(false) {
-        if let Some(ref start_cmd) = app.start_cmd {
-            Command::new("sh")
-                .arg("-c")
-                .arg(start_cmd)
-                .stdout(stdout)
-                .stderr(stderr)
-                .spawn()
-                .map_err(|e| format!("Lỗi khởi chạy (custom command): {}", e))?;
-        } else {
-            Command::new(&app.exec_path)
-                .stdout(stdout)
-                .stderr(stderr)
-                .spawn()
-                .map_err(|e| format!("Lỗi khởi chạy: {}", e))?;
+    let ptype = app.package_type.as_deref().unwrap_or("Local");
+
+    #[cfg(unix)]
+    {
+        if app.is_custom.unwrap_or(false) {
+            if let Some(ref start_cmd) = app.start_cmd {
+                Command::new("sh")
+                    .arg("-c")
+                    .arg(start_cmd)
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                    .map_err(|e| format!("Lỗi khởi chạy (custom command): {}", e))?;
+                return Ok(());
+            }
         }
-    } else {
         Command::new(&app.exec_path)
-            .stdout(stdout)
-            .stderr(stderr)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
             .spawn()
             .map_err(|e| format!("Lỗi khởi chạy: {}", e))?;
+        Ok(())
     }
-    Ok(())
+
+    #[cfg(windows)]
+    {
+        // 1. If it's a custom command with start_cmd, run cmd.exe /c start_cmd
+        if let Some(ref start_cmd) = app.start_cmd {
+            if !start_cmd.trim().is_empty() {
+                Command::new("cmd")
+                    .args(&["/c", start_cmd])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                    .map_err(|e| format!("Lỗi khởi chạy: {}", e))?;
+                return Ok(());
+            }
+        }
+
+        // 2. Resolve real executable path on Windows
+        if let Some(resolved_path) = find_exec_path_on_windows(app) {
+            Command::new(resolved_path)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .map_err(|e| format!("Lỗi khởi chạy (Resolved Path): {}", e))?;
+            return Ok(());
+        }
+
+        // 3. Fallback: try cmd /c start "app name"
+        let fallback_exe = if ptype != "Local" {
+            app.name.replace(' ', "").to_lowercase()
+        } else {
+            app.exec_path.clone()
+        };
+
+        let status = Command::new("cmd")
+            .args(&["/c", "start", "", &fallback_exe])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+
+        match status {
+            Ok(s) if s.success() => Ok(()),
+            _ => {
+                Command::new(&fallback_exe)
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                    .map(|_| ())
+                    .map_err(|e| format!("Không tìm thấy file chạy và chạy thử lệnh cmd/direct đều thất bại: {}", e))
+            }
+        }
+    }
 }
 
 /// Stops the application process(es).
 pub fn stop_app(app: &AppEntry) -> Result<(), String> {
-    if app.is_custom.unwrap_or(false) {
+    #[cfg(unix)]
+    {
+        if app.is_custom.unwrap_or(false) {
+            if let Some(ref stop_cmd) = app.stop_cmd {
+                let status = Command::new("sh")
+                    .arg("-c")
+                    .arg(stop_cmd)
+                    .status()
+                    .map_err(|e| format!("Lỗi thực thi lệnh stop: {}", e))?;
+                if status.success() {
+                    return Ok(());
+                }
+            }
+        }
+
+        let exec_path_buf = PathBuf::from(&app.exec_path);
+        let exec_canonical = fs::canonicalize(&exec_path_buf).ok();
+        let exec_name = exec_path_buf.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        
+        let mut pids = Vec::new();
+        if let Ok(entries) = fs::read_dir("/proc") {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
+                if name_str.chars().all(|c| c.is_ascii_digit()) {
+                    let mut matches = false;
+                    
+                    let exe_link = entry.path().join("exe");
+                    if let Ok(target) = fs::read_link(&exe_link) {
+                        if let Some(ref canon) = exec_canonical {
+                            if &target == canon {
+                                matches = true;
+                            }
+                        }
+                        if !exec_name.is_empty() && target.to_string_lossy().contains(&exec_name) {
+                            matches = true;
+                        }
+                    }
+                    
+                    let cmd_file = entry.path().join("cmdline");
+                    if let Ok(cmd_bytes) = fs::read(cmd_file) {
+                        let cmd_str = String::from_utf8_lossy(&cmd_bytes).replace('\0', " ");
+                        if app.is_custom.unwrap_or(false) {
+                            let real_id = get_real_id(&app.id);
+                            if cmd_str.contains(real_id) {
+                                matches = true;
+                            }
+                        } else {
+                            if cmd_str.contains(&app.exec_path) {
+                                matches = true;
+                            }
+                        }
+                    }
+
+                    if matches {
+                        pids.push(name_str.to_string());
+                    }
+                }
+            }
+        }
+
+        if !pids.is_empty() {
+            let mut cmd = Command::new("kill");
+            for pid in pids {
+                cmd.arg(pid);
+            }
+            let _ = cmd.status();
+        }
+    }
+
+    #[cfg(windows)]
+    {
         if let Some(ref stop_cmd) = app.stop_cmd {
-            let status = Command::new("sh")
-                .arg("-c")
-                .arg(stop_cmd)
-                .status()
-                .map_err(|e| format!("Lỗi thực thi lệnh stop: {}", e))?;
-            if status.success() {
-                return Ok(());
-            }
-        }
-    }
-
-    // Default fallback: Scan PIDs matching executable or config, then kill them.
-    let exec_path_buf = PathBuf::from(&app.exec_path);
-    let exec_canonical = fs::canonicalize(&exec_path_buf).ok();
-    let exec_name = exec_path_buf.file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
-    
-    let mut pids = Vec::new();
-    if let Ok(entries) = fs::read_dir("/proc") {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if name_str.chars().all(|c| c.is_ascii_digit()) {
-                let mut matches = false;
-                
-                let exe_link = entry.path().join("exe");
-                if let Ok(target) = fs::read_link(&exe_link) {
-                    if let Some(ref canon) = exec_canonical {
-                        if &target == canon {
-                            matches = true;
-                        }
-                    }
-                    if !exec_name.is_empty() && target.to_string_lossy().contains(&exec_name) {
-                        matches = true;
-                    }
-                }
-                
-                let cmd_file = entry.path().join("cmdline");
-                if let Ok(cmd_bytes) = fs::read(cmd_file) {
-                    let cmd_str = String::from_utf8_lossy(&cmd_bytes).replace('\0', " ");
-                    if app.is_custom.unwrap_or(false) {
-                        let real_id = get_real_id(&app.id);
-                        if cmd_str.contains(real_id) {
-                            matches = true;
-                        }
-                    } else {
-                        if cmd_str.contains(&app.exec_path) {
-                            matches = true;
-                        }
-                    }
-                }
-
-                if matches {
-                    pids.push(name_str.to_string());
+            if !stop_cmd.trim().is_empty() {
+                let status = Command::new("cmd")
+                    .args(&["/c", stop_cmd])
+                    .status()
+                    .map_err(|e| format!("Lỗi thực thi lệnh stop: {}", e))?;
+                if status.success() {
+                    return Ok(());
                 }
             }
         }
+
+        let snapshot = ProcessSnapshot::collect();
+        let mut stopped_any = false;
+
+        let app_name_lower = app.name.to_lowercase();
+        let app_id_lower = app.id.to_lowercase();
+        let clean_id = get_real_id(&app_id_lower).replace(|c: char| !c.is_alphanumeric(), "");
+        let initials: String = app.name.split_whitespace()
+            .filter_map(|w| w.chars().next())
+            .collect::<String>()
+            .to_lowercase();
+
+        for name in &snapshot.names {
+            let name_lower = name.to_lowercase();
+            if name_lower == "winget" || name_lower == "scoop" || name_lower == "choco" || name_lower == "brew" || name_lower == "cmd" || name_lower == "powershell" {
+                continue;
+            }
+
+            let clean_name = name_lower.replace(|c: char| !c.is_alphanumeric(), "");
+            let mut matches = false;
+
+            if name_lower == app_name_lower {
+                matches = true;
+            } else if clean_name == clean_id {
+                matches = true;
+            } else if clean_name.contains(&clean_id) || clean_id.contains(&clean_name) {
+                if clean_name.len() > 3 && clean_id.len() > 3 {
+                    matches = true;
+                }
+            } else if initials.len() >= 3 && clean_name == initials {
+                matches = true;
+            } else {
+                for word in app.name.split_whitespace() {
+                    let clean_word = word.to_lowercase().replace(|c: char| !c.is_alphanumeric(), "");
+                    if clean_word.len() > 3 && clean_name.contains(&clean_word) {
+                        if clean_word != "client" && clean_word != "player" && clean_word != "manager" && clean_word != "free" && clean_word != "open" {
+                            matches = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if matches {
+                let target_exe = if name.to_lowercase().ends_with(".exe") {
+                    name.clone()
+                } else {
+                    format!("{}.exe", name)
+                };
+
+                let _ = Command::new("taskkill")
+                    .args(&["/F", "/IM", &target_exe])
+                    .status();
+                stopped_any = true;
+            }
+        }
+
+        if !stopped_any {
+            let clean_name = app.name.replace(' ', "");
+            let _ = Command::new("taskkill")
+                .args(&["/F", "/IM", &format!("{}.exe", clean_name)])
+                .status();
+        }
     }
 
-    if !pids.is_empty() {
-        let mut cmd = Command::new("kill");
-        for pid in pids {
-            cmd.arg(pid);
-        }
-        let _ = cmd.status();
-    }
     Ok(())
 }
 
@@ -278,464 +587,9 @@ pub fn restart_app(app: &AppEntry) -> Result<(), String> {
 }
 
 /// Checks if the autostart launcher for this app exists.
-pub fn is_autostart_enabled(app: &AppEntry) -> bool {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home"));
-    let autostart_file = home.join(".config").join("autostart").join(format!("{}.desktop", app.id));
-    autostart_file.exists()
-}
 
-/// Configures the app to run at system startup.
-pub fn enable_autostart(app: &AppEntry) -> Result<(), String> {
-    let home = dirs::home_dir().ok_or("Không xác định được thư mục Home")?;
-    let autostart_dir = home.join(".config").join("autostart");
-    if !autostart_dir.exists() {
-        fs::create_dir_all(&autostart_dir)
-            .map_err(|e| format!("Lỗi tạo thư mục autostart: {}", e))?;
-    }
-
-    let dest = autostart_dir.join(format!("{}.desktop", app.id));
-    let src = Path::new(&app.desktop_file);
-    
-    if src.exists() {
-        fs::copy(src, &dest)
-            .map_err(|e| format!("Lỗi copy file cấu hình vào autostart: {}", e))?;
-    } else {
-        let categories = "Utility;";
-        let comment = format!("Tự động khởi động cùng hệ thống: {}", app.name);
-        let icon_line = match &app.icon_path {
-            Some(path) => format!("Icon={}\n", path),
-            None => String::new(),
-        };
-        let content = format!(
-            "[Desktop Entry]\n\
-            Type=Application\n\
-            Name={}\n\
-            Comment={}\n\
-            Exec=\"{}\"\n\
-            Path={}\n\
-            {}\
-            Terminal=false\n\
-            Categories={}\n",
-            app.name,
-            comment,
-            app.exec_path,
-            app.install_path,
-            icon_line,
-            categories
-        );
-        fs::write(&dest, content)
-            .map_err(|e| format!("Lỗi ghi file autostart: {}", e))?;
-    }
-    Ok(())
-}
-
-/// Disables system startup run.
-pub fn disable_autostart(app: &AppEntry) -> Result<(), String> {
-    let home = dirs::home_dir().ok_or("Không xác định được thư mục Home")?;
-    let autostart_file = home.join(".config").join("autostart").join(format!("{}.desktop", app.id));
-    if autostart_file.exists() {
-        fs::remove_file(autostart_file)
-            .map_err(|e| format!("Lỗi xoá tệp autostart: {}", e))?;
-    }
-    Ok(())
-}
-
-/// Helper function to parse a system .desktop file.
-fn parse_desktop_file(path: &Path) -> Result<AppEntry, String> {
-    let content = fs::read_to_string(path)
-        .map_err(|e| format!("Không thể đọc file: {}", e))?;
-        
-    let filename = path.file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
-        
-    let id = filename.strip_suffix(".desktop").unwrap_or(&filename).to_string();
-    
-    let mut name = String::new();
-    let mut exec = String::new();
-    let mut categories_str = String::new();
-    let mut icon = None;
-    let mut no_display = false;
-    let mut is_application = false;
-    
-    let mut in_desktop_entry = false;
-    
-    for line in content.lines() {
-        let line = line.trim();
-        if line.starts_with('[') {
-            if line == "[Desktop Entry]" {
-                in_desktop_entry = true;
-            } else {
-                in_desktop_entry = false;
-            }
-            continue;
-        }
-        
-        if !in_desktop_entry {
-            continue;
-        }
-        
-        if let Some(index) = line.find('=') {
-            let key = line[..index].trim();
-            let val = line[index+1..].trim();
-            
-            match key {
-                "Name" => {
-                    if name.is_empty() {
-                        name = val.to_string();
-                    }
-                }
-                "Exec" => {
-                    exec = val.to_string();
-                }
-                "Categories" => {
-                    categories_str = val.to_string();
-                }
-                "Icon" => {
-                    icon = Some(val.to_string());
-                }
-                "NoDisplay" => {
-                    if val.to_lowercase() == "true" {
-                        no_display = true;
-                    }
-                }
-                "Type" => {
-                    if val.to_lowercase() == "application" {
-                        is_application = true;
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    
-    if !is_application || no_display || name.is_empty() {
-        return Err("Không phải ứng dụng hiển thị được".to_string());
-    }
-    
-    // Clean Exec path (remove parameters like %u, %U, %f, %F)
-    let clean_exec = exec.split_whitespace()
-        .filter(|part| !part.starts_with('%'))
-        .collect::<Vec<&str>>()
-        .join(" ")
-        .replace('"', "")
-        .replace('\'', "");
-        
-    // Resolve primary category
-    let mut category = "Other".to_string();
-    if !categories_str.is_empty() {
-        let list: Vec<&str> = categories_str.split(';').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
-        
-        let main_categories = [
-            "Network", "Internet", "Development", "Office", "Graphics",
-            "AudioVideo", "Audio", "Video", "Multimedia", "Game",
-            "System", "Utility", "Accessories", "Settings"
-        ];
-        
-        let mut found = false;
-        for cat in &list {
-            for main_cat in &main_categories {
-                if cat.to_lowercase() == main_cat.to_lowercase() {
-                    category = main_cat.to_string();
-                    found = true;
-                    break;
-                }
-            }
-            if found {
-                break;
-            }
-        }
-        
-        if !found && !list.is_empty() {
-            category = list[0].to_string();
-        }
-    }
-    
-    // Determine packaging type
-    let path_str = path.to_string_lossy().to_string();
-    let package_type = if path_str.contains("flatpak") {
-        "Flatpak".to_string()
-    } else if path_str.contains("snap") {
-        "Snap".to_string()
-    } else {
-        "APT".to_string()
-    };
-    
-    let real_id = id.clone();
-    let mut final_id = id;
-    if package_type == "Flatpak" {
-        final_id = format!("{}-flatpak", real_id);
-    } else if package_type == "Snap" {
-        final_id = format!("{}-snap", real_id);
-    }
-    
-    Ok(AppEntry {
-        id: final_id,
-        name,
-        install_type: crate::config::InstallType::InPlace,
-        source_path: None,
-        install_path: path.parent().unwrap_or(Path::new("")).to_string_lossy().to_string(),
-        exec_path: clean_exec,
-        icon_path: icon,
-        desktop_file: path_str,
-        symlink_file: None,
-        added_at: "".to_string(),
-        is_custom: Some(package_type == "Flatpak" || package_type == "Snap"),
-        start_cmd: if package_type == "Flatpak" {
-            Some(format!("flatpak run {}", real_id))
-        } else {
-            None
-        },
-        stop_cmd: if package_type == "Flatpak" {
-            Some(format!("flatpak kill {}", real_id))
-        } else {
-            None
-        },
-        category: Some(category),
-        package_type: Some(package_type),
-    })
-}
-
-/// Scans all applications installed on the system (APT, Flatpak, Snap, Local).
-pub fn scan_all_system_apps() -> Vec<AppEntry> {
-    let mut apps = Vec::new();
-    let mut seen_ids = HashSet::new();
-    
-    // 1. Add locally registered portable apps first
-    let config = Config::load();
-    for mut app in config.apps {
-        app.package_type = Some("Local".to_string());
-        if app.category.is_none() {
-            app.category = Some("Utility".to_string());
-        }
-        seen_ids.insert(app.id.clone());
-        apps.push(app);
-    }
-    
-    // 2. Scan directories containing .desktop files
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home"));
-    let scan_dirs = vec![
-        PathBuf::from("/usr/share/applications"),
-        PathBuf::from("/usr/local/share/applications"),
-        home.join(".local/share/applications"),
-        PathBuf::from("/var/lib/flatpak/exports/share/applications"),
-        home.join(".local/share/flatpak/exports/share/applications"),
-        PathBuf::from("/var/lib/snapd/desktop/applications"),
-    ];
-    
-    for dir in scan_dirs {
-        if !dir.exists() || !dir.is_dir() {
-            continue;
-        }
-        
-        if let Ok(entries) = fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() && path.extension().map(|e| e == "desktop").unwrap_or(false) {
-                    if let Ok(app_entry) = parse_desktop_file(&path) {
-                        if !seen_ids.contains(&app_entry.id) {
-                            seen_ids.insert(app_entry.id.clone());
-                            apps.push(app_entry);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    // Sort alphabetically by name
-    apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    apps
-}
-
-/// Checks system updates for APT, Flatpak, and Snap without requiring sudo password.
-pub fn check_system_updates() -> Result<String, String> {
-    let mut result = String::new();
-    
-    // 1. APT Simulation check (does not require root)
-    result.push_str("=== KIỂM TRA CẬP NHẬT APT ===\n");
-    match Command::new("apt-get")
-        .arg("-s")
-        .arg("upgrade")
-        .output()
-    {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let upgradable = stdout.lines()
-                .filter(|l| l.contains("Inst ") || l.contains("Conf "))
-                .count();
-            if upgradable > 0 {
-                result.push_str(&format!("-> Có {} gói có sẵn bản nâng cấp thông qua APT.\n", upgradable));
-                // Show first 5 packages
-                let pkgs: Vec<&str> = stdout.lines()
-                    .filter(|l| l.contains("Inst "))
-                    .take(5)
-                    .map(|l| l.split_whitespace().nth(1).unwrap_or(""))
-                    .collect();
-                result.push_str(&format!("   Các gói đề xuất: {}\n", pkgs.join(", ")));
-            } else {
-                result.push_str("-> Hệ thống APT đã được cập nhật đầy đủ.\n");
-            }
-        }
-        Err(e) => {
-            result.push_str(&format!("-> Không thể kiểm tra APT: {}\n", e));
-        }
-    }
-    result.push_str("\n");
-
-    // 2. Flatpak update check
-    result.push_str("=== KIỂM TRA CẬP NHẬT FLATPAK ===\n");
-    match Command::new("flatpak")
-        .arg("update")
-        .arg("--check")
-        .output()
-    {
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let combined = format!("{}{}", stdout, stderr);
-            
-            if combined.contains("Nothing to do") || combined.trim().is_empty() {
-                result.push_str("-> Các ứng dụng Flatpak đã được cập nhật đầy đủ.\n");
-            } else {
-                result.push_str("-> Tìm thấy bản cập nhật Flatpak khả dụng:\n");
-                // Print first 5 non-empty lines
-                let lines: Vec<&str> = combined.lines().filter(|l| !l.trim().is_empty()).take(5).collect();
-                for l in lines {
-                    result.push_str(&format!("   {}\n", l));
-                }
-            }
-        }
-        Err(e) => {
-            result.push_str(&format!("-> Không thể kiểm tra Flatpak: {}\n", e));
-        }
-    }
-    result.push_str("\n");
-
-    // 3. Snap check
-    result.push_str("=== KIỂM TRA CẬP NHẬT SNAP ===\n");
-    match Command::new("snap")
-        .arg("refresh")
-        .arg("--list")
-        .output()
-    {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            
-            if output.status.success() {
-                let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
-                if lines.len() > 1 {
-                    result.push_str(&format!("-> Có {} gói Snap có thể nâng cấp.\n", lines.len() - 1));
-                    for l in lines.iter().skip(1).take(5) {
-                        result.push_str(&format!("   {}\n", l));
-                    }
-                } else {
-                    result.push_str("-> Toàn bộ gói Snap đã được cập nhật.\n");
-                }
-            } else {
-                let err_msg = if stderr.contains("no updates") {
-                    "-> Toàn bộ gói Snap đã được cập nhật."
-                } else {
-                    "-> Snap daemon không phản hồi hoặc không có cập nhật."
-                };
-                result.push_str(&format!("{}\n", err_msg));
-            }
-        }
-        Err(e) => {
-            result.push_str(&format!("-> Không thể kiểm tra Snap: {}\n", e));
-        }
-    }
-
-    Ok(result)
-}
-
-/// Executes Flatpak leftover cleaning directly.
-pub fn clean_flatpak_unused() -> Result<String, String> {
-    match Command::new("flatpak")
-        .arg("uninstall")
-        .arg("--unused")
-        .arg("-y")
-        .output()
-    {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            Ok(format!("Flatpak clean-up:\n{}{}", stdout, stderr))
-        }
-        Err(e) => Err(format!("Lỗi dọn Flatpak: {}", e)),
-    }
-}
-
-/// Scans and cleans system leftovers (APT rc packages and Flatpak unused runtimes).
-pub fn clean_system_leftovers() -> Result<String, String> {
-    let mut result = String::new();
-    result.push_str("=== BẮT ĐẦU DỌN DẸP HỆ THỐNG (LEFTOVERS) ===\n\n");
-    
-    // 1. APT leftovers (purging 'rc' state packages)
-    result.push_str("[1/2] Đang quét cấu hình cũ của APT (trạng thái 'rc')...\n");
-    match Command::new("dpkg")
-        .arg("-l")
-        .output()
-    {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let mut rc_pkgs = Vec::new();
-            for line in stdout.lines() {
-                if line.starts_with("rc ") {
-                    if let Some(pkg) = line.split_whitespace().nth(1) {
-                        rc_pkgs.push(pkg.to_string());
-                    }
-                }
-            }
-            
-            if !rc_pkgs.is_empty() {
-                result.push_str(&format!("-> Phát hiện {} gói cấu hình thừa: {}\n", rc_pkgs.len(), rc_pkgs.join(", ")));
-                result.push_str("-> Đang thực thi gỡ bỏ cấu hình thừa (yêu cầu quyền sudo nếu cần)...\n");
-                
-                let mut cmd = Command::new("sudo");
-                cmd.arg("apt-get").arg("purge").arg("-y");
-                for pkg in &rc_pkgs {
-                    cmd.arg(pkg);
-                }
-                
-                match cmd.status() {
-                    Ok(status) => {
-                           if status.success() {
-                               result.push_str("-> Dọn dẹp cấu hình APT thừa thành công!\n");
-                           } else {
-                               result.push_str(&format!("-> Lệnh dọn dẹp kết thúc với lỗi: {:?}\n", status.code()));
-                           }
-                    }
-                    Err(e) => {
-                        result.push_str(&format!("-> Lỗi khi chạy lệnh gỡ: {}\n", e));
-                    }
-                }
-            } else {
-                result.push_str("-> Không tìm thấy cấu hình cũ (trạng thái 'rc') nào cần dọn dẹp.\n");
-            }
-        }
-        Err(e) => {
-            result.push_str(&format!("-> Không thể kiểm tra dpkg: {}\n", e));
-        }
-    }
-    result.push_str("\n");
-    
-    // 2. Flatpak unused runtimes
-    result.push_str("[2/2] Đang dọn dẹp Flatpak runtimes không sử dụng...\n");
-    match clean_flatpak_unused() {
-        Ok(out) => {
-            result.push_str("-> Hoàn tất dọn dẹp Flatpak:\n");
-            result.push_str(&out);
-        }
-        Err(e) => {
-            result.push_str(&format!("-> Lỗi dọn Flatpak: {}\n", e));
-        }
-    }
-    
-    Ok(result)
-}
-
+/// Checks system updates. On Windows checks Winget, MS Store, Chocolatey, and Scoop. On Unix/Linux checks APT, Flatpak, and Snap.
+#[cfg(windows)]
 pub struct AppPaths {
     pub config_dir: Option<String>,
     pub data_dir: Option<String>,
@@ -837,21 +691,5 @@ pub fn get_app_paths(app: &AppEntry) -> AppPaths {
         data_dir,
         cache_dir,
         system_share_dir,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn test_scan() {
-        let apps = scan_all_system_apps();
-        println!("TOTAL APPS: {}", apps.len());
-        for app in apps {
-            if app.name.contains("Fcitx") || app.id.contains("fcitx") || app.package_type == Some("Flatpak".to_string()) {
-                println!("=== FOUND FLATPAK OR FCITX APP ===");
-                println!("APP: id={}, name={}, package_type={:?}, desktop_file={}", app.id, app.name, app.package_type, app.desktop_file);
-            }
-        }
     }
 }

@@ -1,6 +1,8 @@
 use crate::config::{AppEntry, AppStatus};
 use crate::remover;
 use crate::manager;
+use crate::scanner;
+use crate::autostart;
 use std::collections::HashSet;
 use ratatui::widgets::TableState;
 
@@ -10,6 +12,10 @@ pub enum Screen {
     AppList,
     AppOperations,
     UninstallList,
+    AutostartManager,
+    UpdateManager,
+    PackageManagerInstaller,
+    AppInstaller,
 }
 
 pub struct App {
@@ -27,13 +33,32 @@ pub struct App {
     pub worker_thread: Option<std::thread::JoinHandle<()>>,
     pub app_list_state: TableState,
     pub uninstall_list_state: TableState,
+    pub autostart_entries: Vec<autostart::AutostartEntry>,
+        pub autostart_index: usize,
+    pub autostart_state: TableState,
+    pub needs_initial_scan: bool,
+    pub update_entries: Vec<crate::maintenance::UpdateEntry>,
+    pub update_index: usize,
+    pub update_state: TableState,
+    pub checked_updates: HashSet<usize>,
+    pub needs_update_scan: bool,
+    pub search_query: String,
+    pub is_searching: bool,
+    pub filtered_apps: Vec<usize>,
+    pub pm_entries: Vec<(String, bool)>,
+    pub pm_index: usize,
+    pub checked_pms: HashSet<usize>,
+    pub install_search_query: String,
+    pub is_install_searching: bool,
+    pub install_search_results: Vec<crate::installer::SearchResult>,
+    pub install_selected_index: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnterResult {
     None,
     RunWizard,
-    RunCheckUpdates,
+
     RunCleanLeftovers,
     RunUninstalls,
     Exit,
@@ -73,8 +98,27 @@ impl App {
             running_flag,
             app_list_state: TableState::default(),
             uninstall_list_state: TableState::default(),
+                        autostart_entries: Vec::new(),
+            autostart_index: 0,
+            autostart_state: TableState::default(),
+            needs_initial_scan: true,
+            update_entries: Vec::new(),
+            update_index: 0,
+            update_state: TableState::default(),
+            checked_updates: HashSet::new(),
+            needs_update_scan: false,
+            search_query: String::new(),
+            is_searching: false,
+            filtered_apps: Vec::new(),
+            pm_entries: Vec::new(),
+            pm_index: 0,
+            checked_pms: HashSet::new(),
+            install_search_query: String::new(),
+            is_install_searching: false,
+            install_search_results: Vec::new(),
+            install_selected_index: 0,
         };
-        app.reload_apps();
+        app.reload_local_apps();
         app
     }
 
@@ -100,8 +144,47 @@ impl App {
         });
     }
 
+    pub fn reload_local_apps(&mut self) {
+        let config = crate::config::Config::load();
+        self.apps_with_status = config.apps.into_iter()
+            .map(|mut entry| {
+                entry.package_type = Some("Local".to_string());
+                if entry.category.is_none() {
+                    entry.category = Some("Utility".to_string());
+                }
+                let status = entry.check_status();
+                (entry, status)
+            })
+            .collect();
+            
+        self.update_filter();
+    }
+
+    pub fn update_filter(&mut self) {
+        let query = self.search_query.to_lowercase();
+        self.filtered_apps = self.apps_with_status.iter()
+            .enumerate()
+            .filter_map(|(i, (app, _))| {
+                if query.is_empty() || app.name.to_lowercase().contains(&query) || app.id.to_lowercase().contains(&query) {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        
+        if !self.filtered_apps.is_empty() {
+            if self.selected_index >= self.filtered_apps.len() {
+                self.selected_index = self.filtered_apps.len() - 1;
+            }
+        } else {
+            self.selected_index = 0;
+        }
+    }
+
     pub fn reload_apps(&mut self) {
-        let system_apps = manager::scan_all_system_apps();
+        // Now only called when explicitly wanting to full reload, but usually we just keep the cached state
+        let system_apps = scanner::scan_all_system_apps();
         
         // Scan status for each app
         self.apps_with_status = system_apps.into_iter()
@@ -110,25 +193,42 @@ impl App {
                 (entry, status)
             })
             .collect();
-        
-        // Adjust selected index if it exceeds list size
-        if self.selected_index >= self.apps_with_status.len() && !self.apps_with_status.is_empty() {
-            self.selected_index = self.apps_with_status.len() - 1;
-        }
+            
+        self.update_filter();
     }
 
     pub fn next(&mut self) {
         match self.current_screen {
             Screen::MainMenu => {
-                self.menu_index = (self.menu_index + 1) % 6;
+                self.menu_index = (self.menu_index + 1) % 9;
             }
             Screen::AppList | Screen::UninstallList => {
-                if !self.apps_with_status.is_empty() {
-                    self.selected_index = (self.selected_index + 1) % self.apps_with_status.len();
+                if !self.filtered_apps.is_empty() {
+                    self.selected_index = (self.selected_index + 1) % self.filtered_apps.len();
                 }
             }
             Screen::AppOperations => {
                 self.operations_index = (self.operations_index + 1) % 4;
+            }
+            Screen::AutostartManager => {
+                if !self.autostart_entries.is_empty() {
+                    self.autostart_index = (self.autostart_index + 1) % self.autostart_entries.len();
+                }
+            }
+            Screen::UpdateManager => {
+                if !self.update_entries.is_empty() {
+                    self.update_index = (self.update_index + 1) % self.update_entries.len();
+                }
+            }
+            Screen::PackageManagerInstaller => {
+                if !self.pm_entries.is_empty() {
+                    self.pm_index = (self.pm_index + 1) % self.pm_entries.len();
+                }
+            }
+            Screen::AppInstaller => {
+                if !self.install_search_results.is_empty() {
+                    self.install_selected_index = (self.install_selected_index + 1) % self.install_search_results.len();
+                }
             }
         }
         self.status_message = None;
@@ -138,15 +238,15 @@ impl App {
         match self.current_screen {
             Screen::MainMenu => {
                 if self.menu_index == 0 {
-                    self.menu_index = 5;
+                    self.menu_index = 8;
                 } else {
                     self.menu_index -= 1;
                 }
             }
             Screen::AppList | Screen::UninstallList => {
-                if !self.apps_with_status.is_empty() {
+                if !self.filtered_apps.is_empty() {
                     if self.selected_index == 0 {
-                        self.selected_index = self.apps_with_status.len() - 1;
+                        self.selected_index = self.filtered_apps.len() - 1;
                     } else {
                         self.selected_index -= 1;
                     }
@@ -157,6 +257,42 @@ impl App {
                     self.operations_index = 3;
                 } else {
                     self.operations_index -= 1;
+                }
+            }
+            Screen::AutostartManager => {
+                if !self.autostart_entries.is_empty() {
+                    if self.autostart_index == 0 {
+                        self.autostart_index = self.autostart_entries.len() - 1;
+                    } else {
+                        self.autostart_index -= 1;
+                    }
+                }
+            }
+            Screen::UpdateManager => {
+                if !self.update_entries.is_empty() {
+                    if self.update_index == 0 {
+                        self.update_index = self.update_entries.len() - 1;
+                    } else {
+                        self.update_index -= 1;
+                    }
+                }
+            }
+            Screen::PackageManagerInstaller => {
+                if !self.pm_entries.is_empty() {
+                    if self.pm_index == 0 {
+                        self.pm_index = self.pm_entries.len() - 1;
+                    } else {
+                        self.pm_index -= 1;
+                    }
+                }
+            }
+            Screen::AppInstaller => {
+                if !self.install_search_results.is_empty() {
+                    if self.install_selected_index == 0 {
+                        self.install_selected_index = self.install_search_results.len() - 1;
+                    } else {
+                        self.install_selected_index -= 1;
+                    }
                 }
             }
         }
@@ -182,7 +318,14 @@ impl App {
                     self.checked_operations.insert(self.operations_index);
                 }
             }
-            Screen::MainMenu => {}
+            Screen::PackageManagerInstaller => {
+                if self.checked_pms.contains(&self.pm_index) {
+                    self.checked_pms.remove(&self.pm_index);
+                } else {
+                    self.checked_pms.insert(self.pm_index);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -206,19 +349,44 @@ impl App {
                         EnterResult::None
                     }
                     3 => {
-                        EnterResult::RunCheckUpdates
+                        self.current_screen = Screen::UpdateManager;
+                        self.needs_update_scan = true;
+                        self.update_index = 0;
+                        self.checked_updates.clear();
+                        self.update_state.select(Some(0));
+                        EnterResult::None
                     }
                     4 => {
                         EnterResult::RunCleanLeftovers
                     }
                     5 => {
+                        self.current_screen = Screen::AutostartManager;
+                        self.autostart_entries = autostart::scan_global_autostart();
+                        self.autostart_index = 0;
+                        EnterResult::None
+                    }
+                    6 => {
+                        self.current_screen = Screen::PackageManagerInstaller;
+                        self.pm_entries = crate::installer::check_package_managers();
+                        self.pm_index = 0;
+                        self.checked_pms.clear();
+                        EnterResult::None
+                    }
+                    7 => {
+                        self.current_screen = Screen::AppInstaller;
+                        self.install_search_query.clear();
+                        self.install_search_results.clear();
+                        self.is_install_searching = true;
+                        self.install_selected_index = 0;
+                        EnterResult::None
+                    }
+                    8 => {
                         EnterResult::Exit
                     }
                     _ => EnterResult::None,
                 }
             }
             Screen::AppList => {
-                // Pressing Enter in AppList can trigger the operations screen directly
                 self.go_to_operations();
                 EnterResult::None
             }
@@ -228,6 +396,38 @@ impl App {
             }
             Screen::UninstallList => {
                 EnterResult::RunUninstalls
+            }
+                        Screen::AutostartManager => {
+                self.delete_selected_autostart();
+                EnterResult::None
+            }
+            Screen::UpdateManager => {
+                EnterResult::None
+            }
+            Screen::PackageManagerInstaller => {
+                EnterResult::None
+            }
+            Screen::AppInstaller => {
+                EnterResult::None
+            }
+        }
+    }
+
+    pub fn delete_selected_autostart(&mut self) {
+        if self.autostart_entries.is_empty() {
+            return;
+        }
+        let entry = &self.autostart_entries[self.autostart_index];
+        match autostart::remove_autostart_entry(entry) {
+            Ok(_) => {
+                self.status_message = Some(format!("Đã gỡ bỏ '{}' khỏi khởi động cùng hệ thống!", entry.name));
+                self.autostart_entries = autostart::scan_global_autostart();
+                if self.autostart_index >= self.autostart_entries.len() && !self.autostart_entries.is_empty() {
+                    self.autostart_index = self.autostart_entries.len() - 1;
+                }
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Lỗi khi gỡ autostart: {}", e));
             }
         }
     }
@@ -253,7 +453,7 @@ impl App {
     pub fn handle_back(&mut self) {
         match self.current_screen {
             Screen::MainMenu => {}
-            Screen::AppList | Screen::UninstallList => {
+            Screen::AppList | Screen::UninstallList | Screen::AutostartManager | Screen::UpdateManager | Screen::PackageManagerInstaller | Screen::AppInstaller => {
                 self.current_screen = Screen::MainMenu;
                 self.status_message = None;
             }
@@ -294,11 +494,11 @@ impl App {
             }
             // 3. Toggle Autostart
             if self.checked_operations.contains(&3) {
-                let autostart_enabled = manager::is_autostart_enabled(&app);
+                let autostart_enabled = autostart::is_autostart_enabled(&app);
                 if autostart_enabled {
-                    app_actions.push(("Tắt Autostart", manager::disable_autostart(&app)));
+                    app_actions.push(("Tắt Autostart", autostart::disable_autostart(&app)));
                 } else {
-                    app_actions.push(("Bật Autostart", manager::enable_autostart(&app)));
+                    app_actions.push(("Bật Autostart", autostart::enable_autostart(&app)));
                 }
             }
 
