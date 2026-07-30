@@ -17,7 +17,9 @@ fn pause_and_exit(code: i32) -> ! {
 }
 
 fn main() {
-    // Nếu không được chạy trong terminal thực sự (ví dụ: Double click trên GUI file manager)
+    // [Systems Thinking: Bước 1 - Ranh giới & Môi trường]
+    // Hệ thống kiểm tra xem nó có đang chạy trong môi trường Terminal chuẩn không.
+    // Nếu không (vd: click đúp từ GUI), nó tương tác với Môi trường bằng cách gọi HĐH tạo Terminal mới.
     if !std::io::stdout().is_terminal() {
         let exe = env::current_exe().unwrap();
         
@@ -40,19 +42,24 @@ fn main() {
         }
     }
 
-    // Khởi tạo terminal UI
+    // [Systems Thinking: Bước 1 tiếp theo - Chuẩn bị môi trường]
+    // Khởi tạo terminal UI để ép kích thước hiển thị chuẩn
     env_check::resize_terminal();
     
     let current_dir = env::current_dir().unwrap();
     println!("1. Đã nhận diện và di chuyển đến: {}", current_dir.display());
 
-    // Đọc cấu hình
+    // [Systems Thinking: Bước 2 - Nạp Cấu Hình (Causality/Tính nhân quả)]
+    // Đọc cấu hình từ settings.yaml. Biến `settings` này là hạt nhân khởi nguồn.
+    // Mọi thay đổi ở đây sẽ lan truyền (Cascade) và quyết định hành vi của distributor và processor bên dưới.
     let settings = config::load_or_create_settings();
 
-    // Check ffmpeg / ffprobe
+    // Check các công cụ môi trường như ffmpeg / ffprobe
     env_check::check_ffmpeg();
 
-    // Scan & lọc file
+    // [Systems Thinking: Bước 3 - Thu thập dữ liệu & Vòng lặp phản hồi]
+    // Quét file hiện có. Ở sâu bên trong hàm scan_files() chứa một Feedback Loop: 
+    // Nếu file bị khóa (Permission Denied), nó không crash mà hỏi mật khẩu rồi chạy lại lệnh `sudo` (Balancing Loop).
     let mut files = scanner::scan_files();
     let initial_count = files.len();
     
@@ -61,7 +68,9 @@ fn main() {
         pause_and_exit(1);
     }
     
-    // Bước 1: Rename
+    // [Systems Thinking: Bước 4 - Tiền xử lý (Đổi tên)]
+    // Dòng chảy dữ liệu (Data Flow) phải sạch. Việc chuẩn hóa tên file ở đây 
+    // đảm bảo các bước phân phối (Distributor) phía sau không bị lỗi khi sắp xếp.
     renamer::rename_files(&mut files);
 
     // Bước 2 & 3: Lọc ảnh, Process (Format + Upscale)
@@ -71,10 +80,13 @@ fn main() {
         pause_and_exit(1);
     }
 
-    // Process files into `_process`
+    // [Systems Thinking: Bước 5 - Xử lý cốt lõi (Emergence & Resilience)]
+    // - Emergence (Tính trồi): Nhờ kết hợp 'rayon' đa luồng bên trong, quá trình này chạy song song cực nhanh.
+    // - Resilience (Phục hồi): Xử lý vào thư mục ảo `_process` (Out-of-place). 
+    //   Lỡ sự cố mất điện giữa chừng xảy ra, file gốc vẫn nguyên vẹn không bị hỏng (Data loss).
     let _process_files = processor::process_files(&image_files, &settings);
 
-    // Swap back
+    // Hoán đổi (Swap) file từ `_process` ra ngoài và cất file cũ vào `_old` một cách an toàn (Atomic operation).
     let process_dir = current_dir.join(format!("{}_process", current_dir.file_name().unwrap_or_default().to_string_lossy()));
     if process_dir.exists() {
         processor::swap_directories(&process_dir, &image_files);
@@ -83,7 +95,9 @@ fn main() {
     // Rescan to get the final valid image files after swap
     let final_files: Vec<_> = scanner::scan_files().into_iter().filter(|f| scanner::is_image_extension(f)).collect();
 
-    // Phân phối thư mục
+    // [Systems Thinking: Bước 6 - Phân phối đầu ra (Interconnectedness)]
+    // Khối cuối cùng tiếp nhận mọi thành quả ở trên, tính toán thuật toán chia file (Balanced/Greedy) 
+    // dựa vào biến `settings` ở Bước 2, và phân bổ vật lý vào các thư mục Chapter.
     distributor::distribute_files(&final_files, &settings);
 
     pause_and_exit(0);
