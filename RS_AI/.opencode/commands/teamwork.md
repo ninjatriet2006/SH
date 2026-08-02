@@ -1,7 +1,7 @@
 ---
-description: Khởi chạy full teamwork multi-agent để giải quyết một task phức tạp. Team Lead sẽ điều phối Explorer, Rust Dev, Tester, Reviewer, Docs.
+description: Khởi chạy full teamwork multi-agent để giải quyết một task phức tạp. Team Lead sẽ điều phối Plan Splitter, Plan Reviewer, Explorer, Rust Dev, Tester, Reviewer, Docs.
 agent: lead
-model: custom_3/moonshotai/kimi-k3-free
+model: opencode/deepseek-v4-flash-free
 ---
 
 # Teamwork Multi-Agent Mode
@@ -12,13 +12,20 @@ $ARGUMENTS
 
 ## Quy trình bắt buộc
 
-1. **Tạo todo list** (dùng `todowrite`) chia nhỏ task thành các subtask rõ ràng.
-2. **Giao Explorer** khảo sát codebase (nếu cần hiểu code hiện tại).
-3. **Giao Rust Dev** thực hiện code change.
-4. **Giao Tester** chạy test / verify build (`cargo check`, `cargo test`, `cargo clippy`).
-5. **Giao Reviewer** review diff trước khi kết thúc.
-6. **Giao Docs Manager** cập nhật tài liệu nếu có thay đổi đáng kể.
-7. **Tổng hợp kết quả** và báo cáo cho user.
+### Phase 1 — Lập kế hoạch
+1. **Tạo todo list** (dùng `todowrite`).
+2. **Giao Plan Splitter** phân rã task thành subtask.
+3. **Giao Plan Reviewer** phản biện bản phân rã. Nếu REQUEST_CHANGES → quay lại bước 2.
+
+### Phase 2 — Thực thi
+4. **Giao Explorer** khảo sát codebase (nếu cần hiểu code hiện tại).
+5. **Giao Rust Dev** thực hiện code change.
+6. **Giao Tester** chạy test / verify build (`cargo check`, `cargo test`, `cargo clippy`).
+7. **Giao Reviewer** review diff trước khi kết thúc.
+8. **Giao Docs Manager** cập nhật tài liệu nếu có thay đổi đáng kể.
+
+### Phase 3 — Tổng kết
+9. **Tổng hợp kết quả** và báo cáo cho user.
 
 ## Quy tắc
 - Các subtask độc lập thì chạy song song.

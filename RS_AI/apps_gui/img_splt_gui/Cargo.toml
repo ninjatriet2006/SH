@@ -1,0 +1,15 @@
+[package]
+name = "img_splt_gui"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+img_splt = { path = "../../TUI/img_splt" }
+eframe = "0.31"
+egui = "0.31"
+serde_json = "1.0"
+
+[features]
+default = ["glow"]
+glow = ["eframe/default"]
+wgpu = ["eframe/wgpu"]

@@ -1,7 +1,7 @@
 ---
 description: Chạy full test & lint cho toàn bộ repo hoặc workspace cụ thể.
 agent: lead
-model: custom_3/moonshotai/kimi-k3-free
+model: opencode/deepseek-v4-flash-free
 ---
 
 # Teamwork Test Command

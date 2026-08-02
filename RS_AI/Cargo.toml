@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = [
+    "TUI/universe_manager",
+    "TUI/filen_tui",
+    "TUI/opencode_manager",
+    "TUI/img_splt",
+    "TUI/universal_converter",
+    "apps_gui/universe_manager_gui",
+    "apps_gui/filen_gui",
+    "apps_gui/opencode_manager_gui",
+    "apps_gui/img_splt_gui",
+    "apps_gui/universal_converter_gui",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

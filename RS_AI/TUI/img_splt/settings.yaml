@@ -1,0 +1,21 @@
+# CẤU HÌNH IMAGE SPLITER
+#
+# --- THÔNG SỐ XỬ LÝ LỖI ---
+# Số lần chạy lại tối đa nếu ffmpeg lỗi hoặc output file 0-byte
+max_retries: 5
+
+# --- THÔNG SỐ ĐỘ PHÂN GIẢI (UPSCALE) ---
+# Nếu chiều rộng ảnh nhỏ hơn min_upscale_width, nó sẽ bị upscale lên target_upscale_width
+min_upscale_width: 600
+target_upscale_width: 1280
+
+# --- THÔNG SỐ CHIA THƯ MỤC (DISTRIBUTION) ---
+# Thuật toán mặc định (khi không muốn chọn tay): 
+# - 'balanced' (Cân bằng), 'greedy' (Lấp đầy), 'fixed' (Số thư mục cố định)
+default_distribution_mode: 'balanced'
+
+# Số lượng file tối đa mỗi folder (Dùng cho mode 'balanced' và 'greedy')
+max_files_per_folder: 80
+
+# Số thư mục chia cố định (Dùng cho mode 'fixed')
+fixed_folder_count: 5

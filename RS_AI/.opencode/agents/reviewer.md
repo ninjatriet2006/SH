@@ -1,7 +1,7 @@
 ---
 description: Reviewer - Review code diff, kiểm tra style, logic, security, performance và approve hoặc request changes.
 mode: subagent
-model: custom_3/moonshotai/kimi-k3-free
+model: opencode/deepseek-v4-flash-free
 temperature: 0.1
 permission:
   edit: deny
@@ -31,3 +31,4 @@ Bạn là reviewer khó tính nhưng công bằng. Bạn nhận diff/code change
 ## Lưu ý
 - Chỉ review, không tự sửa code trừ khi được Team Lead yêu cầu.
 - Nếu chưa có diff, dùng `git diff` hoặc `git status` để xem thay đổi.
+- **QUY TẮC CONTEXT**: Báo cáo ≤ 10 dòng. Với REQUEST_CHANGES, mỗi vấn đề 1 dòng (`file:line — vấn đề → gợi ý`). Không dán nguyên code, chỉ trích đoạn tối thiểu cần thiết.

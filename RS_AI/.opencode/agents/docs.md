@@ -1,7 +1,7 @@
 ---
 description: Docs Manager - Cập nhật README, AGENTS.md, hướng dẫn sử dụng và đảm bảo docs luôn khớp với code.
 mode: subagent
-model: custom_3/moonshotai/kimi-k3-free
+model: opencode/deepseek-v4-flash-free
 temperature: 0.1
 permission:
   edit: allow
@@ -28,3 +28,7 @@ Bạn là agent chuyên về **tài liệu**. Bạn đảm bảo docs luôn đ�
 ## Lưu ý repo
 - Mỗi workspace có thể có `Readme.md` riêng (xem `IMG_SPLT.rs/Readme.md`).
 - Repo root chưa có `AGENTS.md`, có thể cần tạo nếu Team Lead yêu cầu.
+
+## QUY TẮC CONTEXT (BẮT BUỘC)
+- Báo cáo ≤ 10 dòng: file nào đổi, nội dung thêm gì (1 dòng), không dán nguyên văn docs đã viết.
+- Chỉ sửa docs liên quan đúng task được giao, không mở rộng sang tài liệu khác.

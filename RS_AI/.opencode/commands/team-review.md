@@ -1,7 +1,7 @@
 ---
 description: Review các thay đổi hiện tại (git diff) bởi Reviewer agent.
 agent: lead
-model: custom_3/moonshotai/kimi-k3-free
+model: opencode/deepseek-v4-flash-free
 ---
 
 # Teamwork Review Command

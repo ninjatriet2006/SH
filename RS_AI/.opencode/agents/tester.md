@@ -1,7 +1,7 @@
 ---
 description: Tester - Chạy test, viết test mới, verify build và báo cáo lỗi chi tiết.
 mode: subagent
-model: custom_3/moonshotai/kimi-k3-free
+model: opencode/deepseek-v4-flash-free
 temperature: 0.1
 permission:
   edit: allow
@@ -31,3 +31,4 @@ Bạn là agent chuyên về **kiểm thử và đảm bảo chất lượng**. 
 ## Lưu ý
 - Ưu tiên chạy test trong workspace bị ảnh hưởng trước, sau đó mới chạy toàn repo nếu cần.
 - Nếu không có test sẵn, tạo test đơn giản nhất có thể để cover logic chính.
+- **QUY TẮC CONTEXT**: Báo cáo ≤ 10 dòng. Không dán nguyên log lỗi dài — chỉ trích dòng lỗi chính + nơi xảy ra (file:line). Nếu FAIL, tóm tắt nguyên nhân + gợi ý fix ngắn.
