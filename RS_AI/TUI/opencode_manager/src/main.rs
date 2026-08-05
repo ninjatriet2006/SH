@@ -1,5 +1,6 @@
 mod api;
 mod app;
+mod ckey;
 mod config;
 mod ui;
 
@@ -142,7 +143,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 match app.current_screen {
                     Screen::Main => match key.code {
                         KeyCode::Char('q') => break,
-                        KeyCode::Up | KeyCode::Char('k') if app.selected_provider_idx > 0 => {
+                        KeyCode::Up if app.selected_provider_idx > 0 => {
                             app.selected_provider_idx -= 1;
                             draw_needed = true;
                         }
@@ -186,6 +187,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             app.sync_providers_from_auth(false);
                             draw_needed = true;
                         }
+                        KeyCode::Char('g') | KeyCode::Char('G') if app.has_ckey_support() => {
+                            app.open_ckey_dashboard();
+                            draw_needed = true;
+                        }
+                        KeyCode::Char('k') | KeyCode::Char('K') => {
+                            app.open_bulk_add();
+                            draw_needed = true;
+                        }
                         _ => {}
                     },
 
@@ -212,6 +221,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         app.form.api_key.pop();
                                         draw_needed = true;
                                     }
+                                    4 => {
+                                        app.form.account_key.pop();
+                                        draw_needed = true;
+                                    }
                                     _ => {}
                                 },
                                 KeyCode::Char(c) => match focus {
@@ -227,6 +240,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         app.form.api_key.push(c);
                                         draw_needed = true;
                                     }
+                                    4 => {
+                                        app.form.account_key.push(c);
+                                        draw_needed = true;
+                                    }
                                     _ => {}
                                 },
                                 _ => {}
@@ -240,12 +257,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     draw_needed = true;
                                 }
                                 KeyCode::Tab | KeyCode::Down | KeyCode::Char('j') => {
-                                    let max_focus = 6;
+                                    let max_focus = 7;
                                     app.form.focus_index = (focus + 1) % (max_focus + 1);
                                     draw_needed = true;
                                 }
                                 KeyCode::Up | KeyCode::BackTab | KeyCode::Char('k') => {
-                                    let max_focus = 6;
+                                    let max_focus = 7;
                                     if focus == 0 {
                                         app.form.focus_index = max_focus;
                                     } else {
@@ -261,11 +278,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     app.cycle_form_preset(true);
                                     draw_needed = true;
                                 }
-                                KeyCode::Char('t') | KeyCode::Char('T') if focus > 3 => {
+                                KeyCode::Char('t') | KeyCode::Char('T') if focus >= 5 => {
                                     app.test_form_connection();
                                     draw_needed = true;
                                 }
-                                KeyCode::Char('s') | KeyCode::Char('S') if focus > 3 => {
+                                KeyCode::Char('s') | KeyCode::Char('S') if focus >= 5 => {
                                     if let Err(e) = app.save_form() {
                                         app.log(format!("Không thể lưu: {}", e));
                                     }
@@ -280,19 +297,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             app.current_screen = Screen::SelectPreset;
                                             app.log("Mở màn hình tìm kiếm Preset.");
                                         }
-                                        1..=3 => {
+                                        1..=4 => {
                                             app.form.is_editing_field = true;
                                             app.log("Bật chế độ sửa ô nhập. Gõ chữ xong nhấn Enter để hoàn tất.");
                                         }
-                                        4 => {
+                                        5 => {
                                             app.test_form_connection();
                                         }
-                                        5 => {
+                                        6 => {
                                             if let Err(e) = app.save_form() {
                                                 app.log(format!("Không thể lưu: {}", e));
                                             }
                                         }
-                                        6 => {
+                                        7 => {
                                             app.current_screen = Screen::Main;
                                             app.log("Huỷ thao tác nhập form.");
                                         }
@@ -553,6 +570,253 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let selected = filtered[app.selected_preset_search_idx].clone();
                                 app.select_preset(selected);
                             }
+                            draw_needed = true;
+                        }
+                        _ => {}
+                    },
+
+                    Screen::CKeyDashboard => {
+                        if app.ckey_need_key {
+                            // Popup chọn/nhập account key
+                            match app.ckey_pick_mode {
+                                app::CkeyPickMode::Choose => match key.code {
+                                    KeyCode::Esc => {
+                                        app.current_screen = Screen::Main;
+                                        app.ckey_need_key = false;
+                                        draw_needed = true;
+                                    }
+                                    KeyCode::Up if app.ckey_pick_selected_idx > 0 => {
+                                        app.ckey_pick_selected_idx -= 1;
+                                        draw_needed = true;
+                                    }
+                                    KeyCode::Down
+                                        if app.ckey_pick_selected_idx < app.ckey_account_options.len() =>
+                                    {
+                                        app.ckey_pick_selected_idx += 1;
+                                        draw_needed = true;
+                                    }
+                                    KeyCode::Tab => {
+                                        app.ckey_pick_mode = app::CkeyPickMode::New;
+                                        app.ckey_new_key_input.clear();
+                                        draw_needed = true;
+                                    }
+                                    KeyCode::Enter => {
+                                        let options = app.ckey_account_options.clone();
+                                        if app.ckey_pick_selected_idx < options.len() {
+                                            let pid = options[app.ckey_pick_selected_idx].0.clone();
+                                            app.ckey_pick_account_key(&pid);
+                                        } else {
+                                            // Mục cuối: chuyển sang nhập key mới
+                                            app.ckey_pick_mode = app::CkeyPickMode::New;
+                                            app.ckey_new_key_input.clear();
+                                        }
+                                        draw_needed = true;
+                                    }
+                                    _ => {}
+                                },
+                                app::CkeyPickMode::New => match key.code {
+                                    KeyCode::Esc => {
+                                        app.current_screen = Screen::Main;
+                                        app.ckey_need_key = false;
+                                        draw_needed = true;
+                                    }
+                                    KeyCode::Tab => {
+                                        app.ckey_pick_mode = app::CkeyPickMode::Choose;
+                                        draw_needed = true;
+                                    }
+                                    KeyCode::Backspace => {
+                                        app.ckey_new_key_input.pop();
+                                        draw_needed = true;
+                                    }
+                                    KeyCode::Enter => {
+                                        if let Err(e) = app.ckey_save_new_account_key() {
+                                            app.log(format!("Không thể lưu account key: {}", e));
+                                        }
+                                        draw_needed = true;
+                                    }
+                                    KeyCode::Char(c)
+                                        if !key.modifiers.contains(KeyModifiers::CONTROL)
+                                            && !key.modifiers.contains(KeyModifiers::ALT) =>
+                                    {
+                                        app.ckey_new_key_input.push(c);
+                                        draw_needed = true;
+                                    }
+                                    _ => {}
+                                },
+                            }
+                        } else {
+                            // Màn hình dashboard thường: R/I/U/Esc
+                            match key.code {
+                                KeyCode::Esc => {
+                                    app.current_screen = Screen::Main;
+                                    draw_needed = true;
+                                }
+                                KeyCode::Char('r') | KeyCode::Char('R') => {
+                                    app.ckey_fetch_all();
+                                    draw_needed = true;
+                                }
+                                KeyCode::Char('i') | KeyCode::Char('I') => {
+                                    app.open_ckey_import();
+                                    draw_needed = true;
+                                }
+                                KeyCode::Char('u') | KeyCode::Char('U') => {
+                                    app.open_ckey_usage();
+                                    draw_needed = true;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+
+                    Screen::BulkAddProviders => {
+                        if app.bulk_is_editing {
+                            // Chế độ gõ chữ
+                            match key.code {
+                                KeyCode::Enter | KeyCode::Esc => {
+                                    app.bulk_is_editing = false;
+                                    app.log("Thoát chế độ sửa ô nhập.");
+                                    draw_needed = true;
+                                }
+                                KeyCode::Backspace => match app.bulk_focus {
+                                    app::BulkFocus::Endpoint => {
+                                        app.bulk_endpoint_input.pop();
+                                        draw_needed = true;
+                                    }
+                                    app::BulkFocus::Keys => {
+                                        app.bulk_keys_input.pop();
+                                        draw_needed = true;
+                                    }
+                                    app::BulkFocus::Execute => {}
+                                },
+                                KeyCode::Char(c) => match app.bulk_focus {
+                                    app::BulkFocus::Endpoint => {
+                                        app.bulk_endpoint_input.push(c);
+                                        draw_needed = true;
+                                    }
+                                    app::BulkFocus::Keys => {
+                                        app.bulk_keys_input.push(c);
+                                        draw_needed = true;
+                                    }
+                                    app::BulkFocus::Execute => {}
+                                },
+                                _ => {}
+                            }
+                        } else {
+                            // Chế độ điều hướng
+                            match key.code {
+                                KeyCode::Esc => {
+                                    app.current_screen = Screen::Main;
+                                    draw_needed = true;
+                                }
+                                KeyCode::Up | KeyCode::Down | KeyCode::Tab
+                                | KeyCode::Char('j') | KeyCode::Char('k') => {
+                                    app.bulk_focus = match app.bulk_focus {
+                                        app::BulkFocus::Endpoint => app::BulkFocus::Keys,
+                                        app::BulkFocus::Keys => app::BulkFocus::Execute,
+                                        app::BulkFocus::Execute => app::BulkFocus::Endpoint,
+                                    };
+                                    draw_needed = true;
+                                }
+                                KeyCode::Enter => match app.bulk_focus {
+                                    app::BulkFocus::Endpoint | app::BulkFocus::Keys => {
+                                        app.bulk_is_editing = true;
+                                        app.log("Bật chế độ sửa ô nhập. Gõ chữ xong nhấn Enter để hoàn tất.");
+                                        draw_needed = true;
+                                    }
+                                    app::BulkFocus::Execute => {
+                                        if let Err(e) = app.execute_bulk_add() {
+                                            app.log(format!("Không thể thêm nhanh: {}", e));
+                                        }
+                                        draw_needed = true;
+                                    }
+                                },
+                                _ => {}
+                            }
+                        }
+                    }
+
+                    Screen::CKeyImport => match key.code {
+                        KeyCode::Esc => {
+                            app.current_screen = Screen::CKeyDashboard;
+                            draw_needed = true;
+                        }
+                        KeyCode::Up => {
+                            let filtered = app.filtered_ckey_import();
+                            if !filtered.is_empty() && app.ckey_import_idx > 0 {
+                                app.ckey_import_idx -= 1;
+                                draw_needed = true;
+                            }
+                        }
+                        KeyCode::Down => {
+                            let filtered = app.filtered_ckey_import();
+                            if !filtered.is_empty() && app.ckey_import_idx + 1 < filtered.len() {
+                                app.ckey_import_idx += 1;
+                                draw_needed = true;
+                            }
+                        }
+                        KeyCode::Char(' ') => {
+                            let filtered = app.filtered_ckey_import();
+                            if !filtered.is_empty() && app.ckey_import_idx < filtered.len() {
+                                let (original_idx, _, _, _, _, _) = filtered[app.ckey_import_idx];
+                                if let Some(item) = app.ckey_import_list.get_mut(original_idx) {
+                                    item.1 = !item.1;
+                                    draw_needed = true;
+                                }
+                            }
+                        }
+                        KeyCode::Backspace => {
+                            app.ckey_import_query.pop();
+                            app.ckey_import_idx = 0;
+                            app.ckey_import_list_state = ratatui::widgets::ListState::default();
+                            draw_needed = true;
+                        }
+                        KeyCode::Enter => {
+                            if let Err(e) = app.execute_ckey_import() {
+                                app.log(format!("Lỗi đồng bộ model CKey: {}", e));
+                            }
+                            draw_needed = true;
+                        }
+                        KeyCode::Char(c)
+                            if !key.modifiers.contains(KeyModifiers::CONTROL)
+                                && !key.modifiers.contains(KeyModifiers::ALT) =>
+                        {
+                            app.ckey_import_query.push(c);
+                            app.ckey_import_idx = 0;
+                            app.ckey_import_list_state = ratatui::widgets::ListState::default();
+                            draw_needed = true;
+                        }
+                        _ => {}
+                    },
+
+                    Screen::CKeyUsage => match key.code {
+                        KeyCode::Esc => {
+                            app.current_screen = Screen::CKeyDashboard;
+                            draw_needed = true;
+                        }
+                        KeyCode::Up => {
+                            if app.ckey_usage_scroll > 0 {
+                                app.ckey_usage_scroll -= 1;
+                                draw_needed = true;
+                            }
+                        }
+                        KeyCode::Down => {
+                            app.ckey_usage_scroll += 1;
+                            draw_needed = true;
+                        }
+                        KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('H') => {
+                            if app.ckey_usage_page > 1 {
+                                app.ckey_fetch_usage_page(app.ckey_usage_page - 1);
+                            }
+                            draw_needed = true;
+                        }
+                        KeyCode::Right | KeyCode::Char('l') | KeyCode::Char('L') => {
+                            if app.ckey_usage_page < app.ckey_usage_total_pages {
+                                app.ckey_fetch_usage_page(app.ckey_usage_page + 1);
+                            }
+                            draw_needed = true;
+                        }
+                        KeyCode::Char('r') | KeyCode::Char('R') => {
+                            app.ckey_fetch_usage_page(app.ckey_usage_page);
                             draw_needed = true;
                         }
                         _ => {}

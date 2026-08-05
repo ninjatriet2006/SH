@@ -1,7 +1,11 @@
 use crate::api::{ApiClient, ApiStatus};
-use crate::config::{AuthConfig, ModelEntry, ModelLimit, ModelModalities, OpencodeConfig, Provider, ProviderOptions};
+use crate::ckey::{CkeyAiKey, CkeyModel, CkeyProfile, CkeyUsageItem, CkeyUsagePage, CkeyUsageStats};
+use crate::config::{
+    normalize_base_url, AuthConfig, CkeyConfig, ModelEntry, ModelLimit, ModelModalities, OpencodeConfig,
+    Provider, ProviderOptions,
+};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Screen {
@@ -13,6 +17,10 @@ pub enum Screen {
     QuickClean,
     Confirmation,
     SelectPreset,
+    CKeyDashboard,
+    BulkAddProviders,
+    CKeyImport,
+    CKeyUsage,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -24,6 +32,21 @@ pub struct DynamicPreset {
     pub npm: Option<String>,
 }
 
+/// Chế độ popup account key CKey (mở khi provider đang chọn chưa có account key).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CkeyPickMode {
+    Choose, // chọn từ account key đã lưu của provider khác
+    New,    // nhập account key mới
+}
+
+/// Focus của màn hình thêm nhanh nhiều provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BulkFocus {
+    Endpoint,
+    Keys,
+    Execute,
+}
+
 #[derive(Debug, Clone)]
 pub struct ProviderForm {
     pub id: String,
@@ -31,7 +54,8 @@ pub struct ProviderForm {
     pub name: String,
     pub base_url: String,
     pub api_key: String,
-    pub focus_index: usize, // 0: Preset, 1: Name, 2: URL, 3: Key, 4: Test, 5: Save, 6: Cancel
+    pub account_key: String, // account key CKey (trang Profile) — chỉ dùng khi endpoint là CKey
+    pub focus_index: usize,  // 0: Preset, 1: Name, 2: URL, 3: Key, 4: AccountKey, 5: Test, 6: Save, 7: Cancel
     pub test_status: Option<ApiStatus>,
     pub is_testing: bool,
     pub is_editing_field: bool,
@@ -61,6 +85,21 @@ pub enum AppMessage {
         status: ApiStatus,
     },
     Log(String),
+    CkeyProfile {
+        result: Result<CkeyProfile, String>,
+    },
+    CkeyKeys {
+        result: Result<Vec<CkeyAiKey>, String>,
+    },
+    CkeyModels {
+        result: Result<Vec<CkeyModel>, String>,
+    },
+    CkeyStats {
+        result: Result<CkeyUsageStats, String>,
+    },
+    CkeyUsage {
+        result: Result<CkeyUsagePage, String>,
+    },
 }
 
 pub struct App {
@@ -99,6 +138,37 @@ pub struct App {
     pub presets: Vec<DynamicPreset>,
     pub preset_search_query: String,
     pub selected_preset_search_idx: usize,
+
+    // CKey account state
+    pub ckey_config: CkeyConfig,
+    pub ckey_profile: Option<CkeyProfile>, // profile của provider đang chọn
+    pub ckey_stats: Option<CkeyUsageStats>,
+    pub ckey_keys: Vec<CkeyAiKey>,   // keys của provider đang chọn (dùng cho import)
+    pub ckey_models: Vec<CkeyModel>, // models của provider đang chọn (dùng cho import)
+    pub ckey_usage: Vec<CkeyUsageItem>,
+    pub ckey_usage_page: u64,
+    pub ckey_usage_total_pages: u64,
+    pub ckey_loading: bool,
+    pub ckey_pending: u8, // số request CKey đang chờ (profile/keys/models/stats)
+    pub ckey_error: Option<String>,
+    // Popup account key CKey (provider đang chọn chưa có account key)
+    pub ckey_need_key: bool,
+    pub ckey_account_options: Vec<(String, String)>, // (provider_id, account_key) từ provider KHÁC
+    pub ckey_pick_selected_idx: usize,
+    pub ckey_pick_mode: CkeyPickMode,
+    pub ckey_new_key_input: String,
+    // Import model từ CKey: (model_id, checked, stale, input_price, output_price)
+    pub ckey_import_list: Vec<(String, bool, bool, f64, f64)>,
+    pub ckey_import_idx: usize,
+    pub ckey_import_query: String,
+    pub ckey_import_list_state: ratatui::widgets::ListState,
+    pub ckey_usage_scroll: usize,
+
+    // Bulk add providers (màn hình K)
+    pub bulk_endpoint_input: String,
+    pub bulk_keys_input: String,
+    pub bulk_focus: BulkFocus,
+    pub bulk_is_editing: bool,
 
     // ListStates for scroll viewports
     pub provider_list_state: ratatui::widgets::ListState,
@@ -148,6 +218,13 @@ impl App {
         let mut clean_list_state = ratatui::widgets::ListState::default();
         clean_list_state.select(Some(0));
 
+        let (ckey_config, ckey_load_warn) = match CkeyConfig::load() {
+            Ok(c) => (c, None),
+            Err(e) => (CkeyConfig::default(), Some(e)),
+        };
+        let mut ckey_import_list_state = ratatui::widgets::ListState::default();
+        ckey_import_list_state.select(Some(0));
+
         let mut app = App {
             config,
             auth_config,
@@ -160,6 +237,7 @@ impl App {
                 name: default_preset.name.clone(),
                 base_url: default_preset.base_url.clone(),
                 api_key: String::new(),
+                account_key: String::new(),
                 focus_index: 0,
                 test_status: None,
                 is_testing: false,
@@ -181,6 +259,31 @@ impl App {
             presets,
             preset_search_query: String::new(),
             selected_preset_search_idx: 0,
+            ckey_config,
+            ckey_profile: None,
+            ckey_stats: None,
+            ckey_keys: Vec::new(),
+            ckey_models: Vec::new(),
+            ckey_usage: Vec::new(),
+            ckey_usage_page: 1,
+            ckey_usage_total_pages: 1,
+            ckey_loading: false,
+            ckey_pending: 0,
+            ckey_error: None,
+            ckey_need_key: false,
+            ckey_account_options: Vec::new(),
+            ckey_pick_selected_idx: 0,
+            ckey_pick_mode: CkeyPickMode::Choose,
+            ckey_new_key_input: String::new(),
+            ckey_import_list: Vec::new(),
+            ckey_import_idx: 0,
+            ckey_import_query: String::new(),
+            ckey_import_list_state,
+            ckey_usage_scroll: 0,
+            bulk_endpoint_input: String::new(),
+            bulk_keys_input: String::new(),
+            bulk_focus: BulkFocus::Endpoint,
+            bulk_is_editing: false,
             provider_list_state,
             preset_list_state,
             models_list_state,
@@ -189,6 +292,9 @@ impl App {
             tx,
             logs: vec!["Sẵn sàng.".to_string()],
         };
+        if let Some(warn) = ckey_load_warn {
+            app.log(&warn);
+        }
         app.merge_auth_into_providers();
         app.update_provider_keys();
         app.reload_auth_keys();
@@ -309,6 +415,13 @@ impl App {
                     id_prefix: "lmstudio".to_string(),
                     npm: Some("@ai-sdk/openai-compatible".to_string()),
                 },
+                DynamicPreset {
+                    id: crate::ckey::CKEY_PRESET_ID.to_string(),
+                    name: "CKey (ckey.vn)".to_string(),
+                    base_url: crate::ckey::CKEY_LLM_BASE_URL.to_string(),
+                    id_prefix: crate::ckey::CKEY_PRESET_ID.to_string(),
+                    npm: Some("@ai-sdk/openai-compatible".to_string()),
+                },
             ];
         }
 
@@ -355,7 +468,7 @@ impl App {
             return None;
         }
 
-        let clean_new_url = base_url.trim_end_matches('/');
+        let clean_new_url = normalize_base_url(base_url);
 
         // 1. Kiểm tra trùng lặp trong in-memory provider (đã gộp cả auth.json và opencode.json)
         for (prov_id, prov) in &self.config.provider {
@@ -363,7 +476,7 @@ impl App {
             if (self.current_screen == Screen::EditProvider || !id.is_empty()) && prov_id == id {
                 continue;
             }
-            let clean_prov_url = prov.options.base_url.trim().trim_end_matches('/');
+            let clean_prov_url = normalize_base_url(&prov.options.base_url);
             if clean_prov_url == clean_new_url && prov.options.api_key.trim() == api_key.trim() {
                 return Some((prov.name.clone(), prov_id.clone()));
             }
@@ -375,7 +488,7 @@ impl App {
                 continue;
             }
             if let Some(preset) = self.presets.iter().find(|p| p.id == *auth_id) {
-                let clean_preset_url = preset.base_url.trim().trim_end_matches('/');
+                let clean_preset_url = normalize_base_url(&preset.base_url);
                 if clean_preset_url == clean_new_url && auth_entry.key.trim() == api_key.trim() {
                     return Some((preset.name.clone(), auth_id.clone()));
                 }
@@ -425,6 +538,20 @@ impl App {
 
         // 4. Lưu cấu hình cả hai file
         self.save_all_config()?;
+
+        // Lưu account key CKey (chỉ khi endpoint là CKey)
+        if normalize_base_url(&self.form.base_url) == normalize_base_url(crate::ckey::CKEY_LLM_BASE_URL) {
+            let account_key = self.form.account_key.trim();
+            if account_key.is_empty() {
+                self.ckey_config.accounts.remove(duplicate_id);
+            } else {
+                self.ckey_config
+                    .accounts
+                    .insert(duplicate_id.to_string(), account_key.to_string());
+            }
+            self.ckey_config.save()?;
+        }
+
         self.log(format!(
             "Đã gộp/ghi đè cấu hình trùng lặp vào Provider: {}",
             duplicate_id
@@ -554,8 +681,8 @@ impl App {
         // 1. Đồng bộ ngược từ memory vào self.auth_config
         for (id, provider) in &self.config.provider {
             if let Some(preset) = self.presets.iter().find(|p| p.id == *id) {
-                let clean_prov_url = provider.options.base_url.trim().trim_end_matches('/');
-                let clean_preset_url = preset.base_url.trim().trim_end_matches('/');
+                let clean_prov_url = normalize_base_url(&provider.options.base_url);
+                let clean_preset_url = normalize_base_url(&preset.base_url);
                 if clean_prov_url == clean_preset_url {
                     self.auth_config.insert(
                         id.clone(),
@@ -583,8 +710,8 @@ impl App {
         let mut file_config = self.config.clone();
         file_config.provider.retain(|id, provider| {
             let is_builtin = self.presets.iter().any(|preset| {
-                let clean_prov_url = provider.options.base_url.trim().trim_end_matches('/');
-                let clean_preset_url = preset.base_url.trim().trim_end_matches('/');
+                let clean_prov_url = normalize_base_url(&provider.options.base_url);
+                let clean_preset_url = normalize_base_url(&preset.base_url);
                 preset.id == *id && clean_prov_url == clean_preset_url
             });
             !is_builtin
@@ -786,6 +913,83 @@ impl App {
             AppMessage::Log(msg) => {
                 self.log(msg);
             }
+            AppMessage::CkeyProfile { result } => {
+                match result {
+                    Ok(p) => {
+                        self.ckey_profile = Some(p.clone());
+                        self.log(format!("CKey profile: {} ({}).", p.username, p.balance));
+                    }
+                    Err(e) => {
+                        self.ckey_error = Some(e.clone());
+                        self.log(format!("Lỗi tải profile CKey: {}", e));
+                    }
+                }
+                self.ckey_fetch_done();
+            }
+            AppMessage::CkeyKeys { result } => {
+                match result {
+                    Ok(list) => {
+                        self.ckey_keys = list.clone();
+                        self.log(format!("CKey: {} API key AI.", list.len()));
+                    }
+                    Err(e) => {
+                        self.ckey_error = Some(e.clone());
+                        self.log(format!("Lỗi tải keys CKey: {}", e));
+                    }
+                }
+                self.ckey_fetch_done();
+            }
+            AppMessage::CkeyModels { result } => {
+                match result {
+                    Ok(list) => {
+                        self.ckey_models = list.clone();
+                        self.log(format!("CKey: {} model AI kèm bảng giá.", list.len()));
+                    }
+                    Err(e) => {
+                        self.ckey_error = Some(e.clone());
+                        self.log(format!("Lỗi tải models CKey: {}", e));
+                    }
+                }
+                self.ckey_fetch_done();
+            }
+            AppMessage::CkeyStats { result } => {
+                match result {
+                    Ok(s) => {
+                        self.ckey_stats = Some(s.clone());
+                        self.log(format!(
+                            "CKey: {} request, {} token, {}.",
+                            s.requests,
+                            s.total_tokens,
+                            s.charged_vnd_text
+                        ));
+                    }
+                    Err(e) => {
+                        self.ckey_error = Some(e.clone());
+                        self.log(format!("Lỗi tải usage-stats CKey: {}", e));
+                    }
+                }
+                self.ckey_fetch_done();
+            }
+            AppMessage::CkeyUsage { result } => {
+                self.ckey_loading = false;
+                match result {
+                    Ok(page) => {
+                        if let Some(p) = &page.pagination {
+                            self.ckey_usage_page = p.page;
+                            self.ckey_usage_total_pages = p.total_pages.max(1);
+                        }
+                        self.ckey_usage = page.items;
+                        self.log(format!(
+                            "CKey usage trang {}/{}: {} bản ghi.",
+                            self.ckey_usage_page, self.ckey_usage_total_pages, self.ckey_usage.len()
+                        ));
+                    }
+                    Err(e) => {
+                        self.ckey_error = Some(e.clone());
+                        self.log(format!("Lỗi tải CKey usage: {}", e));
+                    }
+                }
+            }
         }
     }
 
@@ -852,6 +1056,7 @@ impl App {
             name: default_preset.name.clone(),
             base_url: default_preset.base_url.clone(),
             api_key: String::new(),
+            account_key: String::new(),
             focus_index: 0,
             test_status: None,
             is_testing: false,
@@ -868,7 +1073,9 @@ impl App {
             let preset_id = self
                 .presets
                 .iter()
-                .find(|p| p.base_url == provider.options.base_url)
+                .find(|p| {
+                    normalize_base_url(&p.base_url) == normalize_base_url(&provider.options.base_url)
+                })
                 .map(|p| p.id.clone())
                 .unwrap_or_else(|| "custom".to_string());
 
@@ -878,6 +1085,7 @@ impl App {
                 name: provider.name.clone(),
                 base_url: provider.options.base_url.clone(),
                 api_key: provider.options.api_key.clone(),
+                account_key: self.ckey_config.accounts.get(&id).cloned().unwrap_or_default(),
                 focus_index: 0, // Bắt đầu ở Preset
                 test_status: self.api_status_cache.get(&id).cloned().flatten(),
                 is_testing: false,
@@ -891,8 +1099,16 @@ impl App {
     pub fn save_form(&mut self) -> Result<(), String> {
         let mut id = self.form.id.trim().to_string();
         let name = self.form.name.trim().to_string();
-        let base_url = self.form.base_url.trim().to_string();
+        let raw_base_url = self.form.base_url.trim().to_string();
+        let base_url = normalize_base_url(&raw_base_url);
         let api_key = self.form.api_key.trim().to_string();
+
+        if base_url != raw_base_url {
+            self.log(format!("Đã tự sửa base URL: {} → {}", raw_base_url, base_url));
+        }
+
+        // Đồng bộ giá trị đã normalize vào form để các bước sau (detect_duplicate,...) đọc đúng
+        self.form.base_url = base_url.clone();
 
         if name.is_empty() || base_url.is_empty() || api_key.is_empty() {
             return Err("Vui lòng nhập đầy đủ Name, Base URL và API Key!".to_string());
@@ -917,8 +1133,8 @@ impl App {
         if self.form.preset_id != "custom"
             && let Some(preset) = self.presets.iter().find(|p| p.id == self.form.preset_id)
         {
-            let clean_form_url = base_url.trim().trim_end_matches('/');
-            let clean_preset_url = preset.base_url.trim().trim_end_matches('/');
+            let clean_form_url = normalize_base_url(&base_url);
+            let clean_preset_url = normalize_base_url(&preset.base_url);
 
             if clean_form_url == clean_preset_url {
                 if let Some(auth_entry) = self.auth_config.get(&preset.id) {
@@ -990,6 +1206,17 @@ impl App {
 
         self.config.provider.insert(id.clone(), provider);
         self.save_all_config()?;
+
+        // Lưu account key CKey (chỉ khi endpoint là CKey)
+        if normalize_base_url(&self.form.base_url) == normalize_base_url(crate::ckey::CKEY_LLM_BASE_URL) {
+            let account_key = self.form.account_key.trim();
+            if account_key.is_empty() {
+                self.ckey_config.accounts.remove(&id);
+            } else {
+                self.ckey_config.accounts.insert(id.clone(), account_key.to_string());
+            }
+            self.ckey_config.save()?;
+        }
 
         self.log(format!("Đã lưu cấu hình Provider: {}", id));
         self.update_provider_keys();
@@ -1158,6 +1385,433 @@ impl App {
         self.current_screen = Screen::Main;
         Ok(())
     }
+
+    // ==================== CKEY ====================
+
+    /// Provider ĐANG CHỌN có hỗ trợ kiểm tra thông tin tài khoản CKey không?
+    /// Đúng nếu provider đang chọn (providers_keys[selected_provider_idx]) có base_url
+    /// khớp CKEY_LLM_BASE_URL (so bằng normalize_base_url 2 vế để tránh trượt trailing slash).
+    pub fn has_ckey_support(&self) -> bool {
+        let target = normalize_base_url(crate::ckey::CKEY_LLM_BASE_URL);
+        self.providers_keys
+            .get(self.selected_provider_idx)
+            .and_then(|id| self.config.provider.get(id))
+            .map(|p| normalize_base_url(&p.options.base_url) == target)
+            .unwrap_or(false)
+    }
+
+    /// Tra cứu account key đã lưu của provider (từ ckey.json).
+    pub fn ckey_account_key(&self, provider_id: &str) -> Option<String> {
+        self.ckey_config.accounts.get(provider_id).cloned()
+    }
+
+    pub fn open_ckey_dashboard(&mut self) {
+        self.ckey_error = None;
+        self.current_screen = Screen::CKeyDashboard;
+
+        let Some(provider_id) = self.selected_provider_id().cloned() else {
+            self.log("CKey: chưa có provider được chọn.");
+            return;
+        };
+
+        if self.ckey_account_key(&provider_id).is_some() {
+            self.log(format!("Mở màn hình kiểm tra thông tin CKey (provider '{}').", provider_id));
+            self.ckey_fetch_all();
+        } else {
+            // Chưa có account key → bật popup chọn/nhập key ngay tại đây.
+            self.ckey_need_key = true;
+            self.ckey_pick_mode = CkeyPickMode::Choose;
+            self.ckey_pick_selected_idx = 0;
+            self.ckey_new_key_input = String::new();
+            self.ckey_account_options = self
+                .ckey_config
+                .accounts
+                .iter()
+                .filter(|(pid, _)| *pid != &provider_id)
+                .map(|(pid, key)| (pid.clone(), key.clone()))
+                .collect();
+            self.ckey_account_options.sort_by(|a, b| a.0.cmp(&b.0));
+            self.log(format!(
+                "CKey: provider '{}' chưa có account key. Chọn từ danh sách đã lưu hoặc nhập key mới.",
+                provider_id
+            ));
+        }
+    }
+
+    /// Fetch song song cho provider đang chọn: profile + AI keys + models + usage-stats.
+    /// Endpoint quản lý CỐ ĐỊNH CKEY_MANAGE_API_BASE (không đọc từ config).
+    pub fn ckey_fetch_all(&mut self) {
+        self.ckey_need_key = false;
+        let Some(provider_id) = self.selected_provider_id().cloned() else {
+            self.ckey_error = Some("Chưa có provider được chọn.".to_string());
+            return;
+        };
+        let Some(account_key) = self.ckey_account_key(&provider_id) else {
+            self.ckey_need_key = true;
+            self.ckey_error = Some(format!("Provider '{}' chưa có account key.", provider_id));
+            return;
+        };
+
+        self.ckey_loading = true;
+        self.ckey_pending = 4;
+        self.ckey_error = None;
+        let endpoint = crate::ckey::CKEY_MANAGE_API_BASE.to_string();
+        self.log(format!("Đang tải dữ liệu CKey cho provider '{}'...", provider_id));
+
+        let tx = self.tx.clone();
+        let ep = endpoint.clone();
+        let key = account_key.clone();
+        tokio::spawn(async move {
+            let client = crate::ckey::CkeyClient::new(&ep);
+            let result = client.fetch_profile(&key).await;
+            let _ = tx.send(AppMessage::CkeyProfile { result });
+        });
+        let tx = self.tx.clone();
+        let ep = endpoint.clone();
+        let key = account_key.clone();
+        tokio::spawn(async move {
+            let client = crate::ckey::CkeyClient::new(&ep);
+            let result = client.fetch_keys(&key).await;
+            let _ = tx.send(AppMessage::CkeyKeys { result });
+        });
+        let tx = self.tx.clone();
+        let ep = endpoint.clone();
+        let key = account_key.clone();
+        tokio::spawn(async move {
+            let client = crate::ckey::CkeyClient::new(&ep);
+            let result = client.fetch_models(&key).await;
+            let _ = tx.send(AppMessage::CkeyModels { result });
+        });
+        let tx = self.tx.clone();
+        let key = account_key;
+        tokio::spawn(async move {
+            let client = crate::ckey::CkeyClient::new(&endpoint);
+            let result = client.fetch_usage_stats(&key).await;
+            let _ = tx.send(AppMessage::CkeyStats { result });
+        });
+    }
+
+    /// Popup G: gán account key của provider khác cho provider đang chọn.
+    pub fn ckey_pick_account_key(&mut self, provider_id: &str) {
+        let Some(current) = self.selected_provider_id().cloned() else {
+            return;
+        };
+        if provider_id == current {
+            return;
+        }
+        let Some(key) = self.ckey_config.accounts.get(provider_id).cloned() else {
+            self.log("CKey: provider nguồn chưa có account key.");
+            return;
+        };
+        self.ckey_config.accounts.insert(current.clone(), key);
+        if let Err(e) = self.ckey_config.save() {
+            self.log(format!("Không thể lưu ckey.json: {}", e));
+            return;
+        }
+        self.log(format!(
+            "Đã dùng account key của provider '{}' cho '{}'.",
+            provider_id, current
+        ));
+        self.ckey_need_key = false;
+        self.ckey_fetch_all();
+    }
+
+    /// Popup G: lưu account key mới (tự nhập) cho provider đang chọn; rỗng → Err.
+    pub fn ckey_save_new_account_key(&mut self) -> Result<(), String> {
+        let new_key = self.ckey_new_key_input.trim().to_string();
+        if new_key.is_empty() {
+            return Err("Account key không được để trống.".to_string());
+        }
+        let Some(provider_id) = self.selected_provider_id().cloned() else {
+            return Err("Chưa có provider được chọn.".to_string());
+        };
+        self.ckey_config.accounts.insert(provider_id.clone(), new_key);
+        self.ckey_config.save()?;
+        self.log(format!("Đã lưu account key cho provider '{}'.", provider_id));
+        self.ckey_new_key_input.clear();
+        self.ckey_need_key = false;
+        self.ckey_fetch_all();
+        Ok(())
+    }
+
+    /// Mở màn hình thêm nhanh nhiều provider (phím K).
+    pub fn open_bulk_add(&mut self) {
+        self.bulk_endpoint_input = String::new();
+        self.bulk_keys_input = String::new();
+        self.bulk_focus = BulkFocus::Endpoint;
+        self.bulk_is_editing = false;
+        self.current_screen = Screen::BulkAddProviders;
+        self.log("Mở màn hình thêm nhanh nhiều provider.");
+    }
+
+    /// Thực hiện thêm nhanh: 1 endpoint + N key → N provider.
+    /// Bỏ key trùng cặp (endpoint normalize + key) với provider đã có; id ngẫu nhiên unique.
+    pub fn execute_bulk_add(&mut self) -> Result<usize, String> {
+        let endpoint = normalize_base_url(self.bulk_endpoint_input.trim());
+        if endpoint.is_empty() {
+            return Err("Vui lòng nhập endpoint.".to_string());
+        }
+        // Validate: phải có scheme://host (không chấp nhận chuỗi thiếu scheme hoặc host rỗng).
+        let host = endpoint.split_once("://").map(|(_, rest)| rest);
+        let host_ok = host
+            .map(|h| !h.is_empty() && !h.starts_with('/'))
+            .unwrap_or(false);
+        if !host_ok {
+            return Err("Endpoint không hợp lệ: phải có dạng https://host...".to_string());
+        }
+
+        // Parse từng dòng: trim + lọc rỗng + lọc trùng trong lần nhập.
+        let mut seen = HashSet::new();
+        let mut keys: Vec<String> = Vec::new();
+        for line in self.bulk_keys_input.lines() {
+            let k = line.trim().to_string();
+            if k.is_empty() || !seen.insert(k.clone()) {
+                continue;
+            }
+            keys.push(k);
+        }
+        if keys.is_empty() {
+            return Err("Vui lòng dán ít nhất 1 AI key (mỗi dòng 1 key).".to_string());
+        }
+
+        let mut added = 0usize;
+        let mut skipped = 0usize;
+        let mut existing_ids: HashSet<String> = self.config.provider.keys().cloned().collect();
+
+        for key in keys {
+            // Bỏ cặp (endpoint, key) đã tồn tại trong provider
+            if let Some((pid, p)) = self.config.provider.iter().find(|(_, p)| {
+                normalize_base_url(&p.options.base_url) == endpoint && p.options.api_key.trim() == key
+            }) {
+                self.log(format!(
+                    "Bỏ key trùng provider {} ({}).",
+                    if p.name.is_empty() { pid.as_str() } else { p.name.as_str() },
+                    pid
+                ));
+                skipped += 1;
+                continue;
+            }
+
+            let id = crate::ckey::generate_provider_name(&existing_ids);
+            existing_ids.insert(id.clone());
+            self.config.provider.insert(
+                id.clone(),
+                Provider {
+                    npm: Some("@ai-sdk/openai-compatible".to_string()),
+                    name: id.clone(),
+                    options: ProviderOptions {
+                        base_url: endpoint.clone(),
+                        api_key: key,
+                    },
+                    models: HashMap::new(),
+                },
+            );
+            added += 1;
+        }
+
+        if added == 0 {
+            self.log("Thêm nhanh: không có key mới nào được thêm (tất cả đã trùng).");
+            return Ok(0);
+        }
+
+        self.save_all_config()?;
+        self.update_provider_keys();
+        self.log(format!("Đã thêm {} provider (bỏ {} key trùng).", added, skipped));
+        self.bulk_endpoint_input.clear();
+        self.bulk_keys_input.clear();
+        self.bulk_is_editing = false;
+        self.current_screen = Screen::Main;
+        Ok(added)
+    }
+
+    /// Build danh sách import từ models CKey + models hiện có của provider "ckey".
+    /// Model đã có trong config → checked; model mới → unchecked; model còn trong config
+    /// nhưng KHÔNG còn trên CKey → stale (unchecked, sẽ bị xoá khi đồng bộ).
+    pub fn open_ckey_import(&mut self) {
+        if self.ckey_models.is_empty() {
+            self.log("Danh sách model của tài khoản đang chọn trống. Nhấn R trên màn hình kiểm tra tài khoản để tải.");
+            return;
+        }
+        let existing_models: Vec<String> = self
+            .config
+            .provider
+            .get(crate::ckey::CKEY_PRESET_ID)
+            .map(|p| p.models.keys().cloned().collect())
+            .unwrap_or_default();
+
+        let mut list: Vec<(String, bool, bool, f64, f64)> = self
+            .ckey_models
+            .iter()
+            .map(|m| {
+                let exists = existing_models.contains(&m.public_name);
+                (m.public_name.clone(), exists, false, m.input_price_per_million_vnd, m.output_price_per_million_vnd)
+            })
+            .collect();
+
+        // Model bị CKey xoá nhưng còn trong config → stale, xếp cuối
+        for stale in existing_models.iter().filter(|m| !self.ckey_models.iter().any(|cm| &cm.public_name == *m)) {
+            list.push((stale.clone(), false, true, 0.0, 0.0));
+        }
+
+        let stale_count = list.iter().filter(|(_, _, s, _, _)| *s).count();
+        if stale_count > 0 {
+            self.log(format!(
+                "CKey: {} mô hình đã bị xoá khỏi CKey, sẽ xoá khỏi config khi đồng bộ.",
+                stale_count
+            ));
+        }
+
+        self.ckey_import_list = list;
+        self.ckey_import_idx = 0;
+        self.ckey_import_query = String::new();
+        self.ckey_import_list_state = ratatui::widgets::ListState::default();
+        self.current_screen = Screen::CKeyImport;
+    }
+
+    pub fn filtered_ckey_import(&self) -> Vec<(usize, String, bool, bool, f64, f64)> {
+        let q = self.ckey_import_query.to_lowercase();
+        self.ckey_import_list
+            .iter()
+            .enumerate()
+            .filter(|(_, (id, _, _, _, _))| id.to_lowercase().contains(&q))
+            .map(|(i, (id, checked, stale, ip, op))| (i, id.clone(), *checked, *stale, *ip, *op))
+            .collect()
+    }
+
+    /// Đồng bộ model CKey vào provider "ckey" trong opencode.json.
+    pub fn execute_ckey_import(&mut self) -> Result<(), String> {
+        if self.ckey_import_list.is_empty() {
+            return Err("Danh sách import rỗng.".to_string());
+        }
+
+        // Tạo provider "ckey" nếu chưa có; api_key = AI key active đầu tiên (hoặc giữ key cũ)
+        if !self.config.provider.contains_key(crate::ckey::CKEY_PRESET_ID) {
+            let api_key = self
+                .ckey_keys
+                .iter()
+                .find(|k| k.is_active)
+                .map(|k| k.api_key.clone())
+                .unwrap_or_default();
+            self.config.provider.insert(
+                crate::ckey::CKEY_PRESET_ID.to_string(),
+                Provider {
+                    npm: Some("@ai-sdk/openai-compatible".to_string()),
+                    name: "CKey (ckey.vn)".to_string(),
+                    options: ProviderOptions {
+                        base_url: crate::ckey::CKEY_LLM_BASE_URL.to_string(),
+                        api_key,
+                    },
+                    models: HashMap::new(),
+                },
+            );
+        }
+
+        let provider_id = crate::ckey::CKEY_PRESET_ID.to_string();
+        let provider = self
+            .config
+            .provider
+            .get_mut(&provider_id)
+            .expect("vừa tạo provider ckey");
+
+        let mut added = 0usize;
+        let mut removed = 0usize;
+        for (m_id, checked, _stale, _, _) in &self.ckey_import_list {
+            if *checked {
+                if !provider.models.contains_key(m_id) {
+                    let input_modalities = if m_id.contains("vision") || m_id.contains("omni") || m_id.contains("image") {
+                        vec!["text".to_string(), "image".to_string()]
+                    } else {
+                        vec!["text".to_string()]
+                    };
+                    provider.models.insert(
+                        m_id.clone(),
+                        ModelEntry {
+                            name: m_id.clone(),
+                            limit: Some(ModelLimit {
+                                context: Some(1048576),
+                                output: Some(131072),
+                            }),
+                            modalities: Some(ModelModalities {
+                                input: input_modalities,
+                                output: vec!["text".to_string()],
+                            }),
+                        },
+                    );
+                    added += 1;
+                }
+            } else if provider.models.contains_key(m_id) {
+                provider.models.remove(m_id);
+                removed += 1;
+            }
+        }
+
+        // Đảm bảo api_key không trống: gán key active đầu tiên nếu cần
+        if provider.options.api_key.is_empty()
+            && let Some(k) = self.ckey_keys.iter().find(|k| k.is_active)
+        {
+            provider.options.api_key = k.api_key.clone();
+        }
+
+        self.save_all_config()?;
+        self.log(format!(
+            "Đồng bộ CKey thành công: đã thêm {}, đã xoá {} mô hình.",
+            added, removed
+        ));
+        self.update_provider_keys();
+        self.current_screen = Screen::CKeyDashboard;
+        Ok(())
+    }
+
+    pub fn open_ckey_usage(&mut self) {
+        let Some(provider_id) = self.selected_provider_id().cloned() else {
+            self.log("CKey: chưa có provider được chọn.");
+            return;
+        };
+        if self.ckey_account_key(&provider_id).is_none() {
+            self.log("CKey: provider đang chọn chưa có account key.");
+            return;
+        }
+        self.current_screen = Screen::CKeyUsage;
+        self.ckey_fetch_usage_page(1);
+    }
+
+    pub fn ckey_fetch_usage_page(&mut self, page: u64) {
+        let Some(provider_id) = self.selected_provider_id().cloned() else {
+            self.log("CKey: chưa có provider được chọn.");
+            return;
+        };
+        let Some(account_key) = self.ckey_account_key(&provider_id) else {
+            self.log("CKey: provider đang chọn chưa có account key.");
+            return;
+        };
+        let endpoint = crate::ckey::CKEY_MANAGE_API_BASE.to_string();
+        // Hint lọc theo AI key của user (prefix từ /api/llm/keys); rỗng vẫn được chấp nhận.
+        let ai_key_hint = self
+            .ckey_keys
+            .first()
+            .map(|k| k.key_prefix.clone())
+            .unwrap_or_default();
+        self.ckey_loading = true;
+        self.ckey_error = None;
+        self.ckey_usage_scroll = 0;
+        self.log(format!("Đang tải lịch sử dùng AI trang {}", page));
+
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let client = crate::ckey::CkeyClient::new(&endpoint);
+            let result = client.fetch_usage(&account_key, &ai_key_hint, page, 30).await;
+            let _ = tx.send(AppMessage::CkeyUsage { result });
+        });
+    }
+
+    fn ckey_fetch_done(&mut self) {
+        self.ckey_pending = self.ckey_pending.saturating_sub(1);
+        if self.ckey_pending == 0 {
+            self.ckey_loading = false;
+        }
+    }
+
+    // ==================== END CKEY ====================
 
     pub fn launch_opencode(&mut self) {
         self.log("Đang tìm kiếm opencode trên máy...");
@@ -1397,6 +2051,77 @@ mod tests {
     }
 
     #[test]
+    fn test_builtin_broken_url_normalized_still_auth_json() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
+
+        let test_dir = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("test_home_builtin_broken_url");
+        if test_dir.exists() {
+            let _ = fs::remove_dir_all(&test_dir);
+        }
+        fs::create_dir_all(&test_dir).unwrap();
+
+        // SAFETY: test function trong môi trường kiểm soát
+        unsafe {
+            std::env::set_var("HOME", &test_dir);
+            std::env::set_var("USERPROFILE", &test_dir);
+            std::env::set_var("OPENCODE_TEST_HOME", &test_dir);
+        }
+
+        let opencode_dir = test_dir.join(".config").join("opencode");
+        fs::create_dir_all(&opencode_dir).unwrap();
+        let opencode_json_path = opencode_dir.join("opencode.json");
+        let share_dir = test_dir.join(".local").join("share").join("opencode");
+        fs::create_dir_all(&share_dir).unwrap();
+        let auth_json_path = share_dir.join("auth.json");
+
+        // Provider built-in "ckey" có base_url HỎNG (nhập thừa path) — do lần lưu cũ chưa normalize
+        let mock_opencode = r#"{
+            "provider": {
+                "ckey": {
+                    "npm": "@ai-sdk/openai-compatible",
+                    "name": "CKey (ckey.vn)",
+                    "options": {
+                        "baseURL": "https://api.xah.io/v1/chat/completions",
+                        "apiKey": "ck-broken-old"
+                    },
+                    "models": {}
+                }
+            }
+        }"#;
+        fs::write(&opencode_json_path, mock_opencode).unwrap();
+        fs::write(&auth_json_path, "{}").unwrap();
+
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<AppMessage>();
+        let cfg = OpencodeConfig::load().unwrap();
+        let auth = crate::config::AuthEntry::load_config().unwrap();
+        let mut app = App::new(cfg, auth, tx);
+
+        // URL hỏng vẫn khớp built-in sau normalize → ckey nằm auth.json, không vào opencode.json
+        assert!(app.config.provider.contains_key("ckey"));
+
+        app.save_all_config().unwrap();
+
+        let saved_opencode = fs::read_to_string(&opencode_json_path).unwrap();
+        assert!(
+            !saved_opencode.contains("ckey"),
+            "Built-in ckey với base_url hỏng vẫn phải bị loại khỏi opencode.json"
+        );
+        let saved_auth = fs::read_to_string(&auth_json_path).unwrap();
+        assert!(saved_auth.contains("ckey"), "Built-in ckey phải nằm trong auth.json");
+
+        // Backward compat: get_models_url chuẩn hoá URL hỏng trước khi append
+        assert_eq!(
+            ApiClient::get_models_url("https://api.xah.io/v1/chat/completions"),
+            "https://api.xah.io/v1/models"
+        );
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
     fn test_user_windows_config_format() {
         let json_data = r#"{
           "$schema": "https://opencode.ai/config.json",
@@ -1421,11 +2146,683 @@ mod tests {
         assert_eq!(google_provider.options.api_key, "");
     }
 
+    /// Helper: parse model fixtures từ JSON CKey (không cần mạng).
+    fn parse_ckey_models_fixture() -> Vec<crate::ckey::CkeyModel> {
+        let body = r#"{
+            "success": true, "status": 200, "message": "OK",
+            "data": { "models": [
+                { "public_name": "provider/gpt-demo", "display_name": "GPT Demo",
+                  "model_name": "gpt-demo", "provider_username": "provider",
+                  "is_provider_model": true,
+                  "input_price_per_million_vnd": 5000, "output_price_per_million_vnd": 15000,
+                  "price_per_request_vnd": 0, "min_charge_per_request_vnd": 1,
+                  "cache_enabled": false, "cache_read_price_per_million_vnd": 0,
+                  "cache_write_price_per_million_vnd": 0, "request_rate_limit_per_minute": 0,
+                  "max_output_tokens_limit": 0, "context_tokens_limit": 0,
+                  "supported_paths": ["chat/completions"] },
+                { "public_name": "provider/gpt-removed", "display_name": "GPT Removed",
+                  "model_name": "gpt-removed", "provider_username": "provider",
+                  "is_provider_model": true,
+                  "input_price_per_million_vnd": 1000, "output_price_per_million_vnd": 3000,
+                  "price_per_request_vnd": 0, "min_charge_per_request_vnd": 0,
+                  "cache_enabled": false, "cache_read_price_per_million_vnd": 0,
+                  "cache_write_price_per_million_vnd": 0, "request_rate_limit_per_minute": 0,
+                  "max_output_tokens_limit": 0, "context_tokens_limit": 0,
+                  "supported_paths": ["chat/completions"] }
+            ] }
+        }"#;
+        crate::ckey::parse_wrapped::<crate::ckey::CkeyModelList>(body)
+            .unwrap()
+            .models
+    }
+
+    #[test]
+    fn test_ckey_config_roundtrip_map() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
+
+        let test_dir = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("test_home_ckey_config_map");
+        if test_dir.exists() {
+            let _ = fs::remove_dir_all(&test_dir);
+        }
+        fs::create_dir_all(&test_dir).unwrap();
+
+        // SAFETY: test function trong môi trường kiểm soát
+        unsafe {
+            std::env::set_var("HOME", &test_dir);
+            std::env::set_var("USERPROFILE", &test_dir);
+            std::env::set_var("OPENCODE_TEST_HOME", &test_dir);
+        }
+
+        let cfg = crate::config::CkeyConfig {
+            accounts: {
+                let mut m = std::collections::HashMap::new();
+                m.insert("ckey".to_string(), "ck-account-1".to_string());
+                m.insert("X7K2P9".to_string(), "ck-account-2".to_string());
+                m
+            },
+        };
+        cfg.save().unwrap();
+        let loaded = crate::config::CkeyConfig::load().unwrap();
+        assert_eq!(loaded.accounts.len(), 2);
+        assert_eq!(
+            loaded.accounts.get("ckey").map(String::as_str),
+            Some("ck-account-1")
+        );
+        assert_eq!(
+            loaded.accounts.get("X7K2P9").map(String::as_str),
+            Some("ck-account-2")
+        );
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_ckey_config_migration_old_forms() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
+
+        let test_dir = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("test_home_ckey_migration");
+        if test_dir.exists() {
+            let _ = fs::remove_dir_all(&test_dir);
+        }
+        let opencode_dir = test_dir.join(".config").join("opencode");
+        fs::create_dir_all(&opencode_dir).unwrap();
+
+        // SAFETY: test function trong môi trường kiểm soát
+        unsafe {
+            std::env::set_var("HOME", &test_dir);
+            std::env::set_var("USERPROFILE", &test_dir);
+            std::env::set_var("OPENCODE_TEST_HOME", &test_dir);
+        }
+
+        // File rất cũ: { account_key } → "ckey"
+        fs::write(opencode_dir.join("ckey.json"), r#"{"account_key":"ck-xxx"}"#).unwrap();
+        let loaded = crate::config::CkeyConfig::load().unwrap();
+        assert_eq!(loaded.accounts.len(), 1, "migration phải tạo 1 account");
+        assert_eq!(loaded.accounts.get("ckey").map(String::as_str), Some("ck-xxx"));
+
+        // File cũ: { endpoint, accounts: [{name, key}] } → lấy account đầu cho "ckey"
+        fs::write(
+            opencode_dir.join("ckey.json"),
+            r#"{"endpoint":"https://ckey.vn","accounts":[{"name":"CKey-a1b2c3","key":"ck-account-1"},{"name":"CKey-d4e5f6","key":"ck-account-2"}]}"#,
+        )
+        .unwrap();
+        let loaded2 = crate::config::CkeyConfig::load().unwrap();
+        assert_eq!(loaded2.accounts.len(), 1, "chỉ lấy account đầu tiên cho 'ckey'");
+        assert_eq!(
+            loaded2.accounts.get("ckey").map(String::as_str),
+            Some("ck-account-1")
+        );
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_generate_provider_name_unique() {
+        let existing: std::collections::HashSet<String> = [
+            "ckey".to_string(),
+            "X7K2P9".to_string(),
+            "abc123".to_string(),
+        ]
+        .into_iter()
+        .collect();
+        for _ in 0..200 {
+            let name = crate::ckey::generate_provider_name(&existing);
+            assert!(!existing.contains(&name), "tên phải unique so với existing");
+            assert_eq!(name.len(), 6, "phải đúng 6 ký tự");
+            assert!(
+                name.chars().all(|c| c.is_ascii_alphanumeric()),
+                "phải là ký tự alnum"
+            );
+        }
+    }
+
+    #[test]
+    fn test_bulk_add_creates_providers_and_skips_duplicates() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
+
+        let test_dir = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("test_home_bulk_add");
+        if test_dir.exists() {
+            let _ = fs::remove_dir_all(&test_dir);
+        }
+        fs::create_dir_all(&test_dir).unwrap();
+        let opencode_dir = test_dir.join(".config").join("opencode");
+        fs::create_dir_all(&opencode_dir).unwrap();
+        fs::write(opencode_dir.join("opencode.json"), "{}").unwrap();
+
+        // SAFETY: test function trong môi trường kiểm soát
+        unsafe {
+            std::env::set_var("HOME", &test_dir);
+            std::env::set_var("USERPROFILE", &test_dir);
+            std::env::set_var("OPENCODE_TEST_HOME", &test_dir);
+        }
+
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<AppMessage>();
+        let cfg = OpencodeConfig::load().unwrap();
+        let auth = crate::config::AuthEntry::load_config().unwrap();
+        let mut app = App::new(cfg, auth, tx);
+
+        // Endpoint rỗng → Err
+        app.bulk_endpoint_input = "  ".to_string();
+        app.bulk_keys_input = "key-1\nkey-2".to_string();
+        let err = app.execute_bulk_add().unwrap_err();
+        assert!(err.contains("endpoint"), "err = {}", err);
+
+        // Keys rỗng → Err
+        app.bulk_endpoint_input = "https://api.example.com/v1".to_string();
+        app.bulk_keys_input = "\n  \n".to_string();
+        let err = app.execute_bulk_add().unwrap_err();
+        assert!(err.contains("ít nhất 1"), "err = {}", err);
+
+        // 2 key khác nhau → tạo 2 provider id random (6 ký tự alnum), không trùng builtin ckey
+        app.bulk_endpoint_input = "https://api.example.com/v1".to_string();
+        app.bulk_keys_input = "key-1\nkey-2".to_string();
+        let added = app.execute_bulk_add().unwrap();
+        assert_eq!(added, 2, "phải thêm được 2 provider");
+
+        let ep = normalize_base_url("https://api.example.com/v1");
+        let matched: Vec<_> = app
+            .config
+            .provider
+            .iter()
+            .filter(|(_, p)| normalize_base_url(&p.options.base_url) == ep)
+            .collect();
+        assert_eq!(matched.len(), 2, "phải có 2 provider cùng endpoint");
+        assert!(
+            matched.iter().all(|(id, _)| id.len() == 6 && id.chars().all(|c| c.is_ascii_alphanumeric())),
+            "id phải là 6 ký tự alnum ngẫu nhiên"
+        );
+        assert!(
+            matched.iter().all(|(id, _)| *id != crate::ckey::CKEY_PRESET_ID),
+            "không được trùng id builtin ckey"
+        );
+        assert!(
+            matched.iter().all(|(_, p)| p.npm.as_deref() == Some("@ai-sdk/openai-compatible"))
+        );
+
+        // Chạy lại cùng endpoint + key → cặp trùng bị bỏ, không thêm mới
+        app.bulk_endpoint_input = "https://api.example.com/v1".to_string();
+        app.bulk_keys_input = "key-1\nkey-2".to_string();
+        let added = app.execute_bulk_add().unwrap();
+        assert_eq!(added, 0, "cặp trùng phải được bỏ");
+
+        // Provider thêm nhanh (không builtin) phải được ghi vào opencode.json
+        let saved = fs::read_to_string(opencode_dir.join("opencode.json")).unwrap();
+        assert!(
+            saved.contains("api.example.com"),
+            "provider thêm nhanh phải nằm trong opencode.json"
+        );
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_bulk_add_skips_existing_pair() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
+
+        let test_dir = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("test_home_bulk_add_skip");
+        if test_dir.exists() {
+            let _ = fs::remove_dir_all(&test_dir);
+        }
+        fs::create_dir_all(&test_dir).unwrap();
+
+        // SAFETY: test function trong môi trường kiểm soát
+        unsafe {
+            std::env::set_var("HOME", &test_dir);
+            std::env::set_var("USERPROFILE", &test_dir);
+            std::env::set_var("OPENCODE_TEST_HOME", &test_dir);
+        }
+
+        // Provider "myprov" có base_url + apiKey = "secret-key-1" (cặp trùng sẽ bị bỏ khi bulk add)
+        let opencode_dir = test_dir.join(".config").join("opencode");
+        fs::create_dir_all(&opencode_dir).unwrap();
+        fs::write(
+            opencode_dir.join("opencode.json"),
+            r#"{
+                "provider": {
+                    "myprov": {
+                        "npm": "@ai-sdk/openai-compatible",
+                        "name": "My Provider",
+                        "options": { "baseURL": "https://api.example.com/v1", "apiKey": "secret-key-1" },
+                        "models": {}
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<AppMessage>();
+        let cfg = OpencodeConfig::load().unwrap();
+        let auth = crate::config::AuthEntry::load_config().unwrap();
+        let mut app = App::new(cfg, auth, tx);
+
+        // Key trùng CẢ endpoint (trailing slash vẫn khớp) + key với provider có sẵn → bỏ key đó
+        app.bulk_endpoint_input = "https://api.example.com/v1/".to_string();
+        app.bulk_keys_input = "secret-key-1\nsecret-key-2".to_string();
+        let added = app.execute_bulk_add().unwrap();
+        assert_eq!(added, 1, "chỉ thêm key mới, key trùng cặp phải bị bỏ");
+
+        assert!(app.config.provider.contains_key("myprov"), "provider có sẵn phải giữ nguyên");
+        assert_eq!(app.config.provider.len(), 2, "myprov + 1 provider mới");
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_has_ckey_support() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
+
+        let test_dir = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("test_home_ckey_support");
+        if test_dir.exists() {
+            let _ = fs::remove_dir_all(&test_dir);
+        }
+        fs::create_dir_all(&test_dir).unwrap();
+        let opencode_dir = test_dir.join(".config").join("opencode");
+        fs::create_dir_all(&opencode_dir).unwrap();
+        fs::write(opencode_dir.join("opencode.json"), "{}").unwrap();
+
+        // SAFETY: test function trong môi trường kiểm soát
+        unsafe {
+            std::env::set_var("HOME", &test_dir);
+            std::env::set_var("USERPROFILE", &test_dir);
+            std::env::set_var("OPENCODE_TEST_HOME", &test_dir);
+        }
+
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<AppMessage>();
+        let cfg = OpencodeConfig::load().unwrap();
+        let auth = crate::config::AuthEntry::load_config().unwrap();
+        let mut app = App::new(cfg, auth, tx);
+
+        // 1. Không có provider nào → false
+        assert!(!app.has_ckey_support(), "không provider → false");
+
+        // 2. Có provider CKey nhưng CHƯA chọn nó → has_ckey_support false
+        app.config.provider.insert(
+            "p1".to_string(),
+            Provider {
+                npm: Some("@ai-sdk/openai-compatible".to_string()),
+                name: "P1".to_string(),
+                options: ProviderOptions {
+                    base_url: "https://api.xah.io/v1".to_string(),
+                    api_key: "k1".to_string(),
+                },
+                models: HashMap::new(),
+            },
+        );
+        app.update_provider_keys();
+        let p1_idx = app.providers_keys.iter().position(|id| id == "p1").unwrap();
+        app.selected_provider_idx = p1_idx;
+        assert!(app.has_ckey_support(), "provider đang chọn api.xah.io/v1 → true");
+
+        // 3. trailing slash vẫn khớp
+        app.config.provider.get_mut("p1").unwrap().options.base_url =
+            "https://api.xah.io/v1/".to_string();
+        assert!(app.has_ckey_support(), "trailing slash phải khớp → true");
+
+        // 4. Có CKey nhưng chuyển sang chọn provider khác → false
+        app.config.provider.insert(
+            "p3".to_string(),
+            Provider {
+                npm: Some("@ai-sdk/openai-compatible".to_string()),
+                name: "P3".to_string(),
+                options: ProviderOptions {
+                    base_url: "https://api.deepseek.com/v1".to_string(),
+                    api_key: "k3".to_string(),
+                },
+                models: HashMap::new(),
+            },
+        );
+        app.update_provider_keys();
+        let p3_idx = app.providers_keys.iter().position(|id| id == "p3").unwrap();
+        app.selected_provider_idx = p3_idx;
+        assert!(!app.has_ckey_support(), "provider đang chọn khác → false");
+
+        // 5. Xoá hết provider → false
+        app.config.provider.clear();
+        app.update_provider_keys();
+        assert!(!app.has_ckey_support(), "rỗng → false");
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[tokio::test]
+    async fn test_ckey_dashboard_need_key_popup_and_pick() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
+
+        let test_dir = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("test_home_ckey_account_key_popup");
+        if test_dir.exists() {
+            let _ = fs::remove_dir_all(&test_dir);
+        }
+        fs::create_dir_all(&test_dir).unwrap();
+        let opencode_dir = test_dir.join(".config").join("opencode");
+        fs::create_dir_all(&opencode_dir).unwrap();
+        fs::write(opencode_dir.join("opencode.json"), "{}").unwrap();
+
+        // SAFETY: test function trong môi trường kiểm soát
+        unsafe {
+            std::env::set_var("HOME", &test_dir);
+            std::env::set_var("USERPROFILE", &test_dir);
+            std::env::set_var("OPENCODE_TEST_HOME", &test_dir);
+        }
+
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<AppMessage>();
+        let cfg = OpencodeConfig::load().unwrap();
+        let auth = crate::config::AuthEntry::load_config().unwrap();
+        let mut app = App::new(cfg, auth, tx);
+
+        // Provider CKey (base_url api.xah.io/v1) + provider khác đang chọn
+        app.config.provider.insert(
+            "p-ckey".to_string(),
+            Provider {
+                npm: Some("@ai-sdk/openai-compatible".to_string()),
+                name: "P CKey".to_string(),
+                options: ProviderOptions {
+                    base_url: crate::ckey::CKEY_LLM_BASE_URL.to_string(),
+                    api_key: "k1".to_string(),
+                },
+                models: HashMap::new(),
+            },
+        );
+        app.config.provider.insert(
+            "p-other".to_string(),
+            Provider {
+                npm: Some("@ai-sdk/openai-compatible".to_string()),
+                name: "P Other".to_string(),
+                options: ProviderOptions {
+                    base_url: crate::ckey::CKEY_LLM_BASE_URL.to_string(),
+                    api_key: "k2".to_string(),
+                },
+                models: HashMap::new(),
+            },
+        );
+        app.update_provider_keys();
+        let p_idx = app.providers_keys.iter().position(|id| id == "p-ckey").unwrap();
+        app.selected_provider_idx = p_idx;
+
+        // Chưa có account key → mở dashboard phải bật popup cần key
+        assert!(app.ckey_account_key("p-ckey").is_none());
+        app.open_ckey_dashboard();
+        assert!(app.ckey_need_key, "chưa có account key → phải bật popup");
+
+        // Lưu account key mới (rỗng → Err)
+        app.ckey_new_key_input = "  ".to_string();
+        let err = app.ckey_save_new_account_key().unwrap_err();
+        assert!(err.contains("không được để trống"), "err = {}", err);
+
+        // Lưu account key mới hợp lệ → lưu vào ckey.json, tắt popup
+        app.ckey_new_key_input = "ck-account-1".to_string();
+        app.ckey_save_new_account_key().unwrap();
+        assert_eq!(app.ckey_account_key("p-ckey").as_deref(), Some("ck-account-1"));
+        assert!(!app.ckey_need_key, "sau khi lưu key mới phải tắt popup");
+
+        // Provider khác chưa có key → popup liệt kê account key đã lưu của p-ckey
+        let o_idx = app.providers_keys.iter().position(|id| id == "p-other").unwrap();
+        app.selected_provider_idx = o_idx;
+        app.open_ckey_dashboard();
+        assert!(app.ckey_need_key, "provider khác chưa có key → phải bật popup");
+        assert!(
+            app.ckey_account_options.iter().any(|(pid, _)| pid == "p-ckey"),
+            "danh sách chọn phải chứa p-ckey"
+        );
+
+        // Pick account key từ p-ckey → p-other nhận key đó
+        app.ckey_pick_account_key("p-ckey");
+        assert_eq!(app.ckey_account_key("p-other").as_deref(), Some("ck-account-1"));
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[tokio::test]
+    async fn test_save_form_ckey_account_key() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
+
+        let test_dir = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("test_home_save_form_ckey_account");
+        if test_dir.exists() {
+            let _ = fs::remove_dir_all(&test_dir);
+        }
+        fs::create_dir_all(&test_dir).unwrap();
+        let opencode_dir = test_dir.join(".config").join("opencode");
+        fs::create_dir_all(&opencode_dir).unwrap();
+        fs::write(opencode_dir.join("opencode.json"), "{}").unwrap();
+
+        // SAFETY: test function trong môi trường kiểm soát
+        unsafe {
+            std::env::set_var("HOME", &test_dir);
+            std::env::set_var("USERPROFILE", &test_dir);
+            std::env::set_var("OPENCODE_TEST_HOME", &test_dir);
+        }
+
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<AppMessage>();
+        let cfg = OpencodeConfig::load().unwrap();
+        let auth = crate::config::AuthEntry::load_config().unwrap();
+        let mut app = App::new(cfg, auth, tx);
+
+        // Form custom với endpoint CKey + account key
+        app.form = ProviderForm {
+            id: String::new(),
+            preset_id: "custom".to_string(),
+            name: "My CKey".to_string(),
+            base_url: crate::ckey::CKEY_LLM_BASE_URL.to_string(),
+            api_key: "sk-test".to_string(),
+            account_key: "ck-account-key".to_string(),
+            focus_index: 0,
+            test_status: None,
+            is_testing: false,
+            is_editing_field: false,
+        };
+        app.current_screen = Screen::AddProvider;
+        app.save_form().unwrap();
+
+        // Provider mới được tạo + account key lưu theo provider id
+        let new_id = app
+            .config
+            .provider
+            .iter()
+            .find(|(_, p)| normalize_base_url(&p.options.base_url) == normalize_base_url(crate::ckey::CKEY_LLM_BASE_URL))
+            .map(|(id, _)| id.clone())
+            .expect("phải tạo provider CKey");
+        assert_eq!(app.ckey_account_key(&new_id).as_deref(), Some("ck-account-key"));
+
+        // Endpoint không phải CKey → account key KHÔNG được lưu
+        app.form = ProviderForm {
+            id: String::new(),
+            preset_id: "custom".to_string(),
+            name: "Not CKey".to_string(),
+            base_url: "https://api.other.com/v1".to_string(),
+            api_key: "sk-other".to_string(),
+            account_key: "should-not-save".to_string(),
+            focus_index: 0,
+            test_status: None,
+            is_testing: false,
+            is_editing_field: false,
+        };
+        app.current_screen = Screen::AddProvider;
+        app.save_form().unwrap();
+        let other_id = app
+            .config
+            .provider
+            .iter()
+            .find(|(_, p)| normalize_base_url(&p.options.base_url) == normalize_base_url("https://api.other.com/v1"))
+            .map(|(id, _)| id.clone())
+            .expect("phải tạo provider không phải CKey");
+        assert_eq!(app.ckey_account_key(&other_id), None, "endpoint không phải CKey → không lưu account key");
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_ckey_import_creates_provider_and_builtin_not_saved() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
+
+        let test_dir = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("test_home_ckey_import");
+        if test_dir.exists() {
+            let _ = fs::remove_dir_all(&test_dir);
+        }
+        fs::create_dir_all(&test_dir).unwrap();
+
+        // SAFETY: test function trong môi trường kiểm soát
+        unsafe {
+            std::env::set_var("HOME", &test_dir);
+            std::env::set_var("USERPROFILE", &test_dir);
+            std::env::set_var("OPENCODE_TEST_HOME", &test_dir);
+        }
+
+        let opencode_dir = test_dir.join(".config").join("opencode");
+        fs::create_dir_all(&opencode_dir).unwrap();
+        let opencode_json_path = opencode_dir.join("opencode.json");
+        fs::write(&opencode_json_path, "{}").unwrap();
+
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<AppMessage>();
+        let cfg = OpencodeConfig::load().unwrap();
+        let auth = crate::config::AuthEntry::load_config().unwrap();
+        let mut app = App::new(cfg, auth, tx);
+
+        // Giả lập dữ liệu CKey: 1 AI key active + 2 models (1 model sẽ bị xoá sau khi import)
+        app.ckey_keys = vec![crate::ckey::CkeyAiKey {
+            id: 4804,
+            key_name: "Production".to_string(),
+            api_key: "ck-prod-xxxxxxxxxxxxxxxx".to_string(),
+            key_prefix: "ck-prod-xxxx".to_string(),
+            is_active: true,
+            created_at: 1778032800,
+            created_at_text: "06/05/2026".to_string(),
+        }];
+        app.ckey_models = parse_ckey_models_fixture();
+        app.open_ckey_import();
+
+        // Chưa có provider "ckey" → cả 2 model đều unchecked (model mới)
+        assert_eq!(app.ckey_import_list.len(), 2);
+        assert!(app.ckey_import_list.iter().all(|(_, c, s, _, _)| !c && !s));
+
+        // Chọn model đầu tiên để thêm
+        if let Some(item) = app.ckey_import_list.get_mut(0) {
+            item.1 = true;
+        }
+        app.execute_ckey_import().unwrap();
+
+        // Provider "ckey" được tạo với model đã chọn + api_key từ key active
+        let provider = app.config.provider.get(crate::ckey::CKEY_PRESET_ID).expect("provider ckey");
+        assert!(provider.models.contains_key("provider/gpt-demo"));
+        assert!(!provider.models.contains_key("provider/gpt-removed"));
+        assert_eq!(provider.options.api_key, "ck-prod-xxxxxxxxxxxxxxxx");
+        assert_eq!(provider.options.base_url, crate::ckey::CKEY_LLM_BASE_URL);
+
+        // Built-in CKey KHÔNG được ghi vào opencode.json mà chỉ vào auth.json
+        let saved_opencode = fs::read_to_string(&opencode_json_path).unwrap();
+        assert!(
+            !saved_opencode.contains("ckey"),
+            "Built-in ckey phải không xuất hiện trong opencode.json"
+        );
+        let share_dir = test_dir.join(".local").join("share").join("opencode");
+        let auth_json_path = share_dir.join("auth.json");
+        let saved_auth = fs::read_to_string(&auth_json_path).unwrap();
+        assert!(saved_auth.contains("ckey"), "Built-in ckey phải nằm trong auth.json");
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_ckey_import_removes_stale_models() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
+
+        let test_dir = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("test_home_ckey_stale");
+        if test_dir.exists() {
+            let _ = fs::remove_dir_all(&test_dir);
+        }
+        fs::create_dir_all(&test_dir).unwrap();
+
+        // SAFETY: test function trong môi trường kiểm soát
+        unsafe {
+            std::env::set_var("HOME", &test_dir);
+            std::env::set_var("USERPROFILE", &test_dir);
+            std::env::set_var("OPENCODE_TEST_HOME", &test_dir);
+        }
+
+        let opencode_dir = test_dir.join(".config").join("opencode");
+        fs::create_dir_all(&opencode_dir).unwrap();
+        let opencode_json_path = opencode_dir.join("opencode.json");
+
+        // Provider "ckey" có sẵn model-a (sắp bị CKey xoá) + provider/gpt-demo (còn tồn tại)
+        let mock_opencode = format!(
+            r#"{{
+                "provider": {{
+                    "{}": {{
+                        "npm": "@ai-sdk/openai-compatible",
+                        "name": "CKey",
+                        "options": {{ "baseURL": "{}", "apiKey": "ck-prod-old" }},
+                        "models": {{
+                            "model-a": {{ "name": "model-a" }},
+                            "provider/gpt-demo": {{ "name": "provider/gpt-demo" }}
+                        }}
+                    }}
+                }}
+            }}"#,
+            crate::ckey::CKEY_PRESET_ID,
+            crate::ckey::CKEY_LLM_BASE_URL
+        );
+        fs::write(&opencode_json_path, mock_opencode).unwrap();
+
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<AppMessage>();
+        let cfg = OpencodeConfig::load().unwrap();
+        let auth = crate::config::AuthEntry::load_config().unwrap();
+        let mut app = App::new(cfg, auth, tx);
+
+        // CKey hiện chỉ còn 1 model: provider/gpt-demo (model-a đã bị CKey xoá)
+        let models = parse_ckey_models_fixture();
+        app.ckey_models = vec![models[0].clone()];
+        app.open_ckey_import();
+
+        // Import list: provider/gpt-demo (checked, tồn tại) + model-a (stale, unchecked)
+        assert_eq!(app.ckey_import_list.len(), 2);
+        let stale = app.ckey_import_list.iter().find(|(_id, _, s, _, _)| *s).unwrap();
+        assert_eq!(stale.0, "model-a");
+        assert!(!stale.1, "model stale phải unchecked");
+
+        app.execute_ckey_import().unwrap();
+
+        let provider = app.config.provider.get(crate::ckey::CKEY_PRESET_ID).unwrap();
+        assert!(
+            !provider.models.contains_key("model-a"),
+            "model-a bị CKey xoá phải bị xoá khỏi config sau khi đồng bộ"
+        );
+        assert!(provider.models.contains_key("provider/gpt-demo"), "model còn tồn tại phải được giữ");
+        assert!(
+            !provider.models.contains_key("provider/gpt-removed"),
+            "model mới unchecked không được thêm"
+        );
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
     #[test]
     fn test_scan_detects_and_removes_stale_models() {
         let _guard = TEST_ENV_LOCK.lock().unwrap();
-
-        // Setup temporary HOME directory inside target to isolate the test
         let test_dir = std::env::current_dir()
             .unwrap()
             .join("target")

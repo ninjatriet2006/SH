@@ -59,8 +59,9 @@ impl ApiClient {
     }
 
     /// Trả về url phù hợp để lấy models.
-    fn get_models_url(base_url: &str) -> String {
-        let clean_base = base_url.trim_end_matches('/');
+    pub(crate) fn get_models_url(base_url: &str) -> String {
+        let clean_base = crate::config::normalize_base_url(base_url);
+        let clean_base = clean_base.trim_end_matches('/');
         if clean_base.contains("opengateway.gitlawb.com") {
             format!("{}/openai/models", clean_base)
         } else {
