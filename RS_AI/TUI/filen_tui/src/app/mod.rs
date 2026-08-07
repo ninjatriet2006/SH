@@ -57,7 +57,6 @@ pub enum PopupState {
     ConfirmDelete {
         name: String,
     },
-    #[allow(dead_code)]
     ConfirmEmptyTrash,
     SpecialActionsMenu {
         selected_idx: usize,

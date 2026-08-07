@@ -14,3 +14,7 @@ walkdir = "2.4"
 dirs = "5.0"
 tempfile = "3.8"
 chrono = "0.4"
+
+[[bin]]
+name = "universe_manager_tui"
+path = "src/main.rs"

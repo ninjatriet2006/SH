@@ -25,3 +25,6 @@ tar = "0.4"
 flate2 = "1.0"
 walkdir = "2.4"
 
+[[bin]]
+name = "universal_converter_tui"
+path = "src/main.rs"

@@ -877,7 +877,36 @@ fn draw_popups(app: &App, f: &mut Frame) {
                 sub_area,
             );
         }
-        PopupState::ConfirmEmptyTrash => {}
+        PopupState::ConfirmEmptyTrash => {
+            let area = centered_rect(50, 30, size);
+            f.render_widget(Clear, area);
+            let block = Block::default()
+                .title(Span::styled(
+                    " XÁC NHẬN DỌN DẸP THÙNG RÁC ",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Red));
+
+            let text = vec![
+                Line::from(" Bạn có chắc chắn muốn xóa VĨNH VIỄN tất cả các tệp trong thùng rác?"),
+                Line::from(" (Thao tác này KHÔNG THỂ KHÔI PHỤC)"),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(
+                        " [ Có (Y) ] ",
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Red)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw("   "),
+                    Span::styled(" [ Không (N) ] ", Style::default().fg(Color::White)),
+                ]),
+            ];
+            let paragraph = Paragraph::new(text).block(block).alignment(ratatui::layout::Alignment::Center);
+            f.render_widget(paragraph, area);
+        }
         PopupState::SwitchAccountMenu { selected_idx } => {
             let area = centered_rect(50, 45, size);
             f.render_widget(Clear, area);

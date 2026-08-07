@@ -54,8 +54,7 @@ pub struct ProviderForm {
     pub name: String,
     pub base_url: String,
     pub api_key: String,
-    pub account_key: String, // account key CKey (trang Profile) — chỉ dùng khi endpoint là CKey
-    pub focus_index: usize,  // 0: Preset, 1: Name, 2: URL, 3: Key, 4: AccountKey, 5: Test, 6: Save, 7: Cancel
+    pub focus_index: usize,  // 0: Preset, 1: Name, 2: URL, 3: Key, 4: Test, 5: Save, 6: Cancel
     pub test_status: Option<ApiStatus>,
     pub is_testing: bool,
     pub is_editing_field: bool,
@@ -237,7 +236,6 @@ impl App {
                 name: default_preset.name.clone(),
                 base_url: default_preset.base_url.clone(),
                 api_key: String::new(),
-                account_key: String::new(),
                 focus_index: 0,
                 test_status: None,
                 is_testing: false,
@@ -539,18 +537,6 @@ impl App {
         // 4. Lưu cấu hình cả hai file
         self.save_all_config()?;
 
-        // Lưu account key CKey (chỉ khi endpoint là CKey)
-        if normalize_base_url(&self.form.base_url) == normalize_base_url(crate::ckey::CKEY_LLM_BASE_URL) {
-            let account_key = self.form.account_key.trim();
-            if account_key.is_empty() {
-                self.ckey_config.accounts.remove(duplicate_id);
-            } else {
-                self.ckey_config
-                    .accounts
-                    .insert(duplicate_id.to_string(), account_key.to_string());
-            }
-            self.ckey_config.save()?;
-        }
 
         self.log(format!(
             "Đã gộp/ghi đè cấu hình trùng lặp vào Provider: {}",
@@ -1056,7 +1042,6 @@ impl App {
             name: default_preset.name.clone(),
             base_url: default_preset.base_url.clone(),
             api_key: String::new(),
-            account_key: String::new(),
             focus_index: 0,
             test_status: None,
             is_testing: false,
@@ -1085,7 +1070,6 @@ impl App {
                 name: provider.name.clone(),
                 base_url: provider.options.base_url.clone(),
                 api_key: provider.options.api_key.clone(),
-                account_key: self.ckey_config.accounts.get(&id).cloned().unwrap_or_default(),
                 focus_index: 0, // Bắt đầu ở Preset
                 test_status: self.api_status_cache.get(&id).cloned().flatten(),
                 is_testing: false,
@@ -1207,16 +1191,6 @@ impl App {
         self.config.provider.insert(id.clone(), provider);
         self.save_all_config()?;
 
-        // Lưu account key CKey (chỉ khi endpoint là CKey)
-        if normalize_base_url(&self.form.base_url) == normalize_base_url(crate::ckey::CKEY_LLM_BASE_URL) {
-            let account_key = self.form.account_key.trim();
-            if account_key.is_empty() {
-                self.ckey_config.accounts.remove(&id);
-            } else {
-                self.ckey_config.accounts.insert(id.clone(), account_key.to_string());
-            }
-            self.ckey_config.save()?;
-        }
 
         self.log(format!("Đã lưu cấu hình Provider: {}", id));
         self.update_provider_keys();
@@ -2589,86 +2563,6 @@ mod tests {
         let _ = fs::remove_dir_all(&test_dir);
     }
 
-    #[tokio::test]
-    async fn test_save_form_ckey_account_key() {
-        let _guard = TEST_ENV_LOCK.lock().unwrap();
-
-        let test_dir = std::env::current_dir()
-            .unwrap()
-            .join("target")
-            .join("test_home_save_form_ckey_account");
-        if test_dir.exists() {
-            let _ = fs::remove_dir_all(&test_dir);
-        }
-        fs::create_dir_all(&test_dir).unwrap();
-        let opencode_dir = test_dir.join(".config").join("opencode");
-        fs::create_dir_all(&opencode_dir).unwrap();
-        fs::write(opencode_dir.join("opencode.json"), "{}").unwrap();
-
-        // SAFETY: test function trong môi trường kiểm soát
-        unsafe {
-            std::env::set_var("HOME", &test_dir);
-            std::env::set_var("USERPROFILE", &test_dir);
-            std::env::set_var("OPENCODE_TEST_HOME", &test_dir);
-        }
-
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<AppMessage>();
-        let cfg = OpencodeConfig::load().unwrap();
-        let auth = crate::config::AuthEntry::load_config().unwrap();
-        let mut app = App::new(cfg, auth, tx);
-
-        // Form custom với endpoint CKey + account key
-        app.form = ProviderForm {
-            id: String::new(),
-            preset_id: "custom".to_string(),
-            name: "My CKey".to_string(),
-            base_url: crate::ckey::CKEY_LLM_BASE_URL.to_string(),
-            api_key: "sk-test".to_string(),
-            account_key: "ck-account-key".to_string(),
-            focus_index: 0,
-            test_status: None,
-            is_testing: false,
-            is_editing_field: false,
-        };
-        app.current_screen = Screen::AddProvider;
-        app.save_form().unwrap();
-
-        // Provider mới được tạo + account key lưu theo provider id
-        let new_id = app
-            .config
-            .provider
-            .iter()
-            .find(|(_, p)| normalize_base_url(&p.options.base_url) == normalize_base_url(crate::ckey::CKEY_LLM_BASE_URL))
-            .map(|(id, _)| id.clone())
-            .expect("phải tạo provider CKey");
-        assert_eq!(app.ckey_account_key(&new_id).as_deref(), Some("ck-account-key"));
-
-        // Endpoint không phải CKey → account key KHÔNG được lưu
-        app.form = ProviderForm {
-            id: String::new(),
-            preset_id: "custom".to_string(),
-            name: "Not CKey".to_string(),
-            base_url: "https://api.other.com/v1".to_string(),
-            api_key: "sk-other".to_string(),
-            account_key: "should-not-save".to_string(),
-            focus_index: 0,
-            test_status: None,
-            is_testing: false,
-            is_editing_field: false,
-        };
-        app.current_screen = Screen::AddProvider;
-        app.save_form().unwrap();
-        let other_id = app
-            .config
-            .provider
-            .iter()
-            .find(|(_, p)| normalize_base_url(&p.options.base_url) == normalize_base_url("https://api.other.com/v1"))
-            .map(|(id, _)| id.clone())
-            .expect("phải tạo provider không phải CKey");
-        assert_eq!(app.ckey_account_key(&other_id), None, "endpoint không phải CKey → không lưu account key");
-
-        let _ = fs::remove_dir_all(&test_dir);
-    }
 
     #[test]
     fn test_ckey_import_creates_provider_and_builtin_not_saved() {

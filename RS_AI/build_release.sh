@@ -30,16 +30,39 @@ mkdir -p release
 for p in "${PROJECTS[@]}"; do
     echo "──────────────────────────────────────────────"
     echo "▶ Build: $p"
+
+    # filen_gui là app Tauri (frontend + src-tauri) — build qua script riêng,
+    # không dùng `cargo build --release -p` hay `cargo tauri build` (bundle).
+    if [[ "$p" == "filen_gui" ]]; then
+        if [[ -f "GUI/filen_gui/build_release.sh" ]]; then
+            "GUI/filen_gui/build_release.sh"
+            continue
+        else
+            echo "⚠ Không tìm thấy GUI/filen_gui/build_release.sh (bỏ qua)"
+            continue
+        fi
+    fi
+
     cargo build --release -p "$p"
 
-    if [[ -f "target/release/$p" ]]; then
-        mkdir -p "release/$p"
-        cp -f "target/release/$p" "release/$p/$p"
-        chmod +x "release/$p/$p"
-        size=$(du -h "release/$p/$p" | cut -f1)
-        echo "✔ Xuất: release/$p/$p (${size})"
+    # Xác định tên binary thực sự
+    bin_name="$p"
+    if [[ ! -f "target/release/$bin_name" ]]; then
+        if [[ -f "target/release/${p}_tui" ]]; then
+            bin_name="${p}_tui"
+        elif [[ -f "target/release/${p}_gui" ]]; then
+            bin_name="${p}_gui"
+        fi
+    fi
+
+    if [[ -f "target/release/$bin_name" ]]; then
+        mkdir -p "release/$bin_name"
+        cp -f "target/release/$bin_name" "release/$bin_name/$bin_name"
+        chmod +x "release/$bin_name/$bin_name"
+        size=$(du -h "release/$bin_name/$bin_name" | cut -f1)
+        echo "✔ Xuất: release/$bin_name/$bin_name (${size})"
     else
-        echo "⚠ Không tìm thấy target/release/$p (bỏ qua)"
+        echo "⚠ Không tìm thấy target/release/$p (hay _tui/_gui) (bỏ qua)"
     fi
 done
 

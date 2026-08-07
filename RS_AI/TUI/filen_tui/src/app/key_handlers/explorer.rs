@@ -163,6 +163,34 @@ pub async fn handle_explorer_key(app: &mut App, key: KeyEvent) {
             }
             return;
         }
+        PopupState::ConfirmEmptyTrash => {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                    app.popup_state = PopupState::None;
+                }
+                KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    app.popup_state = PopupState::None;
+                    app.is_loading = true;
+                    match Operations::trash_empty(&app.active_account).await {
+                        Ok(_) => {
+                            app.popup_state = PopupState::Message {
+                                title: "Dọn dẹp".to_string(),
+                                message: "Đã dọn sạch thùng rác đám mây thành công!".to_string(),
+                            };
+                        }
+                        Err(e) => {
+                            app.popup_state = PopupState::Message {
+                                title: "Lỗi dọn dẹp".to_string(),
+                                message: e,
+                            };
+                        }
+                    }
+                    app.is_loading = false;
+                }
+                _ => {}
+            }
+            return;
+        }
         PopupState::SpecialActionsMenu { selected_idx } => {
             match key.code {
                 KeyCode::Esc => app.popup_state = PopupState::None,
@@ -861,24 +889,13 @@ async fn trigger_special_action(app: &mut App, selected_idx: usize) {
         3 => {
             // 🧹 Dọn Dẹp Thùng Rác
             if pane.is_local {
+                app.popup_state = PopupState::Message {
+                    title: "Không hỗ trợ".to_string(),
+                    message: "Thùng rác chỉ khả dụng đối với ổ đĩa đám mây.".to_string(),
+                };
                 return;
             }
-            app.is_loading = true;
-            match Operations::trash_empty(&app.active_account).await {
-                Ok(_) => {
-                    app.popup_state = PopupState::Message {
-                        title: "Dọn dẹp".to_string(),
-                        message: "Đã dọn sạch thùng rác đám mây thành công!".to_string(),
-                    };
-                }
-                Err(e) => {
-                    app.popup_state = PopupState::Message {
-                        title: "Lỗi dọn dẹp".to_string(),
-                        message: e,
-                    };
-                }
-            }
-            app.is_loading = false;
+            app.popup_state = PopupState::ConfirmEmptyTrash;
         }
         4 => {
             // 🔍 Xem Siêu Dữ Liệu (Stat)

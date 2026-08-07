@@ -221,10 +221,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         app.form.api_key.pop();
                                         draw_needed = true;
                                     }
-                                    4 => {
-                                        app.form.account_key.pop();
-                                        draw_needed = true;
-                                    }
                                     _ => {}
                                 },
                                 KeyCode::Char(c) => match focus {
@@ -240,10 +236,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         app.form.api_key.push(c);
                                         draw_needed = true;
                                     }
-                                    4 => {
-                                        app.form.account_key.push(c);
-                                        draw_needed = true;
-                                    }
                                     _ => {}
                                 },
                                 _ => {}
@@ -257,12 +249,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     draw_needed = true;
                                 }
                                 KeyCode::Tab | KeyCode::Down | KeyCode::Char('j') => {
-                                    let max_focus = 7;
+                                    let max_focus = 6;
                                     app.form.focus_index = (focus + 1) % (max_focus + 1);
                                     draw_needed = true;
                                 }
                                 KeyCode::Up | KeyCode::BackTab | KeyCode::Char('k') => {
-                                    let max_focus = 7;
+                                    let max_focus = 6;
                                     if focus == 0 {
                                         app.form.focus_index = max_focus;
                                     } else {
@@ -270,19 +262,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                     draw_needed = true;
                                 }
-                                KeyCode::Left | KeyCode::Char('h') if focus == 0 => {
-                                    app.cycle_form_preset(false);
-                                    draw_needed = true;
+                                KeyCode::Left | KeyCode::Char('h') => {
+                                    if focus == 0 {
+                                        app.cycle_form_preset(false);
+                                        draw_needed = true;
+                                    } else if focus >= 4 {
+                                        app.form.focus_index = if focus == 4 { 6 } else { focus - 1 };
+                                        draw_needed = true;
+                                    }
                                 }
-                                KeyCode::Right | KeyCode::Char('l') if focus == 0 => {
-                                    app.cycle_form_preset(true);
-                                    draw_needed = true;
+                                KeyCode::Right | KeyCode::Char('l') => {
+                                    if focus == 0 {
+                                        app.cycle_form_preset(true);
+                                        draw_needed = true;
+                                    } else if focus >= 4 {
+                                        app.form.focus_index = if focus == 6 { 4 } else { focus + 1 };
+                                        draw_needed = true;
+                                    }
                                 }
-                                KeyCode::Char('t') | KeyCode::Char('T') if focus >= 5 => {
+                                KeyCode::Char('t') | KeyCode::Char('T') if focus >= 4 => {
                                     app.test_form_connection();
                                     draw_needed = true;
                                 }
-                                KeyCode::Char('s') | KeyCode::Char('S') if focus >= 5 => {
+                                KeyCode::Char('s') | KeyCode::Char('S') if focus >= 4 => {
                                     if let Err(e) = app.save_form() {
                                         app.log(format!("Không thể lưu: {}", e));
                                     }
@@ -297,19 +299,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             app.current_screen = Screen::SelectPreset;
                                             app.log("Mở màn hình tìm kiếm Preset.");
                                         }
-                                        1..=4 => {
+                                        1..=3 => {
                                             app.form.is_editing_field = true;
                                             app.log("Bật chế độ sửa ô nhập. Gõ chữ xong nhấn Enter để hoàn tất.");
                                         }
-                                        5 => {
+                                        4 => {
                                             app.test_form_connection();
                                         }
-                                        6 => {
+                                        5 => {
                                             if let Err(e) = app.save_form() {
                                                 app.log(format!("Không thể lưu: {}", e));
                                             }
                                         }
-                                        7 => {
+                                        6 => {
                                             app.current_screen = Screen::Main;
                                             app.log("Huỷ thao tác nhập form.");
                                         }

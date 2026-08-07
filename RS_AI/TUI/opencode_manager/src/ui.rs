@@ -1,6 +1,5 @@
 use crate::api::ApiStatus;
 use crate::app::{App, BulkFocus, CkeyPickMode, ConfirmAction, Screen};
-use crate::config::normalize_base_url;
 use ratatui::{prelude::*, widgets::*};
 
 pub fn draw(f: &mut Frame, app: &mut App) {
@@ -353,21 +352,14 @@ fn draw_form_modal(f: &mut Frame, area: Rect, app: &App) {
 
     f.render_widget(block, popup_area);
 
-    // Ô Account key chỉ hiển thị khi endpoint là CKey → bố cục động.
-    let show_account_key = normalize_base_url(&app.form.base_url)
-        == normalize_base_url(crate::ckey::CKEY_LLM_BASE_URL);
-
-    let mut form_constraints = vec![
+    let form_constraints = vec![
         Constraint::Length(3), // Preset (Loại API)
         Constraint::Length(3), // Name
         Constraint::Length(3), // URL
         Constraint::Length(3), // API Key
+        Constraint::Length(3), // Buttons
+        Constraint::Min(2),    // Test Result
     ];
-    if show_account_key {
-        form_constraints.push(Constraint::Length(3)); // Account key
-    }
-    form_constraints.push(Constraint::Length(3)); // Buttons
-    form_constraints.push(Constraint::Min(2));    // Test Result
 
     let inner_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -375,9 +367,8 @@ fn draw_form_modal(f: &mut Frame, area: Rect, app: &App) {
         .constraints(form_constraints)
         .split(popup_area);
 
-    // Vị trí của khối Buttons / Test result phụ thuộc có ô Account key hay không.
-    let btn_idx = if show_account_key { 5 } else { 4 };
-    let test_idx = btn_idx + 1;
+    let btn_idx = 4;
+    let test_idx = 5;
 
     // 0. Preset field
     let preset_style = if app.form.focus_index == 0 {
@@ -470,26 +461,6 @@ fn draw_form_modal(f: &mut Frame, area: Rect, app: &App) {
     );
     f.render_widget(key_input, inner_chunks[3]);
 
-    // 4. Account key field (chỉ khi endpoint là CKey)
-    if show_account_key {
-        let (acc_style, acc_hint) = get_input_style(4);
-        let acc_val = format!(
-            "{}{}",
-            app.form.account_key,
-            if app.form.focus_index == 4 && app.form.is_editing_field {
-                "█"
-            } else {
-                ""
-            }
-        );
-        let acc_input = Paragraph::new(acc_val).block(
-            Block::default()
-                .title(format!(" Account key (trang Profile ckey.vn){}", acc_hint))
-                .borders(Borders::ALL)
-                .border_style(acc_style),
-        );
-        f.render_widget(acc_input, inner_chunks[4]);
-    }
 
     // Vẽ các nút: Test, Save, Cancel
     let btn_layout = Layout::default()
@@ -501,7 +472,7 @@ fn draw_form_modal(f: &mut Frame, area: Rect, app: &App) {
         ])
         .split(inner_chunks[btn_idx]);
 
-    let btn_test_style = if app.form.focus_index == 5 {
+    let btn_test_style = if app.form.focus_index == 4 {
         Style::default().bg(Color::Yellow).fg(Color::Black)
     } else {
         Style::default().bg(Color::Rgb(40, 40, 50)).fg(Color::White)
@@ -511,7 +482,7 @@ fn draw_form_modal(f: &mut Frame, area: Rect, app: &App) {
         .alignment(Alignment::Center);
     f.render_widget(btn_test, btn_layout[0]);
 
-    let btn_save_style = if app.form.focus_index == 6 {
+    let btn_save_style = if app.form.focus_index == 5 {
         Style::default().bg(Color::Green).fg(Color::Black)
     } else {
         Style::default().bg(Color::Rgb(40, 40, 50)).fg(Color::White)
@@ -521,7 +492,7 @@ fn draw_form_modal(f: &mut Frame, area: Rect, app: &App) {
         .alignment(Alignment::Center);
     f.render_widget(btn_save, btn_layout[1]);
 
-    let btn_cancel_style = if app.form.focus_index == 7 {
+    let btn_cancel_style = if app.form.focus_index == 6 {
         Style::default().bg(Color::Red).fg(Color::Black)
     } else {
         Style::default().bg(Color::Rgb(40, 40, 50)).fg(Color::White)

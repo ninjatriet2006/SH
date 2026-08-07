@@ -6,11 +6,11 @@ members = [
     "TUI/opencode_manager",
     "TUI/img_splt",
     "TUI/universal_converter",
-    "apps_gui/universe_manager_gui",
-    "apps_gui/filen_gui",
-    "apps_gui/opencode_manager_gui",
-    "apps_gui/img_splt_gui",
-    "apps_gui/universal_converter_gui",
+    "GUI/universe_manager_gui",
+    "GUI/filen_gui",
+    "GUI/opencode_manager_gui",
+    "GUI/img_splt_gui",
+    "GUI/universal_converter_gui",
 ]
 
 [workspace.package]
