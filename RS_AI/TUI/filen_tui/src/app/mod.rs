@@ -1,5 +1,6 @@
 pub mod key_handlers;
-pub mod operations;
+pub use crate::core::operations;
+pub use crate::core::transfer;
 
 use crossterm::event::KeyEvent;
 use ratatui::Terminal;
@@ -143,6 +144,17 @@ pub enum AppEvent {
         keep_logged: String,
         result: Result<(), String>,
     },
+    TransferProgress {
+        id: usize,
+        progress: Option<f32>,
+        bytes_done: u64,
+        total_bytes: u64,
+    },
+    TransferFinished {
+        id: usize,
+        ok: bool,
+        error: Option<String>,
+    },
     AccountsRefreshed {
         accounts: Vec<String>,
         default_email: Option<String>,
@@ -208,6 +220,8 @@ pub struct App {
     pub s3_server: S3ServerState,
     pub active_server_tab: usize,     // 0: WebDAV, 1: S3
     pub server_selected_field: usize, // index of configurable fields in Server tab
+
+    pub transfer: crate::core::transfer::TransferManager,
 }
 
 impl Default for App {
@@ -269,6 +283,7 @@ impl App {
             },
             active_server_tab: 0,
             server_selected_field: 0,
+            transfer: crate::core::transfer::TransferManager::new(),
         }
     }
 }
@@ -565,6 +580,25 @@ impl App {
                     AppEvent::Tick => {
                         // Cập nhật logs của máy chủ WebDAV/S3 nếu đang chạy
                         // Ở đây chúng ta sẽ thực hiện đọc không chặn nếu cần
+                        
+                        // Transfer Worker
+                        let timeout_secs = self.transfer.timeout_secs;
+                        let mut batch = Vec::new();
+                        while self.transfer.running_count() < self.transfer.max_concurrent {
+                            let Some(idx) = self.transfer.next_queued_idx() else { break; };
+                            let item = self.transfer.items[idx].clone();
+                            self.transfer.items[idx].status = crate::core::transfer::TransferStatus::Running;
+                            batch.push(item);
+                        }
+                        for item in batch {
+                            if let Some(tx) = &self.msg_tx {
+                                let tx = tx.clone();
+                                let account = self.active_account.clone();
+                                tokio::spawn(async move {
+                                    run_transfer_worker(tx, item, account, timeout_secs).await;
+                                });
+                            }
+                        }
                     }
                     AppEvent::AsyncFinished(res) => {
                         self.is_loading = false;
@@ -608,6 +642,25 @@ impl App {
                                 pane.error = Some(e);
                             }
                         }
+                    }
+                    AppEvent::TransferProgress { id, progress, bytes_done, total_bytes } => {
+                        if let Some(item) = self.transfer.items.iter_mut().find(|i| i.id == id) {
+                            item.progress = progress;
+                            item.bytes_done = bytes_done;
+                            item.total_bytes = total_bytes;
+                        }
+                    }
+                    AppEvent::TransferFinished { id, ok, error } => {
+                        if let Some(item) = self.transfer.items.iter_mut().find(|i| i.id == id) {
+                            if ok {
+                                item.status = crate::core::transfer::TransferStatus::Done;
+                            } else {
+                                item.status = crate::core::transfer::TransferStatus::Error;
+                                item.msg = error.unwrap_or_default();
+                            }
+                        }
+                        // Refresh active pane when a transfer finishes
+                        self.refresh_active_pane().await;
                     }
                     AppEvent::AccountsRefreshed {
                         accounts,
@@ -1057,4 +1110,69 @@ mod tests {
         let file_name = path.file_name().unwrap().to_string_lossy();
         assert!(file_name == ".filen-cli" || file_name == "filen-cli" || file_name.contains("filen-cli"));
     }
+}
+
+async fn run_transfer_worker(
+    tx: tokio::sync::mpsc::UnboundedSender<AppEvent>,
+    item: crate::core::transfer::TransferItem,
+    account: Option<String>,
+    timeout_secs: u64,
+) {
+    let id = item.id;
+    let kind = item.kind;
+    let src = item.src.clone();
+    let dst = item.dst.clone();
+    
+    let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    
+    let on_update = {
+        let tx = tx.clone();
+        move |upd: crate::core::transfer::ProgressUpdate| {
+            let _ = tx.send(AppEvent::TransferProgress {
+                id,
+                progress: upd.progress,
+                bytes_done: upd.bytes_done,
+                total_bytes: upd.total_bytes,
+            });
+        }
+    };
+
+    let result = match kind {
+        crate::core::transfer::TransferKind::Upload | crate::core::transfer::TransferKind::Download => {
+            crate::core::transfer::run_cli_transfer(kind, &src, &dst, timeout_secs, cancelled, on_update).await
+        }
+        crate::core::transfer::TransferKind::Copy | crate::core::transfer::TransferKind::Move => {
+            if !item.src_local && !item.dst_local {
+                let res = match kind {
+                    crate::core::transfer::TransferKind::Copy => crate::core::operations::Operations::cp(&account, &src, &dst).await,
+                    crate::core::transfer::TransferKind::Move => crate::core::operations::Operations::mv(&account, &src, &dst).await,
+                    _ => unreachable!(),
+                };
+                res.map_err(crate::core::transfer::TransferError::Failed)
+            } else if item.src_local && item.dst_local {
+                let res = match kind {
+                    crate::core::transfer::TransferKind::Copy => crate::core::transfer::copy_local(&src, &dst),
+                    crate::core::transfer::TransferKind::Move => crate::core::transfer::move_local(&src, &dst),
+                    _ => unreachable!(),
+                };
+                res.map_err(crate::core::transfer::TransferError::Failed)
+            } else {
+                Err(crate::core::transfer::TransferError::Spawn("Copy/Move không hỗ trợ giữa hai đầu khác loại".to_string()))
+            }
+        }
+    };
+    
+    if item.cleanup_src && result.is_ok() && (kind == crate::core::transfer::TransferKind::Upload || kind == crate::core::transfer::TransferKind::Download) {
+        if item.src_local {
+            let _ = crate::core::transfer::delete_local_path(&item.src);
+        } else {
+            let _ = crate::core::operations::Operations::rm(&account, &item.src, true).await;
+        }
+    }
+
+    let (ok, error) = match result {
+        Ok(_) => (true, None),
+        Err(e) => (false, Some(e.to_string())),
+    };
+    let _ = tx.send(AppEvent::TransferFinished { id, ok, error });
 }

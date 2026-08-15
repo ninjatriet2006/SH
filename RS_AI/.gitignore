@@ -22,3 +22,7 @@ Thumbs.db
 
 # Release build artifacts
 /release/
+
+# Third-party repositories
+Nemo/
+rust-analyzer-src/

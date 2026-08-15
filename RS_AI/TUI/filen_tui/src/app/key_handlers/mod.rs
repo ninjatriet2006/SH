@@ -135,7 +135,7 @@ async fn toggle_server(app: &mut App) {
             app.webdav_server.logs.push("Máy chủ WebDAV đã dừng.".to_string());
         } else {
             // Chạy lệnh CLI: filen webdav --w-user ... --w-password ... --w-port ...
-            let mut cmd = crate::app::operations::Operations::get_command(&app.active_account);
+            let mut cmd = crate::core::operations::Operations::get_command(&app.active_account);
             cmd.arg("webdav")
                 .arg("--w-user")
                 .arg(&app.webdav_server.user)
@@ -173,7 +173,7 @@ async fn toggle_server(app: &mut App) {
             app.s3_server.logs.push("Máy chủ S3 đã dừng.".to_string());
         } else {
             // Chạy lệnh CLI: filen s3 --s3-access-key-id ... --s3-secret-access-key ... --s3-port ...
-            let mut cmd = crate::app::operations::Operations::get_command(&app.active_account);
+            let mut cmd = crate::core::operations::Operations::get_command(&app.active_account);
             cmd.arg("s3")
                 .arg("--s3-access-key-id")
                 .arg(&app.s3_server.access_key)

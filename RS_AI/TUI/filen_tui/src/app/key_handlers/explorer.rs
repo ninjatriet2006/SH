@@ -1,4 +1,4 @@
-use crate::app::operations::Operations;
+use crate::core::operations::Operations;
 use crate::app::{App, AppEvent, PopupState, Screen};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::{Path, PathBuf};
@@ -584,27 +584,39 @@ pub async fn handle_explorer_key(app: &mut App, key: KeyEvent) {
                         let src_full = Path::new(&app.clipboard_src_path).join(&item.name).to_string_lossy().to_string();
                         let dest_full = Path::new(&dest_path).join(&item.name).to_string_lossy().to_string();
 
-                        let res = if app.clipboard_src_is_local && !dest_is_local {
-                            // Local -> Cloud (Upload)
-                            Operations::upload(&app.active_account, &src_full, &dest_path).await
+                        let kind = if app.clipboard_src_is_local && !dest_is_local {
+                            crate::core::transfer::TransferKind::Upload
                         } else if !app.clipboard_src_is_local && dest_is_local {
-                            // Cloud -> Local (Download)
-                            Operations::download(&app.clipboard_src_account, &src_full, &dest_full).await
+                            crate::core::transfer::TransferKind::Download
                         } else if !app.clipboard_src_is_local && !dest_is_local {
-                            // Cloud -> Cloud (Copy/Move)
                             if app.clipboard_is_cut {
-                                Operations::mv(&app.active_account, &src_full, &dest_full).await
+                                crate::core::transfer::TransferKind::Move
                             } else {
-                                Operations::cp(&app.active_account, &src_full, &dest_full).await
+                                crate::core::transfer::TransferKind::Copy
                             }
                         } else {
-                            // Local -> Local
                             if app.clipboard_is_cut {
-                                std::fs::rename(&src_full, &dest_full).map_err(|e| e.to_string())
+                                crate::core::transfer::TransferKind::Move
                             } else {
-                                std::fs::copy(&src_full, &dest_full).map(|_| ()).map_err(|e| e.to_string())
+                                crate::core::transfer::TransferKind::Copy
                             }
                         };
+                        
+                        let src_pane = if app.active_pane_left { 1 } else { 0 };
+                        let dst_pane = if app.active_pane_left { 0 } else { 1 };
+                        
+                        app.transfer.enqueue(
+                            kind,
+                            item.name.clone(),
+                            src_full.clone(),
+                            if kind == crate::core::transfer::TransferKind::Download { dest_path.clone() } else { dest_full.clone() },
+                            app.clipboard_src_is_local,
+                            dest_is_local,
+                            app.clipboard_is_cut,
+                            src_pane,
+                            dst_pane,
+                        );
+                        let res: Result<(), String> = Ok(());
 
                         if let Err(e) = res {
                             error_occurred = true;
