@@ -13,7 +13,7 @@ cd "$(dirname "$0")"
 
 # Danh sách mặc định: tất cả packages trong workspace
 ALL_PROJECTS=(
-    filen_gui img_splt_gui opencode_manager_gui universal_converter_gui universe_manager_gui
+    filen_gui img_splt_gui opencode_manager_gui universal_converter_gui universe_manager_gui subscription_manager_gui
     filen_tui img_splt opencode_manager universal_converter universe_manager
 )
 
@@ -31,14 +31,14 @@ for p in "${PROJECTS[@]}"; do
     echo "──────────────────────────────────────────────"
     echo "▶ Build: $p"
 
-    # filen_gui là app Tauri (frontend + src-tauri) — build qua script riêng,
+    # filen_gui và subscription_manager_gui là app Tauri (frontend + src-tauri) — build qua script riêng,
     # không dùng `cargo build --release -p` hay `cargo tauri build` (bundle).
-    if [[ "$p" == "filen_gui" ]]; then
-        if [[ -f "GUI/filen_gui/build_release.sh" ]]; then
-            "GUI/filen_gui/build_release.sh"
+    if [[ "$p" == "filen_gui" || "$p" == "subscription_manager_gui" ]]; then
+        if [[ -f "GUI/$p/build_release.sh" ]]; then
+            "GUI/$p/build_release.sh"
             continue
         else
-            echo "⚠ Không tìm thấy GUI/filen_gui/build_release.sh (bỏ qua)"
+            echo "⚠ Không tìm thấy GUI/$p/build_release.sh (bỏ qua)"
             continue
         fi
     fi
