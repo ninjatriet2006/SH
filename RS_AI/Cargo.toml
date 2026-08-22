@@ -11,6 +11,7 @@ members = [
     "GUI/opencode_manager_gui",
     "GUI/img_splt_gui",
     "GUI/universal_converter_gui",
+    "GUI/subscription_manager_gui/backend",
 ]
 
 [workspace.package]
