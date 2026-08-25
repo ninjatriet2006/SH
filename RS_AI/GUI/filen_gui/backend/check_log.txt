@@ -1,0 +1,558 @@
+    Checking filen_gui v0.1.0 (/home/bimatkeo/Documents/SH/RS_AI/GUI/filen_gui)
+error: expected one of `(`, `async`, `const`, `default`, `extern`, `final`, `fn`, `gen`, `safe`, `unsafe`, or `use`, found keyword `pub`
+   --> GUI/filen_gui/backend/models.rs:491:5
+    |
+491 | pub pub fn looks_like_risks_prompt(text: &str) -> bool {
+    |     ^^^
+    |     |
+    |     expected one of 11 possible tokens
+    |     help: there is already a visibility modifier, remove one
+    |
+note: explicit visibility first seen here
+   --> GUI/filen_gui/backend/models.rs:491:1
+    |
+491 | pub pub fn looks_like_risks_prompt(text: &str) -> bool {
+    | ^^^
+
+error[E0425]: cannot find type `FileItem` in this scope
+ --> GUI/filen_gui/backend/local_fs.rs:9:45
+  |
+9 | pub fn list_local(path: &str) -> Result<Vec<FileItem>, String> {
+  |                                             ^^^^^^^^ not found in this scope
+  |
+help: you might be missing a type parameter
+  |
+9 | pub fn list_local<FileItem>(path: &str) -> Result<Vec<FileItem>, String> {
+  |                  ++++++++++
+
+error[E0422]: cannot find struct, variant or union type `FileItem` in this scope
+  --> GUI/filen_gui/backend/local_fs.rs:18:20
+   |
+18 |         items.push(FileItem {
+   |                    ^^^^^^^^ not found in this scope
+
+error[E0422]: cannot find struct, variant or union type `FileItem` in this scope
+  --> GUI/filen_gui/backend/local_fs.rs:62:20
+   |
+62 |         items.push(FileItem {
+   |                    ^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find type `TrashItemLocal` in this scope
+   --> GUI/filen_gui/backend/local_fs.rs:114:41
+    |
+114 | pub fn list_trash_local() -> Result<Vec<TrashItemLocal>, String> {
+    |                                         ^^^^^^^^^^^^^^ not found in this scope
+    |
+help: you might be missing a type parameter
+    |
+114 | pub fn list_trash_local<TrashItemLocal>() -> Result<Vec<TrashItemLocal>, String> {
+    |                        ++++++++++++++++
+
+error[E0422]: cannot find struct, variant or union type `TrashItemLocal` in this scope
+   --> GUI/filen_gui/backend/local_fs.rs:122:21
+    |
+122 |         result.push(TrashItemLocal {
+    |                     ^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find type `FileItem` in this scope
+ --> GUI/filen_gui/backend/cloud_fs.rs:9:85
+  |
+9 | pub async fn list_remote(active_account: &Option<String>, path: &str) -> Result<Vec<FileItem>, String> {
+  |                                                                                     ^^^^^^^^ not found in this scope
+  |
+help: you might be missing a type parameter
+  |
+9 | pub async fn list_remote<FileItem>(active_account: &Option<String>, path: &str) -> Result<Vec<FileItem>, String> {
+  |                         ++++++++++
+
+error[E0422]: cannot find struct, variant or union type `FileItem` in this scope
+  --> GUI/filen_gui/backend/cloud_fs.rs:20:20
+   |
+20 |         items.push(FileItem {
+   |                    ^^^^^^^^ not found in this scope
+
+error[E0422]: cannot find struct, variant or union type `FileItem` in this scope
+  --> GUI/filen_gui/backend/cloud_fs.rs:45:24
+   |
+45 |             items.push(FileItem {
+   |                        ^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find type `FileItem` in this scope
+  --> GUI/filen_gui/backend/cloud_fs.rs:74:18
+   |
+74 |     F: FnMut(Vec<FileItem>) + Send + Sync,
+   |                  ^^^^^^^^ not found in this scope
+   |
+help: you might be missing a type parameter
+   |
+68 | pub async fn list_remote_stream<F, FileItem>(
+   |                                  ++++++++++
+
+error[E0422]: cannot find struct, variant or union type `FileItem` in this scope
+  --> GUI/filen_gui/backend/cloud_fs.rs:93:26
+   |
+93 |         let parent_dir = FileItem {
+   |                          ^^^^^^^^ not found in this scope
+
+error[E0422]: cannot find struct, variant or union type `FileItem` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:117:29
+    |
+117 |                 buffer.push(FileItem {
+    |                             ^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find type `FileItem` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:273:76
+    |
+273 | pub async fn list_favorites(active_account: &Option<String>) -> Result<Vec<FileItem>, String> {
+    |                                                                            ^^^^^^^^ not found in this scope
+    |
+help: you might be missing a type parameter
+    |
+273 | pub async fn list_favorites<FileItem>(active_account: &Option<String>) -> Result<Vec<FileItem>, String> {
+    |                            ++++++++++
+
+error[E0422]: cannot find struct, variant or union type `FileItem` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:287:20
+    |
+287 |         items.push(FileItem {
+    |                    ^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find type `FileItem` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:300:72
+    |
+300 | pub async fn list_trash(active_account: &Option<String>) -> Result<Vec<FileItem>, String> {
+    |                                                                        ^^^^^^^^ not found in this scope
+    |
+help: you might be missing a type parameter
+    |
+300 | pub async fn list_trash<FileItem>(active_account: &Option<String>) -> Result<Vec<FileItem>, String> {
+    |                        ++++++++++
+
+error[E0422]: cannot find struct, variant or union type `FileItem` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:322:24
+    |
+322 |             items.push(FileItem {
+    |                        ^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find type `FileItem` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:561:69
+    |
+561 | pub async fn recents(active_account: &Option<String>) -> Result<Vec<FileItem>, String> {
+    |                                                                     ^^^^^^^^ not found in this scope
+    |
+help: you might be missing a type parameter
+    |
+561 | pub async fn recents<FileItem>(active_account: &Option<String>) -> Result<Vec<FileItem>, String> {
+    |                     ++++++++++
+
+error[E0425]: cannot find type `PromptRule` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:647:14
+    |
+647 |     rules: &[PromptRule],
+    |              ^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find type `CoreEvent` in this scope
+  --> GUI/filen_gui/backend/auth.rs:50:51
+   |
+50 |     tx: Option<tokio::sync::mpsc::UnboundedSender<CoreEvent>>,
+   |                                                   ^^^^^^^^^ not found in this scope
+   |
+help: you might be missing a type parameter
+   |
+45 | pub async fn login_new<CoreEvent>(
+   |                       +++++++++++
+
+error[E0422]: cannot find struct, variant or union type `PromptRule` in this scope
+   --> GUI/filen_gui/backend/auth.rs:232:9
+    |
+232 |         PromptRule {
+    |         ^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `looks_like_risks_prompt` in this scope
+   --> GUI/filen_gui/backend/auth.rs:233:22
+    |
+233 |             matcher: looks_like_risks_prompt,
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0422]: cannot find struct, variant or union type `PromptRule` in this scope
+   --> GUI/filen_gui/backend/auth.rs:237:9
+    |
+237 |         PromptRule {
+    |         ^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `looks_like_export_location_prompt` in this scope
+   --> GUI/filen_gui/backend/auth.rs:238:22
+    |
+238 |             matcher: looks_like_export_location_prompt,
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find type `SyncPair` in this scope
+ --> GUI/filen_gui/backend/sync.rs:9:35
+  |
+9 | pub fn sync_pairs() -> Result<Vec<SyncPair>, String> {
+  |                                   ^^^^^^^^ not found in this scope
+  |
+help: you might be missing a type parameter
+  |
+9 | pub fn sync_pairs<SyncPair>() -> Result<Vec<SyncPair>, String> {
+  |                  ++++++++++
+
+error[E0425]: cannot find type `SyncPair` in this scope
+  --> GUI/filen_gui/backend/sync.rs:50:12
+   |
+50 |     pair: &SyncPair,
+   |            ^^^^^^^^ not found in this scope
+
+error[E0603]: function `run_cmd_interactive` is private
+   --> GUI/filen_gui/backend/auth.rs:243:35
+    |
+243 |     let output = crate::cloud_fs::run_cmd_interactive(cmd, b"", &rules, 30).await?;
+    |                                   ^^^^^^^^^^^^^^^^^^^ private function
+    |
+note: the function `run_cmd_interactive` is defined here
+   --> GUI/filen_gui/backend/cloud_fs.rs:644:1
+    |
+644 | / async fn run_cmd_interactive(
+645 | |     cmd: Command,
+646 | |     initial_input: &[u8],
+647 | |     rules: &[PromptRule],
+...   |
+722 | |     })
+723 | | }
+    | |_^
+
+error[E0603]: function `run_cmd_confirm` is private
+   --> GUI/filen_gui/backend/auth.rs:258:35
+    |
+258 |     let output = crate::cloud_fs::run_cmd_confirm(cmd, b"", 1, 30).await?;
+    |                                   ^^^^^^^^^^^^^^^ private function
+    |
+note: the function `run_cmd_confirm` is defined here
+   --> GUI/filen_gui/backend/cloud_fs.rs:726:1
+    |
+726 | / async fn run_cmd_confirm(
+727 | |     cmd: Command,
+728 | |     initial_input: &[u8],
+729 | |     expected_prompts: usize,
+...   |
+733 | |     crate::cloud_fs::run_cmd_interactive(cmd, initial_input, &rules, timeout_secs).await
+734 | | }
+    | |_^
+
+warning: unused import: `PathBuf`
+ --> GUI/filen_gui/backend/local_fs.rs:3:23
+  |
+3 | use std::path::{Path, PathBuf};
+  |                       ^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::process::Stdio`
+ --> GUI/filen_gui/backend/local_fs.rs:4:5
+  |
+4 | use std::process::Stdio;
+  |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `AsyncReadExt` and `AsyncWriteExt`
+ --> GUI/filen_gui/backend/local_fs.rs:5:17
+  |
+5 | use tokio::io::{AsyncReadExt, AsyncWriteExt};
+  |                 ^^^^^^^^^^^^  ^^^^^^^^^^^^^
+
+warning: unused import: `tokio::process::Command`
+ --> GUI/filen_gui/backend/local_fs.rs:6:5
+  |
+6 | use tokio::process::Command;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::models::*`
+ --> GUI/filen_gui/backend/local_fs.rs:7:5
+  |
+7 | use crate::models::*;
+  |     ^^^^^^^^^^^^^^^^
+
+warning: unused imports: `PathBuf` and `Path`
+ --> GUI/filen_gui/backend/cloud_fs.rs:3:17
+  |
+3 | use std::path::{Path, PathBuf};
+  |                 ^^^^  ^^^^^^^
+
+warning: unused import: `crate::models::*`
+ --> GUI/filen_gui/backend/cloud_fs.rs:7:5
+  |
+7 | use crate::models::*;
+  |     ^^^^^^^^^^^^^^^^
+
+warning: unused imports: `PathBuf` and `Path`
+ --> GUI/filen_gui/backend/auth.rs:3:17
+  |
+3 | use std::path::{Path, PathBuf};
+  |                 ^^^^  ^^^^^^^
+
+warning: unused import: `tokio::process::Command`
+ --> GUI/filen_gui/backend/auth.rs:6:5
+  |
+6 | use tokio::process::Command;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::models::*`
+ --> GUI/filen_gui/backend/auth.rs:7:5
+  |
+7 | use crate::models::*;
+  |     ^^^^^^^^^^^^^^^^
+
+warning: unused imports: `PathBuf` and `Path`
+ --> GUI/filen_gui/backend/sync.rs:3:17
+  |
+3 | use std::path::{Path, PathBuf};
+  |                 ^^^^  ^^^^^^^
+
+warning: unused import: `std::process::Stdio`
+ --> GUI/filen_gui/backend/sync.rs:4:5
+  |
+4 | use std::process::Stdio;
+  |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `AsyncReadExt` and `AsyncWriteExt`
+ --> GUI/filen_gui/backend/sync.rs:5:17
+  |
+5 | use tokio::io::{AsyncReadExt, AsyncWriteExt};
+  |                 ^^^^^^^^^^^^  ^^^^^^^^^^^^^
+
+warning: unused import: `tokio::process::Command`
+ --> GUI/filen_gui/backend/sync.rs:6:5
+  |
+6 | use tokio::process::Command;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::models::*`
+ --> GUI/filen_gui/backend/sync.rs:7:5
+  |
+7 | use crate::models::*;
+  |     ^^^^^^^^^^^^^^^^
+
+error[E0425]: cannot find function `find_date_index` in this scope
+  --> GUI/filen_gui/backend/cloud_fs.rs:35:33
+   |
+35 |         if let Some(date_idx) = find_date_index(line)
+   |                                 ^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `parse_size_bytes` in this scope
+  --> GUI/filen_gui/backend/cloud_fs.rs:43:47
+   |
+43 |             let size = if is_dir { 0 } else { parse_size_bytes(size_part) };
+   |                                               ^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `find_date_index` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:108:33
+    |
+108 |         if let Some(date_idx) = find_date_index(line) {
+    |                                 ^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `parse_size_bytes` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:115:51
+    |
+115 |                 let size = if is_dir { 0 } else { parse_size_bytes(size_part) };
+    |                                                   ^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `rm_args` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:165:14
+    |
+165 |     cmd.args(rm_args(path, no_trash));
+    |              ^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `find_date_index` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:314:33
+    |
+314 |         if let Some(date_idx) = find_date_index(line)
+    |                                 ^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `parse_size_bytes` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:321:47
+    |
+321 |             let size = if is_dir { 0 } else { parse_size_bytes(size_part) };
+    |                                               ^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `head_args` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:470:14
+    |
+470 |     cmd.args(head_args(file, lines));
+    |              ^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `tail_args` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:487:14
+    |
+487 |     cmd.args(tail_args(file, lines));
+    |              ^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `stat_json_args` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:501:14
+    |
+501 |     cmd.args(stat_json_args(item));
+    |              ^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `parse_stat_json` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:509:36
+    |
+509 |             if let Ok(formatted) = parse_stat_json(&trimmed) {
+    |                                    ^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `parse_stat_json` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:514:40
+    |
+514 |                 && let Ok(formatted) = parse_stat_json(&trimmed[start..])
+    |                                        ^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `stat_args` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:524:15
+    |
+524 |     cmd2.args(stat_args(item));
+    |               ^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `write_file_uses_temp_upload` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:542:8
+    |
+542 |     if write_file_uses_temp_upload(content) {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `write_temp_path` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:543:19
+    |
+543 |         let tmp = write_temp_path();
+    |                   ^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: cannot find `Self` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:545:22
+    |
+545 |         let result = Self::upload(active_account, &tmp.to_string_lossy(), file).await;
+    |                      ^^^^ `Self` is only available in impls, traits, and type definitions
+
+error[E0425]: cannot find function `write_args` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:550:14
+    |
+550 |     cmd.args(write_args(file, content));
+    |              ^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `recents_args` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:563:14
+    |
+563 |     cmd.args(recents_args());
+    |              ^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `parse_ls_long` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:569:8
+    |
+569 |     Ok(parse_ls_long(&text))
+    |        ^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `web_drive_url` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:576:8
+    |
+576 |     Ok(web_drive_url(path))
+    |        ^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `export_notes_args` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:586:14
+    |
+586 |     cmd.args(export_notes_args(path));
+    |              ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: cannot find type `PromptResponder` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:669:25
+    |
+669 |     let mut responder = PromptResponder::new(rules);
+    |                         ^^^^^^^^^^^^^^^ use of undeclared type `PromptResponder`
+
+error[E0425]: cannot find function `confirm_prompt_rule` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:732:18
+    |
+732 |     let rules = [confirm_prompt_rule(expected_prompts)];
+    |                  ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0433]: cannot find type `CoreEvent` in this scope
+  --> GUI/filen_gui/backend/auth.rs:54:29
+   |
+54 |             let _ = tx.send(CoreEvent::LoginLog(msg));
+   |                             ^^^^^^^^^ use of undeclared type `CoreEvent`
+
+error[E0425]: cannot find function `get_default_data_dir` in this scope
+  --> GUI/filen_gui/backend/auth.rs:58:30
+   |
+58 |     if let Some(data_path) = get_default_data_dir() {
+   |                              ^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `resolve_filen_bin` in this scope
+  --> GUI/filen_gui/backend/auth.rs:71:19
+   |
+71 |         let bin = resolve_filen_bin();
+   |                   ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `confirm_prompt_rule` in this scope
+   --> GUI/filen_gui/backend/auth.rs:231:9
+    |
+231 |         confirm_prompt_rule(1),
+    |         ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `sync_args` in this scope
+  --> GUI/filen_gui/backend/sync.rs:27:14
+   |
+ 9 | pub fn sync_pairs() -> Result<Vec<SyncPair>, String> {
+   | ---------------------------------------------------- similarly named function `sync_pairs` defined here
+...
+27 |     cmd.args(sync_args(locations, continuous));
+   |              ^^^^^^^^^
+   |
+help: a function with a similar name exists
+   |
+27 -     cmd.args(sync_args(locations, continuous));
+27 +     cmd.args(sync_pairs(locations, continuous));
+   |
+
+error[E0425]: cannot find function `resolve_filen_bin` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:604:32
+    |
+604 |     let mut cmd = Command::new(resolve_filen_bin());
+    |                                ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `get_default_data_dir` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:605:30
+    |
+605 |     if let Some(data_path) = get_default_data_dir() {
+    |                              ^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `resolve_filen_bin` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:617:46
+    |
+617 |     let mut cmd = std::process::Command::new(resolve_filen_bin());
+    |                                              ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `get_default_data_dir` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:618:30
+    |
+618 |     if let Some(data_path) = get_default_data_dir() {
+    |                              ^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `sync_pairs_path` in this scope
+  --> GUI/filen_gui/backend/sync.rs:10:16
+   |
+10 |       let path = sync_pairs_path().ok_or_else(|| "Không tìm thấy thư mục dữ liệu".to_string())?;
+   |                  ^^^^^^^^^^^^^^^
+...
+48 | / pub async fn sync_pair_once(
+49 | |     active_account: &Option<String>,
+50 | |     pair: &SyncPair,
+51 | | ) -> Result<(), String> {
+52 | |     crate::sync::sync(active_account, &[crate::models::sync_pair_arg(pair)], false).await
+53 | | }
+   | |_- similarly named function `sync_pair_once` defined here
+   |
+help: a function with a similar name exists
+   |
+10 -     let path = sync_pairs_path().ok_or_else(|| "Không tìm thấy thư mục dữ liệu".to_string())?;
+10 +     let path = sync_pair_once().ok_or_else(|| "Không tìm thấy thư mục dữ liệu".to_string())?;
+   |
+
+Some errors have detailed explanations: E0422, E0425, E0433, E0603.
+For more information about an error, try `rustc --explain E0422`.
+warning: `filen_gui` (lib) generated 15 warnings
+error: could not compile `filen_gui` (lib) due to 60 previous errors; 15 warnings emitted

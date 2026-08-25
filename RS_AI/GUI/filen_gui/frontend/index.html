@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Filen File Manager — GUI</title>
+    <link rel="stylesheet" href="/src/styles/tokens.css" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app" class="app-shell">
+      <!-- ── Top bar ─────────────────────────────────────────── -->
+      <div id="menubar-container"></div>
+      <header id="top-bar" class="top-bar">
+        <button id="sidebar-toggle" class="hamburger" aria-label="Toggle sidebar">☰</button>
+        <div class="top-left">
+          <span class="app-logo">☁️</span>
+          <span class="app-title" data-lang-id="app_title">Filen File Manager</span>
+        </div>
+        <nav class="top-nav">
+          <button class="nav-tab active" data-view="explorer" data-lang-id="nav_explorer">Explorer</button>
+          <button class="nav-tab" data-view="recents" data-lang-id="nav_recents">🕘 Gần đây</button>
+          <button class="nav-tab" data-view="sync" data-lang-id="nav_sync">🔄 Đồng bộ</button>
+          <button class="nav-tab" data-view="servers" data-lang-id="nav_servers">🖥️ Servers</button>
+        </nav>
+        <div class="top-right">
+          <span class="account-pill" id="account-pill" data-lang-id="account_pill">👤 Chưa đăng nhập</span>
+        </div>
+      </header>
+
+      <div class="body-row">
+        <!-- ── Sidebar ───────────────────────────────────────── -->
+        <aside id="sidebar" class="sidebar">
+          <section class="side-section">
+            <h3 class="side-heading" data-lang-id="side_heading_places">Địa điểm</h3>
+            <button class="side-item" data-place="home" data-lang-id="place_home">🏠 Trang chủ</button>
+            <button class="side-item" data-place="desktop" data-lang-id="place_desktop">🖥️ Máy tính</button>
+            <button class="side-item" data-place="documents" data-lang-id="place_documents">📁 Tài liệu</button>
+            <button class="side-item" data-place="downloads" data-lang-id="place_downloads">⬇️ Tải xuống</button>
+          </section>
+          <section class="side-section">
+            <h3 class="side-heading" data-lang-id="side_heading_trash">🗑️ Thùng rác</h3>
+            <button class="side-item" data-place="trash://local" data-lang-id="place_trash_local">Thùng rác Local</button>
+            <button class="side-item" data-place="trash://remote" data-lang-id="place_trash_cloud">Thùng rác Cloud</button>
+          </section>
+          <section class="side-section" id="sidebar-bookmarks-section">
+            <div style="display:flex; justify-content:space-between; align-items:center; padding-right:12px;">
+              <h3 class="side-heading" data-lang-id="side_heading_bookmarks" style="margin:0;">📌 Đã ghim</h3>
+              <button id="btn-edit-bookmarks" style="background:none; border:none; cursor:pointer; font-size:12px; color:var(--colors-text-muted);" title="Manage Bookmarks">✏️</button>
+            </div>
+            <div id="sidebar-bookmarks-list"></div>
+          </section>
+          <section class="side-section" id="sidebar-tree-section">
+            <h3 class="side-heading" data-lang-id="side_heading_tree">🌲 Cây thư mục (Local)</h3>
+            <div id="sidebar-tree-list"></div>
+          </section>
+          <section class="side-section">
+            <h3 class="side-heading" data-lang-id="side_heading_cloud">Filen Cloud</h3>
+            <button class="side-item active" data-view="explorer" data-lang-id="pane_mode_cloud">☁️ Cloud</button>
+          </section>
+          <section class="side-section">
+            <h3 class="side-heading" data-lang-id="side_heading_account">Tài khoản</h3>
+            <button class="side-item" id="btn-login" data-lang-id="side_login">🔑 Đăng nhập mới</button>
+            <button class="side-item disabled" id="btn-logout" disabled data-lang-id="side_logout">🚪 Đăng xuất</button>
+            <button class="side-item" id="btn-settings" data-lang-id="side_settings">⚙️ Cài đặt</button>
+          </section>
+        </aside>
+        <div class="sidebar-resizer" id="sidebar-resizer"></div>
+
+        <!-- ── Central: dual-pane container ──────────────────── -->
+        <main id="central" class="central">
+          <div class="pane" id="pane-left">
+            <div class="pane-header">
+              <span class="pane-side-label" data-lang-id="pane_mode_local">🖥️ Cục bộ</span>
+              <div class="pane-actions">
+                <button class="btn">⬆</button>
+                <button class="btn">🏠</button>
+                <button class="btn">⟳</button>
+                <button class="btn" id="btn-mkdir-left">📁+New</button>
+              </div>
+              <input class="pane-filter" type="text" placeholder="Lọc…" data-lang-id="pane_filter_placeholder" />
+            </div>
+            <div class="pane-breadcrumb">/</div>
+            <div class="pane-body">
+              <div class="pane-placeholder" data-lang-id="pane_placeholder_local">Danh sách thư mục cục bộ — sẽ hiển thị ở đây</div>
+            </div>
+          </div>
+          <div class="pane-divider" id="pane-divider"></div>
+          <div class="pane" id="pane-right">
+            <div class="pane-header">
+                <span class="pane-side-label" data-lang-id="pane_mode_cloud">☁️ Cloud</span>
+                <div class="pane-actions">
+                  <button class="btn">⬆</button>
+                  <button class="btn">🏠</button>
+                  <button class="btn">⟳</button>
+                  <button class="btn" id="btn-mkdir-right">📁+New</button>
+                </div>
+              <input class="pane-filter" type="text" placeholder="Lọc…" data-lang-id="pane_filter_placeholder" />
+            </div>
+            <div class="pane-breadcrumb">/</div>
+            <div class="pane-body">
+              <div class="pane-placeholder" data-lang-id="pane_placeholder_cloud">Danh sách Filen Cloud — sẽ hiển thị ở đây</div>
+            </div>
+          </div>
+        </main>
+      </div>
+
+      <!-- ── Bottom: transfer drawer ────────────────────────── -->
+      <footer id="transfer-drawer" class="transfer-drawer">
+        <div class="drawer-toggle" id="drawer-toggle">
+          <span id="drawer-label" data-lang-id="drawer_open">⬇️ Transfer (0) — bấm để mở</span>
+        </div>
+        <div class="drawer-body" id="drawer-body">
+          <div class="drawer-placeholder" data-lang-id="drawer_placeholder">Hàng đợi transfer (upload/download/copy/move) — trống</div>
+        </div>
+      </footer>
+    </div>
+    <div id="floating-status-bar"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

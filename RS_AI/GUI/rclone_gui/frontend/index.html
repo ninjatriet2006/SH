@@ -1,0 +1,172 @@
+<!doctype html>
+<!-- 
+[INTEGRITY NOTES]
+Mục đích: File gốc của giao diện (HTML) cho rcloneGUI.
+Trách nhiệm: Khởi tạo DOM để script TS có thể thao tác (bind UI).
+Các module tương tác: /src/main.ts, /themes/tokens.css, /themes/style.css 
+-->
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rclone Manager — GUI</title>
+  </head>
+  <body>
+    <!-- Bao bọc toàn bộ ứng dụng -->
+    <div id="app" class="app-shell">
+      <!-- ── Top bar ─────────────────────────────────────────── -->
+      <div id="menubar-container"></div>
+      <header id="top-bar" class="top-bar">
+        <!-- Nút ẩn/hiện sidebar trên mobile -->
+        <button id="sidebar-toggle" class="hamburger" aria-label="Toggle sidebar">☰</button>
+        <div class="top-left">
+          <span class="app-logo">☁️</span>
+          <!-- Tiêu đề ứng dụng, dùng data-lang-id để đa ngôn ngữ -->
+          <span class="app-title" data-lang-id="app_title">Rclone Manager</span>
+        </div>
+        <nav class="top-nav">
+          <!-- Các tab trên menu ngang -->
+          <button class="nav-tab active" data-view="explorer" data-lang-id="nav_explorer">Explorer</button>
+          <button class="nav-tab" data-view="remotes" data-lang-id="nav_remotes">📡 Remotes</button>
+          <button class="nav-tab" data-view="mounts" data-lang-id="nav_mounts">🖥️ Mounts</button>
+          <button class="nav-tab" data-view="serves" data-lang-id="nav_serves">🌐 Serves</button>
+          <button class="nav-tab" data-view="sync" data-lang-id="nav_sync">🔄 Sync</button>
+        </nav>
+      </header>
+
+      <div class="body-row" style="grid-template-columns: 1fr;">
+        <!-- ── Central: App Views Container ──────────────────── -->
+        <div id="views-container" class="views-container">
+          <!-- View 1: Explorer -->
+          <main id="view-explorer" class="app-view active dual-pane-explorer">
+          <!-- Pane trái -->
+          <div class="pane" id="pane-left">
+            <div class="pane-toolbar-nemo">
+              <!-- Dropdown chọn remote cho Pane trái -->
+              <select class="remote-selector" id="select-pane-left">
+                <option value="">-- Chọn Remote --</option>
+              </select>
+              <div class="pane-actions">
+                <button class="btn">⬆</button>
+                <button class="btn">🏠</button>
+                <button class="btn">⟳</button>
+                <button class="btn" id="btn-mkdir-left">📁+New</button>
+              </div>
+              <input class="pane-filter" type="text" placeholder="Lọc…" data-lang-id="pane_filter_placeholder" />
+            </div>
+            <div class="pane-breadcrumb" id="breadcrumb-left">/</div>
+            <div class="pane-body" id="body-pane-left">
+              <div class="pane-placeholder" data-lang-id="pane_placeholder_local">Danh sách tệp — sẽ hiển thị ở đây</div>
+            </div>
+          </div>
+          <!-- Thanh chia 2 pane -->
+          <div class="pane-divider" id="pane-divider"></div>
+          <!-- Pane phải -->
+          <div class="pane" id="pane-right">
+            <div class="pane-toolbar-nemo">
+                <!-- Dropdown chọn remote cho Pane phải -->
+                <select class="remote-selector" id="select-pane-right">
+                  <option value="">-- Chọn Remote --</option>
+                </select>
+                <div class="pane-actions">
+                  <button class="btn">⬆</button>
+                  <button class="btn">🏠</button>
+                  <button class="btn">⟳</button>
+                  <button class="btn" id="btn-mkdir-right">📁+New</button>
+                </div>
+              <input class="pane-filter" type="text" placeholder="Lọc…" data-lang-id="pane_filter_placeholder" />
+            </div>
+            <div class="pane-breadcrumb" id="breadcrumb-right">/</div>
+            <div class="pane-body" id="body-pane-right">
+              <div class="pane-placeholder" data-lang-id="pane_placeholder_cloud">Danh sách tệp — sẽ hiển thị ở đây</div>
+            </div>
+          </div>
+          </main>
+
+          <!-- View 2: Remotes Manager -->
+          <main id="view-remotes" class="app-view" style="display: none;">
+            <div class="manager-toolbar">
+              <div class="manager-toolbar-left">
+                <button class="btn btn-primary" id="btn-add-remote" data-lang-id="btn_add_remote">➕ Thêm Mới</button>
+                <button class="btn" id="btn-import-config" data-lang-id="btn_import_config">📥 Nhập Config</button>
+                <button class="btn" id="btn-export-config" data-lang-id="btn_export_config">📤 Xuất Config</button>
+                <input type="file" id="input-import-config" accept=".conf,text/plain" style="display: none;" />
+                <button class="btn" id="btn-refresh-remotes" data-lang-id="btn_refresh_remotes">🔄 Làm Mới</button>
+              </div>
+              <div class="manager-toolbar-right">
+                <input type="text" class="pane-filter" id="search-remotes" placeholder="Tìm kiếm Remote..." />
+              </div>
+            </div>
+            
+            <div class="manager-content">
+              <table class="data-table" id="remotes-table">
+                <thead>
+                  <tr>
+                    <th data-lang-id="th_remote_name">Tên Remote</th>
+                    <th data-lang-id="th_remote_type">Loại (Type)</th>
+                    <th data-lang-id="th_remote_capacity">Dung lượng</th>
+                    <th data-lang-id="th_remote_actions">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody id="remotes-table-body">
+                  <!-- Dữ liệu render từ JS -->
+                </tbody>
+              </table>
+              <!-- Quản lý Remotes End -->
+          </main>
+          
+          <main id="view-mounts" class="app-view" style="display: none;">
+            <!-- Thanh công cụ Mount -->
+            <div class="pane-toolbar">
+              <div class="nemo-nav-group">
+                <button class="btn btn-primary" id="btn-add-mount">➕ Tạo Mount Service</button>
+                <button class="btn" id="btn-refresh-mounts">🔄 Làm mới</button>
+              </div>
+              <div class="nemo-path-group">
+                <div style="font-weight: bold; margin-left: 10px;">Quản lý Systemd Service (Mount ổ đĩa ảo)</div>
+              </div>
+            </div>
+
+            <!-- Bảng danh sách Mount -->
+            <div class="file-table-container" style="flex: 1; padding: 10px; overflow-y: auto;">
+              <table class="file-table" style="width: 100%;">
+                <thead>
+                  <tr>
+                    <th>Tên Service</th>
+                    <th>Cấp độ</th>
+                    <th>Trạng thái</th>
+                    <th>Khởi động cùng OS</th>
+                    <th>Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody id="mounts-table-body">
+                  <tr><td colspan="5" style="text-align: center;">Đang tải...</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <!-- Mount End -->
+          </main>
+          
+        </div>
+      </div>
+
+      <!-- ── Bottom: transfer drawer ────────────────────────── -->
+      <footer id="transfer-drawer" class="transfer-drawer">
+        <div class="drawer-toggle" id="drawer-toggle">
+          <span id="drawer-label" data-lang-id="drawer_open">⬇️ Transfer (0) — bấm để mở</span>
+        </div>
+        <div class="drawer-body" id="drawer-body">
+          <div class="drawer-placeholder" data-lang-id="drawer_placeholder">Hàng đợi transfer (copy/move/sync) — trống</div>
+        </div>
+      </footer>
+    </div>
+    
+    <!-- Modal Container -->
+    <div id="modal-container"></div>
+    <!-- Context Menu Container -->
+    <div id="context-menu" class="context-menu" style="display:none;"></div>
+    
+    <!-- Script chính -->
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

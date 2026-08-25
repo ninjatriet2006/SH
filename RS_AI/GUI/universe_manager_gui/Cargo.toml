@@ -1,0 +1,15 @@
+[package]
+name = "universe_manager_gui"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+universe_manager = { path = "../../TUI/universe_manager" }
+eframe = "0.31"
+egui = "0.31"
+serde_json = "1.0"
+
+[features]
+default = ["glow"]
+glow = ["eframe/default"]
+wgpu = ["eframe/wgpu"]

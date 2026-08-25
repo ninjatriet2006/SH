@@ -1,0 +1,20 @@
+{
+  "name": "rclone_gui",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@crabnebula/tauri-plugin-drag": "^2.1.0",
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-shell": "^2.3.5"
+  },
+  "devDependencies": {
+    "typescript": "~5.5.4",
+    "vite": "^5.4.1"
+  }
+}

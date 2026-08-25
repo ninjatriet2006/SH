@@ -1,0 +1,16 @@
+[package]
+name = "universal_converter_gui"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+universal_converter = { path = "../../TUI/universal_converter" }
+eframe = "0.31"
+egui = "0.31"
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+
+[features]
+default = ["glow"]
+glow = ["eframe/default"]
+wgpu = ["eframe/wgpu"]

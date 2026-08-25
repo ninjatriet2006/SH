@@ -1,0 +1,17 @@
+{
+    "id": "default",
+    "name": "Mặc định (Deep Space)",
+    "type": "dark",
+    "colors": {
+      "bg_dark": "#0f172a",
+      "bg_panel": "rgba(30, 41, 59, 0.7)",
+      "text_primary": "#f8fafc",
+      "text_secondary": "#94a3b8",
+      "primary": "#6366f1",
+      "primary_hover": "#818cf8",
+      "success": "#10b981",
+      "danger": "#ef4444",
+      "warning": "#f59e0b",
+      "border": "rgba(255, 255, 255, 0.1)"
+    }
+}

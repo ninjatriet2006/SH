@@ -2,8 +2,11 @@
 /target/
 **/*.rs.bk
 
-# Stale GUI build artifacts (no source code, only compiled outputs)
-/GUI/
+# GUI build artifacts (source code IS tracked)
+GUI/**/node_modules/
+GUI/**/dist/
+GUI/**/target/
+GUI/temp_app/
 
 # IDE and editor files
 .vscode/
@@ -26,3 +29,8 @@ Thumbs.db
 # Third-party repositories
 Nemo/
 rust-analyzer-src/
+
+# Understand-Anything scratch (graph + config vẫn được track)
+.ua/intermediate/
+.ua/tmp/
+.ua/.trash-*/

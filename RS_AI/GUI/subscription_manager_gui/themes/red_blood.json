@@ -1,0 +1,17 @@
+{
+    "id": "red_blood",
+    "name": "Red Blood",
+    "type": "dark",
+    "colors": {
+      "bg_dark": "#300808",
+      "bg_panel": "rgba(80, 10, 10, 0.8)",
+      "text_primary": "#fff0f0",
+      "text_secondary": "#ffb0b0",
+      "primary": "#ef4444",
+      "primary_hover": "#dc2626",
+      "success": "#10b981",
+      "danger": "#f87171",
+      "warning": "#f59e0b",
+      "border": "rgba(255, 100, 100, 0.3)"
+    }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "Synthwave Sunset",
+  "version": "1.0.0",
+  "tokens": {
+    "colors.surface.canvas": "#12081f",
+    "colors.surface.card": "#1c1030",
+    "colors.surface.header": "#241540",
+    "colors.surface.input": "#160b28",
+    "colors.neon.cyan": "#00e5ff",
+    "colors.neon.magenta": "#ff2d95",
+    "colors.neon.purple": "#b026ff",
+    "colors.neon.emerald": "#00ff9f",
+    "colors.text.primary": "#f5f0ff",
+    "colors.text.secondary": "#b8a8d8",
+    "colors.text.muted": "#6b5b8a",
+    "colors.border.muted": "#3a2a5c",
+    "effects.shadow.glow.cyan": "0 0 14px rgba(0, 229, 255, 0.55)",
+    "effects.glow.active.cyan": "0 0 18px rgba(0, 229, 255, 0.85)"
+  }
+}

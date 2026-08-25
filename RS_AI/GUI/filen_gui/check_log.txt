@@ -1,0 +1,154 @@
+    Checking filen_gui v0.1.0 (/home/bimatkeo/Documents/SH/RS_AI/GUI/filen_gui)
+error[E0603]: function `run_cmd_interactive` is private
+   --> GUI/filen_gui/backend/auth.rs:243:35
+    |
+243 |     let output = crate::cloud_fs::run_cmd_interactive(cmd, b"", &rules, 30).await?;
+    |                                   ^^^^^^^^^^^^^^^^^^^ private function
+    |
+note: the function `run_cmd_interactive` is defined here
+   --> GUI/filen_gui/backend/cloud_fs.rs:644:1
+    |
+644 | / async fn run_cmd_interactive(
+645 | |     cmd: Command,
+646 | |     initial_input: &[u8],
+647 | |     rules: &[PromptRule],
+...   |
+722 | |     })
+723 | | }
+    | |_^
+
+error[E0603]: function `run_cmd_confirm` is private
+   --> GUI/filen_gui/backend/auth.rs:258:35
+    |
+258 |     let output = crate::cloud_fs::run_cmd_confirm(cmd, b"", 1, 30).await?;
+    |                                   ^^^^^^^^^^^^^^^ private function
+    |
+note: the function `run_cmd_confirm` is defined here
+   --> GUI/filen_gui/backend/cloud_fs.rs:726:1
+    |
+726 | / async fn run_cmd_confirm(
+727 | |     cmd: Command,
+728 | |     initial_input: &[u8],
+729 | |     expected_prompts: usize,
+...   |
+733 | |     crate::cloud_fs::run_cmd_interactive(cmd, initial_input, &rules, timeout_secs).await
+734 | | }
+    | |_^
+
+warning: unused import: `tokio::process::Command`
+ --> GUI/filen_gui/backend/models.rs:4:5
+  |
+4 | use tokio::process::Command;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `PathBuf`
+ --> GUI/filen_gui/backend/local_fs.rs:3:23
+  |
+3 | use std::path::{Path, PathBuf};
+  |                       ^^^^^^^
+
+warning: unused import: `std::process::Stdio`
+ --> GUI/filen_gui/backend/local_fs.rs:4:5
+  |
+4 | use std::process::Stdio;
+  |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `AsyncReadExt` and `AsyncWriteExt`
+ --> GUI/filen_gui/backend/local_fs.rs:5:17
+  |
+5 | use tokio::io::{AsyncReadExt, AsyncWriteExt};
+  |                 ^^^^^^^^^^^^  ^^^^^^^^^^^^^
+
+warning: unused import: `tokio::process::Command`
+ --> GUI/filen_gui/backend/local_fs.rs:6:5
+  |
+6 | use tokio::process::Command;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `PathBuf` and `Path`
+ --> GUI/filen_gui/backend/cloud_fs.rs:3:17
+  |
+3 | use std::path::{Path, PathBuf};
+  |                 ^^^^  ^^^^^^^
+
+warning: unused imports: `PathBuf` and `Path`
+ --> GUI/filen_gui/backend/auth.rs:3:17
+  |
+3 | use std::path::{Path, PathBuf};
+  |                 ^^^^  ^^^^^^^
+
+warning: unused import: `tokio::process::Command`
+ --> GUI/filen_gui/backend/auth.rs:6:5
+  |
+6 | use tokio::process::Command;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `PathBuf` and `Path`
+ --> GUI/filen_gui/backend/sync.rs:3:17
+  |
+3 | use std::path::{Path, PathBuf};
+  |                 ^^^^  ^^^^^^^
+
+warning: unused import: `std::process::Stdio`
+ --> GUI/filen_gui/backend/sync.rs:4:5
+  |
+4 | use std::process::Stdio;
+  |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `AsyncReadExt` and `AsyncWriteExt`
+ --> GUI/filen_gui/backend/sync.rs:5:17
+  |
+5 | use tokio::io::{AsyncReadExt, AsyncWriteExt};
+  |                 ^^^^^^^^^^^^  ^^^^^^^^^^^^^
+
+warning: unused import: `tokio::process::Command`
+ --> GUI/filen_gui/backend/sync.rs:6:5
+  |
+6 | use tokio::process::Command;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: cannot find `Self` in this scope
+   --> GUI/filen_gui/backend/cloud_fs.rs:545:22
+    |
+545 |         let result = Self::upload(active_account, &tmp.to_string_lossy(), file).await;
+    |                      ^^^^ `Self` is only available in impls, traits, and type definitions
+
+error[E0624]: associated function `new` is private
+   --> GUI/filen_gui/backend/cloud_fs.rs:669:42
+    |
+669 |     let mut responder = PromptResponder::new(rules);
+    |                                          ^^^ private associated function
+    |
+   ::: GUI/filen_gui/backend/models.rs:525:5
+    |
+525 |     fn new(rules: &[PromptRule]) -> Self {
+    |     ------------------------------------ private associated function defined here
+
+error[E0624]: method `feed` is private
+   --> GUI/filen_gui/backend/cloud_fs.rs:685:51
+    |
+685 |                         for response in responder.feed(&text) {
+    |                                                   ^^^^ private method
+    |
+   ::: GUI/filen_gui/backend/models.rs:534:5
+    |
+534 |     fn feed(&mut self, chunk: &str) -> Vec<&'static [u8]> {
+    |     ----------------------------------------------------- private method defined here
+
+error[E0624]: method `feed` is private
+   --> GUI/filen_gui/backend/cloud_fs.rs:699:51
+    |
+699 |                         for response in responder.feed(&text) {
+    |                                                   ^^^^ private method
+    |
+   ::: GUI/filen_gui/backend/models.rs:534:5
+    |
+534 |     fn feed(&mut self, chunk: &str) -> Vec<&'static [u8]> {
+    |     ----------------------------------------------------- private method defined here
+
+Some errors have detailed explanations: E0433, E0603, E0624.
+For more information about an error, try `rustc --explain E0433`.
+warning: `filen_gui` (lib) generated 12 warnings
+error: could not compile `filen_gui` (lib) due to 6 previous errors; 12 warnings emitted

@@ -1,0 +1,19 @@
+{
+  "app_title": "Rclone Manager",
+  "nav_explorer": "Explorer",
+  "nav_remotes": "📡 Remotes",
+  "nav_mounts": "🖥️ Mounts",
+  "nav_serves": "🌐 Serves",
+  "nav_sync": "🔄 Sync",
+  "side_heading_remotes": "📡 Remotes (Kết nối)",
+  "side_heading_jobs": "🔄 Tiến trình (Jobs)",
+  "place_jobs_active": "▶️ Đang chạy",
+  "place_jobs_history": "📜 Lịch sử",
+  "pane_mode_local": "Pane 1 (Chưa chọn)",
+  "pane_mode_cloud": "Pane 2 (Chưa chọn)",
+  "pane_filter_placeholder": "Lọc…",
+  "pane_placeholder_local": "Danh sách tệp — sẽ hiển thị ở đây",
+  "pane_placeholder_cloud": "Danh sách tệp — sẽ hiển thị ở đây",
+  "drawer_open": "⬇️ Transfer (0) — bấm để mở",
+  "drawer_placeholder": "Hàng đợi transfer (copy/move/sync) — trống"
+}
