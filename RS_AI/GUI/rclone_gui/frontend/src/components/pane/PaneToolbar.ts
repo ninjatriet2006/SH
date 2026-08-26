@@ -1,3 +1,5 @@
+import { appState } from '../../store';
+import { showMenu } from '../../features/contextMenu';
 
 export interface PaneToolbarOptions {
   labelElement: HTMLElement;
@@ -12,6 +14,7 @@ export interface PaneToolbarOptions {
   onAdvancedSearch?: () => void;
   currentViewMode?: 'list' | 'grid' | 'compact';
   onChangeViewMode?: (mode: 'list' | 'grid' | 'compact') => void;
+  onBookmarkSelect?: (path: string) => void;
 }
 
 /**
@@ -50,6 +53,25 @@ export class PaneToolbar {
     navGroup.appendChild(this.forwardBtn);
     navGroup.appendChild(mkBtn('⬆', opts.onUp));
     navGroup.appendChild(mkBtn('🏠', opts.onHome));
+
+    // Bookmark menu button
+    const bmkBtn = mkBtn('🔖', undefined, 'nemo-btn-bookmark');
+    bmkBtn.addEventListener('click', (e) => {
+        const bookmarks = appState.bookmarks || [];
+        if (bookmarks.length === 0) {
+            showMenu(e, [{ label: '(Chưa có ghim nào)', disabled: true }], () => {});
+            return;
+        }
+        const items = bookmarks.map(b => b.name);
+        showMenu(e, items, (action) => {
+            const b = bookmarks.find(x => x.name === action);
+            if (b && opts.onBookmarkSelect) {
+                opts.onBookmarkSelect(b.path);
+            }
+        });
+    });
+    navGroup.appendChild(bmkBtn);
+
     navGroup.appendChild(opts.labelElement);
     this.element.appendChild(navGroup);
 

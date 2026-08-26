@@ -463,7 +463,7 @@ async fn fs_sudo_exec(action: String, args: Vec<String>) -> Result<(), String> {
     }
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
+
 #[tauri::command]
 async fn rclone_about(remote: String) -> Result<serde_json::Value, String> {
     let output = Command::new("rclone")
@@ -483,6 +483,25 @@ async fn rclone_about(remote: String) -> Result<serde_json::Value, String> {
     }
 }
 
+#[tauri::command]
+async fn rclone_size(remote: String) -> Result<serde_json::Value, String> {
+    let output = Command::new("rclone")
+        .arg("size")
+        .arg(&remote)
+        .arg("--json")
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap_or(serde_json::json!({}));
+        Ok(parsed)
+    } else {
+        Ok(serde_json::json!({}))
+    }
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -517,6 +536,7 @@ pub fn run() {
             config::get_config_content,
             config::set_config_content,
             rclone_about,
+            rclone_size,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

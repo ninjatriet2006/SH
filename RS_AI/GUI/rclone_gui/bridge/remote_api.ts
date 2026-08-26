@@ -111,3 +111,14 @@ export async function getAbout(remote: string): Promise<{ total?: number, used?:
         return {};
     }
 }
+
+// Gọi rclone size <remote>:
+export async function getSize(remote: string): Promise<{ count?: number, bytes?: number, sizeless?: number }> {
+    try {
+        const result = await invoke<{ count?: number, bytes?: number, sizeless?: number }>('rclone_size', { remote });
+        return result;
+    } catch (e) {
+        console.warn("Failed to get size for remote:", remote, e);
+        return {};
+    }
+}

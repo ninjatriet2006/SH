@@ -42,7 +42,7 @@ function joinPath(dir: string, name: string): string {
 }
 
 /** Dựng menu tại vị trí chuột; onClick nhận label mục được chọn. */
-function showMenu(
+export function showMenu(
   e: MouseEvent,
   items: (string | ContextMenuItem)[],
   onClick: (action: string) => void,
@@ -105,7 +105,7 @@ export function MenuFile(e: MouseEvent, opts: ContextMenuOptions): void {
   ];
   if (f.is_dir && !batchMode) {
     if (opts.onOpenInNewTab) menuItems.push('Open in New Tab');
-    menuItems.push(isBookmarked(fullPath) ? '❌ Bỏ ghim Sidebar' : '📌 Ghim vào Sidebar');
+    menuItems.push(isBookmarked(fullPath) ? '❌ Bỏ ghim (Bookmark)' : '📌 Ghim (Bookmark)');
     if (fullPath.startsWith('Local::')) {
       menuItems.push('Open in Terminal');
     }
@@ -182,8 +182,8 @@ export function MenuFile(e: MouseEvent, opts: ContextMenuOptions): void {
         case 'Properties':
           showPropertiesModal(f, fullPath, pane);
           break;
-        case '📌 Ghim vào Sidebar':
-        case '❌ Bỏ ghim Sidebar':
+        case '📌 Ghim (Bookmark)':
+        case '❌ Bỏ ghim (Bookmark)':
           toggleBookmark(f.name, fullPath);
           break;
         default:

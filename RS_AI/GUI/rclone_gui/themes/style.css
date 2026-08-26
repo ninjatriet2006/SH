@@ -914,7 +914,7 @@ button.disabled {
 }
 
 .drawer-body {
-  max-height: 160px;
+  max-height: 35vh;
   overflow-y: auto;
   padding: 8px 16px;
   border-top: 1px solid var(--colors-border-muted);

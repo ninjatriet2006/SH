@@ -15,6 +15,47 @@ export class TransferDrawer {
     this.toggleBtn.addEventListener('click', () => this.toggle());
     
     transferManager.onUpdate = () => this.render();
+
+    // Add resizer for drag-to-resize
+    const drawer = document.getElementById('transfer-drawer')!;
+    drawer.style.position = 'relative';
+    const resizer = document.createElement('div');
+    resizer.className = 'drawer-resizer';
+    resizer.style.height = '6px';
+    resizer.style.cursor = 'ns-resize';
+    resizer.style.background = 'transparent';
+    resizer.style.position = 'absolute';
+    resizer.style.top = '-3px';
+    resizer.style.left = '0';
+    resizer.style.right = '0';
+    resizer.style.zIndex = '10';
+
+    let startY = 0;
+    let startHeight = 0;
+
+    resizer.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startY = e.clientY;
+      startHeight = this.body.offsetHeight;
+
+      const onMouseMove = (ev: MouseEvent) => {
+        if (!this.isOpen) return; // Only resize when open
+        const dy = startY - ev.clientY;
+        const newHeight = Math.max(100, startHeight + dy);
+        this.body.style.maxHeight = `${newHeight}px`;
+        this.body.style.height = `${newHeight}px`;
+      };
+
+      const onMouseUp = () => {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      };
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    });
+
+    drawer.appendChild(resizer);
   }
 
   toggle() {

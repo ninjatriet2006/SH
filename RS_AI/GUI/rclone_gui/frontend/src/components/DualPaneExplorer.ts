@@ -72,6 +72,7 @@ export class DualPaneExplorer {
       onUp: () => this.goUp('left'),
       onHome: () => this.goHome('left'),
       onRefresh: () => this.refresh('left'),
+      onBookmarkSelect: (path) => this.navigate('left', path),
       onRemoteChange: async (remote) => {
         if (remote === 'Local') {
           try {
@@ -108,6 +109,7 @@ export class DualPaneExplorer {
       onUp: () => this.goUp('right'),
       onHome: () => this.goHome('right'),
       onRefresh: () => this.refresh('right'),
+      onBookmarkSelect: (path) => this.navigate('right', path),
       onRemoteChange: async (remote) => {
         if (remote === 'Local') {
           try {

@@ -29,6 +29,7 @@ export interface PaneViewOptions {
   onHome?: () => void;
   onRefresh?: () => void;
   onRemoteChange?: (remote: string) => void;
+  onBookmarkSelect?: (path: string) => void;
 }
 
 export interface PaneSort {
@@ -94,6 +95,7 @@ export class PaneView {
       onAdvancedSearch: () => {
         console.log("Search not implemented yet in rclone_gui");
       },
+      onBookmarkSelect: opts.onBookmarkSelect,
       currentViewMode: this.viewMode,
       onChangeViewMode: (mode) => {
         this.viewMode = mode;

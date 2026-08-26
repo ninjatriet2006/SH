@@ -7,7 +7,7 @@ Các module tương tác: bridge/remote_api.ts, frontend/src/main.ts.
 
 
 import { formatSize } from './format';
-import { listRemotes, getProviders, ProviderInfo, ProviderOption, RemoteConfig, createRemote, updateRemote, deleteRemote, getBackendFeatures, getAbout } from '../../../bridge/remote_api.ts';
+import { listRemotes, getProviders, ProviderInfo, ProviderOption, RemoteConfig, createRemote, updateRemote, deleteRemote, getBackendFeatures, getAbout, getSize } from '../../../bridge/remote_api.ts';
 import { getConfigContent, setConfigContent } from '../../../bridge/config_api.ts';
 import { upgradeSelectToCustomDropdown } from './customDropdown.ts';
 
@@ -139,32 +139,52 @@ export class RemotesManager {
       
       // Load capacity asynchronously with progress bar
       const capacityCell = tr.querySelector('.capacity-cell') as HTMLTableCellElement;
-      getAbout(`${remote.name}:`).then(about => {
-          if (about.total && about.used !== undefined) {
-              const percent = Math.min(100, Math.round((about.used / about.total) * 100));
-              let color = 'var(--colors-primary)';
-              if (percent > 90) color = '#ff5c5c'; // Red if almost full
-              else if (percent > 70) color = '#f39c12'; // Orange if quite full
-              
-              capacityCell.innerHTML = `
-                <div style="width: 100%; height: 20px; background: var(--colors-surface-overlay); border-radius: 10px; overflow: hidden; position: relative; border: 1px solid var(--colors-border-muted);">
-                  <div style="width: ${percent}%; height: 100%; background: ${color}; transition: width 0.3s ease;"></div>
-                  <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; color: ${percent > 50 ? '#fff' : 'var(--colors-text-primary)'}; text-shadow: ${percent > 50 ? '0 0 2px rgba(0,0,0,0.5)' : 'none'};">
-                    ${formatSize(about.used)} / ${formatSize(about.total)} (${percent}%)
-                  </div>
-                </div>
-              `;
-              capacityCell.title = `Trống: ${formatSize(about.free || 0)}`;
-          } else if (about.free && about.free > 0) {
-              capacityCell.innerHTML = `Trống: <span style="color: var(--colors-primary); font-weight: bold;">${formatSize(about.free)}</span>`;
-          } else if (about.used && about.used > 0) {
-              capacityCell.innerHTML = `Đã dùng: <span style="color: var(--colors-primary); font-weight: bold;">${formatSize(about.used)}</span>`;
+      getAbout(`${remote.name}:`).then(async (about) => {
+          let hasAboutData = false;
+          if (about.total !== undefined || about.used !== undefined || about.free !== undefined) {
+              hasAboutData = true;
+          }
+
+          if (hasAboutData) {
+              if (about.total && about.used !== undefined) {
+                  const percent = Math.min(100, Math.round((about.used / about.total) * 100));
+                  let color = 'var(--colors-primary)';
+                  if (percent > 90) color = '#ff5c5c'; // Red if almost full
+                  else if (percent > 70) color = '#f39c12'; // Orange if quite full
+                  
+                  capacityCell.innerHTML = `
+                    <div style="width: 100%; height: 20px; background: var(--colors-surface-overlay); border-radius: 10px; overflow: hidden; position: relative; border: 1px solid var(--colors-border-muted);">
+                      <div style="width: ${percent}%; height: 100%; background: ${color}; transition: width 0.3s ease;"></div>
+                      <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; color: ${percent > 50 ? '#fff' : 'var(--colors-text-primary)'}; text-shadow: ${percent > 50 ? '0 0 2px rgba(0,0,0,0.5)' : 'none'};">
+                        ${formatSize(about.used)} / ${formatSize(about.total)} (${percent}%)
+                      </div>
+                    </div>
+                  `;
+                  capacityCell.title = `Trống: ${formatSize(about.free || 0)}`;
+              } else if (about.free && about.free > 0) {
+                  capacityCell.innerHTML = `Trống: <span style="color: var(--colors-primary); font-weight: bold;">${formatSize(about.free)}</span>`;
+              } else if (about.used && about.used > 0) {
+                  capacityCell.innerHTML = `Đã dùng: <span style="color: var(--colors-primary); font-weight: bold;">${formatSize(about.used)}</span>`;
+              } else {
+                  capacityCell.innerHTML = `<span style="color: var(--colors-text-muted); font-style: italic;">Không hỗ trợ</span>`;
+              }
           } else {
-              capacityCell.innerHTML = `<span style="color: var(--colors-text-muted); font-style: italic;">Không hỗ trợ</span>`;
+              // Fallback to rclone size
+              try {
+                  const sizeInfo = await getSize(`${remote.name}:`);
+                  if (sizeInfo && sizeInfo.bytes !== undefined) {
+                      capacityCell.innerHTML = `Đã dùng (Dự phòng): <span style="color: var(--colors-primary); font-weight: bold;">${formatSize(sizeInfo.bytes)}</span>`;
+                      capacityCell.title = `Số lượng mục: ${sizeInfo.count || 0}`;
+                  } else {
+                      capacityCell.innerHTML = `<span style="color: var(--colors-text-muted); font-style: italic;">Không xác định</span>`;
+                  }
+              } catch (fallbackErr) {
+                  capacityCell.innerHTML = `<span style="color: var(--colors-text-muted); font-style: italic;">Không xác định</span>`;
+              }
           }
       }).catch(err => {
           console.warn('Failed to get about for remote', remote.name, err);
-          capacityCell.innerHTML = `<span style="color: var(--colors-text-muted); font-style: italic;">Không khả dụng</span>`;
+          capacityCell.innerHTML = `<span style="color: var(--colors-text-muted); font-style: italic;">Lỗi</span>`;
       });
       
       const btnEdit = tr.querySelector('.btn-edit-remote') as HTMLButtonElement;
