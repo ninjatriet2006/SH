@@ -2,8 +2,11 @@ import { appState } from '../store';
 import { undoManager } from '../services/undoManager';
 import { joinPath } from './dragDrop';
 import * as fileOps from '../services/fileOps';
+import { FallbackModal } from '../components/FallbackModal';
+import { getBackendFeatures } from '../../../bridge/remote_api';
+import { fsDelete } from '../../../bridge/explorer_api';
 
-export type TransferKind = 'upload' | 'download' | 'copy' | 'move';
+export type TransferKind = 'upload' | 'download' | 'copy' | 'move' | 'delete';
 export type TransferStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled';
 
 export interface TransferTask {
@@ -22,6 +25,7 @@ export interface TransferTask {
   lastBytesDone: number;
   srcLocal: boolean;
   dstLocal: boolean;
+  onSuccess?: () => void;
 }
 
 class TransferManager {
@@ -42,8 +46,52 @@ class TransferManager {
     dst: string,
     srcLocal: boolean,
     dstLocal: boolean,
-    _cleanupSrc: boolean = false
+    _cleanupSrc: boolean = false,
+    onSuccess?: () => void
   ): Promise<void> {
+    if (kind === 'move') {
+      const srcParsed = fileOps.parseRemotePath(src);
+      const dstParsed = fileOps.parseRemotePath(dst);
+      const srcRemote = srcLocal ? 'Local' : srcParsed.remote;
+      const dstRemote = dstLocal ? 'Local' : dstParsed.remote;
+      
+      let canMove = true;
+      let canCopyDelete = false;
+
+      if (srcRemote !== dstRemote) {
+        canMove = false;
+      } else if (srcRemote !== 'Local') {
+        try {
+          const feats = await getBackendFeatures(srcRemote);
+          if (feats && feats.Features) {
+            // Assume it's a file move for general check, ideally we'd know if it's Dir
+            canMove = !!feats.Features.Move || !!feats.Features.DirMove;
+            canCopyDelete = !!feats.Features.Copy && !!feats.Features.Purge;
+          }
+        } catch (e) {
+          console.warn("Failed to get features", e);
+        }
+      }
+
+      if (!canMove) {
+        const modal = new FallbackModal(canCopyDelete, srcRemote, dstRemote);
+        const action = await modal.open();
+        if (action === 'copy_delete') {
+          await this.enqueue('copy', '[Copy] ' + name, src, dst, srcLocal, dstLocal, false, async () => {
+            await this.enqueue('delete', '[Xoá gốc] ' + name, src, dst, srcLocal, dstLocal);
+          });
+          return;
+        } else if (action === 'local_transfer') {
+          await this.enqueue('copy', '[Local Copy] ' + name, src, dst, srcLocal, dstLocal, false, async () => {
+            await this.enqueue('delete', '[Local Xoá gốc] ' + name, src, dst, srcLocal, dstLocal);
+          });
+          return;
+        } else {
+          return; // Cancelled
+        }
+      }
+    }
+
     const id = this.nextId++;
 
     this.tasks.set(id, {
@@ -60,7 +108,8 @@ class TransferManager {
       lastUpdateTime: performance.now(),
       lastBytesDone: 0,
       srcLocal,
-      dstLocal
+      dstLocal,
+      onSuccess
     });
     
     this.notify();
@@ -81,12 +130,19 @@ class TransferManager {
           try {
             if (task.kind === 'move') {
               await fileOps.moveLocal(task.src, task.dst);
+            } else if (task.kind === 'delete') {
+              const parsed = fileOps.parseRemotePath(task.src);
+              await fsDelete(parsed.remote, parsed.realPath);
             } else {
               await fileOps.cpLocal(task.src, task.dst, true);
             }
 
             task.status = 'done';
             task.progress = 1.0;
+
+            if (task.onSuccess) {
+              task.onSuccess();
+            }
             
             // Thêm vào Undo Manager
             if (task.kind === 'move' || task.kind === 'copy') {
