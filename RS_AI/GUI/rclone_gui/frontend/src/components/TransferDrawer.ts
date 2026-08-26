@@ -122,8 +122,12 @@ export class TransferDrawer {
     let statusText = '';
     let progressPct = 0;
     if (task.status === 'running') {
-      progressPct = (task.progress || 0) * 100;
-      statusText = `${formatSize(task.speed)}/s — ${progressPct.toFixed(1)}%`;
+      if (task.totalBytes && task.totalBytes > 0) {
+        progressPct = (task.bytesDone / task.totalBytes) * 100;
+      } else {
+        progressPct = (task.progress || 0) * 100;
+      }
+      statusText = `${formatSize(task.speed || 0)}/s — ${progressPct.toFixed(1)}%`;
     } else if (task.status === 'queued') {
       statusText = 'Đang chờ...';
     } else if (task.status === 'done') {
@@ -175,6 +179,28 @@ export class TransferDrawer {
     flexRow.appendChild(cancelBtn);
     
     card.appendChild(flexRow);
+
+    // Render tree of transferring files
+    if (task.status === 'running' && task.transferringFiles && task.transferringFiles.length > 0) {
+      const treeContainer = document.createElement('div');
+      treeContainer.style.marginTop = '8px';
+      treeContainer.style.marginLeft = '8px';
+      treeContainer.style.fontFamily = 'monospace';
+      treeContainer.style.fontSize = '12px';
+      treeContainer.style.color = 'var(--text-secondary)';
+
+      for (const file of task.transferringFiles) {
+        const fileRow = document.createElement('div');
+        fileRow.style.whiteSpace = 'nowrap';
+        fileRow.style.overflow = 'hidden';
+        fileRow.style.textOverflow = 'ellipsis';
+        const eta = file.eta !== undefined && file.eta >= 0 ? `${file.eta}s` : '-';
+        fileRow.textContent = `|_ ${file.name}: ${file.percentage}% (${formatSize(file.speed || 0)}/s, ETA: ${eta})`;
+        treeContainer.appendChild(fileRow);
+      }
+      card.appendChild(treeContainer);
+    }
+
     return card;
   }
 }

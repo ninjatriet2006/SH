@@ -72,28 +72,28 @@ export async function renameLocal(oldPath: string, newName: string): Promise<voi
     await runWithSudoFallback('mv', [realPath, newPath], remote, () => fsRename(remote, realPath, newPath));
 }
 
-export async function copy(src: string, dest: string, _account?: string): Promise<void> {
+export async function copy(src: string, dest: string, _account?: string, taskId?: number): Promise<void> {
     const srcParsed = parseRemotePath(src);
     const destParsed = parseRemotePath(dest);
-    await fsCopy(srcParsed.remote, srcParsed.realPath, destParsed.remote, destParsed.realPath);
+    await fsCopy(srcParsed.remote, srcParsed.realPath, destParsed.remote, destParsed.realPath, taskId);
 }
 
-export async function move(src: string, dest: string, _account?: string): Promise<void> {
+export async function move(src: string, dest: string, _account?: string, taskId?: number): Promise<void> {
     const srcParsed = parseRemotePath(src);
     const destParsed = parseRemotePath(dest);
-    await fsMove(srcParsed.remote, srcParsed.realPath, destParsed.remote, destParsed.realPath);
+    await fsMove(srcParsed.remote, srcParsed.realPath, destParsed.remote, destParsed.realPath, taskId);
 }
 
-export async function copyLocal(from: string, to: string, _overwrite: boolean = false): Promise<void> {
+export async function copyLocal(from: string, to: string, _overwrite: boolean = false, taskId?: number): Promise<void> {
     const pFrom = parseRemotePath(from);
     const pTo = parseRemotePath(to);
-    await runWithSudoFallback('cp', [pFrom.realPath, pTo.realPath], pFrom.remote, () => fsCopy(pFrom.remote, pFrom.realPath, pTo.remote, pTo.realPath));
+    await runWithSudoFallback('cp', [pFrom.realPath, pTo.realPath], pFrom.remote, () => fsCopy(pFrom.remote, pFrom.realPath, pTo.remote, pTo.realPath, taskId));
 }
 
-export async function moveLocal(from: string, to: string): Promise<void> {
+export async function moveLocal(from: string, to: string, taskId?: number): Promise<void> {
     const pFrom = parseRemotePath(from);
     const pTo = parseRemotePath(to);
-    await runWithSudoFallback('mv', [pFrom.realPath, pTo.realPath], pFrom.remote, () => fsMove(pFrom.remote, pFrom.realPath, pTo.remote, pTo.realPath));
+    await runWithSudoFallback('mv', [pFrom.realPath, pTo.realPath], pFrom.remote, () => fsMove(pFrom.remote, pFrom.realPath, pTo.remote, pTo.realPath, taskId));
 }
 
 async function runWithSudoFallback<T>(action: string, args: string[], remote: string, fn: () => Promise<T>): Promise<T> {
@@ -113,8 +113,8 @@ async function runWithSudoFallback<T>(action: string, args: string[], remote: st
 
 
 
-export async function cpLocal(from: string, to: string, _overwrite = true): Promise<void> {
-    return copyLocal(from, to, _overwrite);
+export async function cpLocal(from: string, to: string, _overwrite = true, taskId?: number): Promise<void> {
+    return copyLocal(from, to, _overwrite, taskId);
 }
 
 export async function upload(local: string, remoteTarget: string, _account?: string): Promise<void> {

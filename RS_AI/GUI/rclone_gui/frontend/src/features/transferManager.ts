@@ -5,6 +5,7 @@ import * as fileOps from '../services/fileOps';
 import { FallbackModal } from '../components/FallbackModal';
 import { getBackendFeatures } from '../../../bridge/remote_api';
 import { fsDelete } from '../../../bridge/explorer_api';
+import { listen } from '@tauri-apps/api/event';
 
 export type TransferKind = 'upload' | 'download' | 'copy' | 'move' | 'delete';
 export type TransferStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled';
@@ -26,6 +27,7 @@ export interface TransferTask {
   srcLocal: boolean;
   dstLocal: boolean;
   onSuccess?: () => void;
+  transferringFiles?: {name: string, percentage: number, bytes: number, size: number, speed: number, eta: number}[];
 }
 
 class TransferManager {
@@ -34,6 +36,34 @@ class TransferManager {
   public onQueueEmptyListeners: (() => void)[] = [];
   private nextId = 1;
   private isProcessing = false;
+
+  constructor() {
+    // Listen to backend transfer progress
+    listen('transfer_progress', (event: any) => {
+      const payload = event.payload;
+      if (payload && payload.id !== undefined && payload.stats) {
+        const task = Array.from(this.tasks.values()).find(t => t.id === payload.id);
+        if (task && task.status === 'running') {
+          task.bytesDone = payload.stats.bytes;
+          task.totalBytes = payload.stats.totalBytes;
+          task.speed = payload.stats.speed;
+          if (payload.stats.transferring) {
+            task.transferringFiles = payload.stats.transferring.map((f: any) => ({
+              name: f.name,
+              percentage: f.percentage,
+              bytes: f.bytes,
+              size: f.size,
+              speed: f.speed,
+              eta: f.eta
+            }));
+          } else {
+            task.transferringFiles = [];
+          }
+          if (this.onUpdate) this.onUpdate();
+        }
+      }
+    });
+  }
 
   async init() {
     // Không cần listen event từ backend nữa vì frontend tự xử lý
@@ -55,16 +85,15 @@ class TransferManager {
       const srcRemote = srcLocal ? 'Local' : srcParsed.remote;
       const dstRemote = dstLocal ? 'Local' : dstParsed.remote;
       
-      let canMove = true;
+      let canMove = false;
       let canCopyDelete = false;
 
-      if (srcRemote !== dstRemote) {
-        canMove = false;
-      } else if (srcRemote !== 'Local') {
+      if (srcRemote === dstRemote && srcRemote === 'Local') {
+        canMove = true;
+      } else if (srcRemote === dstRemote && srcRemote !== 'Local') {
         try {
           const feats = await getBackendFeatures(srcRemote);
           if (feats && feats.Features) {
-            // Assume it's a file move for general check, ideally we'd know if it's Dir
             canMove = !!feats.Features.Move || !!feats.Features.DirMove;
             canCopyDelete = !!feats.Features.Copy && !!feats.Features.Purge;
           }
@@ -129,12 +158,12 @@ class TransferManager {
 
           try {
             if (task.kind === 'move') {
-              await fileOps.moveLocal(task.src, task.dst);
+              await fileOps.moveLocal(task.src, task.dst, task.id);
             } else if (task.kind === 'delete') {
               const parsed = fileOps.parseRemotePath(task.src);
               await fsDelete(parsed.remote, parsed.realPath);
             } else {
-              await fileOps.cpLocal(task.src, task.dst, true);
+              await fileOps.cpLocal(task.src, task.dst, true, task.id);
             }
 
             task.status = 'done';

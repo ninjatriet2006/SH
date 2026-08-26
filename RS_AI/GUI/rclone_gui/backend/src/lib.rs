@@ -7,7 +7,9 @@ Các module tương tác: frontend qua Tauri IPC.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::io::{BufRead, BufReader};
+use tauri::Emitter;
 
 pub mod remote;
 pub mod mount;
@@ -172,29 +174,89 @@ async fn fs_rename(remote: String, old_path: String, new_path: String) -> Result
 }
 
 #[tauri::command]
-async fn fs_copy(src_remote: String, src_path: String, dest_remote: String, dest_path: String) -> Result<(), String> {
+async fn fs_copy(
+    app_handle: tauri::AppHandle,
+    src_remote: String,
+    src_path: String,
+    dest_remote: String,
+    dest_path: String,
+    task_id: Option<u32>,
+) -> Result<(), String> {
     let src = if src_remote == "Local" { src_path } else { format!("{}:{}", src_remote, src_path) };
     let dst = if dest_remote == "Local" { dest_path } else { format!("{}:{}", dest_remote, dest_path) };
-    let output = Command::new("rclone")
-        .args(["copyto", &src, &dst])
-        .output()
-        .map_err(|e| format!("Failed to execute rclone: {}", e))?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+    
+    let mut child = Command::new("rclone")
+        .args(["copyto", &src, &dst, "--use-json-log", "--stats", "0.5s", "-v"])
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn rclone: {}", e))?;
+
+    if let Some(stderr) = child.stderr.take() {
+        let reader = BufReader::new(stderr);
+        for line in reader.lines() {
+            if let Ok(line_str) = line {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line_str) {
+                    if let Some(stats) = json.get("stats") {
+                        if let Some(id) = task_id {
+                            let payload = serde_json::json!({
+                                "id": id,
+                                "stats": stats
+                            });
+                            let _ = app_handle.emit("transfer_progress", payload);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let status = child.wait().map_err(|e| format!("Failed to wait for rclone: {}", e))?;
+    if !status.success() {
+        return Err(format!("Command failed with status: {}", status));
     }
     Ok(())
 }
 
 #[tauri::command]
-async fn fs_move(src_remote: String, src_path: String, dest_remote: String, dest_path: String) -> Result<(), String> {
+async fn fs_move(
+    app_handle: tauri::AppHandle,
+    src_remote: String,
+    src_path: String,
+    dest_remote: String,
+    dest_path: String,
+    task_id: Option<u32>,
+) -> Result<(), String> {
     let src = if src_remote == "Local" { src_path } else { format!("{}:{}", src_remote, src_path) };
     let dst = if dest_remote == "Local" { dest_path } else { format!("{}:{}", dest_remote, dest_path) };
-    let output = Command::new("rclone")
-        .args(["moveto", &src, &dst])
-        .output()
-        .map_err(|e| format!("Failed to execute rclone: {}", e))?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+    
+    let mut child = Command::new("rclone")
+        .args(["moveto", &src, &dst, "--use-json-log", "--stats", "0.5s", "-v"])
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn rclone: {}", e))?;
+
+    if let Some(stderr) = child.stderr.take() {
+        let reader = BufReader::new(stderr);
+        for line in reader.lines() {
+            if let Ok(line_str) = line {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line_str) {
+                    if let Some(stats) = json.get("stats") {
+                        if let Some(id) = task_id {
+                            let payload = serde_json::json!({
+                                "id": id,
+                                "stats": stats
+                            });
+                            let _ = app_handle.emit("transfer_progress", payload);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let status = child.wait().map_err(|e| format!("Failed to wait for rclone: {}", e))?;
+    if !status.success() {
+        return Err(format!("Command failed with status: {}", status));
     }
     Ok(())
 }
