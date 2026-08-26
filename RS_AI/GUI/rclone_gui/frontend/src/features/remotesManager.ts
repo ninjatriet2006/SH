@@ -11,6 +11,98 @@ import { listRemotes, getProviders, ProviderInfo, ProviderOption, RemoteConfig, 
 import { getConfigContent, setConfigContent } from '../../../bridge/config_api.ts';
 import { upgradeSelectToCustomDropdown } from './customDropdown.ts';
 
+function reorderConfigText(iniText: string, orderedNames: string[]): string {
+    const lines = iniText.split('\n');
+    let sections: {name: string | null, lines: string[]}[] = [];
+    let currentSection: {name: string | null, lines: string[]} = { name: null, lines: [] };
+    
+    for (const line of lines) {
+        const match = line.match(/^\[(.*)\]\s*$/);
+        if (match) {
+            sections.push(currentSection);
+            currentSection = { name: match[1].trim(), lines: [line] };
+        } else {
+            currentSection.lines.push(line);
+        }
+    }
+    sections.push(currentSection);
+
+    const ordered: typeof sections = [];
+    const nullIdx = sections.findIndex(s => s.name === null);
+    if (nullIdx >= 0) {
+        ordered.push(sections.splice(nullIdx, 1)[0]);
+    }
+    
+    for (const name of orderedNames) {
+        const idx = sections.findIndex(s => s.name === name);
+        if (idx >= 0) {
+            ordered.push(sections.splice(idx, 1)[0]);
+        }
+    }
+    
+    ordered.push(...sections);
+    return ordered.map(s => s.lines.join('\n')).join('');
+}
+
+interface CapacityResult {
+    html: string;
+    title: string;
+}
+
+const capacityCache = new Map<string, { data: CapacityResult, timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Timeout')), ms);
+        promise
+            .then(value => {
+                clearTimeout(timer);
+                resolve(value);
+            })
+            .catch(reason => {
+                clearTimeout(timer);
+                reject(reason);
+            });
+    });
+}
+
+const getConcurrencyLimit = () => {
+    const nav = navigator as any;
+    if (nav.connection && nav.connection.effectiveType) {
+        const type = nav.connection.effectiveType;
+        if (type === '4g') return 4;
+        if (type === '3g') return 2;
+        return 1;
+    }
+    return 3;
+};
+
+class ConcurrencyQueue {
+    private queue: (() => Promise<void>)[] = [];
+    private activeCount = 0;
+    
+    add(task: () => Promise<void>) {
+        this.queue.push(task);
+        this.runNext();
+    }
+
+    private runNext() {
+        if (this.activeCount < getConcurrencyLimit() && this.queue.length > 0) {
+            const task = this.queue.shift();
+            if (task) {
+                this.activeCount++;
+                task().finally(() => {
+                    this.activeCount--;
+                    this.runNext();
+                });
+            }
+        }
+    }
+}
+
+const capacityQueue = new ConcurrencyQueue();
+
 const OPTION_TRANSLATIONS: Record<string, string> = {
   client_id: "Client ID",
   client_secret: "Client Secret",
@@ -36,9 +128,22 @@ const OPTION_TRANSLATIONS: Record<string, string> = {
 export class RemotesManager {
   private tbody: HTMLElement | null;
   private providers: ProviderInfo[] = [];
+  private observer: IntersectionObserver;
 
   constructor() {
     this.tbody = document.getElementById('remotes-table-body');
+    this.observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const td = entry.target as HTMLTableCellElement;
+                const remoteName = td.dataset.remoteName;
+                if (remoteName && !td.dataset.loaded) {
+                    td.dataset.loaded = 'true';
+                    this.loadCapacityQueue(remoteName, td);
+                }
+            }
+        });
+    }, { root: null, rootMargin: '50px', threshold: 0 });
   }
 
   public async init() {
@@ -47,10 +152,104 @@ export class RemotesManager {
     await this.renderList();
   }
 
+  private loadCapacityQueue(remoteName: string, cell: HTMLTableCellElement) {
+      const cached = capacityCache.get(remoteName);
+      if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+          cell.innerHTML = cached.data.html;
+          cell.title = cached.data.title;
+          return;
+      }
+
+      capacityQueue.add(async () => {
+          await this.fetchCapacity(remoteName, cell);
+      });
+  }
+
+  private async fetchCapacity(remoteName: string, cell: HTMLTableCellElement) {
+      try {
+          // Timeout 5s
+          const about = await withTimeout(getAbout(`${remoteName}:`), 5000);
+          let hasAboutData = false;
+          if (about.total !== undefined || about.used !== undefined || about.free !== undefined) {
+              hasAboutData = true;
+          }
+
+          let html = '';
+          let title = '';
+
+          if (hasAboutData) {
+              if (about.total && about.used !== undefined) {
+                  const percent = Math.round((about.used / about.total) * 100);
+                  const barWidth = Math.min(100, percent); // Visual caps at 100%
+                  let color = 'var(--colors-primary)';
+                  if (percent > 90) color = '#ff5c5c'; // Red if almost full or over quota
+                  else if (percent > 70) color = '#f39c12'; // Orange if quite full
+                  
+                  html = `
+                    <div style="width: 100%; height: 20px; background: var(--colors-surface-overlay); border-radius: 10px; overflow: hidden; position: relative; border: 1px solid var(--colors-border-muted);">
+                      <div style="width: ${barWidth}%; height: 100%; background: ${color}; transition: width 0.3s ease;"></div>
+                      <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; color: ${barWidth > 50 ? '#fff' : 'var(--colors-text-primary)'}; text-shadow: ${barWidth > 50 ? '0 0 2px rgba(0,0,0,0.5)' : 'none'};">
+                        ${formatSize(about.used)} / ${formatSize(about.total)} (${percent}%)
+                      </div>
+                    </div>
+                  `;
+                  title = `Trống: ${formatSize(about.free || 0)}`;
+              } else if (about.free && about.free > 0) {
+                  html = `Trống: <span style="color: var(--colors-primary); font-weight: bold;">${formatSize(about.free)}</span>`;
+              } else if (about.used && about.used > 0) {
+                  html = `Đã dùng: <span style="color: var(--colors-primary); font-weight: bold;">${formatSize(about.used)}</span>`;
+              } else {
+                  html = `<span style="color: var(--colors-text-muted); font-style: italic;">Không hỗ trợ</span>`;
+              }
+          } else {
+              // Fallback to rclone size
+              try {
+                  const sizeInfo = await withTimeout(getSize(`${remoteName}:`), 5000);
+                  if (sizeInfo && sizeInfo.bytes !== undefined) {
+                      html = `Đã dùng (Dự phòng): <span style="color: var(--colors-primary); font-weight: bold;">${formatSize(sizeInfo.bytes)}</span>`;
+                      title = `Số lượng mục: ${sizeInfo.count || 0}`;
+                  } else {
+                      html = `<span style="color: var(--colors-text-muted); font-style: italic;">Không xác định</span>`;
+                  }
+              } catch (fallbackErr) {
+                  html = `<span style="color: var(--colors-text-muted); font-style: italic;">${fallbackErr instanceof Error && fallbackErr.message === 'Timeout' ? 'Quá thời gian' : 'Không xác định'}</span>`;
+              }
+          }
+
+          if (html) {
+              cell.innerHTML = html;
+              if (title) cell.title = title;
+              capacityCache.set(remoteName, { data: { html, title }, timestamp: Date.now() });
+          }
+      } catch (err) {
+          console.warn('Failed to get about for remote', remoteName, err);
+          cell.innerHTML = `<span style="color: var(--colors-text-muted); font-style: italic;">${err instanceof Error && err.message === 'Timeout' ? 'Quá thời gian' : 'Lỗi'}</span>`;
+      }
+  }
+
   private setupEvents() {
     const btnRefresh = document.getElementById('btn-refresh-remotes');
     if (btnRefresh) {
       btnRefresh.addEventListener('click', () => this.renderList());
+    }
+
+    const btnSort = document.getElementById('btn-sort-remotes');
+    if (btnSort) {
+      btnSort.addEventListener('click', async () => {
+        try {
+          const remotes = await listRemotes();
+          let names = remotes.filter(r => !(r.name === 'Local' && r.type === 'local')).map(r => r.name);
+          names.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+          
+          const content = await getConfigContent();
+          const newContent = reorderConfigText(content, names);
+          await setConfigContent(newContent);
+          
+          this.renderList();
+        } catch (e) {
+          alert('Lỗi sắp xếp: ' + e);
+        }
+      });
     }
 
     const btnAdd = document.getElementById('btn-add-remote');
@@ -131,62 +330,42 @@ export class RemotesManager {
         <td>${remote.type}</td>
         <td class="capacity-cell" style="color: var(--colors-text-muted);">Đang tải...</td>
         <td class="actions">
+          <button class="btn btn-secondary btn-move-up" title="Đẩy Lên">↑</button>
+          <button class="btn btn-secondary btn-move-down" title="Đẩy Xuống">↓</button>
           <button class="btn btn-secondary btn-feature-remote">ℹ️ Tính năng</button>
           <button class="btn btn-primary btn-edit-remote">✏️ Sửa</button>
           <button class="btn btn-danger btn-delete-remote">🗑️ Xóa</button>
         </td>
       `;
       
-      // Load capacity asynchronously with progress bar
       const capacityCell = tr.querySelector('.capacity-cell') as HTMLTableCellElement;
-      getAbout(`${remote.name}:`).then(async (about) => {
-          let hasAboutData = false;
-          if (about.total !== undefined || about.used !== undefined || about.free !== undefined) {
-              hasAboutData = true;
-          }
-
-          if (hasAboutData) {
-              if (about.total && about.used !== undefined) {
-                  const percent = Math.min(100, Math.round((about.used / about.total) * 100));
-                  let color = 'var(--colors-primary)';
-                  if (percent > 90) color = '#ff5c5c'; // Red if almost full
-                  else if (percent > 70) color = '#f39c12'; // Orange if quite full
-                  
-                  capacityCell.innerHTML = `
-                    <div style="width: 100%; height: 20px; background: var(--colors-surface-overlay); border-radius: 10px; overflow: hidden; position: relative; border: 1px solid var(--colors-border-muted);">
-                      <div style="width: ${percent}%; height: 100%; background: ${color}; transition: width 0.3s ease;"></div>
-                      <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; color: ${percent > 50 ? '#fff' : 'var(--colors-text-primary)'}; text-shadow: ${percent > 50 ? '0 0 2px rgba(0,0,0,0.5)' : 'none'};">
-                        ${formatSize(about.used)} / ${formatSize(about.total)} (${percent}%)
-                      </div>
-                    </div>
-                  `;
-                  capacityCell.title = `Trống: ${formatSize(about.free || 0)}`;
-              } else if (about.free && about.free > 0) {
-                  capacityCell.innerHTML = `Trống: <span style="color: var(--colors-primary); font-weight: bold;">${formatSize(about.free)}</span>`;
-              } else if (about.used && about.used > 0) {
-                  capacityCell.innerHTML = `Đã dùng: <span style="color: var(--colors-primary); font-weight: bold;">${formatSize(about.used)}</span>`;
-              } else {
-                  capacityCell.innerHTML = `<span style="color: var(--colors-text-muted); font-style: italic;">Không hỗ trợ</span>`;
-              }
-          } else {
-              // Fallback to rclone size
-              try {
-                  const sizeInfo = await getSize(`${remote.name}:`);
-                  if (sizeInfo && sizeInfo.bytes !== undefined) {
-                      capacityCell.innerHTML = `Đã dùng (Dự phòng): <span style="color: var(--colors-primary); font-weight: bold;">${formatSize(sizeInfo.bytes)}</span>`;
-                      capacityCell.title = `Số lượng mục: ${sizeInfo.count || 0}`;
-                  } else {
-                      capacityCell.innerHTML = `<span style="color: var(--colors-text-muted); font-style: italic;">Không xác định</span>`;
-                  }
-              } catch (fallbackErr) {
-                  capacityCell.innerHTML = `<span style="color: var(--colors-text-muted); font-style: italic;">Không xác định</span>`;
-              }
-          }
-      }).catch(err => {
-          console.warn('Failed to get about for remote', remote.name, err);
-          capacityCell.innerHTML = `<span style="color: var(--colors-text-muted); font-style: italic;">Lỗi</span>`;
-      });
+      capacityCell.dataset.remoteName = remote.name;
+      this.observer.observe(capacityCell);
       
+      const btnUp = tr.querySelector('.btn-move-up') as HTMLButtonElement;
+      btnUp.addEventListener('click', async () => {
+        const names = remotes.filter((r: RemoteConfig) => !(r.name === 'Local' && r.type === 'local')).map((r: RemoteConfig) => r.name);
+        const idx = names.indexOf(remote.name);
+        if (idx > 0) {
+          [names[idx - 1], names[idx]] = [names[idx], names[idx - 1]];
+          const content = await getConfigContent();
+          await setConfigContent(reorderConfigText(content, names));
+          this.renderList();
+        }
+      });
+
+      const btnDown = tr.querySelector('.btn-move-down') as HTMLButtonElement;
+      btnDown.addEventListener('click', async () => {
+        const names = remotes.filter((r: RemoteConfig) => !(r.name === 'Local' && r.type === 'local')).map((r: RemoteConfig) => r.name);
+        const idx = names.indexOf(remote.name);
+        if (idx >= 0 && idx < names.length - 1) {
+          [names[idx], names[idx + 1]] = [names[idx + 1], names[idx]];
+          const content = await getConfigContent();
+          await setConfigContent(reorderConfigText(content, names));
+          this.renderList();
+        }
+      });
+
       const btnEdit = tr.querySelector('.btn-edit-remote') as HTMLButtonElement;
       btnEdit.addEventListener('click', () => this.showEditModal(remote));
 

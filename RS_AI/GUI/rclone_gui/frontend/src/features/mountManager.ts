@@ -65,7 +65,7 @@ export class MountManager {
                 const enabledStr = svc.enabled ? '✅ Có' : '❌ Không';
                 
                 tr.innerHTML = `
-                    <td style="font-weight: bold;">${svc.name}</td>
+                    <td style="font-weight: bold;">${svc.name.startsWith('rclone-') ? svc.name.substring(7) : svc.name}</td>
                     <td>${isUserStr}</td>
                     <td>${statusStr}</td>
                     <td>${enabledStr}</td>
@@ -172,8 +172,8 @@ export class MountManager {
             
             <div style="flex: 1; overflow-y: auto; padding-right: 10px; margin-bottom: 15px;">
                 <div style="margin-bottom: 15px;">
-                  <label style="display: block; margin-bottom: 5px; font-weight: bold;">Tên Service (VD: rclone-gdrive) <span style="color: #ff5c5c;">*</span>:</label>
-                  <input type="text" id="mount-service-name" class="pane-filter" style="width: 100%; box-sizing: border-box;" placeholder="Bắt buộc phải có chữ rclone- ở đầu" value="rclone-" />
+                  <label style="display: block; margin-bottom: 5px; font-weight: bold;">Tên Service <span style="color: #ff5c5c;">*</span>:</label>
+                  <input type="text" id="mount-service-name" class="pane-filter" style="width: 100%; box-sizing: border-box;" placeholder="VD: gdrive-main" value="" />
                 </div>
                 
                 <div style="margin-bottom: 15px;">
@@ -190,6 +190,12 @@ export class MountManager {
                     <option value="">-- Chọn Remote --</option>
                     ${remoteOptions}
                   </select>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                  <label style="display: block; margin-bottom: 5px; font-weight: bold;">Đường dẫn trên Remote (Remote Path):</label>
+                  <input type="text" id="mount-remote-path" class="pane-filter" style="width: 100%; box-sizing: border-box;" placeholder="VD: Video Leak/Movies" />
+                  <div style="font-size: 12px; color: var(--colors-text-muted); margin-top: 4px;">Để trống để mount thư mục gốc. Các thư mục con bên trong cách nhau bởi dấu /</div>
                 </div>
                 
                 <div style="margin-bottom: 15px;">
@@ -238,11 +244,25 @@ export class MountManager {
         modalContainer.appendChild(modal);
         
         if (existingConfig) {
-            (modal.querySelector('#mount-service-name') as HTMLInputElement).value = existingConfig.service_name;
-            (modal.querySelector('#mount-service-name') as HTMLInputElement).disabled = true; // Cannot change service name
+            let displaySvcName = existingConfig.service_name;
+            if (displaySvcName.startsWith('rclone-')) {
+                displaySvcName = displaySvcName.substring(7);
+            }
+            (modal.querySelector('#mount-service-name') as HTMLInputElement).value = displaySvcName;
+            // Cho phép đổi tên để dọn dẹp các service cũ không chuẩn
             (modal.querySelector('#mount-service-level') as HTMLSelectElement).value = existingConfig.is_user_level ? 'user' : 'system';
             (modal.querySelector('#mount-service-level') as HTMLSelectElement).disabled = true;
-            (modal.querySelector('#mount-remote') as HTMLSelectElement).value = existingConfig.remote;
+            
+            let existingRemoteName = existingConfig.remote;
+            let existingRemotePath = "";
+            const colonIndex = existingRemoteName.indexOf(':');
+            if (colonIndex !== -1) {
+                existingRemotePath = existingRemoteName.substring(colonIndex + 1);
+                existingRemoteName = existingRemoteName.substring(0, colonIndex);
+            }
+            
+            (modal.querySelector('#mount-remote') as HTMLSelectElement).value = existingRemoteName;
+            (modal.querySelector('#mount-remote-path') as HTMLInputElement).value = existingRemotePath;
             (modal.querySelector('#mount-path') as HTMLInputElement).value = existingConfig.mount_path;
             (modal.querySelector('#mount-vfs-mode') as HTMLSelectElement).value = existingConfig.vfs_cache_mode || 'off';
             (modal.querySelector('#mount-vfs-max-size') as HTMLInputElement).value = existingConfig.vfs_cache_max_size;
@@ -263,9 +283,24 @@ export class MountManager {
         
         const btnSave = modal.querySelector('#btn-save-mount') as HTMLButtonElement;
         btnSave.addEventListener('click', async () => {
-            const service_name = (modal.querySelector('#mount-service-name') as HTMLInputElement).value.trim();
+            let service_name = (modal.querySelector('#mount-service-name') as HTMLInputElement).value.trim();
+            if (!service_name) {
+                alert('Vui lòng nhập tên service!');
+                return;
+            }
+            if (!service_name.startsWith('rclone-')) {
+                service_name = 'rclone-' + service_name;
+            }
+            
             const is_user_level = (modal.querySelector('#mount-service-level') as HTMLSelectElement).value === 'user';
-            const remote = (modal.querySelector('#mount-remote') as HTMLSelectElement).value;
+            const remoteName = (modal.querySelector('#mount-remote') as HTMLSelectElement).value;
+            let remotePath = (modal.querySelector('#mount-remote-path') as HTMLInputElement).value.trim();
+            // Xử lý dấu / thừa ở đầu nếu có để cho sạch đẹp (tuỳ chọn)
+            if (remotePath.startsWith('/')) {
+                remotePath = remotePath.substring(1);
+            }
+            const remote = remoteName ? (remoteName + ':' + remotePath) : '';
+            
             const mount_path = (modal.querySelector('#mount-path') as HTMLInputElement).value.trim();
             const vfs_cache_mode = (modal.querySelector('#mount-vfs-mode') as HTMLSelectElement).value;
             const vfs_cache_max_size = (modal.querySelector('#mount-vfs-max-size') as HTMLInputElement).value.trim();
@@ -274,10 +309,6 @@ export class MountManager {
             const allow_other = (modal.querySelector('#mount-allow-other') as HTMLInputElement).checked;
             const read_only = (modal.querySelector('#mount-read-only') as HTMLInputElement).checked;
             
-            if (!service_name || !service_name.startsWith('rclone-')) {
-                alert('Tên service phải bắt đầu bằng "rclone-" (vd: rclone-gdrive)');
-                return;
-            }
             if (!remote || !mount_path) {
                 alert('Vui lòng chọn Remote và nhập thư mục Mount!');
                 return;
@@ -285,28 +316,35 @@ export class MountManager {
             
             btnSave.disabled = true;
             btnSave.textContent = 'Đang xử lý...';
-            
             const success = await createMountService({
                 service_name,
                 is_user_level,
-                remote: remote + ':', // rclone mount requires the colon
+                remote, // Already contains colon
                 mount_path,
                 description: `Rclone mount for ${remote}`,
                 vfs_cache_mode: vfs_cache_mode === 'off' ? '' : vfs_cache_mode,
                 vfs_cache_max_size,
                 vfs_cache_max_age,
                 dir_cache_time,
-                buffer_size: '',
+                buffer_size: '64M',
                 allow_other,
                 read_only
             });
             
             if (success) {
+                // Thu dọn service cũ nếu người dùng đang edit và tên service thay đổi
+                if (existingConfig && existingConfig.service_name !== service_name) {
+                    try {
+                        await deleteMountService(existingConfig.service_name, existingConfig.is_user_level);
+                    } catch (e) {
+                        console.warn("Failed to delete old service after rename:", e);
+                    }
+                }
                 modalContainer.innerHTML = '';
                 this.renderList();
             } else {
                 btnSave.disabled = false;
-                btnSave.textContent = 'Lưu & Tạo Service';
+                btnSave.textContent = existingConfig ? 'Lưu Thay Đổi' : 'Lưu & Tạo Service';
             }
         });
     }

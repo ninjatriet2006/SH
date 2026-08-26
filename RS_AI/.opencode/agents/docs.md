@@ -1,7 +1,7 @@
 ---
 description: Docs Manager - Cập nhật README, AGENTS.md, hướng dẫn sử dụng và đảm bảo docs luôn khớp với code.
 mode: subagent
-model: opencode/deepseek-v4-flash-free
+model: opencode/mimo-v2.5-free
 temperature: 0.1
 permission:
   edit: allow

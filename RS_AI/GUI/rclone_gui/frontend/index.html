@@ -38,49 +38,8 @@ Các module tương tác: /src/main.ts, /themes/tokens.css, /themes/style.css
         <!-- ── Central: App Views Container ──────────────────── -->
         <div id="views-container" class="views-container">
           <!-- View 1: Explorer -->
-          <main id="view-explorer" class="app-view active dual-pane-explorer">
-          <!-- Pane trái -->
-          <div class="pane" id="pane-left">
-            <div class="pane-toolbar-nemo">
-              <!-- Dropdown chọn remote cho Pane trái -->
-              <select class="remote-selector" id="select-pane-left">
-                <option value="">-- Chọn Remote --</option>
-              </select>
-              <div class="pane-actions">
-                <button class="btn">⬆</button>
-                <button class="btn">🏠</button>
-                <button class="btn">⟳</button>
-                <button class="btn" id="btn-mkdir-left">📁+New</button>
-              </div>
-              <input class="pane-filter" type="text" placeholder="Lọc…" data-lang-id="pane_filter_placeholder" />
-            </div>
-            <div class="pane-breadcrumb" id="breadcrumb-left">/</div>
-            <div class="pane-body" id="body-pane-left">
-              <div class="pane-placeholder" data-lang-id="pane_placeholder_local">Danh sách tệp — sẽ hiển thị ở đây</div>
-            </div>
-          </div>
-          <!-- Thanh chia 2 pane -->
-          <div class="pane-divider" id="pane-divider"></div>
-          <!-- Pane phải -->
-          <div class="pane" id="pane-right">
-            <div class="pane-toolbar-nemo">
-                <!-- Dropdown chọn remote cho Pane phải -->
-                <select class="remote-selector" id="select-pane-right">
-                  <option value="">-- Chọn Remote --</option>
-                </select>
-                <div class="pane-actions">
-                  <button class="btn">⬆</button>
-                  <button class="btn">🏠</button>
-                  <button class="btn">⟳</button>
-                  <button class="btn" id="btn-mkdir-right">📁+New</button>
-                </div>
-              <input class="pane-filter" type="text" placeholder="Lọc…" data-lang-id="pane_filter_placeholder" />
-            </div>
-            <div class="pane-breadcrumb" id="breadcrumb-right">/</div>
-            <div class="pane-body" id="body-pane-right">
-              <div class="pane-placeholder" data-lang-id="pane_placeholder_cloud">Danh sách tệp — sẽ hiển thị ở đây</div>
-            </div>
-          </div>
+          <main id="view-explorer" class="app-view active">
+
           </main>
 
           <!-- View 2: Remotes Manager -->
@@ -88,6 +47,7 @@ Các module tương tác: /src/main.ts, /themes/tokens.css, /themes/style.css
             <div class="manager-toolbar">
               <div class="manager-toolbar-left">
                 <button class="btn btn-primary" id="btn-add-remote" data-lang-id="btn_add_remote">➕ Thêm Mới</button>
+                <button class="btn" id="btn-sort-remotes" data-lang-id="btn_sort_remotes">🔤 Sắp Xếp A-Z</button>
                 <button class="btn" id="btn-import-config" data-lang-id="btn_import_config">📥 Nhập Config</button>
                 <button class="btn" id="btn-export-config" data-lang-id="btn_export_config">📤 Xuất Config</button>
                 <input type="file" id="input-import-config" accept=".conf,text/plain" style="display: none;" />

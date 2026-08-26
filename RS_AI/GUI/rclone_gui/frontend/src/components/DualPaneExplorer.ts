@@ -38,6 +38,10 @@ import { ConflictModal, type ConflictResult } from './ConflictModal';
 import { transferManager } from '../features/transferManager';
 import { listRemotes } from '../../../bridge/remote_api.ts';
 
+// Cache ngắn hạn cho nội dung thư mục (TTL: 1 phút)
+const dirCache = new Map<string, { files: FileItem[], timestamp: number }>();
+const DIR_CACHE_TTL = 60 * 1000;
+
 /**
  * Orchestrator: tạo 2 PaneView + divider, load dữ liệu, xử lý command.
  * Mọi render UI (header/breadcrumb/table/toolbar) nằm trong pane/*.
@@ -71,7 +75,7 @@ export class DualPaneExplorer {
       onForward: () => this.goForward('left'),
       onUp: () => this.goUp('left'),
       onHome: () => this.goHome('left'),
-      onRefresh: () => this.refresh('left'),
+      onRefresh: () => this.refresh('left', true),
       onBookmarkSelect: (path) => this.navigate('left', path),
       onRemoteChange: async (remote) => {
         if (remote === 'Local') {
@@ -108,7 +112,7 @@ export class DualPaneExplorer {
       onForward: () => this.goForward('right'),
       onUp: () => this.goUp('right'),
       onHome: () => this.goHome('right'),
-      onRefresh: () => this.refresh('right'),
+      onRefresh: () => this.refresh('right', true),
       onBookmarkSelect: (path) => this.navigate('right', path),
       onRemoteChange: async (remote) => {
         if (remote === 'Local') {
@@ -142,7 +146,7 @@ export class DualPaneExplorer {
       const containerRect = this.container.getBoundingClientRect();
       let newLeftWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
       newLeftWidth = Math.max(10, Math.min(newLeftWidth, 90));
-      this.container.style.gridTemplateColumns = `${newLeftWidth}% 4px 1fr`;
+      this.container.style.setProperty('--pane-left-width', `${newLeftWidth}%`);
     });
     window.addEventListener('mouseup', () => {
       if (isResizing) {
@@ -187,25 +191,11 @@ export class DualPaneExplorer {
     // Lắng nghe khi TransferManager xử lý xong một chuỗi tác vụ
     transferManager.addQueueEmptyListener(() => {
        const leftPath = appState.explorer?.leftPath;
-       if (leftPath) this.loadPane('left', leftPath, true);
+       if (leftPath) this.loadPane('left', leftPath, true, true);
        
        const rightPath = appState.explorer?.rightPath;
-       if (rightPath) this.loadPane('right', rightPath, true);
+       if (rightPath) this.loadPane('right', rightPath, true, true);
     });
-    
-    // Tự động làm mới ngầm (auto reload) mỗi 5 giây cho các Cloud Remote
-    // Riêng Local đã có inotify (local-dir-changed) ở trên nên không cần tốn tài nguyên quét
-    setInterval(() => {
-       const leftPath = appState.explorer?.leftPath;
-       if (leftPath && !leftPath.startsWith('Local::')) {
-           this.loadPane('left', leftPath, true);
-       }
-       
-       const rightPath = appState.explorer?.rightPath;
-       if (rightPath && !rightPath.startsWith('Local::')) {
-           this.loadPane('right', rightPath, true);
-       }
-    }, 5000);
 
     this.init();
   }
@@ -326,7 +316,7 @@ export class DualPaneExplorer {
     ]);
   }
 
-  async loadPane(pane: 'left' | 'right', path: string, silent = false) {
+  async loadPane(pane: 'left' | 'right', path: string, silent = false, forceRefresh = false) {
     if (pane === 'left') {
         this.leftLoadRequestId++;
     } else {
@@ -378,9 +368,20 @@ export class DualPaneExplorer {
     }
 
     let files: FileItem[] = [];
-    try {
-      files = await listFiles(remote, realPath);
-    } catch (e) {
+
+    // Check cache
+    if (!forceRefresh) {
+        const cached = dirCache.get(path);
+        if (cached && Date.now() - cached.timestamp < DIR_CACHE_TTL) {
+            files = [...cached.files];
+        }
+    }
+
+    if (files.length === 0) {
+      try {
+        files = await listFiles(remote, realPath);
+        dirCache.set(path, { files: [...files], timestamp: Date.now() });
+      } catch (e) {
       console.warn(`fs_list ${pane} fail (${path}):`, e);
       if (pane === 'left' && this.leftLoadRequestId !== currentReqId) return;
       if (pane === 'right' && this.rightLoadRequestId !== currentReqId) return;
@@ -394,6 +395,7 @@ export class DualPaneExplorer {
         onClick: () => this.goBack('left')
       });
       return;
+    }
     }
     
     if (pane === 'left' && this.leftLoadRequestId !== currentReqId) return;
@@ -623,8 +625,8 @@ export class DualPaneExplorer {
     this.navigate(pane, '/');
   }
 
-  private refresh(pane: Pane) {
-    this.loadPane(pane, getPanePath(pane));
+  private refresh(pane: Pane, forceRefresh = false) {
+    this.loadPane(pane, getPanePath(pane), false, forceRefresh);
   }
 
   getElement(): HTMLDivElement {

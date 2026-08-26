@@ -541,3 +541,27 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_rclone_about_empty() {
+        // Test with invalid remote, should fallback to {} instead of failing
+        let result = rclone_about("InvalidRemoteTest123:".to_string()).await;
+        assert!(result.is_ok());
+        let val = result.unwrap();
+        // Since invalid remote will fail `rclone about`, it should return {}
+        assert_eq!(val, serde_json::json!({}));
+    }
+
+    #[tokio::test]
+    async fn test_rclone_size_empty() {
+        // Test with invalid remote, should fallback to {} instead of failing
+        let result = rclone_size("InvalidRemoteTest123:".to_string()).await;
+        assert!(result.is_ok());
+        let val = result.unwrap();
+        assert_eq!(val, serde_json::json!({}));
+    }
+}

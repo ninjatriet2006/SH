@@ -317,13 +317,15 @@ button.disabled {
   background: var(--colors-surface-input);
 }
 
-/* ── Central dual-pane ───────────────────────────────────────── */
 .dual-pane-explorer {
   display: grid;
-  grid-template-columns: 1fr 6px 1fr;
+  --pane-left-width: 50%;
+  grid-template-columns: var(--pane-left-width) 4px 1fr;
   grid-column: 1 / -1;
   min-height: 0;
   height: 100%;
+  padding: 2px;
+  gap: 0;
 }
 
 .dual-pane-explorer .pane {
@@ -343,13 +345,18 @@ button.disabled {
   background: var(--colors-surface-card);
   border: 1px solid var(--colors-border-muted);
   border-radius: var(--radius-xl);
-  margin: 8px;
+  margin: 0;
   overflow: hidden;
 }
 
 .pane-divider {
-  background: var(--colors-border-muted);
+  background: transparent;
   cursor: col-resize;
+  transition: background 0.2s;
+}
+.pane-divider:hover, .pane-divider:active {
+  background: var(--colors-neon-cyan);
+  opacity: 0.5;
 }
 
 .pane-toolbar-nemo {
@@ -361,13 +368,27 @@ button.disabled {
   border-bottom: 1px solid var(--colors-border-muted);
 }
 
+/* Modal Overlay to block background clicks */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* Modals */
 .operation-modal, .auth-modal, .batch-rename-modal, .conflict-modal, .neon-modal, .twofa-modal {
   background: var(--colors-surface-card);
   border: 1px solid var(--colors-border-muted);
   border-radius: var(--radius-xl);
   padding: 24px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 0 100vmax rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
   z-index: 10000;
   position: fixed;
   top: 50%;
@@ -730,7 +751,7 @@ button.disabled {
 }
 
 .file-table {
-  width: 100%;
+  width: max-content;
   table-layout: fixed;
   border-collapse: collapse;
   background: var(--colors-surface-card);

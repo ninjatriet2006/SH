@@ -8,12 +8,13 @@ import type { SortKey, SortDir } from '../features/sort';
 export type Pane = 'left' | 'right';
 
 /** Cột có thể kéo để đổi width (cột Modified cuối flex còn lại). */
-export type PaneColKey = 'name' | 'type' | 'size' | 'permissions' | 'owner' | 'group';
+export type PaneColKey = 'name' | 'type' | 'size' | 'date' | 'permissions' | 'owner' | 'group';
 
 export interface PaneColWidths {
   name: number;
   type: number;
   size: number;
+  date: number;
   permissions: number;
   owner: number;
   group: number;
@@ -60,8 +61,8 @@ const state: ExplorerState = {
   leftSortDir: 'asc',
   rightSortKey: 'name',
   rightSortDir: 'asc',
-  leftColWidths: { name: 300, type: 120, size: 110, permissions: 100, owner: 100, group: 100 },
-  rightColWidths: { name: 300, type: 120, size: 110, permissions: 100, owner: 100, group: 100 },
+  leftColWidths: { name: 300, type: 80, size: 80, date: 150, permissions: 100, owner: 100, group: 100 },
+  rightColWidths: { name: 300, type: 80, size: 80, date: 150, permissions: 100, owner: 100, group: 100 },
   leftHistoryBack: [],
   leftHistoryForward: [],
   rightHistoryBack: [],

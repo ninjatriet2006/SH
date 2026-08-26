@@ -238,7 +238,8 @@ pub async fn get_mount_service_config(service_name: String, is_user: bool) -> Re
         if line.starts_with("Description=") {
             config.description = line.trim_start_matches("Description=").to_string();
         } else if line.starts_with("ExecStart=") {
-            let parts: Vec<&str> = line.split_whitespace().collect();
+            let exec_start_content = line.trim_start_matches("ExecStart=").trim();
+            let parts = shlex_split(exec_start_content);
             let mut i = 0;
             while i < parts.len() {
                 if parts[i] == "mount" && i + 2 < parts.len() {
@@ -360,6 +361,54 @@ pub async fn list_mount_services() -> Result<Vec<SystemdServiceInfo>, String> {
             }
         }
     }
-    
     Ok(services)
+}
+
+/// Helper function to split a string similar to shell parsing (handles quotes)
+fn shlex_split(input: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut escape_next = false;
+
+    for c in input.chars() {
+        if escape_next {
+            current.push(c);
+            escape_next = false;
+        } else if c == '\\' {
+            if in_single_quote {
+                current.push(c);
+            } else {
+                escape_next = true;
+            }
+        } else if c == '\'' {
+            if in_double_quote {
+                current.push(c);
+            } else {
+                in_single_quote = !in_single_quote;
+            }
+        } else if c == '"' {
+            if in_single_quote {
+                current.push(c);
+            } else {
+                in_double_quote = !in_double_quote;
+            }
+        } else if c.is_whitespace() {
+            if in_single_quote || in_double_quote {
+                current.push(c);
+            } else if !current.is_empty() {
+                parts.push(current.clone());
+                current.clear();
+            }
+        } else {
+            current.push(c);
+        }
+    }
+
+    if !current.is_empty() {
+        parts.push(current);
+    }
+
+    parts
 }

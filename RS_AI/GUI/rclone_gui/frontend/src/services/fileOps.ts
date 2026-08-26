@@ -32,7 +32,7 @@ export function parseRemotePath(fullPath: string): { remote: string, realPath: s
         const parts = fullPath.split('::');
         remote = parts[0];
         realPath = parts.slice(1).join('::');
-    } else if (!fullPath) {
+    } else if (!fullPath || fullPath === '/') {
         remote = '';
     }
     return { remote, realPath };

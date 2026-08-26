@@ -1,7 +1,7 @@
 ---
 description: Plan Reviewer - Phản biện thiết kế, phát hiện rủi ro, lỗ hổng logic và inconsistency trong kế hoạch trước khi Dev triển khai.
 mode: subagent
-model: opencode/deepseek-v4-flash-free
+model: opencode/nemotron-3-ultra-free
 temperature: 0.15
 permission:
   edit: deny

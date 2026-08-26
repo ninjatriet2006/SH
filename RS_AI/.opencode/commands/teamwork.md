@@ -1,7 +1,7 @@
 ---
 description: Khởi chạy full teamwork multi-agent để giải quyết một task phức tạp. Team Lead sẽ điều phối Plan Splitter, Plan Reviewer, Explorer, Rust Dev, Tester, Reviewer, Docs.
 agent: lead
-model: opencode/deepseek-v4-flash-free
+model: opencode/x-preview-f-free
 ---
 
 # Teamwork Multi-Agent Mode

@@ -1,7 +1,7 @@
 ---
 description: Rust Developer - Viết, sửa và refactor code Rust theo yêu cầu. Ưu tiên correctness, idiomatic Rust và minimal diff.
 mode: subagent
-model: opencode/deepseek-v4-flash-free
+model: opencode/x-preview-f-free
 temperature: 0.15
 permission:
   edit: allow

@@ -88,12 +88,11 @@ function renderRowHTML(f: FileItem, activeCols: any[], basePath: string): string
   return html;
 }
 
-/** Cột có thể kéo để đổi width (cột Modified cuối flex còn lại). */
 const ALL_COLUMNS: { key: SortKey; label: string; resize?: PaneColKey }[] = [
   { key: 'name', label: 'Name', resize: 'name' },
   { key: 'type', label: 'Type', resize: 'type' },
   { key: 'size', label: 'Size', resize: 'size' },
-  { key: 'date', label: 'Modified' },
+  { key: 'date', label: 'Modified', resize: 'date' },
 ];
 
 export interface FileTableOptions {
@@ -895,6 +894,10 @@ export class FileTable {
     const handle = document.createElement('span');
     handle.className = 'resize-handle';
     th.appendChild(handle);
+    handle.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
 
     handle.addEventListener('pointerdown', (e) => {
       e.preventDefault();

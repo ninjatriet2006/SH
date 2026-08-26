@@ -13,9 +13,13 @@ Registry ghi nhận các model bị coi là "chết" (không phản hồi / lỗ
 
 | model | trạng thái | fail_count | phát hiện lúc | triệu chứng | ghi chú |
 |-------|-----------|------------|---------------|-------------|---------|
-| _(trống — chưa có model chết)_ | | | | | |
+| opencode/deepseek-v4-flash-free | DEAD | probe | 2026-08-26 | HTTP 400 "Model is unavailable" từ upstream Zen | Đã thay bằng x-preview-f-free toàn team |
+| moonshotai/kimi-k3-free (custom_3 + custom_4) | DEAD | probe | 2026-08-26 | 503 model_not_found, biến mất khỏi catalog Tokenrouter | Đã xóa cả 2 provider khỏi global config |
+| tokenlb.net claude-opus-4-7 + gpt-5.5 (custom_2) | DEAD | probe | 2026-08-26 | 403 insufficient_user_quota ($0.00) | Provider custom_2 đã xóa |
+| tokenlb.net gemini-3-flash-preview (custom_2) | DEAD | probe | 2026-08-26 | 503 no available channel | Provider custom_2 đã xóa |
+| opencode/muse-spark-1.2-contributor-free | WATCH | probe | 2026-08-26 | Internal server error khi probe | Thử lại trước khi dùng |
 
 ## Lịch sử đã hồi phục
 | model | trạng thái | hồi phục lúc | ghi chú |
 |-------|-----------|--------------|---------|
-| _(trống)_ | | | |
+| custom_5/mercury-2 | RETIRED | 2026-08-26 | Probe còn sống (HTTP 200) nhưng user quyết định loại bỏ Thread Steal, cross-checker chuyển sang hy3-free |

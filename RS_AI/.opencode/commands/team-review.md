@@ -1,7 +1,7 @@
 ---
 description: Review các thay đổi hiện tại (git diff) bởi Reviewer agent.
 agent: lead
-model: opencode/deepseek-v4-flash-free
+model: opencode/x-preview-f-free
 ---
 
 # Teamwork Review Command

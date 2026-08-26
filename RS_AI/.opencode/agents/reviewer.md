@@ -1,7 +1,7 @@
 ---
 description: Reviewer - Review code diff, kiểm tra style, logic, security, performance và approve hoặc request changes.
 mode: subagent
-model: opencode/deepseek-v4-flash-free
+model: opencode/big-pickle
 temperature: 0.1
 permission:
   edit: deny
