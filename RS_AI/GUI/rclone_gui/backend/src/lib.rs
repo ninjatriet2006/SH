@@ -12,12 +12,14 @@ use std::io::{BufRead, BufReader};
 use tauri::Emitter;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use tauri::State;
 
 pub struct AppState {
     pub pids: Mutex<HashMap<u32, u32>>,
 }
 
+pub mod sys;
+pub mod trash;
+pub mod auth;
 pub mod remote;
 pub mod mount;
 pub mod config;
@@ -162,6 +164,25 @@ async fn fs_delete(remote: String, path: String) -> Result<(), String> {
         .map_err(|e| format!("Failed to execute rclone: {}", e))?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn fs_touch(remote: String, path: String) -> Result<(), String> {
+    let target = if remote == "Local" { path } else { format!("{}:{}", remote, path) };
+    
+    // For local, just create the file
+    if remote == "Local" {
+        std::fs::File::create(&target).map_err(|e| e.to_string())?;
+    } else {
+        // For remote, use rclone touch
+        use std::process::Command;
+        Command::new("rclone")
+            .arg("touch")
+            .arg(&target)
+            .spawn()
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -627,6 +648,7 @@ pub fn run() {
             list_remotes,
             list_files,
             fs_mkdir,
+            fs_touch,
             fs_delete,
             fs_rename,
             fs_copy,
@@ -638,6 +660,22 @@ pub fn run() {
             open_in_terminal,
             fs_get_thumbnail,
             fs_sudo_exec,
+            sys::sys_open_with,
+            sys::sys_list_apps,
+            sys::os_clipboard_set,
+            sys::os_clipboard_get,
+            sys::sys_get_custom_actions,
+            sys::sys_execute_custom_action,
+            trash::fs_trash_list_local,
+            trash::fs_trash_restore_local,
+            trash::fs_trash_empty_local,
+            trash::fs_trash_list_remote_terminal,
+            trash::fs_trash_restore_remote_terminal,
+            trash::fs_trash_delete_remote_terminal,
+            trash::fs_trash_empty_remote_terminal,
+            auth::auth_login_terminal,
+            auth::auth_login_twofa_terminal,
+            auth::auth_statfs_terminal,
             remote::get_providers,
             remote::create_remote,
             remote::update_remote,

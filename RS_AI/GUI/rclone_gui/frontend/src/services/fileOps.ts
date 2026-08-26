@@ -116,18 +116,30 @@ export async function cpBatch(srcs: string[], dstDir: string, _overwrite = true)
     }
 }
 
-// Các tính năng đọc/mở file tạm thời stub vì rclone_gui hiện chỉ quản lý file
+// Các tính năng đọc/ghi nội dung file (chưa được rclone hỗ trợ native)
 export async function cat(_path: string, _account?: string): Promise<string> {
-    console.warn("cat not implemented for rclone yet");
+    alert("Tính năng đọc nội dung file trực tiếp chưa được hỗ trợ trên cloud.");
     return "";
 }
 
-export async function write(_path: string, _content: string, _account?: string): Promise<void> {
-    console.warn("write not implemented for rclone yet");
+export async function write(path: string, content: string, _account?: string): Promise<void> {
+    if (content === "") {
+        // Tạo file rỗng (dùng cho tính năng New File)
+        const { remote, realPath } = parseRemotePath(path);
+        await invoke('fs_touch', { remote, path: realPath });
+    } else {
+        alert("Tính năng ghi nội dung trực tiếp chưa được hỗ trợ.");
+    }
 }
 
-export async function open(_path: string): Promise<void> {
-    console.warn("open not implemented for rclone yet");
+export async function open(path: string): Promise<void> {
+    const { remote, realPath } = parseRemotePath(path);
+    if (remote === 'Local') {
+        // Mở file bằng ứng dụng mặc định của hệ điều hành
+        await invoke('sys_open_with', { path: realPath, execCmd: null, app: null });
+    } else {
+        alert("Không thể mở file trực tiếp từ Cloud. Vui lòng tải xuống trước.");
+    }
 }
 
 // Removed duplicate StatInfo interface

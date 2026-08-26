@@ -701,10 +701,8 @@ export class FileTable {
       e.dataTransfer!.setDragImage(row, 20, 20);
       row.classList.add('dragging');
 
-      if (this.opts.pane === 'left') {
-        // Bắt đầu native drag-out đồng thời với HTML5 drag
-        import('../../features/dragDrop').then(m => m.startOSDrag(payload.paths));
-      }
+      // Bắt đầu native drag-out đồng thời với HTML5 drag
+      import('../../features/dragDrop').then(m => m.startOSDrag(payload.paths));
     });
 
     row.addEventListener('dragend', () => {
