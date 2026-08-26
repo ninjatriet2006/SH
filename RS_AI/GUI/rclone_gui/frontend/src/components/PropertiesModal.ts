@@ -11,15 +11,13 @@ export class PropertiesModal {
   private modal: OperationModal;
   private file: FileItem;
   private fullPath: string;
-  private pane: Pane;
   private stats: fileOps.StatInfo | null = null;
   private permOctalStr = '0000';
   private apps: any[] = [];
 
-  constructor(file: FileItem, fullPath: string, pane: Pane) {
+  constructor(file: FileItem, fullPath: string, _pane: Pane) {
     this.file = file;
     this.fullPath = fullPath;
-    this.pane = pane;
     
     // Start with a loading HTML while fetching stats
     this.modal = new OperationModal(`${file.name} Properties`, this.getLoadingHtml());
@@ -28,7 +26,7 @@ export class PropertiesModal {
   public async open(): Promise<void> {
     this.modal.open();
     
-    if (this.pane === 'left') {
+    if (this.fullPath.startsWith('Local::') || !this.fullPath.includes('::')) {
       try {
         const [stats, apps] = await Promise.all([
           fileOps.statAdvanced(this.fullPath),
@@ -70,8 +68,8 @@ export class PropertiesModal {
     return `
       <div class="tabs-header">
         <button class="tab-btn active" data-tab="basic">Basic</button>
-        ${this.pane === 'left' ? `<button class="tab-btn" data-tab="permissions">Permissions</button>` : ''}
-        ${!this.file.is_dir && this.pane === 'left' ? `<button class="tab-btn" data-tab="openwith">Open With</button>` : ''}
+        ${(this.fullPath.startsWith('Local::') || !this.fullPath.includes('::')) ? `<button class="tab-btn" data-tab="permissions">Permissions</button>` : ''}
+        ${!this.file.is_dir && (this.fullPath.startsWith('Local::') || !this.fullPath.includes('::')) ? `<button class="tab-btn" data-tab="openwith">Open With</button>` : ''}
         <button class="tab-btn" data-tab="emblems">Emblems</button>
       </div>
 
@@ -84,7 +82,7 @@ export class PropertiesModal {
         <div class="prop-row"><span>Modified</span><span>${this.formatDate(this.file.mod_time)}</span></div>
       </div>
 
-      ${this.pane === 'left' ? `
+      ${(this.fullPath.startsWith('Local::') || !this.fullPath.includes('::')) ? `
       <div class="tab-pane" id="tab-permissions">
         <div class="prop-row" style="margin-bottom: 15px;">
           <span>Ownership</span>
@@ -122,7 +120,7 @@ export class PropertiesModal {
       </div>
       ` : ''}
 
-      ${!this.file.is_dir && this.pane === 'left' ? `
+      ${!this.file.is_dir && (this.fullPath.startsWith('Local::') || !this.fullPath.includes('::')) ? `
       <div class="tab-pane" id="tab-openwith">
         <div style="font-size: 13px; margin-bottom: 10px;">Select an application to open this file:</div>
         <div class="apps-list" style="max-height: 150px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 4px; margin-bottom: 15px; background: var(--bg-color);">
@@ -259,7 +257,7 @@ export class PropertiesModal {
     const confirmBtn = el.querySelector('.confirm') as HTMLButtonElement;
     if (confirmBtn) {
       confirmBtn.addEventListener('click', async () => {
-        if (this.pane === 'left') {
+        if (this.fullPath.startsWith('Local::') || !this.fullPath.includes('::')) {
           // 1. Save Permissions
           if (this.permOctalStr && this.stats) {
             const oldOctal = (this.stats.permissions & 0o777).toString(8).padStart(4, '0');

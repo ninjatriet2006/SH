@@ -153,7 +153,7 @@ export function MenuFile(e: MouseEvent, opts: ContextMenuOptions): void {
           });
           break;
         case 'New Folder':
-          promptName('New Folder', 'folder name', (name) => pane === 'left' ? fileOps.mkdirLocal(joinPath(basePath, name)) : fileOps.mkdir(joinPath(basePath, name)), pane, basePath, onRefresh);
+          promptName('New Folder', 'folder name', (name) => fileOps.mkdir(joinPath(basePath, name)), pane, basePath, onRefresh);
           break;
         case 'New File':
           promptName('New File', 'file name', (name) => fileOps.write(joinPath(basePath, name), ''), pane, basePath, onRefresh);
@@ -219,10 +219,10 @@ export function MenuEmpty(e: MouseEvent, opts: FolderContextMenuOptions): void {
     (action) => {
       switch (action) {
         case 'New Folder':
-          promptName('New Folder', 'folder name', (name) => pane === 'left' ? fileOps.mkdirLocal(joinPath(basePath, name)) : fileOps.mkdir(joinPath(basePath, name)), pane, basePath, onRefresh);
+          promptName('New Folder', 'folder name', (name) => fileOps.mkdir(joinPath(basePath, name)), pane, basePath, onRefresh);
           break;
         case 'New File':
-          promptName('New File', 'file name', (name) => pane === 'left' ? fileOps.writeLocal(joinPath(basePath, name), '') : fileOps.write(joinPath(basePath, name), ''), pane, basePath, onRefresh);
+          promptName('New File', 'file name', (name) => fileOps.write(joinPath(basePath, name), ''), pane, basePath, onRefresh);
           break;
         case 'Paste':
           pasteTo(pane, basePath, onRefresh);
@@ -313,11 +313,7 @@ function openRenameModal(
     const newName = input?.value?.trim();
     if (newName) {
       try {
-        if (pane === 'left') {
-          await fileOps.renameLocal(fullPath, newName);
-        } else {
-          await fileOps.rename(fullPath, newName, appState.auth?.user);
-        }
+        await fileOps.rename(fullPath, newName, appState.auth?.user);
         logActivity('Đổi tên', `Từ ${f.name} thành ${newName}`);
       } catch (err) {
         console.warn('rename fail:', err);
@@ -355,11 +351,7 @@ function openDeleteModal(
   modal.open();
   modal.getElement().querySelector('.confirm')?.addEventListener('click', async () => {
     try {
-      if (pane === 'left') {
-        await fileOps.rmLocal(fullPath);
-      } else {
-        await fileOps.remove(fullPath, appState.auth?.user);
-      }
+      await fileOps.remove(fullPath, appState.auth?.user);
       logActivity('Xoá', `Đã xoá ${fullPath}`);
     } catch (err) {
       console.warn('delete fail:', err);

@@ -40,20 +40,10 @@ export function parseRemotePath(fullPath: string): { remote: string, realPath: s
 
 export async function mkdir(path: string, _account?: string): Promise<void> {
     const { remote, realPath } = parseRemotePath(path);
-    await fsMkdir(remote, realPath);
-}
-
-export async function mkdirLocal(path: string): Promise<void> {
-    const { remote, realPath } = parseRemotePath(path);
     await runWithSudoFallback('mkdir', [realPath], remote, () => fsMkdir(remote, realPath));
 }
 
 export async function remove(path: string, _account?: string): Promise<void> {
-    const { remote, realPath } = parseRemotePath(path);
-    await fsDelete(remote, realPath);
-}
-
-export async function rmLocal(path: string): Promise<void> {
     const { remote, realPath } = parseRemotePath(path);
     await runWithSudoFallback('rm', [realPath], remote, () => fsDelete(remote, realPath));
 }
@@ -62,13 +52,6 @@ export async function rename(path: string, newName: string, _account?: string): 
     const { remote, realPath } = parseRemotePath(path);
     const parentDir = realPath.substring(0, realPath.lastIndexOf('/'));
     const newPath = parentDir ? `${parentDir}/${newName}` : `/${newName}`;
-    await fsRename(remote, realPath, newPath);
-}
-
-export async function renameLocal(oldPath: string, newName: string): Promise<void> {
-    const { remote, realPath } = parseRemotePath(oldPath);
-    const parent = realPath.substring(0, realPath.lastIndexOf('/'));
-    const newPath = parent ? `${parent}/${newName}` : `/${newName}`;
     await runWithSudoFallback('mv', [realPath, newPath], remote, () => fsRename(remote, realPath, newPath));
 }
 
@@ -141,10 +124,6 @@ export async function cat(_path: string, _account?: string): Promise<string> {
 
 export async function write(_path: string, _content: string, _account?: string): Promise<void> {
     console.warn("write not implemented for rclone yet");
-}
-
-export async function writeLocal(_path: string, _content: string): Promise<void> {
-    console.warn("writeLocal not implemented for rclone yet");
 }
 
 export async function open(_path: string): Promise<void> {
