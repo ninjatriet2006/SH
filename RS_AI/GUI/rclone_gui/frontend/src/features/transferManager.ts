@@ -4,7 +4,7 @@ import { joinPath } from './dragDrop';
 import * as fileOps from '../services/fileOps';
 import { FallbackModal } from '../components/FallbackModal';
 import { getBackendFeatures } from '../../../bridge/remote_api';
-import { fsDelete } from '../../../bridge/explorer_api';
+import { fsDelete, fsCancel } from '../../../bridge/explorer_api';
 import { listen } from '@tauri-apps/api/event';
 
 export type TransferKind = 'upload' | 'download' | 'copy' | 'move' | 'delete';
@@ -204,10 +204,13 @@ class TransferManager {
 
   async cancel(id: number) {
     const task = this.tasks.get(id);
-    if (task && task.status === 'queued') {
+    if (task && (task.status === 'queued' || task.status === 'running')) {
       task.status = 'cancelled';
-      task.error = 'Đã huỷ';
-      this.notify();
+      
+      // Call backend to kill the actual rclone process
+      fsCancel(id).catch(err => console.error("Lỗi khi cancel task:", err));
+
+      if (this.onUpdate) this.onUpdate();
     }
   }
 

@@ -31,6 +31,10 @@ export async function fsRename(remote: string, oldPath: string, newPath: string)
   await invoke('fs_rename', { remote, oldPath, newPath });
 }
 
+export async function fsCancel(taskId: number): Promise<void> {
+  return await invoke('fs_cancel', { taskId });
+}
+
 export async function fsCopy(srcRemote: string, srcPath: string, destRemote: string, destPath: string, taskId?: number): Promise<void> {
   await invoke('fs_copy', { srcRemote, srcPath, destRemote, destPath, taskId });
 }

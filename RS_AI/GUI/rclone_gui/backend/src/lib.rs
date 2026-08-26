@@ -10,6 +10,13 @@ use serde_json::Value;
 use std::process::{Command, Stdio};
 use std::io::{BufRead, BufReader};
 use tauri::Emitter;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use tauri::State;
+
+pub struct AppState {
+    pub pids: Mutex<HashMap<u32, u32>>,
+}
 
 pub mod remote;
 pub mod mount;
@@ -176,6 +183,7 @@ async fn fs_rename(remote: String, old_path: String, new_path: String) -> Result
 #[tauri::command]
 async fn fs_copy(
     app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
     src_remote: String,
     src_path: String,
     dest_remote: String,
@@ -191,6 +199,13 @@ async fn fs_copy(
         .spawn()
         .map_err(|e| format!("Failed to spawn rclone: {}", e))?;
 
+    let pid = child.id();
+    if let Some(id) = task_id {
+        if let Ok(mut pids) = state.pids.lock() {
+            pids.insert(id, pid);
+        }
+    }
+
     if let Some(stderr) = child.stderr.take() {
         let reader = BufReader::new(stderr);
         for line in reader.lines() {
@@ -211,6 +226,13 @@ async fn fs_copy(
     }
 
     let status = child.wait().map_err(|e| format!("Failed to wait for rclone: {}", e))?;
+    
+    if let Some(id) = task_id {
+        if let Ok(mut pids) = state.pids.lock() {
+            pids.remove(&id);
+        }
+    }
+
     if !status.success() {
         return Err(format!("Command failed with status: {}", status));
     }
@@ -220,6 +242,7 @@ async fn fs_copy(
 #[tauri::command]
 async fn fs_move(
     app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
     src_remote: String,
     src_path: String,
     dest_remote: String,
@@ -235,6 +258,13 @@ async fn fs_move(
         .spawn()
         .map_err(|e| format!("Failed to spawn rclone: {}", e))?;
 
+    let pid = child.id();
+    if let Some(id) = task_id {
+        if let Ok(mut pids) = state.pids.lock() {
+            pids.insert(id, pid);
+        }
+    }
+
     if let Some(stderr) = child.stderr.take() {
         let reader = BufReader::new(stderr);
         for line in reader.lines() {
@@ -255,8 +285,29 @@ async fn fs_move(
     }
 
     let status = child.wait().map_err(|e| format!("Failed to wait for rclone: {}", e))?;
+    
+    if let Some(id) = task_id {
+        if let Ok(mut pids) = state.pids.lock() {
+            pids.remove(&id);
+        }
+    }
+
     if !status.success() {
         return Err(format!("Command failed with status: {}", status));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn fs_cancel(state: tauri::State<'_, AppState>, task_id: u32) -> Result<(), String> {
+    if let Ok(mut pids) = state.pids.lock() {
+        if let Some(pid) = pids.remove(&task_id) {
+            #[cfg(unix)]
+            let _ = Command::new("kill").arg("-9").arg(pid.to_string()).output();
+            
+            #[cfg(windows)]
+            let _ = Command::new("taskkill").args(["/F", "/PID", &pid.to_string()]).output();
+        }
     }
     Ok(())
 }
@@ -567,8 +618,8 @@ async fn rclone_size(remote: String) -> Result<serde_json::Value, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .setup(|_app| {
-            Ok(())
+        .manage(AppState {
+            pids: std::sync::Mutex::new(std::collections::HashMap::new()),
         })
         .invoke_handler(tauri::generate_handler![
             list_remotes,
@@ -578,6 +629,7 @@ pub fn run() {
             fs_rename,
             fs_copy,
             fs_move,
+            fs_cancel,
             fs_stat_advanced,
             fs_search,
             get_home_dir,
