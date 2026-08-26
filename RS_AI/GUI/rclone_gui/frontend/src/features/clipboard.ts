@@ -160,16 +160,22 @@ export async function pasteTo(
       if (destPane === 'left') {
         if (mode === 'copy') {
           for (const item of finalSrcsToProcess) {
-             await transferManager.enqueue('copy', baseName(item.src), item.src, item.dest, true, true);
+             await transferManager.enqueue('copy', baseName(item.src), item.src, item.dest);
           }
         } else {
           for (const item of finalSrcsToProcess) {
-            await transferManager.enqueue('move', baseName(item.src), item.src, item.dest, true, true);
+            await transferManager.enqueue('move', baseName(item.src), item.src, item.dest);
           }
         }
       } else {
-        for (const item of finalSrcsToProcess) {
-          await transferManager.enqueue('upload', baseName(item.src), item.src, item.dest, true, false);
+        if (mode === 'copy') {
+          for (const item of finalSrcsToProcess) {
+            await transferManager.enqueue('copy', baseName(item.src), item.src, item.dest);
+          }
+        } else {
+          for (const item of finalSrcsToProcess) {
+            await transferManager.enqueue('move', baseName(item.src), item.src, item.dest);
+          }
         }
       }
       

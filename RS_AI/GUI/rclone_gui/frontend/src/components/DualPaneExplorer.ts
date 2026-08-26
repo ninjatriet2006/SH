@@ -518,16 +518,22 @@ export class DualPaneExplorer {
         if (destPane === 'left') {
           if (move) {
             for (const item of finalSrcsToProcess) {
-              await transferManager.enqueue('move', baseName(item.src), item.src, item.dest, payload.pane === 'left', destPane === 'left');
+              await transferManager.enqueue('move', baseName(item.src), item.src, item.dest);
             }
           } else {
             for (const item of finalSrcsToProcess) {
-               await transferManager.enqueue('copy', baseName(item.src), item.src, item.dest, payload.pane === 'left', destPane === 'left');
+               await transferManager.enqueue('copy', baseName(item.src), item.src, item.dest);
             }
           }
         } else {
-          for (const item of finalSrcsToProcess) {
-            await transferManager.enqueue('upload', baseName(item.src), item.src, item.dest, payload.pane === 'left', false);
+          if (move) {
+            for (const item of finalSrcsToProcess) {
+              await transferManager.enqueue('move', baseName(item.src), item.src, item.dest);
+            }
+          } else {
+            for (const item of finalSrcsToProcess) {
+              await transferManager.enqueue('copy', baseName(item.src), item.src, item.dest);
+            }
           }
         }
         

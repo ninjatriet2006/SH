@@ -74,17 +74,14 @@ class TransferManager {
     name: string,
     src: string,
     dst: string,
-    srcLocal: boolean,
-    dstLocal: boolean,
-    _cleanupSrc: boolean = false,
     onSuccess?: () => void
   ): Promise<void> {
+    const srcParsed = fileOps.parseRemotePath(src);
+    const dstParsed = fileOps.parseRemotePath(dst);
+    const srcRemote = srcParsed.remote;
+    const dstRemote = dstParsed.remote;
+
     if (kind === 'move') {
-      const srcParsed = fileOps.parseRemotePath(src);
-      const dstParsed = fileOps.parseRemotePath(dst);
-      const srcRemote = srcLocal ? 'Local' : srcParsed.remote;
-      const dstRemote = dstLocal ? 'Local' : dstParsed.remote;
-      
       let canMove = false;
       let canCopyDelete = false;
 
@@ -106,17 +103,18 @@ class TransferManager {
         const modal = new FallbackModal(canCopyDelete, srcRemote, dstRemote);
         const action = await modal.open();
         if (action === 'copy_delete') {
-          await this.enqueue('copy', '[Copy] ' + name, src, dst, srcLocal, dstLocal, false, async () => {
-            await this.enqueue('delete', '[Xoá gốc] ' + name, src, dst, srcLocal, dstLocal);
+          await this.enqueue('copy', '[Copy] ' + name, src, dst, async () => {
+            await this.enqueue('delete', '[Xoá gốc] ' + name, src, dst);
           });
           return;
         } else if (action === 'local_transfer') {
-          await this.enqueue('copy', '[Local Copy] ' + name, src, dst, srcLocal, dstLocal, false, async () => {
-            await this.enqueue('delete', '[Local Xoá gốc] ' + name, src, dst, srcLocal, dstLocal);
+          await this.enqueue('copy', '[Local Copy] ' + name, src, dst, async () => {
+            await this.enqueue('delete', '[Local Xoá gốc] ' + name, src, dst);
           });
           return;
         } else {
-          return; // Cancelled
+          console.log(`Đã huỷ Move: Bỏ qua move file ${name}`);
+          return;
         }
       }
     }
@@ -136,8 +134,8 @@ class TransferManager {
       speed: 0,
       lastUpdateTime: performance.now(),
       lastBytesDone: 0,
-      srcLocal,
-      dstLocal,
+      srcLocal: srcRemote === 'Local',
+      dstLocal: dstRemote === 'Local',
       onSuccess
     });
     

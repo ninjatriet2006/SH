@@ -206,26 +206,27 @@ async fn fs_copy(
         }
     }
 
-    if let Some(stderr) = child.stderr.take() {
-        let reader = BufReader::new(stderr);
-        for line in reader.lines() {
-            if let Ok(line_str) = line {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line_str) {
-                    if let Some(stats) = json.get("stats") {
-                        if let Some(id) = task_id {
-                            let payload = serde_json::json!({
-                                "id": id,
-                                "stats": stats
-                            });
-                            let _ = app_handle.emit("transfer_progress", payload);
+    let status = tauri::async_runtime::spawn_blocking(move || {
+        if let Some(stderr) = child.stderr.take() {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                if let Ok(line_str) = line {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line_str) {
+                        if let Some(stats) = json.get("stats") {
+                            if let Some(id) = task_id {
+                                let payload = serde_json::json!({
+                                    "id": id,
+                                    "stats": stats
+                                });
+                                let _ = app_handle.emit("transfer_progress", payload);
+                            }
                         }
                     }
                 }
             }
         }
-    }
-
-    let status = child.wait().map_err(|e| format!("Failed to wait for rclone: {}", e))?;
+        child.wait()
+    }).await.map_err(|e| e.to_string())?.map_err(|e| format!("Failed to wait for rclone: {}", e))?;
     
     if let Some(id) = task_id {
         if let Ok(mut pids) = state.pids.lock() {
@@ -265,26 +266,27 @@ async fn fs_move(
         }
     }
 
-    if let Some(stderr) = child.stderr.take() {
-        let reader = BufReader::new(stderr);
-        for line in reader.lines() {
-            if let Ok(line_str) = line {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line_str) {
-                    if let Some(stats) = json.get("stats") {
-                        if let Some(id) = task_id {
-                            let payload = serde_json::json!({
-                                "id": id,
-                                "stats": stats
-                            });
-                            let _ = app_handle.emit("transfer_progress", payload);
+    let status = tauri::async_runtime::spawn_blocking(move || {
+        if let Some(stderr) = child.stderr.take() {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                if let Ok(line_str) = line {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line_str) {
+                        if let Some(stats) = json.get("stats") {
+                            if let Some(id) = task_id {
+                                let payload = serde_json::json!({
+                                    "id": id,
+                                    "stats": stats
+                                });
+                                let _ = app_handle.emit("transfer_progress", payload);
+                            }
                         }
                     }
                 }
             }
         }
-    }
-
-    let status = child.wait().map_err(|e| format!("Failed to wait for rclone: {}", e))?;
+        child.wait()
+    }).await.map_err(|e| e.to_string())?.map_err(|e| format!("Failed to wait for rclone: {}", e))?;
     
     if let Some(id) = task_id {
         if let Ok(mut pids) = state.pids.lock() {
