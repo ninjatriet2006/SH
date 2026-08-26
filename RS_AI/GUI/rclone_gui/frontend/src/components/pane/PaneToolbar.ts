@@ -30,7 +30,7 @@ export class PaneToolbar {
     this.element = document.createElement('div');
     this.element.className = 'pane-toolbar-nemo state-remote-active';
 
-    const mkBtn = (label: string, onClick?: () => void, extraClass?: string): HTMLButtonElement => {
+    const mkBtn = (label: string, onClick?: (e: MouseEvent) => void, extraClass?: string): HTMLButtonElement => {
       const b = document.createElement('button');
       b.className = `nemo-btn ${extraClass || ''}`;
       b.textContent = label;
@@ -106,33 +106,29 @@ export class PaneToolbar {
     
     viewGroup.appendChild(separator());
     
-    // View modes
-    const mode = opts.currentViewMode || 'list';
+    // View modes Dropdown
+    let mode = opts.currentViewMode || 'list';
     
-    const btnGrid = mkBtn('🔲', () => {
-      opts.onChangeViewMode?.('grid');
-      updateViewBtns('grid');
-    }, mode === 'grid' ? 'active' : '');
-    
-    const btnList = mkBtn('📄', () => {
-      opts.onChangeViewMode?.('list');
-      updateViewBtns('list');
-    }, mode === 'list' ? 'active' : '');
-    
-    const btnCompact = mkBtn('☰', () => {
-      opts.onChangeViewMode?.('compact');
-      updateViewBtns('compact');
-    }, mode === 'compact' ? 'active' : '');
-
-    const updateViewBtns = (m: string) => {
-      btnGrid.classList.toggle('active', m === 'grid');
-      btnList.classList.toggle('active', m === 'list');
-      btnCompact.classList.toggle('active', m === 'compact');
+    const getModeIcon = (m: string) => {
+      if (m === 'grid') return '🔲';
+      if (m === 'compact') return '☰';
+      return '📄';
     };
 
-    viewGroup.appendChild(btnGrid);
-    viewGroup.appendChild(btnList);
-    viewGroup.appendChild(btnCompact);
+    const btnViewMode = mkBtn(getModeIcon(mode), (e: MouseEvent) => {
+      const items = ['🔲 Lưới (Grid)', '📄 Chi tiết (List)', '☰ Thu gọn (Compact)'];
+      showMenu(e, items, (label) => {
+        let newMode: 'list' | 'grid' | 'compact' = 'list';
+        if (label.includes('Lưới')) newMode = 'grid';
+        else if (label.includes('Thu gọn')) newMode = 'compact';
+        
+        mode = newMode;
+        btnViewMode.textContent = getModeIcon(newMode);
+        if (opts.onChangeViewMode) opts.onChangeViewMode(newMode);
+      });
+    }, 'active');
+    
+    viewGroup.appendChild(btnViewMode);
     
     viewGroup.appendChild(separator());
     
