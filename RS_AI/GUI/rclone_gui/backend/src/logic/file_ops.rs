@@ -6,6 +6,7 @@
 */
 
 use std::process::Command;
+use std::collections::HashMap;
 
 
 /// Tên hàm: parse_remote_path
@@ -83,6 +84,67 @@ where
             }
         }
     }
+}
+
+/// Tên hàm: check_conflicts
+/// Mô tả: Kích hoạt `rclone check` ngầm để đệ quy kiểm tra xung đột hash giữa source và dest.
+/// Trả về mảng các đường dẫn file con bị khác hash.
+pub async fn check_conflicts(srcs: Vec<String>, dest_path: String) -> Result<Vec<String>, String> {
+    let mut conflicts = Vec::new();
+
+    let mut groups: HashMap<String, Vec<String>> = HashMap::new();
+    for src in srcs {
+        let (remote, path) = parse_remote_path(&src);
+        let path = path.trim_end_matches('/');
+        let (parent, base) = match path.rfind('/') {
+            Some(idx) => (&path[..idx], &path[idx+1..]),
+            None => ("", path),
+        };
+        
+        let parent_remote = if parent.is_empty() {
+            format!("{}::/", remote)
+        } else {
+            format!("{}::{}", remote, parent)
+        };
+        
+        groups.entry(parent_remote).or_insert_with(Vec::new).push(base.to_string());
+    }
+
+    let (dest_remote, dest_real) = parse_remote_path(&dest_path);
+    let dest_target = crate::core::rclone::build_target(&dest_remote, &dest_real);
+
+    for (parent_src, bases) in groups {
+        let (src_remote, src_real) = parse_remote_path(&parent_src);
+        let src_target = crate::core::rclone::build_target(&src_remote, &src_real);
+        
+        let mut string_args = vec![
+            "check".to_string(), 
+            src_target.clone(), 
+            dest_target.clone(), 
+            "--combined".to_string(), 
+            "-".to_string()
+        ];
+        
+        for base in &bases {
+            string_args.push("--include".to_string());
+            string_args.push(base.clone());
+            string_args.push("--include".to_string());
+            string_args.push(format!("{}/**", base));
+        }
+        
+        let ref_args: Vec<&str> = string_args.iter().map(|s| s.as_str()).collect();
+        let output = crate::core::rclone::run_cmd(&ref_args)?;
+        
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if line.starts_with("* ") {
+                let conflict_path = line[2..].trim_end().to_string();
+                conflicts.push(conflict_path);
+            }
+        }
+    }
+
+    Ok(conflicts)
 }
 
 #[cfg(test)]

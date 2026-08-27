@@ -19,10 +19,29 @@ pub async fn run_transfer_task(
     src: String,
     dst: String,
     task_id: Option<u32>,
+    excludes: Option<Vec<String>>,
 ) -> Result<(), String> {
     
+    let mut args = vec![
+        cmd_name.to_string(),
+        src.clone(),
+        dst.clone(),
+        "--transfers=8".to_string(),
+        "--checkers=8".to_string(),
+        "--use-json-log".to_string(),
+        "--stats".to_string(), "0.5s".to_string(),
+        "-v".to_string(),
+    ];
+
+    if let Some(excludes_list) = excludes {
+        for excl in excludes_list {
+            args.push("--exclude".to_string());
+            args.push(excl);
+        }
+    }
+
     let mut child = Command::new("rclone")
-        .args([cmd_name, &src, &dst, "--use-json-log", "--stats", "0.5s", "-v"])
+        .args(args)
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("Lỗi khi khởi chạy tiến trình rclone: {}", e))?;

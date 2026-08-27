@@ -14,6 +14,11 @@ use crate::core::rclone;
 use tauri::State;
 use std::process::Command;
 
+#[tauri::command]
+pub async fn fs_check_conflicts(srcs: Vec<String>, dest_path: String) -> Result<Vec<String>, String> {
+    file_ops::check_conflicts(srcs, dest_path).await
+}
+
 #[derive(Deserialize, Debug)]
 #[allow(non_snake_case)]
 pub struct RcloneFile {
@@ -168,6 +173,7 @@ pub async fn fs_copy(
     src: String,
     dst: String,
     task_id: Option<u32>,
+    excludes: Option<Vec<String>>,
 ) -> Result<(), String> {
     let (src_remote, src_real) = file_ops::parse_remote_path(&src);
     let (dst_remote, dst_real) = file_ops::parse_remote_path(&dst);
@@ -185,7 +191,7 @@ pub async fn fs_copy(
         })?;
     }
 
-    transfer::run_transfer_task(app_handle, state, "copyto", src_target, dst_target, task_id).await
+    transfer::run_transfer_task(app_handle, state, "copyto", src_target, dst_target, task_id, excludes).await
 }
 
 #[tauri::command]
@@ -195,14 +201,14 @@ pub async fn fs_move(
     src: String,
     dst: String,
     task_id: Option<u32>,
+    excludes: Option<Vec<String>>,
 ) -> Result<(), String> {
     let (src_remote, src_real) = file_ops::parse_remote_path(&src);
     let (dst_remote, dst_real) = file_ops::parse_remote_path(&dst);
     
     let src_target = rclone::build_target(&src_remote, &src_real);
     let dst_target = rclone::build_target(&dst_remote, &dst_real);
-
-    transfer::run_transfer_task(app_handle, state, "moveto", src_target, dst_target, task_id).await
+    transfer::run_transfer_task(app_handle, state, "moveto", src_target, dst_target, task_id, excludes).await
 }
 
 #[tauri::command]

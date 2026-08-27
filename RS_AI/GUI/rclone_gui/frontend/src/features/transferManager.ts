@@ -35,6 +35,7 @@ export interface TransferTask {
   dstLocal: boolean;
   onSuccess?: () => void;
   transferringFiles?: {name: string, percentage: number, bytes: number, size: number, speed: number, eta: number}[];
+  excludes?: string[];
 }
 
 // ====================================================================================
@@ -88,9 +89,11 @@ class TransferManager {
     name: string,
     src: string,
     dst: string,
-    onSuccess?: () => void
-  ): Promise<void> {
-    if (kind === 'move') {
+    onSuccess?: () => void,
+    isFallback: boolean = false,
+    excludes?: string[]
+  ): Promise<number> {
+    if (!isFallback && kind === 'move') {
       const caps = await checkTransferCapability(src, dst);
       const canMove = caps.canMove;
       const canCopyDelete = caps.canCopyDelete;
@@ -105,20 +108,20 @@ class TransferManager {
         if (action === 'copy_delete') {
           await this.enqueue('copy', '[Copy] ' + name, src, dst, async () => {
             await this.enqueue('delete', '[Xoá gốc] ' + name, src, dst);
-          });
-          return;
+          }, true, excludes);
+          return -1;
         } 
         // Nếu chọn tải xuống máy sau đó tải lên (Local Bandwidth Fallback)
         else if (action === 'local_transfer') {
           await this.enqueue('copy', '[Local Copy] ' + name, src, dst, async () => {
             await this.enqueue('delete', '[Local Xoá gốc] ' + name, src, dst);
-          });
-          return;
+          }, true, excludes);
+          return -1;
         } 
         // Nếu người dùng ấn nút Hủy
         else {
           console.log(`Đã huỷ Move: Bỏ qua move file ${name}`);
-          return;
+          return -1;
         }
       }
     }
@@ -140,13 +143,15 @@ class TransferManager {
       lastBytesDone: 0,
       srcLocal: !src.includes('::'),
       dstLocal: !dst.includes('::'),
-      onSuccess
+      onSuccess,
+      excludes
     });
     
     // Bắn sự kiện cập nhật giao diện (UI Update)
     this.notify();
     // Kích hoạt xử lý hàng đợi chạy nền (không await)
     this.processQueue(); 
+    return id;
   }
 
   /** Tên hàm: processQueue | Mô tả: Vòng lặp chính xử lý các tác vụ trong hàng đợi một cách tuần tự (Chạy nền) */
@@ -164,13 +169,13 @@ class TransferManager {
           try {
             // Lựa chọn lệnh thực thi dựa trên loại task
             if (task.kind === 'move') {
-              await fileOps.moveLocal(task.src, task.dst, task.id);
+              await fileOps.moveLocal(task.src, task.dst, task.id, task.excludes);
               // Xoá file nguồn vì đây là thao tác di chuyển
               await fsDelete(task.src);
             } else if (task.kind === 'delete') {
               await fsDelete(task.src);
             } else {
-              await fileOps.cpLocal(task.src, task.dst, true, task.id);
+              await fileOps.cpLocal(task.src, task.dst, true, task.id, task.excludes);
             }
 
             // Đánh dấu hoàn tất

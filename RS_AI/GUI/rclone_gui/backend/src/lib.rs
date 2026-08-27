@@ -32,6 +32,7 @@ pub fn run() {
             api::files::fs_cancel,
             api::files::fs_stat_advanced,
             api::files::fs_search,
+            api::files::fs_check_conflicts,
             api::files::get_home_dir,
             api::files::open_in_terminal,
             api::files::fs_get_thumbnail,

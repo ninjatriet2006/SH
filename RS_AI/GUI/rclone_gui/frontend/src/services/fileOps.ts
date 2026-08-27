@@ -44,24 +44,24 @@ export async function rename(path: string, newName: string, _account?: string): 
     return fsRename(path, newPath);
 }
 
-export async function copy(src: string, dest: string, _account?: string, taskId?: number): Promise<void> {
-    return fsCopy(src, dest, taskId);
+export async function copy(src: string, dest: string, _account?: string, taskId?: number, excludes?: string[]): Promise<void> {
+    return fsCopy(src, dest, taskId, excludes);
 }
 
-export async function move(src: string, dest: string, _account?: string, taskId?: number): Promise<void> {
-    return fsMove(src, dest, taskId);
+export async function move(src: string, dest: string, _account?: string, taskId?: number, excludes?: string[]): Promise<void> {
+    return fsMove(src, dest, taskId, excludes);
 }
 
-export async function copyLocal(from: string, to: string, _overwrite: boolean = false, taskId?: number): Promise<void> {
-    return fsCopy(from, to, taskId);
+export async function copyLocal(from: string, to: string, _overwrite: boolean = false, taskId?: number, excludes?: string[]): Promise<void> {
+    return fsCopy(from, to, taskId, excludes);
 }
 
-export async function cpLocal(from: string, to: string, _overwrite: boolean = true, taskId?: number): Promise<void> {
-    return fsCopy(from, to, taskId);
+export async function cpLocal(from: string, to: string, _overwrite: boolean = true, taskId?: number, excludes?: string[]): Promise<void> {
+    return fsCopy(from, to, taskId, excludes);
 }
 
-export async function moveLocal(from: string, to: string, taskId?: number): Promise<void> {
-    return fsMove(from, to, taskId);
+export async function moveLocal(from: string, to: string, taskId?: number, excludes?: string[]): Promise<void> {
+    return fsMove(from, to, taskId, excludes);
 }
 
 export async function upload(local: string, remoteTarget: string, _account?: string): Promise<void> {

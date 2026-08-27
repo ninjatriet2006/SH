@@ -8,7 +8,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Pane } from '../services/explorerStore';
 // Removed fileOps import
 import { OperationModal } from '../components/OperationModal';
-import { logActivity, appState } from '../store';
+import { logActivity } from '../store';
 import { ConflictModal, type ConflictResult } from '../components/ConflictModal';
 import { transferManager } from './transferManager';
 
@@ -82,18 +82,6 @@ function joinPath(dir: string, name: string): string {
   return dir.endsWith('/') ? dir + name : dir + '/' + name;
 }
 
-function generateUniqueName(name: string, existingNames: string[]): string {
-  if (!existingNames.includes(name)) return name;
-  const match = name.match(/^(.*)\.([^.]+)$/);
-  const base = match ? match[1] : name;
-  const ext = match ? `.${match[2]}` : '';
-  let i = 1;
-  while (existingNames.includes(`${base} (${i})${ext}`)) {
-    i++;
-  }
-  return `${base} (${i})${ext}`;
-}
-
 /**
  * Tên hàm: pasteTo
  * Mô tả: Thực thi thao tác Dán (Paste) clipboard hiện tại vào thư mục đích.
@@ -132,74 +120,83 @@ export async function pasteTo(
 
   modal.getElement().querySelector('.confirm')?.addEventListener('click', async () => {
     modal.close();
-    try {
-      const destFiles = destPane === 'left' ? appState.explorer?.leftFiles || [] : appState.explorer?.rightFiles || [];
-      const destNames = destFiles.map(f => f.name);
-      
-      let applyToAllRes: ConflictResult | null = null;
-      let finalSrcsToProcess: { src: string, dest: string, action: 'replace' | 'skip' | 'keep_both' }[] = [];
+    
+    // Hiện thông báo đang kiểm tra xung đột đệ quy
+    const checkingModal = new OperationModal('Đang kiểm tra...', '<p>Đang quét sâu để tìm các tệp tin trùng lặp...</p>');
+    checkingModal.open();
+    checkingModal.getElement().querySelector('.confirm')?.remove();
+    checkingModal.getElement().querySelector('.cancel')?.remove();
 
-      for (const src of srcs) {
-        const name = baseName(src);
-        const existing = destNames.includes(name);
+    try {
+      // 1. Quét sâu để lấy danh sách các tệp tin xung đột thực sự
+      const conflictPaths: string[] = await invoke('fs_check_conflicts', { srcs, destPath });
+      checkingModal.close();
+
+      let applyToAllRes: ConflictResult | null = null;
+      let excludes: string[] = [];
+      let explicitCopies: { src: string, dest: string }[] = [];
+
+      // 2. Xử lý từng conflict
+      for (const conflictPath of conflictPaths) {
         let action: 'replace' | 'skip' | 'keep_both' = 'replace';
 
-        if (existing) {
-          if (applyToAllRes) {
-            action = applyToAllRes.resolution;
-          } else {
-            const conflictModal = new ConflictModal(name, srcs.length > 1);
-            conflictModal.open();
-            const res = await conflictModal.waitForResolution();
-            action = res.resolution;
-            if (res.applyToAll) applyToAllRes = res;
+        if (applyToAllRes) {
+          action = applyToAllRes.resolution;
+        } else {
+          const conflictModal = new ConflictModal(conflictPath, conflictPaths.length > 1);
+          conflictModal.open();
+          const res = await conflictModal.waitForResolution();
+          action = res.resolution;
+          if (res.applyToAll) applyToAllRes = res;
+        }
+
+        if (action === 'skip') {
+          excludes.push(conflictPath);
+        } else if (action === 'keep_both') {
+          excludes.push(conflictPath); // Không ghi đè bản cũ
+          
+          // Tạo một bản copy thứ hai bằng cách thêm (1)
+          const dotIdx = conflictPath.lastIndexOf('.');
+          const baseName = dotIdx > 0 ? conflictPath.substring(0, dotIdx) : conflictPath;
+          const ext = dotIdx > 0 ? conflictPath.substring(dotIdx) : '';
+          const newName = `${baseName} (1)${ext}`;
+          
+          // Đường dẫn nguồn đầy đủ của file này
+          // conflictPath trả về là tương đối so với src (ví dụ thư mục `Docs/file.txt`)
+          // Ta cần map lại nó với src ban đầu tương ứng
+          let matchingSrc = srcs.find(s => {
+              const srcBase = s.endsWith('/') ? s.slice(0, -1).split('/').pop() : s.split('/').pop();
+              return conflictPath.startsWith(srcBase + '/') || conflictPath === srcBase;
+          });
+          
+          if (matchingSrc) {
+              const parentDir = matchingSrc.substring(0, matchingSrc.lastIndexOf('/'));
+              explicitCopies.push({
+                  src: `${parentDir}/${conflictPath}`,
+                  dest: joinPath(destPath, newName)
+              });
           }
         }
-        
-        if (action === 'skip') continue;
-
-        let targetName = name;
-        if (action === 'keep_both') {
-           targetName = generateUniqueName(name, destNames);
-           destNames.push(targetName); // Cập nhật danh sách nội bộ để tránh trùng lặp tiếp theo
-        }
-
-        finalSrcsToProcess.push({ src, dest: joinPath(destPath, targetName), action });
       }
 
-      if (finalSrcsToProcess.length === 0) {
-        logActivity('Bỏ qua', 'Tất cả các mục đã bị bỏ qua');
-        return;
+      // 3. Thực thi copy hàng loạt với mảng excludes
+      for (const src of srcs) {
+         await transferManager.enqueue(mode === 'cut' ? 'move' : 'copy', baseName(src), src, joinPath(destPath, baseName(src)), undefined, false, excludes.length > 0 ? excludes : undefined);
       }
 
-      if (destPane === 'left') {
-        if (mode === 'copy') {
-          for (const item of finalSrcsToProcess) {
-             await transferManager.enqueue('copy', baseName(item.src), item.src, item.dest);
-          }
-        } else {
-          for (const item of finalSrcsToProcess) {
-            await transferManager.enqueue('move', baseName(item.src), item.src, item.dest);
-          }
-        }
-      } else {
-        if (mode === 'copy') {
-          for (const item of finalSrcsToProcess) {
-            await transferManager.enqueue('copy', baseName(item.src), item.src, item.dest);
-          }
-        } else {
-          for (const item of finalSrcsToProcess) {
-            await transferManager.enqueue('move', baseName(item.src), item.src, item.dest);
-          }
-        }
+      // 4. Thực thi copyto từng file cho các file keep_both
+      for (const item of explicitCopies) {
+         // Sử dụng lệnh copy đặc biệt cho file (rclone copyto / copy)
+         await transferManager.enqueue('copy', `[Keep Both] ${baseName(item.src)}`, item.src, item.dest);
       }
       
-      logActivity(actionText, `${finalSrcsToProcess.length} mục tới ${destPath}`);
+      logActivity(actionText, `${srcs.length} mục tới ${destPath} (Xung đột: ${conflictPaths.length})`);
       
-      // Nếu thao tác là Cắt (Cut), tự động xóa bộ nhớ tạm. Giữ lại nếu là Copy để có thể dán nhiều lần.
+      // Nếu thao tác là Cắt (Cut), tự động xóa bộ nhớ tạm.
       if (mode === 'cut') clearClipboard();
       await onRefresh(destPane, destPath);
     } catch (e) {
+      checkingModal.close();
       console.warn('paste fail:', e);
       logActivity(`Lỗi ${actionText}`, `Chi tiết: ${e}`);
     }

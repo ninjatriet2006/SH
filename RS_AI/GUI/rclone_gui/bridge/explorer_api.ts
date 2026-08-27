@@ -35,12 +35,12 @@ export async function fsCancel(taskId: number): Promise<void> {
   return await invoke('fs_cancel', { taskId });
 }
 
-export async function fsCopy(src: string, dst: string, taskId?: number): Promise<void> {
-  await invoke('fs_copy', { src, dst, taskId });
+export async function fsCopy(src: string, dst: string, taskId?: number, excludes?: string[]): Promise<void> {
+  await invoke('fs_copy', { src, dst, taskId, excludes });
 }
 
-export async function fsMove(src: string, dst: string, taskId?: number): Promise<void> {
-  await invoke('fs_move', { src, dst, taskId });
+export async function fsMove(src: string, dst: string, taskId?: number, excludes?: string[]): Promise<void> {
+  await invoke('fs_move', { src, dst, taskId, excludes });
 }
 
 export interface StatInfo {
