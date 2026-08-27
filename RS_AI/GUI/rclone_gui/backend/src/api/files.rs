@@ -15,8 +15,8 @@ use tauri::State;
 use std::process::Command;
 
 #[tauri::command]
-pub async fn fs_check_conflicts(srcs: Vec<String>, dest_path: String) -> Result<Vec<String>, String> {
-    file_ops::check_conflicts(srcs, dest_path).await
+pub async fn fs_check_conflicts(app_handle: tauri::AppHandle, srcs: Vec<String>, dest_path: String) -> Result<Vec<String>, String> {
+    file_ops::check_conflicts(app_handle, srcs, dest_path).await
 }
 
 #[derive(Deserialize, Debug)]

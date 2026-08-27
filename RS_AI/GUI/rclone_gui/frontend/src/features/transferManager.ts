@@ -58,6 +58,9 @@ class TransferManager {
           task.bytesDone = payload.stats.bytes;
           task.totalBytes = payload.stats.totalBytes;
           task.speed = payload.stats.speed;
+          if (task.totalBytes > 0) {
+              task.progress = task.bytesDone / task.totalBytes;
+          }
           if (payload.stats.transferring) {
             task.transferringFiles = payload.stats.transferring.map((f: any) => ({
               name: f.name,

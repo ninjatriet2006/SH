@@ -44,11 +44,15 @@ pub struct CustomAction {
 }
 
 /// Khai báo dữ liệu Clipboard để lưu vào bộ nhớ đệm
+#[derive(Serialize, Deserialize, Clone)]
+pub struct OSClipboardItem {
+    pub pane: String,
+    pub path: String,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct OSClipboardData {
-    // Danh sách các đường dẫn file đã copy/cut
-    pub paths: Vec<String>,
-    // Cờ đánh dấu là hành động Cắt (true) hay Copy (false)
+    pub items: Vec<OSClipboardItem>,
     pub is_cut: bool,
 }
 
@@ -100,9 +104,8 @@ pub async fn sys_list_apps() -> Result<Vec<DesktopApp>, String> {
 /// Hàm API: os_clipboard_set
 /// Chức năng: Lưu danh sách file vào clipboard giả lập (thông qua file JSON tạm)
 #[tauri::command]
-pub async fn os_clipboard_set(paths: Vec<String>, is_cut: bool) -> Result<(), String> {
-    // Khởi tạo đối tượng dữ liệu clipboard
-    let data = OSClipboardData { paths, is_cut };
+pub async fn os_clipboard_set(items: Vec<OSClipboardItem>, is_cut: bool) -> Result<(), String> {
+    let data = OSClipboardData { items, is_cut };
     // Chuyển đối tượng thành chuỗi JSON
     let json = serde_json::to_string(&data).unwrap();
     // Ghi chuỗi JSON vào thư mục tạm của hệ điều hành

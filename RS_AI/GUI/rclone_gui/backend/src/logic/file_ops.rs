@@ -89,7 +89,11 @@ where
 /// Tên hàm: check_conflicts
 /// Mô tả: Kích hoạt `rclone check` ngầm để đệ quy kiểm tra xung đột hash giữa source và dest.
 /// Trả về mảng các đường dẫn file con bị khác hash.
-pub async fn check_conflicts(srcs: Vec<String>, dest_path: String) -> Result<Vec<String>, String> {
+pub async fn check_conflicts(app_handle: tauri::AppHandle, srcs: Vec<String>, dest_path: String) -> Result<Vec<String>, String> {
+    use std::process::{Command, Stdio};
+    use std::io::{BufRead, BufReader};
+    use tauri::Emitter;
+
     let mut conflicts = Vec::new();
 
     let mut groups: HashMap<String, Vec<String>> = HashMap::new();
@@ -122,7 +126,10 @@ pub async fn check_conflicts(srcs: Vec<String>, dest_path: String) -> Result<Vec
             src_target.clone(), 
             dest_target.clone(), 
             "--combined".to_string(), 
-            "-".to_string()
+            "-".to_string(),
+            "--use-json-log".to_string(),
+            "--stats".to_string(),
+            "0.5s".to_string(),
         ];
         
         for base in &bases {
@@ -132,14 +139,53 @@ pub async fn check_conflicts(srcs: Vec<String>, dest_path: String) -> Result<Vec
             string_args.push(format!("{}/**", base));
         }
         
-        let ref_args: Vec<&str> = string_args.iter().map(|s| s.as_str()).collect();
-        let output = crate::core::rclone::run_cmd(&ref_args)?;
+        let mut child = Command::new("rclone")
+            .args(&string_args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Lỗi khởi chạy rclone check: {}", e))?;
+
+        let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
+        let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
+
+        let app_handle_clone = app_handle.clone();
         
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            if line.starts_with("* ") {
-                let conflict_path = line[2..].trim_end().to_string();
-                conflicts.push(conflict_path);
+        // Luồng đọc stderr để lấy progress json
+        let stderr_thread = std::thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                if let Ok(line_str) = line {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line_str) {
+                        if let Some(stats) = json.get("stats") {
+                            let payload = serde_json::json!({
+                                "stats": stats
+                            });
+                            let _ = app_handle_clone.emit("conflict_check_progress", payload);
+                        }
+                    }
+                }
+            }
+        });
+
+        // Luồng chính đọc stdout để bắt kết quả conflict
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            if let Ok(line_str) = line {
+                if line_str.starts_with("* ") {
+                    let conflict_path = line_str[2..].trim_end().to_string();
+                    conflicts.push(conflict_path);
+                }
+            }
+        }
+
+        stderr_thread.join().unwrap();
+        let status = child.wait().map_err(|e| e.to_string())?;
+        if !status.success() {
+            // Rclone check trả về mã lỗi 1 nếu có difference, điều này là bình thường
+            // Nên chúng ta không bắt lỗi ở đây trừ khi status != 1 và status != 0
+            if status.code() != Some(0) && status.code() != Some(1) {
+                return Err(format!("Lỗi kiểm tra trùng lặp, mã lỗi: {}", status));
             }
         }
     }
