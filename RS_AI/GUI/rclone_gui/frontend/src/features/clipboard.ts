@@ -5,7 +5,6 @@
 - Tương tác: Tính năng dán thực tế (Paste) gọi hàm `pasteTo`, xử lý xung đột tệp tin, và chuyển xuống `transferManager` để tải lên/copy.
 */
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 
 import type { Pane } from '../services/explorerStore';
 // Removed fileOps import
@@ -127,20 +126,8 @@ export async function pasteTo(
     checkingModal.getElement().querySelector('.confirm')?.remove();
     checkingModal.getElement().querySelector('.cancel')?.remove();
 
-    let unlisten: any;
     try {
-      unlisten = await listen('conflict_check_progress', (event: any) => {
-          if (event.payload && event.payload.stats) {
-              const stats = event.payload.stats;
-              const content = checkingModal.getElement().querySelector('.modal-content p');
-              if (content) {
-                  content.innerHTML = `Đang quét sâu để tìm các tệp tin trùng lặp...<br>Đã kiểm tra: ${stats.checks} tệp<br>Tốc độ: ${Math.round(stats.speed / 1024)} KB/s<br>Thời gian: ${Math.round(stats.elapsedTime)}s`;
-              }
-          }
-      });
-      // 1. Quét sâu để lấy danh sách các tệp tin xung đột thực sự
       const conflictPaths: string[] = await invoke('fs_check_conflicts', { srcs, destPath });
-      if (unlisten) unlisten();
       checkingModal.close();
 
       let applyToAllRes: ConflictResult | null = null;
@@ -210,6 +197,7 @@ export async function pasteTo(
       checkingModal.close();
       console.warn('paste fail:', e);
       logActivity(`Lỗi ${actionText}`, `Chi tiết: ${e}`);
+      alert(`Đã xảy ra lỗi khi ${actionText}: ${e}`);
     }
   });
 }

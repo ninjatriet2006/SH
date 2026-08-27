@@ -1,0 +1,1 @@
+{"$schema": "../gen/schemas/capabilities.json", "identifier": "main-capability", "description": "Capability for the main window", "windows": ["*"], "permissions": ["core:default", "core:event:default"]}

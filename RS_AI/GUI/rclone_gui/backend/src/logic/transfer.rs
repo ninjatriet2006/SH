@@ -54,6 +54,7 @@ pub async fn run_transfer_task(
     }
 
     let status = tauri::async_runtime::spawn_blocking(move || {
+        let mut error_msgs = Vec::new();
         if let Some(stderr) = child.stderr.take() {
             let reader = BufReader::new(stderr);
             for line in reader.lines() {
@@ -68,14 +69,24 @@ pub async fn run_transfer_task(
                                 let _ = app_handle.emit("transfer_progress", payload);
                             }
                         }
+                        if let Some(level) = json.get("level").and_then(|v| v.as_str()) {
+                            if level == "error" {
+                                if let Some(msg) = json.get("msg").and_then(|v| v.as_str()) {
+                                    error_msgs.push(msg.to_string());
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
-        child.wait()
+        let exit_status = child.wait()?;
+        Ok::<_, std::io::Error>((exit_status, error_msgs))
     }).await
         .map_err(|e| e.to_string())?
         .map_err(|e| format!("Lỗi khi đợi tiến trình rclone kết thúc: {}", e))?;
+    
+    let (status, error_msgs) = status;
     
     if let Some(id) = task_id {
         if let Ok(mut pids) = state.pids.lock() {
@@ -84,7 +95,12 @@ pub async fn run_transfer_task(
     }
 
     if !status.success() {
-        return Err(format!("Lệnh {} thất bại với mã lỗi: {}", cmd_name, status));
+        let err_str = if error_msgs.is_empty() {
+            format!("Lệnh {} thất bại với mã lỗi: {}", cmd_name, status)
+        } else {
+            error_msgs.join("\n")
+        };
+        return Err(err_str);
     }
     Ok(())
 }
