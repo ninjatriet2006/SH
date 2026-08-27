@@ -1,11 +1,11 @@
 /*
 [INTEGRITY NOTES]
-Mục đích: Khởi tạo custom dropdown thay thế cho thẻ <select> mặc định của HTML.
-Trách nhiệm:
- - Ẩn thẻ <select> gốc, tạo UI thay thế với input và danh sách xổ xuống.
- - Đồng bộ giá trị được chọn về lại thẻ <select> gốc và kích hoạt sự kiện change.
- - Hỗ trợ tìm kiếm nhanh nếu truyền tham số searchable = true.
-Các module tương tác: remotesManager.ts, mountManager.ts, v.v.
+- Mục đích: Khởi tạo custom dropdown thay thế cho thẻ <select> mặc định của HTML.
+- Trách nhiệm:
+  - Ẩn thẻ <select> gốc, tạo UI thay thế với input và danh sách xổ xuống.
+  - Đồng bộ giá trị được chọn về lại thẻ <select> gốc và kích hoạt sự kiện change.
+  - Hỗ trợ tìm kiếm nhanh nếu truyền tham số searchable = true.
+- Tương tác: Được dùng trong remotesManager.ts, mountManager.ts, v.v.
 */
 
 export function upgradeSelectToCustomDropdown(selectEl: HTMLSelectElement, searchable: boolean = false) {
@@ -19,7 +19,7 @@ export function upgradeSelectToCustomDropdown(selectEl: HTMLSelectElement, searc
     wrapper.style.width = '100%';
     wrapper.className = 'custom-dropdown-wrapper';
 
-    // The display input
+    // Khởi tạo thẻ Input hiển thị
     const input = document.createElement('input');
     input.type = 'text';
     input.className = selectEl.className;
@@ -35,13 +35,13 @@ export function upgradeSelectToCustomDropdown(selectEl: HTMLSelectElement, searc
     input.style.colorScheme = 'dark';
     input.autocomplete = 'off';
     
-    // Disable native picker on mobile / ignore clicks if not searchable
+    // Vô hiệu hóa bàn phím ảo trên mobile hoặc chỉ cho phép click nếu không bật tính năng tìm kiếm (searchable)
     if (!searchable) {
         input.readOnly = true;
         input.style.cursor = 'pointer';
     }
     
-    // Copy placeholder
+    // Sao chép placeholder mặc định
     const firstOption = selectEl.options[0];
     if (firstOption && firstOption.value === "") {
         input.placeholder = firstOption.text;
@@ -49,7 +49,7 @@ export function upgradeSelectToCustomDropdown(selectEl: HTMLSelectElement, searc
         input.placeholder = "-- Chọn --";
     }
 
-    // Dropdown list container
+    // Khởi tạo container chứa danh sách xổ xuống
     const list = document.createElement('div');
     list.className = 'custom-dropdown-list';
     list.style.display = 'none';
@@ -66,7 +66,7 @@ export function upgradeSelectToCustomDropdown(selectEl: HTMLSelectElement, searc
     list.style.borderRadius = '0 0 4px 4px';
     list.style.boxShadow = '0 8px 16px rgba(0,0,0,0.7)';
 
-    // Build options
+    // Xây dựng danh sách lựa chọn
     const updateOptions = () => {
         list.innerHTML = '';
         
@@ -82,7 +82,7 @@ export function upgradeSelectToCustomDropdown(selectEl: HTMLSelectElement, searc
         }
         
         Array.from(selectEl.options).forEach(opt => {
-            if (opt.value === "") return; // Skip empty placeholder option
+            if (opt.value === "") return; // Bỏ qua lựa chọn rỗng (placeholder)
             const item = document.createElement('div');
             item.className = 'custom-dropdown-item';
             item.style.padding = '8px 10px';
@@ -116,7 +116,7 @@ export function upgradeSelectToCustomDropdown(selectEl: HTMLSelectElement, searc
     
     updateOptions();
 
-    // Event listeners
+    // Gắn sự kiện (Event listeners)
     input.addEventListener('click', () => {
         const isOpening = list.style.display === 'none';
         
@@ -128,7 +128,7 @@ export function upgradeSelectToCustomDropdown(selectEl: HTMLSelectElement, searc
         if (isOpening) {
             list.style.display = 'block';
             if (searchable) {
-                input.value = ''; // Clear to allow searching all
+                input.value = ''; // Xóa trắng để hiển thị toàn bộ list cho tìm kiếm
                 Array.from(list.children).forEach(child => {
                     (child as HTMLElement).style.display = 'block';
                 });
@@ -146,7 +146,7 @@ export function upgradeSelectToCustomDropdown(selectEl: HTMLSelectElement, searc
             });
         });
         
-        // Restore value on blur if they didn't pick anything
+        // Khôi phục giá trị nếu người dùng không chọn gì (blur out)
         input.addEventListener('blur', () => {
             setTimeout(() => {
                 if (selectEl.selectedIndex >= 0) {
@@ -168,12 +168,12 @@ export function upgradeSelectToCustomDropdown(selectEl: HTMLSelectElement, searc
         }
     });
     
-    // Allow rebuilding options if select changes dynamically
+    // Cho phép xây dựng lại danh sách khi thẻ select bị thay đổi từ bên ngoài (dynamically)
     (selectEl as any)._updateCustomDropdown = () => {
         updateOptions();
     };
     
-    // Sync function when select value is changed programmatically
+    // Hàm đồng bộ nội bộ (Sync) khi giá trị thẻ select thay đổi bằng Javascript
     (selectEl as any)._syncCustomDropdown = () => {
         if (selectEl.selectedIndex >= 0) {
             const opt = selectEl.options[selectEl.selectedIndex];
@@ -191,6 +191,6 @@ export function upgradeSelectToCustomDropdown(selectEl: HTMLSelectElement, searc
     
     if (selectEl.parentNode) {
         selectEl.parentNode.insertBefore(wrapper, selectEl);
-        wrapper.appendChild(selectEl); // Move select inside wrapper for layout
+        wrapper.appendChild(selectEl); // Đưa select vào trong wrapper để chuẩn hóa Layout
     }
 }

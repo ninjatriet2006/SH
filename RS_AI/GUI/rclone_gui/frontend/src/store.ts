@@ -1,4 +1,11 @@
-// Application state definition
+/*
+[INTEGRITY NOTES]
+- Mục đích: Khai báo cấu trúc dữ liệu chung (Interfaces) và trạng thái toàn cục cơ bản của ứng dụng.
+- Trách nhiệm: Lưu trữ và khôi phục nhật ký hoạt động (activity log), dấu trang (bookmarks), cài đặt chung từ localStorage.
+- Tương tác: Được import bởi hầu hết các modules và components để ghi log, theo dõi cấu hình.
+*/
+
+// Định nghĩa cấu trúc dữ liệu trạng thái của ứng dụng
 export interface FileItem {
   uuid: string;
   name: string;
@@ -46,10 +53,10 @@ export interface AppState {
   settings?: AppSettings;
 }
 
-// Global mutable state (simple for now)
+// Trạng thái biến đổi toàn cục (Global mutable state - giữ đơn giản cho phiên bản hiện tại)
 export const appState: AppState = {};
 
-// Khôi phục log từ localStorage
+// Khôi phục nhật ký hoạt động (activity log) từ localStorage
 try {
   const savedLog = localStorage.getItem('filen_activity_log');
   if (savedLog) {
@@ -119,7 +126,7 @@ export function toggleBookmark(name: string, path: string) {
     console.warn('Failed to save bookmarks', e);
   }
   
-  // Dispatch event to update UI
+  // Kích hoạt sự kiện (Dispatch event) để cập nhật lại giao diện (UI)
   window.dispatchEvent(new Event('bookmarks-updated'));
 }
 

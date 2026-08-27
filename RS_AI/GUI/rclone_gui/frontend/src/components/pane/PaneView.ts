@@ -7,7 +7,7 @@ import type { PaneColKey, PaneColWidths } from '../../services/explorerStore';
 import { parseDrag, type DragPayload } from '../../features/dragDrop';
 // Xoá import SearchModal
 import { PaneStatusBar } from './PaneStatusBar';
-import { getAboutSpace, parseRemotePath } from '../../services/fileOps';
+import { getAboutSpace } from '../../services/fileOps';
 
 export interface PaneViewOptions {
   side: 'left' | 'right';
@@ -258,7 +258,9 @@ export class PaneView {
       input.focus();
       input.select();
     } else {
-      const { remote, realPath } = parseRemotePath(this.path);
+      let remote = this.path.includes('::') ? this.path.split('::')[0] : 'Local';
+      let realPath = this.path.includes('::') ? this.path.split('::').slice(1).join('::') : this.path;
+      if (!this.path || this.path === '/') remote = '';
       if (this.remoteSelect) {
         this.remoteSelect.value = remote;
         // Đồng bộ lên UI của custom dropdown
@@ -376,7 +378,8 @@ private renderBody(
     (this.remoteSelect as any)._updateCustomDropdown?.();
     
     // Sync the select value with the current path
-    const { remote } = parseRemotePath(this.path);
+    let remote = this.path.includes('::') ? this.path.split('::')[0] : 'Local';
+    if (!this.path || this.path === '/') remote = '';
     if (remote) {
       this.remoteSelect.value = remote;
       (this.remoteSelect as any)._syncCustomDropdown?.();

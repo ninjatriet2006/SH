@@ -16,7 +16,8 @@ use std::path::PathBuf;
 pub struct MountConfig {
     pub service_name: String,
     pub is_user_level: bool,
-    pub remote: String,
+    pub remote_name: String,
+    pub remote_path: String,
     pub mount_path: String,
     pub description: String,
     pub vfs_cache_mode: String,
@@ -83,7 +84,13 @@ pub async fn create_mount_service(config: MountConfig) -> Result<String, String>
         return Err("Không tìm thấy lệnh rclone trong hệ thống!".to_string());
     }
 
-    let mut exec_start = format!("{} mount \"{}\" \"{}\"", rclone_path, config.remote, config.mount_path);
+    let remote = if config.remote_path.is_empty() {
+        format!("{}:", config.remote_name)
+    } else {
+        let path = config.remote_path.trim_start_matches('/');
+        format!("{}:{}", config.remote_name, path)
+    };
+    let mut exec_start = format!("{} mount \"{}\" \"{}\"", rclone_path, remote, config.mount_path);
     
     if !config.vfs_cache_mode.is_empty() {
         exec_start.push_str(&format!(" --vfs-cache-mode {}", config.vfs_cache_mode));
@@ -222,7 +229,8 @@ pub async fn get_mount_service_config(service_name: String, is_user: bool) -> Re
     let mut config = MountConfig {
         service_name: service_name.clone(),
         is_user_level: is_user,
-        remote: String::new(),
+        remote_name: String::new(),
+        remote_path: String::new(),
         mount_path: String::new(),
         description: String::new(),
         vfs_cache_mode: String::new(),
@@ -243,11 +251,10 @@ pub async fn get_mount_service_config(service_name: String, is_user: bool) -> Re
             let mut i = 0;
             while i < parts.len() {
                 if parts[i] == "mount" && i + 2 < parts.len() {
-                    let mut remote = parts[i+1].to_string();
-                    if remote.ends_with(':') {
-                        remote.pop();
-                    }
-                    config.remote = remote;
+                    let remote_full = parts[i+1].to_string();
+                    let (r_name, r_path) = crate::logic::file_ops::parse_remote_path(&remote_full);
+                    config.remote_name = r_name;
+                    config.remote_path = r_path.trim_start_matches('/').to_string();
                     config.mount_path = parts[i+2].to_string();
                     i += 2;
                 } else if parts[i].starts_with("--vfs-cache-mode") {

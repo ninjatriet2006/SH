@@ -1,7 +1,9 @@
-// features/clipboard.ts — Clipboard nội bộ cho copy/cut/paste giữa các pane.
-//
-// Chỉ lưu state (mode + danh sách item). Paste logic nằm ở `pasteTo` — gọi
-// fs_cp_batch (copy local), fs_mv_local (cut local) hoặc fs_upload (cloud).
+/*
+[INTEGRITY NOTES]
+- Mục đích: features/clipboard.ts — Clipboard nội bộ phục vụ tính năng Copy/Cut/Paste giữa hai khung (Dual Pane).
+- Trách nhiệm: Chỉ lưu trữ trạng thái (chế độ copy/cut và danh sách đường dẫn). Giao tiếp với clipboard của hệ điều hành OS qua Tauri `invoke`.
+- Tương tác: Tính năng dán thực tế (Paste) gọi hàm `pasteTo`, xử lý xung đột tệp tin, và chuyển xuống `transferManager` để tải lên/copy.
+*/
 import { invoke } from '@tauri-apps/api/core';
 import type { Pane } from '../services/explorerStore';
 // Removed fileOps import
@@ -27,7 +29,7 @@ let state: ClipboardState = { mode: 'copy', items: [] };
 export function setClipboard(mode: ClipboardMode, items: ClipboardItem[]): void {
   state = { mode, items };
 
-  // Sync to OS clipboard if items are all local
+  // Đồng bộ với clipboard của Hệ điều hành (OS) nếu tất cả các file đều ở Local
   if (items.length > 0 && items.every(i => i.pane === 'left')) {
     const paths = items.map(i => i.path);
     invoke('os_clipboard_set', { paths, isCut: mode === 'cut' }).catch(err => {
@@ -59,7 +61,7 @@ export async function syncFromOSClipboard(): Promise<void> {
     if (data && data.paths && data.paths.length > 0) {
       const mode: ClipboardMode = data.mode === 'cut' ? 'cut' : 'copy';
       const items: ClipboardItem[] = data.paths.map(p => ({
-        pane: 'left', // OS clipboard files are always local
+        pane: 'left', // Các file lấy từ clipboard OS mặc định luôn là Local (left pane)
         path: p
       }));
       state = { mode, items };
@@ -93,10 +95,13 @@ function generateUniqueName(name: string, existingNames: string[]): string {
 }
 
 /**
- * Paste clipboard vào pane đích.
- * - Đích local (left): copy → fs_cp_batch; cut → fs_mv_local từng item.
- * - Đích cloud (right): fs_upload từng item.
- * Sau khi xong gọi onRefresh để cập nhật danh sách pane đích.
+ * Tên hàm: pasteTo
+ * Mô tả: Thực thi thao tác Dán (Paste) clipboard hiện tại vào thư mục đích.
+ * - Hiển thị cảnh báo xung đột (Conflict) nếu trùng tên.
+ * - Đẩy danh sách cuối cùng vào TransferManager (hàng đợi tiến trình).
+ * Tham số đầu vào: 
+ *   - destPane (Bắt buộc), destPath (Bắt buộc): Thông tin đích
+ *   - onRefresh (Bắt buộc): Hàm callback tải lại UI sau khi xong
  */
 export async function pasteTo(
   destPane: Pane,
@@ -109,9 +114,19 @@ export async function pasteTo(
   const srcs = items.map((i) => i.path);
   
   const actionText = mode === 'copy' ? 'Sao chép' : 'Di chuyển';
+  
+  let targetNamesStr = '';
+  if (items.length === 1) {
+    targetNamesStr = `<strong>${baseName(items[0].path)}</strong>`;
+  } else if (items.length <= 3) {
+    targetNamesStr = `<strong>${items.map(i => baseName(i.path)).join(', ')}</strong>`;
+  } else {
+    targetNamesStr = `<strong>${items.length} mục</strong> (gồm ${baseName(items[0].path)}...)`;
+  }
+
   const modal = new OperationModal(
     'Xác nhận Paste',
-    `<p>Bạn có chắc muốn ${actionText} ${items.length} mục vào <br><strong>${destPath}</strong>?</p>`
+    `<p>Bạn có chắc muốn ${actionText} ${targetNamesStr} vào <br><strong>${destPath}</strong>?</p>`
   );
   modal.open();
 
@@ -146,7 +161,7 @@ export async function pasteTo(
         let targetName = name;
         if (action === 'keep_both') {
            targetName = generateUniqueName(name, destNames);
-           destNames.push(targetName); // Update local memory for subsequent conflicts
+           destNames.push(targetName); // Cập nhật danh sách nội bộ để tránh trùng lặp tiếp theo
         }
 
         finalSrcsToProcess.push({ src, dest: joinPath(destPath, targetName), action });
@@ -181,7 +196,7 @@ export async function pasteTo(
       
       logActivity(actionText, `${finalSrcsToProcess.length} mục tới ${destPath}`);
       
-      // Cut xong → xoá clipboard (copy giữ lại để paste nhiều lần như Nemo).
+      // Nếu thao tác là Cắt (Cut), tự động xóa bộ nhớ tạm. Giữ lại nếu là Copy để có thể dán nhiều lần.
       if (mode === 'cut') clearClipboard();
       await onRefresh(destPane, destPath);
     } catch (e) {

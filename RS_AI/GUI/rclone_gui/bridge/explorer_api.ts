@@ -9,38 +9,38 @@ Các module tương tác: frontend/src/main.ts, backend/src/explorer.rs
 import { invoke } from '@tauri-apps/api/core';
 import type { FileItem } from '../frontend/src/store.ts';
 
-export async function listFiles(remote: string, path: string): Promise<FileItem[]> {
+export async function listFiles(path: string): Promise<FileItem[]> {
   try {
-    const files = await invoke<FileItem[]>('list_files', { remote, path });
+    const files = await invoke<FileItem[]>('list_files', { path });
     return files;
   } catch (error) {
-    console.error(`Lỗi khi lấy file từ ${remote}:${path}:`, error);
+    console.error(`Lỗi khi lấy file từ ${path}:`, error);
     return [];
   }
 }
 
-export async function fsMkdir(remote: string, path: string): Promise<void> {
-  await invoke('fs_mkdir', { remote, path });
+export async function fsMkdir(path: string): Promise<void> {
+  await invoke('fs_mkdir', { path });
 }
 
-export async function fsDelete(remote: string, path: string): Promise<void> {
-  await invoke('fs_delete', { remote, path });
+export async function fsDelete(path: string): Promise<void> {
+  await invoke('fs_delete', { path });
 }
 
-export async function fsRename(remote: string, oldPath: string, newPath: string): Promise<void> {
-  await invoke('fs_rename', { remote, oldPath, newPath });
+export async function fsRename(oldPath: string, newPath: string): Promise<void> {
+  await invoke('fs_rename', { oldPath, newPath });
 }
 
 export async function fsCancel(taskId: number): Promise<void> {
   return await invoke('fs_cancel', { taskId });
 }
 
-export async function fsCopy(srcRemote: string, srcPath: string, destRemote: string, destPath: string, taskId?: number): Promise<void> {
-  await invoke('fs_copy', { srcRemote, srcPath, destRemote, destPath, taskId });
+export async function fsCopy(src: string, dst: string, taskId?: number): Promise<void> {
+  await invoke('fs_copy', { src, dst, taskId });
 }
 
-export async function fsMove(srcRemote: string, srcPath: string, destRemote: string, destPath: string, taskId?: number): Promise<void> {
-  await invoke('fs_move', { srcRemote, srcPath, destRemote, destPath, taskId });
+export async function fsMove(src: string, dst: string, taskId?: number): Promise<void> {
+  await invoke('fs_move', { src, dst, taskId });
 }
 
 export interface StatInfo {
@@ -52,8 +52,8 @@ export interface StatInfo {
   gid: number;
 }
 
-export async function fsStatAdvanced(remote: string, path: string): Promise<StatInfo> {
-  return invoke<StatInfo>('fs_stat_advanced', { remote, path });
+export async function fsStatAdvanced(path: string): Promise<StatInfo> {
+  return invoke<StatInfo>('fs_stat_advanced', { path });
 }
 
 export interface SearchResultItem {
@@ -62,6 +62,6 @@ export interface SearchResultItem {
   score?: number;
 }
 
-export async function fsSearch(remote: string, path: string, query: string): Promise<SearchResultItem[]> {
-  return invoke<SearchResultItem[]>('fs_search', { remote, path, query });
+export async function fsSearch(path: string, query: string): Promise<SearchResultItem[]> {
+  return invoke<SearchResultItem[]>('fs_search', { path, query });
 }

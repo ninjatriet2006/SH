@@ -1,7 +1,11 @@
-// format.ts — Hàm định dạng hiển thị (size, ngày giờ).
-// Tách khỏi component để tái sử dụng và test độc lập.
+/*
+[INTEGRITY NOTES]
+- Mục đích: features/format.ts — Cung cấp các hàm định dạng hiển thị (dung lượng, ngày giờ).
+- Trách nhiệm: Xử lý hiển thị thô thành chuỗi thân thiện với người dùng (ví dụ: bytes -> MB, ISO string -> dd/mm/yyyy).
+- Tương tác: Sử dụng trong tất cả các lưới dữ liệu (DataGrid/Table) và UI hiển thị. Test độc lập.
+*/
 
-/** Định dạng số byte thành chuỗi B/KB/MB/GB. */
+/** Tên hàm: formatSize | Mô tả: Định dạng số byte thành chuỗi hiển thị tương ứng B/KB/MB/GB. */
 export function formatSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return '-';
   if (bytes < 1024) return `${bytes} B`;
@@ -16,7 +20,7 @@ export function formatSize(bytes: number): string {
   return `${value.toFixed(1)} ${unit}`;
 }
 
-/** Định dạng chuỗi ISO thành dd/mm/yyyy hh:mm. */
+/** Tên hàm: formatDate | Mô tả: Định dạng chuỗi ISO nguyên gốc sang dạng dd/mm/yyyy hh:mm. */
 export function formatDate(iso: string): string {
   if (!iso) return '-';
   const d = new Date(iso);

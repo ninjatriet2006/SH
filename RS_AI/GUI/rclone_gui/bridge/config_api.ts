@@ -25,3 +25,12 @@ export async function setConfigContent(content: string): Promise<void> {
         throw error;
     }
 }
+
+export async function reorderConfig(names: string[]): Promise<void> {
+    try {
+        await invoke('reorder_config', { names });
+    } catch (error) {
+        console.error("Lỗi khi sắp xếp config:", error);
+        throw error;
+    }
+}

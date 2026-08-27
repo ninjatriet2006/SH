@@ -342,12 +342,10 @@ export class DualPaneExplorer {
     }
 
     let remote = '';
-    let realPath = path;
     
     if (path.includes('::')) {
         const parts = path.split('::');
         remote = parts[0];
-        realPath = parts.slice(1).join('::');
     }
     
     if (!remote) {
@@ -379,7 +377,7 @@ export class DualPaneExplorer {
 
     if (files.length === 0) {
       try {
-        files = await listFiles(remote, realPath);
+        files = await listFiles(path);
         dirCache.set(path, { files: [...files], timestamp: Date.now() });
       } catch (e) {
       console.warn(`fs_list ${pane} fail (${path}):`, e);

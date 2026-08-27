@@ -9,6 +9,12 @@ use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::env;
 
+#[derive(Deserialize)]
+pub struct SimpleFileItem {
+    pub name: String,
+    pub is_dir: bool,
+}
+
 /// Khai báo cấu trúc DesktopApp để trả về cho giao diện khi chọn "Open With"
 #[derive(Serialize)]
 pub struct DesktopApp {
@@ -137,12 +143,47 @@ pub async fn sys_get_custom_actions() -> Result<Vec<CustomAction>, String> {
     Ok(vec![])
 }
 
+/// Hàm API: sys_get_valid_actions
+/// Chức năng: Lọc danh sách action hợp lệ dựa trên file được chọn
+#[tauri::command]
+pub async fn sys_get_valid_actions(files: Vec<SimpleFileItem>) -> Result<Vec<CustomAction>, String> {
+    let actions = sys_get_custom_actions().await?;
+    let sel_count = files.len();
+    
+    if sel_count == 0 {
+        return Ok(vec![]);
+    }
+    
+    let valid: Vec<CustomAction> = actions.into_iter().filter(|a| {
+        if a.selection == "s" && sel_count != 1 { return false; }
+        if a.selection == "m" && sel_count < 2 { return false; }
+        
+        if a.extensions.iter().any(|ext| ext == "any") { return true; }
+        
+        files.iter().all(|f| {
+            if f.is_dir && a.extensions.iter().any(|ext| ext == "dir") { return true; }
+            let ext = f.name.split('.').last().unwrap_or("").to_lowercase();
+            a.extensions.iter().any(|e| e.to_lowercase() == ext)
+        })
+    }).collect();
+    
+    Ok(valid)
+}
+
 /// Hàm API: sys_execute_custom_action
 /// Chức năng: Thực thi một lệnh tùy chỉnh lên một danh sách file được chọn
 #[tauri::command]
-pub async fn sys_execute_custom_action(exec_template: String, file_paths: Vec<String>) -> Result<(), String> {
-    // Lặp qua mảng file_paths, bọc dấu ngoặc kép cho từng đường dẫn và nối lại bằng dấu cách
-    let paths_str = file_paths.iter().map(|p| format!("\"{}\"", p)).collect::<Vec<String>>().join(" ");
+pub async fn sys_execute_custom_action(exec_template: String, base_path: String, file_names: Vec<String>) -> Result<(), String> {
+    let paths_str = file_names.iter().map(|name| {
+        let p = if base_path.starts_with("trash://") {
+            format!("{}/{}", base_path, name)
+        } else if base_path == "/" {
+            format!("/{}", name)
+        } else {
+            format!("{}/{}", base_path, name)
+        };
+        format!("\"{}\"", p)
+    }).collect::<Vec<String>>().join(" ");
     
     // Thay thế biến %f trong mẫu lệnh bằng danh sách đường dẫn thực tế
     let cmd = exec_template.replace("%f", &paths_str);

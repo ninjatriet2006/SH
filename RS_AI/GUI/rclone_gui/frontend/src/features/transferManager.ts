@@ -1,9 +1,16 @@
+/*
+[INTEGRITY NOTES]
+- Mục đích: Quản lý hàng đợi tiến trình (Transfer Queue) cho các tác vụ Copy, Move, Delete.
+- Trách nhiệm: Lưu trữ trạng thái tiến trình, lắng nghe sự kiện từ backend (Tauri events) để cập nhật tiến độ, tốc độ, hỗ trợ hủy (cancel) tác vụ.
+- Tương tác: Giao tiếp với `fileOps` (Frontend), gọi xuống backend qua IPC, hiển thị UI Fallback Modal.
+*/
+
 import { appState } from '../store';
 import { undoManager } from '../services/undoManager';
 import { joinPath } from './dragDrop';
 import * as fileOps from '../services/fileOps';
 import { FallbackModal } from '../components/FallbackModal';
-import { getBackendFeatures } from '../../../bridge/remote_api';
+import { checkTransferCapability } from '../../../bridge/remote_api';
 import { fsDelete, fsCancel } from '../../../bridge/explorer_api';
 import { listen } from '@tauri-apps/api/event';
 
@@ -30,6 +37,9 @@ export interface TransferTask {
   transferringFiles?: {name: string, percentage: number, bytes: number, size: number, speed: number, eta: number}[];
 }
 
+// ====================================================================================
+// BLOCK: LỚP QUẢN LÝ TIẾN TRÌNH (TRANSFER MANAGER)
+// ====================================================================================
 class TransferManager {
   public tasks: Map<number, TransferTask> = new Map();
   public onUpdate?: () => void;
@@ -38,7 +48,7 @@ class TransferManager {
   private isProcessing = false;
 
   constructor() {
-    // Listen to backend transfer progress
+    // Lắng nghe luồng sự kiện báo cáo tiến độ (progress) trực tiếp từ Backend Rclone
     listen('transfer_progress', (event: any) => {
       const payload = event.payload;
       if (payload && payload.id !== undefined && payload.stats) {
@@ -66,9 +76,13 @@ class TransferManager {
   }
 
   async init() {
-    // Không cần listen event từ backend nữa vì frontend tự xử lý
+    // Không cần lắng nghe sự kiện từ backend ở hàm init nữa vì constructor đã khởi tạo sẵn.
   }
 
+  /**
+   * Tên hàm: enqueue
+   * Mô tả: Đẩy một tác vụ (Copy/Move/Delete) vào hàng chờ. Tự động kiểm tra tính tương thích tính năng Move trên Cloud.
+   */
   async enqueue(
     kind: TransferKind,
     name: string,
@@ -76,43 +90,33 @@ class TransferManager {
     dst: string,
     onSuccess?: () => void
   ): Promise<void> {
-    const srcParsed = fileOps.parseRemotePath(src);
-    const dstParsed = fileOps.parseRemotePath(dst);
-    const srcRemote = srcParsed.remote;
-    const dstRemote = dstParsed.remote;
-
     if (kind === 'move') {
-      let canMove = false;
-      let canCopyDelete = false;
+      const caps = await checkTransferCapability(src, dst);
+      const canMove = caps.canMove;
+      const canCopyDelete = caps.canCopyDelete;
 
-      if (srcRemote === dstRemote && srcRemote === 'Local') {
-        canMove = true;
-      } else if (srcRemote === dstRemote && srcRemote !== 'Local') {
-        try {
-          const feats = await getBackendFeatures(srcRemote);
-          if (feats && feats.Features) {
-            canMove = !!feats.Features.Move || !!feats.Features.DirMove;
-            canCopyDelete = !!feats.Features.Copy && !!feats.Features.Purge;
-          }
-        } catch (e) {
-          console.warn("Failed to get features", e);
-        }
-      }
-
+      // Xử lý khi Cloud KHÔNG HỖ TRỢ lệnh Move nguyên bản (Server-side Move)
       if (!canMove) {
-        const modal = new FallbackModal(canCopyDelete, srcRemote, dstRemote);
+        // Hiện thông báo cảnh báo (Fallback Modal) để hỏi ý kiến người dùng
+        const modal = new FallbackModal(canCopyDelete, "Nguồn", "Đích");
         const action = await modal.open();
+        
+        // Nếu người dùng chọn dùng Copy sau đó Delete (Server-side fallback)
         if (action === 'copy_delete') {
           await this.enqueue('copy', '[Copy] ' + name, src, dst, async () => {
             await this.enqueue('delete', '[Xoá gốc] ' + name, src, dst);
           });
           return;
-        } else if (action === 'local_transfer') {
+        } 
+        // Nếu chọn tải xuống máy sau đó tải lên (Local Bandwidth Fallback)
+        else if (action === 'local_transfer') {
           await this.enqueue('copy', '[Local Copy] ' + name, src, dst, async () => {
             await this.enqueue('delete', '[Local Xoá gốc] ' + name, src, dst);
           });
           return;
-        } else {
+        } 
+        // Nếu người dùng ấn nút Hủy
+        else {
           console.log(`Đã huỷ Move: Bỏ qua move file ${name}`);
           return;
         }
@@ -134,15 +138,18 @@ class TransferManager {
       speed: 0,
       lastUpdateTime: performance.now(),
       lastBytesDone: 0,
-      srcLocal: srcRemote === 'Local',
-      dstLocal: dstRemote === 'Local',
+      srcLocal: !src.includes('::'),
+      dstLocal: !dst.includes('::'),
       onSuccess
     });
     
+    // Bắn sự kiện cập nhật giao diện (UI Update)
     this.notify();
-    this.processQueue(); // Không await để chạy nền
+    // Kích hoạt xử lý hàng đợi chạy nền (không await)
+    this.processQueue(); 
   }
 
+  /** Tên hàm: processQueue | Mô tả: Vòng lặp chính xử lý các tác vụ trong hàng đợi một cách tuần tự (Chạy nền) */
   private async processQueue() {
     if (this.isProcessing) return;
     this.isProcessing = true;
@@ -151,19 +158,22 @@ class TransferManager {
       for (const [_id, task] of this.tasks.entries()) {
         if (task.status === 'queued') {
           task.status = 'running';
-          task.progress = 0.1; // Fake starting progress
+          task.progress = 0.1; // Khởi tạo thanh tiến trình ảo ở mức 10%
           this.notify();
 
           try {
+            // Lựa chọn lệnh thực thi dựa trên loại task
             if (task.kind === 'move') {
               await fileOps.moveLocal(task.src, task.dst, task.id);
+              // Xoá file nguồn vì đây là thao tác di chuyển
+              await fsDelete(task.src);
             } else if (task.kind === 'delete') {
-              const parsed = fileOps.parseRemotePath(task.src);
-              await fsDelete(parsed.remote, parsed.realPath);
+              await fsDelete(task.src);
             } else {
               await fileOps.cpLocal(task.src, task.dst, true, task.id);
             }
 
+            // Đánh dấu hoàn tất
             task.status = 'done';
             task.progress = 1.0;
 
@@ -171,7 +181,7 @@ class TransferManager {
               task.onSuccess();
             }
             
-            // Thêm vào Undo Manager
+            // Ghi nhận lịch sử vào Undo Manager (hỗ trợ Ctrl+Z)
             if (task.kind === 'move' || task.kind === 'copy') {
               const destPath = joinPath(task.dst, task.name);
               undoManager.push({
@@ -183,6 +193,7 @@ class TransferManager {
               });
             }
           } catch (e: any) {
+            // Ghi nhận lỗi nếu thao tác thất bại
             task.status = 'error';
             task.error = e?.toString() || 'Lỗi không xác định';
           }
@@ -193,35 +204,38 @@ class TransferManager {
     } finally {
       this.isProcessing = false;
       
-      // Khi toàn bộ hàng đợi đã chạy xong, bắn sự kiện để UI (DualPane) biết và tải lại
+      // Khi toàn bộ hàng đợi đã xử lý xong, bắn sự kiện (event trigger) để UI Panel tự động tải lại file
       if (this.onQueueEmptyListeners.length > 0) {
         this.onQueueEmptyListeners.forEach(fn => fn());
       }
     }
   }
 
+  /** Tên hàm: cancel | Mô tả: Yêu cầu Backend hủy (Kill PID) một tác vụ đang chạy qua ID */
   async cancel(id: number) {
     const task = this.tasks.get(id);
     if (task && (task.status === 'queued' || task.status === 'running')) {
       task.status = 'cancelled';
       
-      // Call backend to kill the actual rclone process
+      // Gửi tín hiệu xuống Backend Tauri để giết tiến trình ngầm
       fsCancel(id).catch(err => console.error("Lỗi khi cancel task:", err));
 
       if (this.onUpdate) this.onUpdate();
     }
   }
 
+  /** Tên hàm: cancelAll | Mô tả: Hủy tất cả các tác vụ còn đang kẹt trong hàng đợi (Queued) */
   async cancelAll() {
     for (const task of this.tasks.values()) {
       if (task.status === 'queued') {
         task.status = 'cancelled';
-        task.error = 'Đã huỷ';
+        task.error = 'Đã huỷ bởi người dùng';
       }
     }
     this.notify();
   }
 
+  /** Tên hàm: removeFinished | Mô tả: Loại bỏ (Clear) các task đã Done hoặc Cancel ra khỏi UI Box */
   async removeFinished() {
     for (const [id, task] of this.tasks.entries()) {
       if (task.status === 'done' || task.status === 'cancelled') {

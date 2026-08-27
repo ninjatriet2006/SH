@@ -122,3 +122,14 @@ export async function getSize(remote: string): Promise<{ count?: number, bytes?:
         return {};
     }
 }
+
+// Kiểm tra khả năng copy/move giữa 2 đường dẫn:
+export async function checkTransferCapability(src: string, dst: string): Promise<{ canMove: boolean, canCopyDelete: boolean }> {
+    try {
+        const result = await invoke<{ canMove: boolean, canCopyDelete: boolean }>('check_transfer_capability', { src, dst });
+        return result;
+    } catch (e) {
+        console.warn("Failed to check transfer capability:", e);
+        return { canMove: false, canCopyDelete: false };
+    }
+}

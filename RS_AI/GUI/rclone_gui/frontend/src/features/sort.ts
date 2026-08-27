@@ -1,11 +1,20 @@
-// features/sort.ts — Sắp xếp danh sách file.
-// Thư mục luôn lên đầu (bất kể hướng sort); so sánh tên case-insensitive.
+/*
+[INTEGRITY NOTES]
+- Mục đích: features/sort.ts — Bộ công cụ sắp xếp danh sách file (Files Array).
+- Trách nhiệm: Cung cấp hàm `sortFiles` phân loại thư mục ưu tiên (luôn lên đầu), so sánh chuỗi không phân biệt hoa thường.
+- Tương tác: Dùng bởi FileTable hoặc ListView khi người dùng nhấn Header để sắp xếp.
+*/
 import type { FileItem } from '../store.ts';
 
 export type SortKey = 'name' | 'size' | 'date' | 'type';
 export type SortDir = 'asc' | 'desc';
 
-/** Sắp xếp files theo key; dirs luôn đứng trước files. Trả về mảng mới. */
+
+
+/** 
+ * Tên hàm: sortFiles 
+ * Mô tả: Sắp xếp files theo thuộc tính (key). Mặc định ưu tiên hiển thị Thư mục trước File.
+ */
 export function sortFiles(
   files: FileItem[],
   key: SortKey = 'name',
@@ -37,7 +46,10 @@ export function sortFiles(
   return sorted;
 }
 
-/** Nhãn cột Type dùng để sort — khớp với giá trị hiển thị trong FileTable. */
+/** 
+ * Tên hàm: typeLabel 
+ * Mô tả: Sinh nhãn phân loại (Type Label) phục vụ cột Type để sắp xếp và hiển thị UI. 
+ */
 export function typeLabel(f: FileItem): string {
   if (f.file_type) return f.file_type;
   if (f.is_dir) return 'Folder';

@@ -1,5 +1,9 @@
-// features/contextMenu.ts — Xây dựng context menu cho 1 file và cho vùng trống.
-// Nhận FileItem + path + pane, gọi fileOps, refresh qua callback.
+/*
+[INTEGRITY NOTES]
+- Mục đích: Xây dựng menu ngữ cảnh (Context Menu) cho từng file và cho vùng trống.
+- Trách nhiệm: Hiển thị các hành động như Open, Copy, Cut, Paste, Rename, Delete... gọi đến fileOps. Cập nhật UI thông qua hàm callback.
+- Tương tác: Lắng nghe sự kiện chuột, tương tác với `actionStore` cho các lệnh tuỳ chỉnh, và `transferManager` cho thao tác copy/move.
+*/
 import type { FileItem } from '../store';
 import { logActivity, isBookmarked, toggleBookmark } from '../store';
 import { getPaneSelection, type Pane } from '../services/explorerStore';
@@ -41,7 +45,7 @@ function joinPath(dir: string, name: string): string {
   return dir.endsWith('/') ? dir + name : dir + '/' + name;
 }
 
-/** Dựng menu tại vị trí chuột; onClick nhận label mục được chọn. */
+/** Tên hàm: showMenu | Mô tả: Hiển thị menu tại vị trí con trỏ chuột; `onClick` nhận nhãn (label) mục được chọn. */
 export function showMenu(
   e: MouseEvent,
   items: (string | ContextMenuItem)[],
@@ -78,8 +82,8 @@ export function showMenu(
   }, 0);
 }
 
-/** Hiện context menu tại vị trí chuột cho file. */
-export function MenuFile(e: MouseEvent, opts: ContextMenuOptions): void {
+/** Tên hàm: MenuFile | Mô tả: Khởi tạo và hiển thị Context Menu khi nhấn chuột phải vào một tệp hoặc thư mục. */
+export async function MenuFile(e: MouseEvent, opts: ContextMenuOptions): Promise<void> {
   const { file: f, path: basePath, pane, onRefresh } = opts;
   const fullPath = joinPath(basePath, f.name);
 
@@ -124,7 +128,7 @@ export function MenuFile(e: MouseEvent, opts: ContextMenuOptions): void {
     selectedFiles = [f];
   }
   
-  const customActions = actionStore.getValidActionsForSelection(selectedFiles);
+  const customActions = await actionStore.getValidActionsForSelection(selectedFiles);
   if (customActions.length > 0) {
     menuItems.push({ separator: true });
     customActions.forEach(a => {
@@ -170,12 +174,16 @@ export function MenuFile(e: MouseEvent, opts: ContextMenuOptions): void {
         case 'Delete':
           openDeleteModal(f, fullPath, pane, basePath, onRefresh);
           break;
-        case 'Copy':
-          setClipboard('copy', [{ pane, path: fullPath }]);
+        case 'Copy': {
+          const items = selectedFiles.map(f => ({ pane, path: joinPath(basePath, f.name) }));
+          setClipboard('copy', items);
           break;
-        case 'Cut':
-          setClipboard('cut', [{ pane, path: fullPath }]);
+        }
+        case 'Cut': {
+          const items = selectedFiles.map(f => ({ pane, path: joinPath(basePath, f.name) }));
+          setClipboard('cut', items);
           break;
+        }
         case 'Paste':
           pasteTo(pane, basePath, onRefresh);
           break;
@@ -197,7 +205,7 @@ export function MenuFile(e: MouseEvent, opts: ContextMenuOptions): void {
   );
 }
 
-/** Hiện context menu trên vùng trống của pane (menu thư mục). */
+/** Tên hàm: MenuEmpty | Mô tả: Hiện Context Menu trên vùng trống của pane (menu cấp thư mục chứa). */
 export function MenuEmpty(e: MouseEvent, opts: FolderContextMenuOptions): void {
   const { path: basePath, pane, onRefresh, onSelectAll } = opts;
 
@@ -243,7 +251,7 @@ export function MenuEmpty(e: MouseEvent, opts: FolderContextMenuOptions): void {
   );
 }
 
-/** Hỏi tên (New Folder / New File) rồi chạy action, refresh sau khi xong. */
+/** Tên hàm: promptName | Mô tả: Bật cửa sổ hỏi tên (Tạo mới Folder / File) rồi gọi lệnh thực thi tương ứng, tải lại UI sau khi xong. */
 function promptName(
   title: string,
   placeholder: string,
@@ -288,7 +296,7 @@ function promptName(
   }
 }
 
-/** Modal Properties nâng cao: đếm đệ quy, phân quyền chmod */
+/** Tên hàm: showPropertiesModal | Mô tả: Mở Modal Properties nâng cao: đếm đệ quy, phân quyền chmod. */
 async function showPropertiesModal(f: FileItem, fullPath: string, pane: Pane): Promise<void> {
   const modal = new PropertiesModal(f, fullPath, pane);
   await modal.open();

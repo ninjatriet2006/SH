@@ -1,8 +1,9 @@
-// features/dragDrop.ts — Payload kéo thả file giữa các pane.
-//
-// Dùng DataTransfer chuẩn (HTML5 DnD) — text/plain chứa JSON:
-//   { pane: 'left' | 'right', paths: string[] }
-// Tauri webview hỗ trợ HTML5 DnD nên không cần plugin.
+/*
+[INTEGRITY NOTES]
+- Mục đích: features/dragDrop.ts — Quản lý khối dữ liệu (Payload) thao tác kéo thả (Drag & Drop) file giữa các pane.
+- Trách nhiệm: Đóng gói (serialize) và phân tích (parse) chuỗi JSON chứa thông tin kéo thả theo chuẩn HTML5 DataTransfer.
+- Tương tác: Giao tiếp với UI Webview, hỗ trợ xuất Drag ra hệ điều hành (OS Drag) bằng tauri-plugin-drag.
+*/
 import type { Pane } from '../services/explorerStore';
 
 export interface DragPayload {
@@ -14,7 +15,7 @@ export function serializeDrag(p: DragPayload): string {
   return JSON.stringify(p);
 }
 
-/** Parse payload từ dataTransfer; trả null nếu không hợp lệ (kéo từ ngoài app). */
+/** Tên hàm: parseDrag | Mô tả: Phân tích payload JSON từ dataTransfer; trả về null nếu kéo từ ngoài app. */
 export function parseDrag(text: string): DragPayload | null {
   try {
     const obj = JSON.parse(text) as Partial<DragPayload>;
@@ -50,7 +51,7 @@ export function generateUniqueName(name: string, existingNames: string[]): strin
   return `${base} (${i})${ext}`;
 }
 
-/** Bắt đầu drag-out ra hệ điều hành cho các tệp Local */
+/** Tên hàm: startOSDrag | Mô tả: Kích hoạt kéo thả các tệp tin Local ra màn hình hệ điều hành (Desktop OS) */
 export async function startOSDrag(paths: string[]): Promise<void> {
   try {
     const localPaths = paths

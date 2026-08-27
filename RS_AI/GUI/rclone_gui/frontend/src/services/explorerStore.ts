@@ -1,7 +1,9 @@
-// explorerStore.ts — State riêng cho explorer (tách khỏi store.ts toàn cục).
-//
-// Quản lý leftPath/rightPath/leftFiles/rightFiles + selection. Các component
-// explorer (DualPaneExplorer, ...) đọc/ghi qua đây thay vì `appState.explorer`.
+/*
+[INTEGRITY NOTES]
+- Mục đích: explorerStore.ts — Trạng thái riêng biệt cho trình khám phá file (tách khỏi store.ts toàn cục).
+- Trách nhiệm: Quản lý leftPath/rightPath/leftFiles/rightFiles, độ rộng cột, lịch sử điều hướng, lựa chọn file (selection) cho Dual Pane.
+- Tương tác: Các component (DualPaneExplorer) sẽ đọc/ghi qua đây thay vì dùng `appState.explorer`. Lấy và lưu từ localStorage.
+*/
 import type { FileItem } from '../store';
 import type { SortKey, SortDir } from '../features/sort';
 
@@ -98,7 +100,7 @@ export function getExplorerState(): ExplorerState {
   return state;
 }
 
-// ── Path ───────────────────────────────────────────────────────────────────
+// ── Đường dẫn (Path) ────────────────────────────────────────────────────────
 export function getPanePath(pane: Pane): string {
   return pane === 'left' ? state.leftPath : state.rightPath;
 }
@@ -111,8 +113,7 @@ export function setPanePath(pane: Pane, path: string): void {
   }
 }
 
-// ── Lịch sử điều hướng ──────────────────────────────────────────────────────────────────
-// ── Lịch sử điều hướng ──────────────────────────────────────────────────────────────────
+// ── Lịch sử điều hướng (History) ────────────────────────────────────────────
 export function canPaneGoBack(pane: Pane): boolean {
   return pane === 'left' ? state.leftHistoryBack.length > 0 : state.rightHistoryBack.length > 0;
 }
@@ -123,7 +124,7 @@ export function canPaneGoForward(pane: Pane): boolean {
 
 export function pushPaneHistory(pane: Pane, path: string): void {
   const current = getPanePath(pane);
-  if (current === path) return; // Không lưu trùng lặp
+  if (current === path) return; // Không lưu lịch sử trùng lặp nếu đang đứng yên tại chỗ
   if (pane === 'left') {
     state.leftHistoryBack.push(current);
     state.leftHistoryForward = [];
@@ -162,7 +163,7 @@ export function popPaneForward(pane: Pane): string | null {
   return next || null;
 }
 
-// ── Files ──────────────────────────────────────────────────────────────────
+// ── Danh sách File (Files) ──────────────────────────────────────────────────
 export function getPaneFiles(pane: Pane): FileItem[] {
   return pane === 'left' ? state.leftFiles : state.rightFiles;
 }
@@ -192,7 +193,7 @@ export function clearPaneSelection(pane: Pane): void {
   setPaneSelection(pane, []);
 }
 
-// ── Active pane ────────────────────────────────────────────────────────────
+// ── Khung thao tác hiện tại (Active Pane) ───────────────────────────────────
 export function getActivePane(): Pane {
   return state.activePane;
 }
@@ -201,7 +202,7 @@ export function setActivePane(pane: Pane): void {
   state.activePane = pane;
 }
 
-// ── Sort (riêng từng pane) ─────────────────────────────────────────────────
+// ── Cấu hình sắp xếp (Sort - riêng từng pane) ──────────────────────────────
 export function getPaneSortKey(pane: Pane): SortKey {
   return pane === 'left' ? state.leftSortKey : state.rightSortKey;
 }
@@ -220,7 +221,7 @@ export function setPaneSort(pane: Pane, key: SortKey, dir: SortDir): void {
   }
 }
 
-// ── Column widths (riêng từng pane) ────────────────────────────────────────
+// ── Độ rộng cột hiển thị (Column Widths - riêng từng pane) ─────────────────
 export function getPaneColWidths(pane: Pane): PaneColWidths {
   return pane === 'left' ? state.leftColWidths : state.rightColWidths;
 }
@@ -231,7 +232,7 @@ export function setPaneColWidth(pane: Pane, key: PaneColKey, width: number): voi
   saveExplorerState();
 }
 
-// ── Visible Columns (riêng từng pane) ──────────────────────────────────────
+// ── Trạng thái hiển thị cột (Visible Columns - riêng từng pane) ─────────────
 export function getPaneVisibleCols(pane: Pane): string[] {
   return pane === 'left' ? state.leftVisibleCols : state.rightVisibleCols;
 }

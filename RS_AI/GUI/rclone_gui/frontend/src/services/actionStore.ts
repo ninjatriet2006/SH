@@ -1,79 +1,84 @@
+/*
+[INTEGRITY NOTES]
+- Mục đích: Cung cấp Store lưu trữ và quản lý các Action (Lệnh tùy chỉnh) cho menu chuột phải.
+- Trách nhiệm: Đọc cấu hình các CustomAction từ hệ thống, kiểm tra tính hợp lệ của Action so với file được chọn, và thực thi lệnh.
+- Tương tác: Gọi backend API thông qua `sys_get_custom_actions` và `sys_execute_custom_action`.
+*/
+
 import { invoke } from '@tauri-apps/api/core';
 import type { FileItem } from '../store';
 
+// ====================================================================================
+// BLOCK: INTERFACES VÀ KHAI BÁO KIỂU DỮ LIỆU
+// ====================================================================================
+
+/** Cấu trúc lưu trữ thông tin của một lệnh cấu hình thủ công (Custom Action) */
 export interface CustomAction {
-  id: string;
-  name: string;
-  exec: string;
-  icon: string;
-  selection: string;
-  extensions: string[];
+  id: string;             // Định danh độc nhất của hành động
+  name: string;           // Tên hiển thị trên menu chuột phải
+  exec: string;           // Lệnh thực thi thực tế (vd: code %f)
+  icon: string;           // Biểu tượng icon hiển thị
+  selection: string;      // Yêu cầu chọn (s = single/một file, m = multiple/nhiều file, any)
+  extensions: string[];   // Các loại đuôi file hỗ trợ (vd: ["txt", "md"])
 }
 
+// ====================================================================================
+// BLOCK: LỚP QUẢN LÝ ACTION STORE
+// ====================================================================================
+
 class ActionStore {
+  // Biến lưu trữ tạm trên RAM (mảng các hành động tự cấu hình)
   private actions: CustomAction[] = [];
 
   constructor() {
+    // Tự động tải danh sách actions ngay khi khởi tạo Store
     this.fetchActions();
   }
 
+  /** Tên hàm: fetchActions | Mô tả: Giao tiếp với Backend (sys.rs) để lấy danh sách config CustomAction */
   public async fetchActions() {
     try {
       this.actions = await invoke('sys_get_custom_actions');
-      console.log('Loaded custom actions:', this.actions);
+      console.log('Đã tải thành công các Custom Actions:', this.actions);
     } catch (e) {
-      console.error('Failed to load custom actions:', e);
+      console.error('Lỗi khi tải Custom Actions:', e);
     }
   }
 
-  public getValidActionsForSelection(files: FileItem[]): CustomAction[] {
+  /** 
+   * Tên hàm: getValidActionsForSelection 
+   * Mô tả: Giao tiếp với Backend để lọc danh sách các action hợp lệ (có thể click) dựa vào các file đang được chọn.
+   */
+  public async getValidActionsForSelection(files: FileItem[]): Promise<CustomAction[]> {
     if (this.actions.length === 0) return [];
     
-    // Evaluate rules
-    const selCount = files.length;
-    
-    return this.actions.filter(action => {
-      // 1. Check selection rule
-      if (action.selection === 's' && selCount !== 1) return false;
-      if (action.selection === 'm' && selCount < 2) return false;
-      // if 'any', bypass count check (except maybe > 0)
-      if (selCount === 0) return false;
-
-      // 2. Check extensions rule
-      // If extensions has "any", it matches anything
-      if (action.extensions.includes('any')) return true;
-
-      // Check if all selected files match the extensions
-      return files.every(f => {
-        if (f.is_dir && action.extensions.includes('dir')) return true;
-        
-        const ext = f.name.split('.').pop()?.toLowerCase() || '';
-        return action.extensions.includes(ext);
-      });
-    });
+    try {
+      // Gửi xuống backend để lọc extension
+      return await invoke('sys_get_valid_actions', { files });
+    } catch (e) {
+      console.error('Lỗi khi lấy Custom Actions hợp lệ:', e);
+      return [];
+    }
   }
 
+  /** 
+   * Tên hàm: executeAction 
+   * Mô tả: Tiến hành thực thi câu lệnh Terminal tùy chỉnh trên mảng các file đang được chọn.
+   */
   public async executeAction(action: CustomAction, files: FileItem[], basePath: string) {
-    const paths = files.map(f => {
-      let p = '';
-      if (basePath.startsWith('trash://')) {
-        p = `${basePath}/${f.name}`;
-      } else {
-        p = basePath === '/' ? `/${f.name}` : `${basePath}/${f.name}`;
-      }
-      return p;
-    });
-
     try {
+      // Đẩy lệnh, danh sách tên file, và thư mục hiện tại xuống backend thực thi
       await invoke('sys_execute_custom_action', { 
-        execTemplate: action.exec, 
-        filePaths: paths 
+        execTemplate: action.exec,
+        basePath: basePath,
+        fileNames: files.map(f => f.name)
       });
     } catch (e) {
-      console.error(`Failed to execute custom action ${action.name}:`, e);
-      alert(`Error executing action: ${e}`);
+      console.error(`Thất bại khi chạy Custom Action ${action.name}:`, e);
+      alert(`Lỗi thực thi lệnh: ${e}`);
     }
   }
 }
 
+// Biến instance toàn cục
 export const actionStore = new ActionStore();

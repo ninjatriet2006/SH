@@ -1,5 +1,9 @@
-// emblemStore.ts - Quản lý custom emblems cho files/folders
-// Lưu trạng thái: Dictionary { 'absolute_path': ['⭐', '🔒', ...] }
+/*
+[INTEGRITY NOTES]
+- Mục đích: Quản lý biểu tượng tùy chỉnh (Custom Emblems) được ghim trên files/folders.
+- Trách nhiệm: Lưu trữ trạng thái Emblem thành Dictionary dạng `{'đường_dẫn_tuyệt_đối': ['⭐', '🔒', ...]}` và đồng bộ với localStorage.
+- Tương tác: Gọi từ FileList UI để hiển thị, ContextMenu để toggle.
+*/
 
 type EmblemDict = Record<string, string[]>;
 
@@ -33,13 +37,13 @@ class EmblemStore {
     
     const idx = this.emblems[path].indexOf(emblem);
     if (idx >= 0) {
-      // Remove
+      // Bỏ gỡ (Remove) nếu đã tồn tại biểu tượng
       this.emblems[path].splice(idx, 1);
       if (this.emblems[path].length === 0) {
         delete this.emblems[path];
       }
     } else {
-      // Add
+      // Thêm mới (Add) nếu chưa có
       this.emblems[path].push(emblem);
     }
     this.save();

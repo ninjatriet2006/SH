@@ -1,3 +1,10 @@
+/*
+[INTEGRITY NOTES]
+- Mục đích: Quản lý và thực thi các thao tác liên quan đến file/thư mục (Tạo, Sửa, Xóa, Copy, Move, ...).
+- Trách nhiệm: Đóng vai trò cầu nối mỏng (thin wrapper), chuyển tiếp nguyên vẹn Full Path xuống Backend xử lý.
+- Tương tác: Giao tiếp với bridge/explorer_api.ts. Không xử lý logic phức tạp, không xử lý sudo hay path parsing ở đây.
+*/
+
 import { invoke } from '@tauri-apps/api/core';
 import { fsMkdir, fsDelete, fsRename, fsCopy, fsMove, listFiles, fsSearch, fsStatAdvanced } from '../../../bridge/explorer_api.ts';
 import { getAbout } from '../../../bridge/remote_api.ts';
@@ -15,108 +22,65 @@ export type SearchResult = SearchResultItem;
 export type { StatInfo };
 
 export async function listLocal(path: string): Promise<FileItem[]> {
-    const { remote, realPath } = parseRemotePath(path);
-    return listFiles(remote, realPath);
+    return listFiles(path);
 }
 
 export async function searchLocal(path: string, query: string, _options?: SearchOptions): Promise<SearchResult[]> {
-    const { remote, realPath } = parseRemotePath(path);
-    return fsSearch(remote, realPath, query);
-}
-
-/** Tách chuỗi GDrive::/Documents thành remote và path thực tế */
-export function parseRemotePath(fullPath: string): { remote: string, realPath: string } {
-    let remote = 'Local';
-    let realPath = fullPath;
-    if (fullPath.includes('::')) {
-        const parts = fullPath.split('::');
-        remote = parts[0];
-        realPath = parts.slice(1).join('::');
-    } else if (!fullPath || fullPath === '/') {
-        remote = '';
-    }
-    return { remote, realPath };
+    return fsSearch(path, query);
 }
 
 export async function mkdir(path: string, _account?: string): Promise<void> {
-    const { remote, realPath } = parseRemotePath(path);
-    await runWithSudoFallback('mkdir', [realPath], remote, () => fsMkdir(remote, realPath));
+    return fsMkdir(path);
 }
 
 export async function remove(path: string, _account?: string): Promise<void> {
-    const { remote, realPath } = parseRemotePath(path);
-    await runWithSudoFallback('rm', [realPath], remote, () => fsDelete(remote, realPath));
+    return fsDelete(path);
 }
 
 export async function rename(path: string, newName: string, _account?: string): Promise<void> {
-    const { remote, realPath } = parseRemotePath(path);
-    const parentDir = realPath.substring(0, realPath.lastIndexOf('/'));
+    // Chuyển đổi tên mới thành đường dẫn tuyệt đối mới
+    const parentDir = path.substring(0, path.lastIndexOf('/'));
     const newPath = parentDir ? `${parentDir}/${newName}` : `/${newName}`;
-    await runWithSudoFallback('mv', [realPath, newPath], remote, () => fsRename(remote, realPath, newPath));
+    return fsRename(path, newPath);
 }
 
 export async function copy(src: string, dest: string, _account?: string, taskId?: number): Promise<void> {
-    const srcParsed = parseRemotePath(src);
-    const destParsed = parseRemotePath(dest);
-    await fsCopy(srcParsed.remote, srcParsed.realPath, destParsed.remote, destParsed.realPath, taskId);
+    return fsCopy(src, dest, taskId);
 }
 
 export async function move(src: string, dest: string, _account?: string, taskId?: number): Promise<void> {
-    const srcParsed = parseRemotePath(src);
-    const destParsed = parseRemotePath(dest);
-    await fsMove(srcParsed.remote, srcParsed.realPath, destParsed.remote, destParsed.realPath, taskId);
+    return fsMove(src, dest, taskId);
 }
 
 export async function copyLocal(from: string, to: string, _overwrite: boolean = false, taskId?: number): Promise<void> {
-    const pFrom = parseRemotePath(from);
-    const pTo = parseRemotePath(to);
-    await runWithSudoFallback('cp', [pFrom.realPath, pTo.realPath], pFrom.remote, () => fsCopy(pFrom.remote, pFrom.realPath, pTo.remote, pTo.realPath, taskId));
+    return fsCopy(from, to, taskId);
+}
+
+export async function cpLocal(from: string, to: string, _overwrite: boolean = true, taskId?: number): Promise<void> {
+    return fsCopy(from, to, taskId);
 }
 
 export async function moveLocal(from: string, to: string, taskId?: number): Promise<void> {
-    const pFrom = parseRemotePath(from);
-    const pTo = parseRemotePath(to);
-    await runWithSudoFallback('mv', [pFrom.realPath, pTo.realPath], pFrom.remote, () => fsMove(pFrom.remote, pFrom.realPath, pTo.remote, pTo.realPath, taskId));
-}
-
-async function runWithSudoFallback<T>(action: string, args: string[], remote: string, fn: () => Promise<T>): Promise<T> {
-    try {
-        return await fn();
-    } catch (e: any) {
-        const errStr = String(e).toLowerCase();
-        if ((errStr.includes('permission denied') || errStr.includes('access is denied') || errStr.includes('os error 13')) && remote === 'Local') {
-            if (confirm(`Lỗi phân quyền (Permission Denied).\nBạn có muốn thử lại thao tác này với quyền quản trị viên (Root/Admin) không?`)) {
-                await invoke('fs_sudo_exec', { action, args });
-                return undefined as T;
-            }
-        }
-        throw e;
-    }
-}
-
-
-
-export async function cpLocal(from: string, to: string, _overwrite = true, taskId?: number): Promise<void> {
-    return copyLocal(from, to, _overwrite, taskId);
+    return fsMove(from, to, taskId);
 }
 
 export async function upload(local: string, remoteTarget: string, _account?: string): Promise<void> {
-    return copy(local, remoteTarget);
+    return fsCopy(local, remoteTarget);
 }
 
 export async function download(remoteSource: string, local: string, _account?: string): Promise<void> {
-    return copy(remoteSource, local);
+    return fsCopy(remoteSource, local);
 }
 
 export async function cpBatch(srcs: string[], dstDir: string, _overwrite = true): Promise<void> {
+    // Để tối ưu, lý ra nên gọi fsBatchCopy dưới backend, nhưng để duy trì tương thích, vòng lặp gọi trực tiếp fsCopy
     for (const src of srcs) {
         const name = src.substring(src.lastIndexOf('/') + 1);
         const dst = dstDir.endsWith('/') ? `${dstDir}${name}` : `${dstDir}/${name}`;
-        await copy(src, dst);
+        await fsCopy(src, dst);
     }
 }
 
-// Các tính năng đọc/ghi nội dung file (chưa được rclone hỗ trợ native)
 export async function cat(_path: string, _account?: string): Promise<string> {
     alert("Tính năng đọc nội dung file trực tiếp chưa được hỗ trợ trên cloud.");
     return "";
@@ -124,51 +88,36 @@ export async function cat(_path: string, _account?: string): Promise<string> {
 
 export async function write(path: string, content: string, _account?: string): Promise<void> {
     if (content === "") {
-        // Tạo file rỗng (dùng cho tính năng New File)
-        const { remote, realPath } = parseRemotePath(path);
-        await invoke('fs_touch', { remote, path: realPath });
+        await invoke('fs_touch', { path });
     } else {
         alert("Tính năng ghi nội dung trực tiếp chưa được hỗ trợ.");
     }
 }
 
 export async function open(path: string): Promise<void> {
-    const { remote, realPath } = parseRemotePath(path);
-    if (remote === 'Local') {
-        // Mở file bằng ứng dụng mặc định của hệ điều hành
-        await invoke('sys_open_with', { path: realPath, execCmd: null, app: null });
-    } else {
-        alert("Không thể mở file trực tiếp từ Cloud. Vui lòng tải xuống trước.");
-    }
+    await invoke('sys_open_with', { path, execCmd: null, app: null });
 }
 
-// Removed duplicate StatInfo interface
 export async function statAdvanced(path: string): Promise<StatInfo> {
-    const { remote, realPath } = parseRemotePath(path);
-    return fsStatAdvanced(remote, realPath);
+    return fsStatAdvanced(path);
 }
+
 export async function chmod(_path: string, _mode: number): Promise<void> {}
 export async function chown(_path: string, _uid: number, _gid: number): Promise<void> {}
+
 export async function getFreeSpace(path: string): Promise<number> {
-    const { remote } = parseRemotePath(path);
-    if (!remote) return 0;
-    
-    let remoteName = remote;
-    if (remoteName !== 'Local' && !remoteName.endsWith(':')) {
-        remoteName += ':';
+    let remote = path.split('::')[0] || 'Local';
+    if (remote !== 'Local' && !remote.endsWith(':')) {
+        remote += ':';
     }
-    
-    const about = await getAbout(remoteName);
+    const about = await getAbout(remote);
     return about.free || 0;
 }
+
 export async function getAboutSpace(path: string): Promise<{ total?: number, used?: number, free?: number }> {
-    const { remote } = parseRemotePath(path);
-    if (!remote) return {};
-    
-    let remoteName = remote;
-    if (remoteName !== 'Local' && !remoteName.endsWith(':')) {
-        remoteName += ':';
+    let remote = path.split('::')[0] || 'Local';
+    if (remote !== 'Local' && !remote.endsWith(':')) {
+        remote += ':';
     }
-    
-    return await getAbout(remoteName);
+    return await getAbout(remote);
 }

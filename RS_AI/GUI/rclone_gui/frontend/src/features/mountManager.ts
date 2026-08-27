@@ -1,11 +1,11 @@
 /*
 [INTEGRITY NOTES]
-Mục đích: Quản lý giao diện tab Mount/Services.
-Trách nhiệm:
- - Hiển thị danh sách các mount services.
- - Form thêm/sửa/xoá systemd service.
- - Khởi tạo các event cho button trong #view-mounts.
-Các module tương tác: bridge/mount_api.ts, bridge/remote_api.ts
+- Mục đích: Quản lý giao diện tab Mount/Services (hiển thị, điều khiển).
+- Trách nhiệm:
+  - Hiển thị danh sách các dịch vụ mount hiện có.
+  - Xử lý Form thêm/sửa/xoá systemd service cho tính năng mount rclone.
+  - Khởi tạo các event lắng nghe cho các nút hành động trong #view-mounts.
+- Tương tác: Gọi lệnh xuống `bridge/mount_api.ts` và `bridge/remote_api.ts`.
 */
 
 import { 
@@ -84,7 +84,7 @@ export class MountManager {
                 this.tbody!.appendChild(tr);
             });
             
-            // Add events
+            // Gán sự kiện cho các nút thao tác (Add events)
             this.tbody.querySelectorAll('.btn-action-start').forEach(btn => {
                 btn.addEventListener('click', (e) => this.handleManage(e, 'start'));
             });
@@ -152,7 +152,7 @@ export class MountManager {
         target.textContent = originalText;
         target.disabled = false;
         
-        // Đợi một chút cho service thay đổi trạng thái
+        // Đợi một chút cho service thay đổi trạng thái và cập nhật lại danh sách
         setTimeout(() => this.renderList(), 1000);
     }
     
@@ -253,16 +253,8 @@ export class MountManager {
             (modal.querySelector('#mount-service-level') as HTMLSelectElement).value = existingConfig.is_user_level ? 'user' : 'system';
             (modal.querySelector('#mount-service-level') as HTMLSelectElement).disabled = true;
             
-            let existingRemoteName = existingConfig.remote;
-            let existingRemotePath = "";
-            const colonIndex = existingRemoteName.indexOf(':');
-            if (colonIndex !== -1) {
-                existingRemotePath = existingRemoteName.substring(colonIndex + 1);
-                existingRemoteName = existingRemoteName.substring(0, colonIndex);
-            }
-            
-            (modal.querySelector('#mount-remote') as HTMLSelectElement).value = existingRemoteName;
-            (modal.querySelector('#mount-remote-path') as HTMLInputElement).value = existingRemotePath;
+            (modal.querySelector('#mount-remote') as HTMLSelectElement).value = existingConfig.remote_name;
+            (modal.querySelector('#mount-remote-path') as HTMLInputElement).value = existingConfig.remote_path;
             (modal.querySelector('#mount-path') as HTMLInputElement).value = existingConfig.mount_path;
             (modal.querySelector('#mount-vfs-mode') as HTMLSelectElement).value = existingConfig.vfs_cache_mode || 'off';
             (modal.querySelector('#mount-vfs-max-size') as HTMLInputElement).value = existingConfig.vfs_cache_max_size;
@@ -273,7 +265,7 @@ export class MountManager {
             (modal.querySelector('#btn-save-mount') as HTMLButtonElement).textContent = 'Lưu Thay Đổi';
         }
     
-        // Upgrade selects to custom dropdown
+        // Khởi tạo các select thành custom dropdown cho đẹp (Upgrade selects to custom dropdown)
         upgradeSelectToCustomDropdown(modal.querySelector('#mount-service-level') as HTMLSelectElement, false);
         upgradeSelectToCustomDropdown(modal.querySelector('#mount-remote') as HTMLSelectElement, true);
         upgradeSelectToCustomDropdown(modal.querySelector('#mount-vfs-mode') as HTMLSelectElement, false);
@@ -293,13 +285,8 @@ export class MountManager {
             }
             
             const is_user_level = (modal.querySelector('#mount-service-level') as HTMLSelectElement).value === 'user';
-            const remoteName = (modal.querySelector('#mount-remote') as HTMLSelectElement).value;
-            let remotePath = (modal.querySelector('#mount-remote-path') as HTMLInputElement).value.trim();
-            // Xử lý dấu / thừa ở đầu nếu có để cho sạch đẹp (tuỳ chọn)
-            if (remotePath.startsWith('/')) {
-                remotePath = remotePath.substring(1);
-            }
-            const remote = remoteName ? (remoteName + ':' + remotePath) : '';
+            const remote_name = (modal.querySelector('#mount-remote') as HTMLSelectElement).value;
+            const remote_path = (modal.querySelector('#mount-remote-path') as HTMLInputElement).value.trim();
             
             const mount_path = (modal.querySelector('#mount-path') as HTMLInputElement).value.trim();
             const vfs_cache_mode = (modal.querySelector('#mount-vfs-mode') as HTMLSelectElement).value;
@@ -309,7 +296,7 @@ export class MountManager {
             const allow_other = (modal.querySelector('#mount-allow-other') as HTMLInputElement).checked;
             const read_only = (modal.querySelector('#mount-read-only') as HTMLInputElement).checked;
             
-            if (!remote || !mount_path) {
+            if (!remote_name || !mount_path) {
                 alert('Vui lòng chọn Remote và nhập thư mục Mount!');
                 return;
             }
@@ -319,9 +306,10 @@ export class MountManager {
             const success = await createMountService({
                 service_name,
                 is_user_level,
-                remote, // Already contains colon
+                remote_name,
+                remote_path,
                 mount_path,
-                description: `Rclone mount for ${remote}`,
+                description: `Rclone mount for ${remote_name}`,
                 vfs_cache_mode: vfs_cache_mode === 'off' ? '' : vfs_cache_mode,
                 vfs_cache_max_size,
                 vfs_cache_max_age,

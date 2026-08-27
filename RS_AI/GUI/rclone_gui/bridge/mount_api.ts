@@ -11,7 +11,8 @@ import { invoke } from '@tauri-apps/api/core';
 export interface MountConfig {
     service_name: string;
     is_user_level: boolean;
-    remote: string;
+    remote_name: string;
+    remote_path: string;
     mount_path: string;
     description: string;
     vfs_cache_mode: string;

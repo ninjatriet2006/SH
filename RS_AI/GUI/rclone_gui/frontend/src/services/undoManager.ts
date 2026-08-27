@@ -1,3 +1,10 @@
+/*
+[INTEGRITY NOTES]
+- Mục đích: Cung cấp tính năng Hoàn tác (Undo) và Làm lại (Redo) cho các thao tác file.
+- Trách nhiệm: Lưu trữ lịch sử các tác vụ (copy, move, rename), tính toán thao tác đảo ngược (reverse action).
+- Tương tác: Giao tiếp với `fileOps` để thực hiện thao tác vật lý, ghi log qua `store`.
+*/
+
 import { logActivity } from '../store';
 import { rename, remove, copy, move, cpLocal, moveLocal } from './fileOps';
 
@@ -15,11 +22,14 @@ class UndoManager {
   private undoStack: UndoAction[] = [];
   private redoStack: UndoAction[] = [];
 
-  /** Record a completed action so it can be undone later */
+  /** 
+   * Tên hàm: push 
+   * Mô tả: Ghi lại một thao tác vừa hoàn tất để có thể hoàn tác sau này. 
+   */
   public push(action: UndoAction) {
     this.undoStack.push(action);
-    this.redoStack = []; // Clear redo stack on new action
-    // Keep stack size reasonable (e.g. 50 actions)
+    this.redoStack = []; // Xóa ngăn xếp redo khi có hành động mới
+    // Giữ kích thước ngăn xếp ở mức vừa phải (ví dụ: 50 thao tác)
     if (this.undoStack.length > 50) {
       this.undoStack.shift();
     }
@@ -33,7 +43,10 @@ class UndoManager {
     return this.redoStack.length;
   }
 
-  /** Undo the most recent action */
+  /** 
+   * Tên hàm: undo 
+   * Mô tả: Hoàn tác hành động gần nhất 
+   */
   public async undo(): Promise<void> {
     const action = this.undoStack.pop();
     if (!action) {
@@ -44,15 +57,15 @@ class UndoManager {
     try {
       switch (action.type) {
         case 'rename':
-          // Undo rename: rename dest back to src
+          // Hoàn tác rename: đổi tên đích (dest) trở về nguồn (src)
           await rename(action.dest, this.basename(action.src), action.account);
           break;
         case 'copy':
-          // Undo copy: delete the destination file
+          // Hoàn tác copy: xóa file/thư mục ở đích (dest)
           await remove(action.dest, action.account);
           break;
         case 'move':
-          // Undo move: move the destination back to the source
+          // Hoàn tác move: di chuyển đích (dest) quay lại nguồn (src)
           if (action.isLocal) {
             await moveLocal(action.dest, action.src);
           } else {
@@ -66,12 +79,15 @@ class UndoManager {
       logActivity('Đã hoàn tác (Undo)', `${this.getActionVerb(action.type)} ${this.basename(action.src)}`);
     } catch (e) {
       logActivity('Lỗi Hoàn tác', String(e));
-      // Put it back on the stack since it failed?
+      // Đặt lại thao tác vào ngăn xếp nếu hoàn tác thất bại
       this.undoStack.push(action);
     }
   }
 
-  /** Redo the most recently undone action */
+  /** 
+   * Tên hàm: redo 
+   * Mô tả: Làm lại hành động vừa bị hoàn tác gần nhất 
+   */
   public async redo(): Promise<void> {
     const action = this.redoStack.pop();
     if (!action) {

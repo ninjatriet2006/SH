@@ -1,48 +1,15 @@
 /*
 [INTEGRITY NOTES]
-Mục đích: Quản lý giao diện trang Remotes (Hiển thị danh sách, thêm, sửa, xóa).
-Trách nhiệm: Lắng nghe sự kiện trang Remotes, gọi API backend để fetch và hiển thị dữ liệu.
-Các module tương tác: bridge/remote_api.ts, frontend/src/main.ts.
+- Mục đích: Quản lý giao diện thẻ (tab) Remotes (Hiển thị danh sách, thêm, sửa, xóa cấu hình đám mây).
+- Trách nhiệm: Lắng nghe sự kiện trang Remotes, gọi API backend để lấy (fetch) và hiển thị dữ liệu lên giao diện.
+- Tương tác: Làm việc chặt chẽ với `bridge/remote_api.ts`, `bridge/config_api.ts` và được khởi tạo ở `main.ts`.
 */
 
 
 import { formatSize } from './format';
 import { listRemotes, getProviders, ProviderInfo, ProviderOption, RemoteConfig, createRemote, updateRemote, deleteRemote, getBackendFeatures, getAbout, getSize } from '../../../bridge/remote_api.ts';
-import { getConfigContent, setConfigContent } from '../../../bridge/config_api.ts';
+import { getConfigContent, setConfigContent, reorderConfig } from '../../../bridge/config_api.ts';
 import { upgradeSelectToCustomDropdown } from './customDropdown.ts';
-
-function reorderConfigText(iniText: string, orderedNames: string[]): string {
-    const lines = iniText.split('\n');
-    let sections: {name: string | null, lines: string[]}[] = [];
-    let currentSection: {name: string | null, lines: string[]} = { name: null, lines: [] };
-    
-    for (const line of lines) {
-        const match = line.match(/^\[(.*)\]\s*$/);
-        if (match) {
-            sections.push(currentSection);
-            currentSection = { name: match[1].trim(), lines: [line] };
-        } else {
-            currentSection.lines.push(line);
-        }
-    }
-    sections.push(currentSection);
-
-    const ordered: typeof sections = [];
-    const nullIdx = sections.findIndex(s => s.name === null);
-    if (nullIdx >= 0) {
-        ordered.push(sections.splice(nullIdx, 1)[0]);
-    }
-    
-    for (const name of orderedNames) {
-        const idx = sections.findIndex(s => s.name === name);
-        if (idx >= 0) {
-            ordered.push(sections.splice(idx, 1)[0]);
-        }
-    }
-    
-    ordered.push(...sections);
-    return ordered.map(s => s.lines.join('\n')).join('');
-}
 
 interface CapacityResult {
     html: string;
@@ -50,7 +17,7 @@ interface CapacityResult {
 }
 
 const capacityCache = new Map<string, { data: CapacityResult, timestamp: number }>();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL = 5 * 60 * 1000; // Thời gian sống của cache (5 phút)
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -148,7 +115,7 @@ export class RemotesManager {
 
   public async init() {
     this.setupEvents();
-    await this.loadProviders(); // Pre-load providers cho nhanh
+    await this.loadProviders(); // Tải trước (Pre-load) danh sách nhà cung cấp cho nhanh
     await this.renderList();
   }
 
@@ -167,7 +134,7 @@ export class RemotesManager {
 
   private async fetchCapacity(remoteName: string, cell: HTMLTableCellElement) {
       try {
-          // Timeout 5s
+          // Đặt thời gian chờ tối đa (Timeout) là 5 giây
           const about = await withTimeout(getAbout(`${remoteName}:`), 5000);
           let hasAboutData = false;
           if (about.total !== undefined || about.used !== undefined || about.free !== undefined) {
@@ -180,10 +147,10 @@ export class RemotesManager {
           if (hasAboutData) {
               if (about.total && about.used !== undefined) {
                   const percent = Math.round((about.used / about.total) * 100);
-                  const barWidth = Math.min(100, percent); // Visual caps at 100%
+                  const barWidth = Math.min(100, percent); // Thanh hiển thị tối đa 100%
                   let color = 'var(--colors-primary)';
-                  if (percent > 90) color = '#ff5c5c'; // Red if almost full or over quota
-                  else if (percent > 70) color = '#f39c12'; // Orange if quite full
+                  if (percent > 90) color = '#ff5c5c'; // Màu đỏ nếu gần đầy hoặc vượt hạn mức (quota)
+                  else if (percent > 70) color = '#f39c12'; // Màu cam nếu khá đầy
                   
                   html = `
                     <div style="width: 100%; height: 20px; background: var(--colors-surface-overlay); border-radius: 10px; overflow: hidden; position: relative; border: 1px solid var(--colors-border-muted);">
@@ -202,7 +169,7 @@ export class RemotesManager {
                   html = `<span style="color: var(--colors-text-muted); font-style: italic;">Không hỗ trợ</span>`;
               }
           } else {
-              // Fallback to rclone size
+              // Phương án dự phòng (Fallback): Dùng lệnh size của rclone
               try {
                   const sizeInfo = await withTimeout(getSize(`${remoteName}:`), 5000);
                   if (sizeInfo && sizeInfo.bytes !== undefined) {
@@ -241,9 +208,7 @@ export class RemotesManager {
           let names = remotes.filter(r => !(r.name === 'Local' && r.type === 'local')).map(r => r.name);
           names.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
           
-          const content = await getConfigContent();
-          const newContent = reorderConfigText(content, names);
-          await setConfigContent(newContent);
+          await reorderConfig(names);
           
           this.renderList();
         } catch (e) {
@@ -348,8 +313,7 @@ export class RemotesManager {
         const idx = names.indexOf(remote.name);
         if (idx > 0) {
           [names[idx - 1], names[idx]] = [names[idx], names[idx - 1]];
-          const content = await getConfigContent();
-          await setConfigContent(reorderConfigText(content, names));
+          await reorderConfig(names);
           this.renderList();
         }
       });
@@ -360,8 +324,7 @@ export class RemotesManager {
         const idx = names.indexOf(remote.name);
         if (idx >= 0 && idx < names.length - 1) {
           [names[idx], names[idx + 1]] = [names[idx + 1], names[idx]];
-          const content = await getConfigContent();
-          await setConfigContent(reorderConfigText(content, names));
+          await reorderConfig(names);
           this.renderList();
         }
       });
@@ -520,7 +483,7 @@ export class RemotesManager {
     tabBasic.innerHTML = basicHtml;
     tabAdvanced.innerHTML = advancedHtml;
     
-    // Upgrade all dynamic selects
+    // Nâng cấp tất cả các thẻ select động thành custom dropdown
     container.querySelectorAll('select.dynamic-input').forEach(sel => {
         upgradeSelectToCustomDropdown(sel as HTMLSelectElement, false);
     });
@@ -534,7 +497,7 @@ export class RemotesManager {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     
-    // Sort providers by name for better UX
+    // Sắp xếp nhà cung cấp theo tên để dễ dùng hơn (UX tốt hơn)
     const sortedProviders = [...this.providers].sort((a, b) => a.Name.localeCompare(b.Name));
     const providerOptions = sortedProviders.map(p => `<option value="${p.Name}">${p.Description || p.Name} (${p.Name})</option>`).join('');
 
@@ -733,7 +696,7 @@ export class RemotesManager {
                 alert('Vui lòng nhập Token JSON cho chế độ Headless!');
                 return;
             }
-            renderDynamicForm(); // Prepare step 3
+            renderDynamicForm(); // Chuẩn bị cho bước 3
         }
         
         if (currentStep < 3) {
@@ -754,7 +717,7 @@ export class RemotesManager {
       this.renderDynamicFormTabs(dynamicContainer, provider, {});
     };
     
-    // Save functionality
+    // Xử lý lưu dữ liệu (Save functionality)
     btnSave.addEventListener('click', async () => {
       const name = nameInput.value.trim();
       const provider = typeSelect.value;
