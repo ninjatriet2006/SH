@@ -247,7 +247,7 @@ class TransferManager {
   /** Tên hàm: removeFinished | Mô tả: Loại bỏ (Clear) các task đã Done hoặc Cancel ra khỏi UI Box */
   async removeFinished() {
     for (const [id, task] of this.tasks.entries()) {
-      if (task.status === 'done' || task.status === 'cancelled') {
+      if (task.status === 'done' || task.status === 'cancelled' || task.status === 'error') {
         this.tasks.delete(id);
       }
     }

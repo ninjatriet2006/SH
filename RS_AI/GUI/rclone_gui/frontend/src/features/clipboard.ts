@@ -179,8 +179,8 @@ export async function pasteTo(
 
       // 4. Thực thi copyto từng file cho các file keep_both
       for (const item of explicitCopies) {
-         // Sử dụng lệnh copy đặc biệt cho file (rclone copyto / copy)
-         await transferManager.enqueue('copy', `[Keep Both] ${baseName(item.src)}`, item.src, item.dest);
+         // Nếu là Cắt (Move) thì phải dùng lệnh move để xóa bản gốc, nếu không sẽ bị sót file
+         await transferManager.enqueue(mode === 'cut' ? 'move' : 'copy', `[Keep Both] ${baseName(item.src)}`, item.src, item.dest);
       }
       
       logActivity(actionText, `${srcs.length} mục tới ${destPath} (Xung đột: ${conflicts.length})`);

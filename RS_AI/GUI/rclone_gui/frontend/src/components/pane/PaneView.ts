@@ -365,6 +365,13 @@ private renderBody(
   public setRemotes(remotes: any[]) {
     if (!this.remoteSelect) return;
     let optionsHtml = '<option value="">☁️ Chọn Remote...</option>';
+    
+    // Luôn luôn chèn Local vào đầu danh sách (nếu mảng remotes không có)
+    const hasLocal = remotes.some(r => r.name === 'Local');
+    if (!hasLocal) {
+      optionsHtml += `<option value="Local">💻 Local (Máy tính)</option>`;
+    }
+
     remotes.forEach(remote => {
       // Fix visual name for Local
       if (remote.name === 'Local') {
