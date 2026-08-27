@@ -76,6 +76,8 @@ pub fn run() {
             api::remotes::delete_remote,
             api::remotes::get_backend_features,
             api::remotes::check_transfer_capability,
+            api::remotes::rclone_about,
+            api::remotes::rclone_size,
             
             // ==================
             // MOUNT API

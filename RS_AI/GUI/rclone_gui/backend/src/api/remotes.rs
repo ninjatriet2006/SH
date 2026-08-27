@@ -205,3 +205,38 @@ mod tests {
         println!("Result: {:?}", result);
     }
 }
+
+
+/// Tên hàm: rclone_about
+/// Mô tả: Lấy thông tin dung lượng của một remote (total, used, free, trashed, other).
+#[tauri::command]
+pub async fn rclone_about(remote: String) -> Result<Value, String> {
+    let output = rclone::run_cmd(&["about", &remote, "--json"])?;
+    
+    if !output.status.success() {
+        let err_msg = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Lỗi rclone about: {}", err_msg));
+    }
+    
+    let json_str = String::from_utf8_lossy(&output.stdout);
+    let parsed: Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
+    
+    Ok(parsed)
+}
+
+/// Tên hàm: rclone_size
+/// Mô tả: Lấy thông tin kích thước và số lượng tệp của một remote hoặc thư mục.
+#[tauri::command]
+pub async fn rclone_size(remote: String) -> Result<Value, String> {
+    let output = rclone::run_cmd(&["size", &remote, "--json"])?;
+    
+    if !output.status.success() {
+        let err_msg = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Lỗi rclone size: {}", err_msg));
+    }
+    
+    let json_str = String::from_utf8_lossy(&output.stdout);
+    let parsed: Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
+    
+    Ok(parsed)
+}
