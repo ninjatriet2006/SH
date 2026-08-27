@@ -28,10 +28,10 @@ echo "▶ [1/6] Cài đặt & Build frontend"
 
 # --- 2. Build Tauri backend -----------------------------------
 echo "──────────────────────────────────────────────"
-echo "▶ [2/6] Build backend (Sử dụng TUI Wrapper)"
+echo "▶ [2/6] Build backend (Mở cửa sổ Terminal...)"
 (
-    cd "$APP_DIR"
-    python3 backend/scripts/build_tui.py
+    cd "$APP_DIR/backend"
+    gnome-terminal --wait --title="Rclone GUI Builder" -- bash -c "npx @tauri-apps/cli build -b none; echo ''; echo 'Build hoàn tất. Nhấn phím bất kỳ để tiếp tục...'; read -n 1"
 )
 
 # --- 3. Tạo thư mục release -----------------------------------

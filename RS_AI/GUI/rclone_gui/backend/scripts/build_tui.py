@@ -3,6 +3,7 @@ import sys
 import subprocess
 import json
 import time
+import os
 
 def get_total_packages():
     try:
@@ -36,12 +37,16 @@ def main():
         "cargo", "build", "--release", "--message-format=json-render-diagnostics"
     ]
     
+    env = os.environ.copy()
+    env["TAURI_ENV_DEBUG"] = "0"
+    
     process = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        cwd="backend"
+        cwd="backend",
+        env=env
     )
 
     compiled_count = 0

@@ -6,7 +6,7 @@
 */
 import type { FileItem } from '../store';
 import { logActivity, isBookmarked, toggleBookmark } from '../store';
-import { getPaneSelection, type Pane } from '../services/explorerStore';
+import { getPaneSelection, getPaneFiles, type Pane } from '../services/explorerStore';
 import { ContextMenu, type ContextMenuItem } from '../components/ContextMenu';
 import { OpenWithModal } from '../components/OpenWithModal';
 import { OperationModal } from '../components/OperationModal';
@@ -123,7 +123,9 @@ export async function MenuFile(e: MouseEvent, opts: ContextMenuOptions): Promise
 
   let selectedFiles: FileItem[] = [];
   if (batchMode) {
-    selectedFiles = appState.explorer?.[`${pane}Files`]?.filter(ff => sels.some(s => s.name === ff.name)) || [f];
+    const paneFiles = getPaneFiles(pane);
+    selectedFiles = paneFiles.filter(ff => sels.some(s => s.name === ff.name));
+    if (selectedFiles.length === 0) selectedFiles = [f];
   } else {
     selectedFiles = [f];
   }

@@ -589,7 +589,14 @@ export class DualPaneExplorer {
 
   private handleContextMenu(pane: Pane, e: MouseEvent, f: FileItem) {
     const basePath = (pane === 'left' ? appState.explorer?.leftPath : appState.explorer?.rightPath) ?? '/';
-    this.handleSelectRow(pane, f);
+    
+    // Nếu file được click chưa có trong danh sách đang chọn, chọn duy nhất file này
+    const currentSelection = getPaneSelection(pane);
+    const isAlreadySelected = currentSelection.some(s => s.name === f.name);
+    if (!isAlreadySelected) {
+      this.handleSelectRow(pane, f);
+    }
+    
     MenuFile(e, {
       file: f,
       path: basePath,
