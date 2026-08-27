@@ -13,6 +13,40 @@ use crate::logic::file_ops::parse_remote_path;
 // BLOCK: CÁC HÀM XỬ LÝ CẤU HÌNH REMOTE
 // ====================================================================================
 
+/// Tên hàm: list_remotes
+/// Mô tả: Trả về danh sách tất cả các remote đã cấu hình từ rclone config dump.
+#[tauri::command]
+pub async fn list_remotes() -> Result<Vec<Value>, String> {
+    let output = rclone::run_cmd(&["config", "dump"])?;
+    
+    if !output.status.success() {
+        let err_msg = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Lỗi rclone: {}", err_msg));
+    }
+    
+    let json_str = String::from_utf8_lossy(&output.stdout);
+    let dump: Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
+    
+    let mut remotes = Vec::new();
+    if let Value::Object(map) = dump {
+        for (name, config) in map {
+            if let Value::Object(mut config_map) = config {
+                config_map.insert("name".to_string(), Value::String(name));
+                remotes.push(Value::Object(config_map));
+            }
+        }
+    }
+    
+    // Sort remotes alphabetically by name for a better UI experience
+    remotes.sort_by(|a, b| {
+        let name_a = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let name_b = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        name_a.cmp(name_b)
+    });
+    
+    Ok(remotes)
+}
+
 /// Tên hàm: get_providers
 /// Mô tả: Trả về danh sách tất cả các loại cloud (Google Drive, Dropbox...) được rclone hỗ trợ dưới dạng JSON.
 #[tauri::command]
@@ -159,4 +193,15 @@ pub async fn check_transfer_capability(src: String, dst: String) -> Result<Value
         "canMove": can_move,
         "canCopyDelete": can_copy_delete
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_list_remotes() {
+        let result = list_remotes().await;
+        println!("Result: {:?}", result);
+    }
 }

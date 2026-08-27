@@ -69,6 +69,7 @@ pub fn run() {
             // ==================
             // REMOTES API
             // ==================
+            api::remotes::list_remotes,
             api::remotes::get_providers,
             api::remotes::create_remote,
             api::remotes::update_remote,
