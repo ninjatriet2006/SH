@@ -14,8 +14,16 @@ use crate::core::rclone;
 use tauri::State;
 use std::process::Command;
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[allow(non_snake_case)]
+pub struct ConflictInfo {
+    pub relative_path: String,
+    pub src_full_path: String,
+    pub dest_full_path: String,
+}
+
 #[tauri::command]
-pub async fn fs_check_conflicts(app_handle: tauri::AppHandle, srcs: Vec<String>, dest_path: String) -> Result<Vec<String>, String> {
+pub async fn fs_check_conflicts(app_handle: tauri::AppHandle, srcs: Vec<String>, dest_path: String) -> Result<Vec<ConflictInfo>, String> {
     file_ops::check_conflicts(app_handle, srcs, dest_path).await
 }
 
@@ -30,7 +38,7 @@ pub struct RcloneFile {
     pub IsDir: bool,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct FileItem {
     pub uuid: String,
     pub name: String,

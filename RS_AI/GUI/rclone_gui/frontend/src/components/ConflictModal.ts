@@ -14,7 +14,7 @@ export class ConflictModal {
     this.element.className = 'operation-modal conflict-modal';
     
     let html = `<h2>⚠️ File Conflict</h2>
-      <p style="margin-bottom: 15px;">File "<b>${filename}</b>" đã tồn tại tại thư mục đích.</p>
+      <p style="margin-bottom: 15px;">Mục "<b>${filename}</b>" đã có sẵn ở đích đến.</p>
       <div class="conflict-actions" style="display: flex; gap: 10px; margin-bottom: 10px;">
         <button class="btn btn-replace" style="flex: 1; background: var(--accent); color: white;">Ghi đè</button>
         <button class="btn btn-skip" style="flex: 1;">Bỏ qua</button>

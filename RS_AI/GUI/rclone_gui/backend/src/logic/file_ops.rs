@@ -7,6 +7,7 @@
 
 use std::process::Command;
 use std::collections::HashMap;
+use crate::api::files::{FileItem, ConflictInfo};
 
 
 /// Tên hàm: parse_remote_path
@@ -89,18 +90,17 @@ where
 /// Tên hàm: check_conflicts
 /// Mô tả: Kích hoạt `rclone check` ngầm để đệ quy kiểm tra xung đột hash giữa source và dest.
 /// Trả về mảng các đường dẫn file con bị khác hash.
-pub async fn check_conflicts(_app_handle: tauri::AppHandle, srcs: Vec<String>, dest_path: String) -> Result<Vec<String>, String> {
+pub async fn check_conflicts(_app_handle: tauri::AppHandle, srcs: Vec<String>, dest_path: String) -> Result<Vec<ConflictInfo>, String> {
 
     let mut conflicts = Vec::new();
 
     let (dest_remote, dest_real) = parse_remote_path(&dest_path);
     let dest_target = crate::core::rclone::build_target(&dest_remote, &dest_real);
 
-    // Dùng lsjson trên thư mục đích để lấy danh sách các file/thư mục hiện có ở cấp 1 (top-level)
+    // Lấy danh sách các file/thư mục hiện có ở cấp 1 của thư mục đích
     let output = crate::core::rclone::run_cmd(&["lsjson", &dest_target])?;
     if !output.status.success() {
         let err_msg = String::from_utf8_lossy(&output.stderr);
-        // Nếu thư mục đích chưa tồn tại, rclone lsjson sẽ trả về lỗi directory not found, điều này có nghĩa là không có conflict
         if err_msg.contains("directory not found") || err_msg.contains("failed to read directory") {
             return Ok(conflicts);
         }
@@ -109,21 +109,91 @@ pub async fn check_conflicts(_app_handle: tauri::AppHandle, srcs: Vec<String>, d
 
     let json_str = String::from_utf8_lossy(&output.stdout);
     if let Ok(items) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
-        let existing_names: std::collections::HashSet<String> = items.into_iter()
-            .filter_map(|item| item.get("Name").and_then(|v| v.as_str()).map(|s| s.to_string()))
+        let existing_items: std::collections::HashMap<String, bool> = items.into_iter()
+            .filter_map(|item| {
+                let name = item.get("Name").and_then(|v| v.as_str()).map(|s| s.to_string());
+                let is_dir = item.get("IsDir").and_then(|v| v.as_bool()).unwrap_or(false);
+                name.map(|n| (n, is_dir))
+            })
             .collect();
 
-        // So sánh tên (basename) của các file nguồn với các tên hiện có trong thư mục đích
-        for src in srcs {
-            let (_, real_path) = parse_remote_path(&src);
-            let base_name = if let Some(idx) = real_path.rfind('/') {
-                &real_path[idx + 1..]
+        for src_item in srcs {
+            let (src_remote, src_real_path) = parse_remote_path(&src_item);
+            let base_name = if let Some(idx) = src_real_path.rfind('/') {
+                &src_real_path[idx + 1..]
             } else {
-                real_path.as_str()
+                src_real_path.as_str()
             };
 
-            if existing_names.contains(base_name) {
-                conflicts.push(base_name.to_string());
+            let src_target = crate::core::rclone::build_target(&src_remote, &src_real_path);
+            
+            // Xây dựng đường dẫn đích tuyệt đối cho mục này
+            let dest_item_real = if dest_real.is_empty() || dest_real == "/" {
+                base_name.to_string()
+            } else {
+                if dest_real.ends_with('/') {
+                    format!("{}{}", dest_real, base_name)
+                } else {
+                    format!("{}/{}", dest_real, base_name)
+                }
+            };
+            let dest_item_target = crate::core::rclone::build_target(&dest_remote, &dest_item_real);
+
+            if let Some(&is_dest_dir) = existing_items.get(base_name) {
+                // Dùng rclone lsjson để kiểm tra xem src_target có phải là thư mục không
+                let mut src_is_dir = false;
+                if let Ok(src_stat) = crate::core::rclone::run_cmd(&["lsjson", &src_target]) {
+                    if src_stat.status.success() {
+                        let s = String::from_utf8_lossy(&src_stat.stdout);
+                        if let Ok(s_items) = serde_json::from_str::<Vec<serde_json::Value>>(&s) {
+                            if let Some(first) = s_items.first() {
+                                src_is_dir = first.get("IsDir").and_then(|v| v.as_bool()).unwrap_or(false);
+                            }
+                        }
+                    }
+                }
+
+                if src_is_dir && is_dest_dir {
+                    // Cả 2 đều là thư mục -> Quét đệ quy các file con
+                    let src_files_out = crate::core::rclone::run_cmd(&["lsjson", "-R", "--files-only", &src_target]);
+                    let dest_files_out = crate::core::rclone::run_cmd(&["lsjson", "-R", "--files-only", &dest_item_target]);
+
+                    if let (Ok(s_out), Ok(d_out)) = (src_files_out, dest_files_out) {
+                        if s_out.status.success() && d_out.status.success() {
+                            let s_json = String::from_utf8_lossy(&s_out.stdout);
+                            let d_json = String::from_utf8_lossy(&d_out.stdout);
+
+                            if let (Ok(s_items), Ok(d_items)) = (
+                                serde_json::from_str::<Vec<serde_json::Value>>(&s_json),
+                                serde_json::from_str::<Vec<serde_json::Value>>(&d_json)
+                            ) {
+                                let d_names: std::collections::HashSet<String> = d_items.into_iter()
+                                    .filter_map(|i| i.get("Path").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                                    .collect();
+
+                                for s_item in s_items {
+                                    if let Some(s_path) = s_item.get("Path").and_then(|v| v.as_str()) {
+                                        if d_names.contains(s_path) {
+                                            // Xung đột file con!
+                                            conflicts.push(ConflictInfo {
+                                                relative_path: format!("{}/{}", base_name, s_path),
+                                                src_full_path: format!("{}/{}", src_target, s_path),
+                                                dest_full_path: format!("{}/{}", dest_item_target, s_path),
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Xung đột trực tiếp (file vs file, file vs dir, hoặc dir vs file)
+                    conflicts.push(ConflictInfo {
+                        relative_path: base_name.to_string(),
+                        src_full_path: src_target,
+                        dest_full_path: dest_item_target,
+                    });
+                }
             }
         }
     }

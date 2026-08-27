@@ -126,8 +126,14 @@ export async function pasteTo(
     checkingModal.getElement().querySelector('.confirm')?.remove();
     checkingModal.getElement().querySelector('.cancel')?.remove();
 
+    interface ConflictInfo {
+      relative_path: string;
+      src_full_path: string;
+      dest_full_path: string;
+    }
+
     try {
-      const conflictPaths: string[] = await invoke('fs_check_conflicts', { srcs, destPath });
+      const conflicts: ConflictInfo[] = await invoke('fs_check_conflicts', { srcs, destPath });
       checkingModal.close();
 
       let applyToAllRes: ConflictResult | null = null;
@@ -135,13 +141,13 @@ export async function pasteTo(
       let explicitCopies: { src: string, dest: string }[] = [];
 
       // 2. Xử lý từng conflict
-      for (const conflictPath of conflictPaths) {
+      for (const conflict of conflicts) {
         let action: 'replace' | 'skip' | 'keep_both' = 'replace';
 
         if (applyToAllRes) {
           action = applyToAllRes.resolution;
         } else {
-          const conflictModal = new ConflictModal(conflictPath, conflictPaths.length > 1);
+          const conflictModal = new ConflictModal(conflict.relative_path, conflicts.length > 1);
           conflictModal.open();
           const res = await conflictModal.waitForResolution();
           action = res.resolution;
@@ -149,31 +155,20 @@ export async function pasteTo(
         }
 
         if (action === 'skip') {
-          excludes.push(conflictPath);
+          excludes.push(conflict.relative_path);
         } else if (action === 'keep_both') {
-          excludes.push(conflictPath); // Không ghi đè bản cũ
+          excludes.push(conflict.relative_path); // Không ghi đè bản cũ
           
           // Tạo một bản copy thứ hai bằng cách thêm (1)
-          const dotIdx = conflictPath.lastIndexOf('.');
-          const baseName = dotIdx > 0 ? conflictPath.substring(0, dotIdx) : conflictPath;
-          const ext = dotIdx > 0 ? conflictPath.substring(dotIdx) : '';
+          const dotIdx = conflict.dest_full_path.lastIndexOf('.');
+          const baseName = dotIdx > 0 ? conflict.dest_full_path.substring(0, dotIdx) : conflict.dest_full_path;
+          const ext = dotIdx > 0 ? conflict.dest_full_path.substring(dotIdx) : '';
           const newName = `${baseName} (1)${ext}`;
           
-          // Đường dẫn nguồn đầy đủ của file này
-          // conflictPath trả về là tương đối so với src (ví dụ thư mục `Docs/file.txt`)
-          // Ta cần map lại nó với src ban đầu tương ứng
-          let matchingSrc = srcs.find(s => {
-              const srcBase = s.endsWith('/') ? s.slice(0, -1).split('/').pop() : s.split('/').pop();
-              return conflictPath.startsWith(srcBase + '/') || conflictPath === srcBase;
+          explicitCopies.push({
+              src: conflict.src_full_path,
+              dest: newName
           });
-          
-          if (matchingSrc) {
-              const parentDir = matchingSrc.substring(0, matchingSrc.lastIndexOf('/'));
-              explicitCopies.push({
-                  src: `${parentDir}/${conflictPath}`,
-                  dest: joinPath(destPath, newName)
-              });
-          }
         }
       }
 
@@ -188,7 +183,7 @@ export async function pasteTo(
          await transferManager.enqueue('copy', `[Keep Both] ${baseName(item.src)}`, item.src, item.dest);
       }
       
-      logActivity(actionText, `${srcs.length} mục tới ${destPath} (Xung đột: ${conflictPaths.length})`);
+      logActivity(actionText, `${srcs.length} mục tới ${destPath} (Xung đột: ${conflicts.length})`);
       
       // Nếu thao tác là Cắt (Cut), tự động xóa bộ nhớ tạm.
       if (mode === 'cut') clearClipboard();
