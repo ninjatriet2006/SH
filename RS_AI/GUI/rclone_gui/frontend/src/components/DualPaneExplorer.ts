@@ -24,6 +24,8 @@ import {
   getActivePane,
   getPaneSelection,
   getPanePath,
+  setPanePath,
+  setPaneFiles,
   pushPaneHistory,
   popPaneBack,
   popPaneForward,
@@ -401,6 +403,8 @@ export class DualPaneExplorer {
 
     files = sortFiles(files, getPaneSortKey(pane), true, getPaneSortDir(pane));
     
+    setPaneFiles(pane, files);
+    setPanePath(pane, path);
     if (pane === 'left') {
       if (!appState.explorer) appState.explorer = {} as any;
       appState.explorer!.leftPath = path;

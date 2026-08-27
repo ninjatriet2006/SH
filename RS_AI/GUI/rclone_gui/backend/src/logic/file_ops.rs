@@ -89,103 +89,41 @@ where
 /// Tên hàm: check_conflicts
 /// Mô tả: Kích hoạt `rclone check` ngầm để đệ quy kiểm tra xung đột hash giữa source và dest.
 /// Trả về mảng các đường dẫn file con bị khác hash.
-pub async fn check_conflicts(app_handle: tauri::AppHandle, srcs: Vec<String>, dest_path: String) -> Result<Vec<String>, String> {
-    use std::process::{Command, Stdio};
-    use std::io::{BufRead, BufReader};
-    use tauri::Emitter;
+pub async fn check_conflicts(_app_handle: tauri::AppHandle, srcs: Vec<String>, dest_path: String) -> Result<Vec<String>, String> {
 
     let mut conflicts = Vec::new();
-
-    let mut groups: HashMap<String, Vec<String>> = HashMap::new();
-    for src in srcs {
-        let (remote, path) = parse_remote_path(&src);
-        let path = path.trim_end_matches('/');
-        let (parent, base) = match path.rfind('/') {
-            Some(idx) => (&path[..idx], &path[idx+1..]),
-            None => ("", path),
-        };
-        
-        let parent_remote = if parent.is_empty() {
-            format!("{}::/", remote)
-        } else {
-            format!("{}::{}", remote, parent)
-        };
-        
-        groups.entry(parent_remote).or_insert_with(Vec::new).push(base.to_string());
-    }
 
     let (dest_remote, dest_real) = parse_remote_path(&dest_path);
     let dest_target = crate::core::rclone::build_target(&dest_remote, &dest_real);
 
-    for (parent_src, bases) in groups {
-        let (src_remote, src_real) = parse_remote_path(&parent_src);
-        let src_target = crate::core::rclone::build_target(&src_remote, &src_real);
-        
-        let mut string_args = vec![
-            "check".to_string(), 
-            src_target.clone(), 
-            dest_target.clone(), 
-            "--combined".to_string(), 
-            "-".to_string(),
-            "--use-json-log".to_string(),
-            "--stats".to_string(),
-            "0.5s".to_string(),
-        ];
-        
-        for base in &bases {
-            string_args.push("--include".to_string());
-            string_args.push(base.clone());
-            string_args.push("--include".to_string());
-            string_args.push(format!("{}/**", base));
+    // Dùng lsjson trên thư mục đích để lấy danh sách các file/thư mục hiện có ở cấp 1 (top-level)
+    let output = crate::core::rclone::run_cmd(&["lsjson", &dest_target])?;
+    if !output.status.success() {
+        let err_msg = String::from_utf8_lossy(&output.stderr);
+        // Nếu thư mục đích chưa tồn tại, rclone lsjson sẽ trả về lỗi directory not found, điều này có nghĩa là không có conflict
+        if err_msg.contains("directory not found") || err_msg.contains("failed to read directory") {
+            return Ok(conflicts);
         }
-        
-        let mut child = Command::new("rclone")
-            .args(&string_args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Lỗi khởi chạy rclone check: {}", e))?;
+        return Err(format!("Lỗi kiểm tra trùng lặp: {}", err_msg));
+    }
 
-        let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
-        let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
+    let json_str = String::from_utf8_lossy(&output.stdout);
+    if let Ok(items) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
+        let existing_names: std::collections::HashSet<String> = items.into_iter()
+            .filter_map(|item| item.get("Name").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .collect();
 
-        let app_handle_clone = app_handle.clone();
-        
-        // Luồng đọc stderr để lấy progress json
-        let stderr_thread = std::thread::spawn(move || {
-            let reader = BufReader::new(stderr);
-            for line in reader.lines() {
-                if let Ok(line_str) = line {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line_str) {
-                        if let Some(stats) = json.get("stats") {
-                            let payload = serde_json::json!({
-                                "stats": stats
-                            });
-                            let _ = app_handle_clone.emit("conflict_check_progress", payload);
-                        }
-                    }
-                }
-            }
-        });
+        // So sánh tên (basename) của các file nguồn với các tên hiện có trong thư mục đích
+        for src in srcs {
+            let (_, real_path) = parse_remote_path(&src);
+            let base_name = if let Some(idx) = real_path.rfind('/') {
+                &real_path[idx + 1..]
+            } else {
+                real_path.as_str()
+            };
 
-        // Luồng chính đọc stdout để bắt kết quả conflict
-        let reader = BufReader::new(stdout);
-        for line in reader.lines() {
-            if let Ok(line_str) = line {
-                if line_str.starts_with("* ") {
-                    let conflict_path = line_str[2..].trim_end().to_string();
-                    conflicts.push(conflict_path);
-                }
-            }
-        }
-
-        stderr_thread.join().unwrap();
-        let status = child.wait().map_err(|e| e.to_string())?;
-        if !status.success() {
-            // Rclone check trả về mã lỗi 1 nếu có difference, điều này là bình thường
-            // Nên chúng ta không bắt lỗi ở đây trừ khi status != 1 và status != 0
-            if status.code() != Some(0) && status.code() != Some(1) {
-                return Err(format!("Lỗi kiểm tra trùng lặp, mã lỗi: {}", status));
+            if existing_names.contains(base_name) {
+                conflicts.push(base_name.to_string());
             }
         }
     }

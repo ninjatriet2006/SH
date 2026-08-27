@@ -31,7 +31,7 @@ echo "────────────────────────�
 echo "▶ [2/6] Build backend (Mở cửa sổ Terminal...)"
 (
     cd "$APP_DIR/backend"
-    gnome-terminal --wait --title="Rclone GUI Builder" -- bash -c "npx @tauri-apps/cli build --no-bundle; echo ''; echo 'Build hoàn tất. Nhấn phím bất kỳ để tiếp tục...'; read -n 1"
+    gnome-terminal --wait --title="Rclone GUI Builder" -- bash -c "npx @tauri-apps/cli build --no-bundle || { echo 'Build LỖI!'; read -n 1; exit 1; }; echo ''; echo 'Build hoàn tất. Nhấn phím bất kỳ để tiếp tục...'; read -n 1"
 )
 
 # --- 3. Tạo thư mục release -----------------------------------

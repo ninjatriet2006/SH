@@ -154,6 +154,7 @@ class TransferManager {
     this.notify();
     // Kích hoạt xử lý hàng đợi chạy nền (không await)
     this.processQueue(); 
+    window.dispatchEvent(new CustomEvent('open-transfer-drawer'));
     return id;
   }
 

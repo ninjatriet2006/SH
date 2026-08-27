@@ -16,6 +16,10 @@ export class TransferDrawer {
     
     transferManager.onUpdate = () => this.render();
 
+    window.addEventListener('open-transfer-drawer', () => {
+      if (!this.isOpen) this.toggle();
+    });
+
     // Add resizer for drag-to-resize
     const drawer = document.getElementById('transfer-drawer')!;
     drawer.style.position = 'relative';
