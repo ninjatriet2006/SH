@@ -28,10 +28,10 @@ echo "▶ [1/6] Cài đặt & Build frontend"
 
 # --- 2. Build Tauri backend -----------------------------------
 echo "──────────────────────────────────────────────"
-echo "▶ [2/6] Build backend (cargo tauri build --no-bundle)"
+echo "▶ [2/6] Build backend (Sử dụng TUI Wrapper)"
 (
     cd "$APP_DIR"
-    npx @tauri-apps/cli build --no-bundle
+    python3 backend/scripts/build_tui.py
 )
 
 # --- 3. Tạo thư mục release -----------------------------------
