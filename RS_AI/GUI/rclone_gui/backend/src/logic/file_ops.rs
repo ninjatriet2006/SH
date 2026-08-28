@@ -6,8 +6,7 @@
 */
 
 use std::process::Command;
-use std::collections::HashMap;
-use crate::api::files::{FileItem, ConflictInfo};
+use crate::api::files::{ConflictInfo};
 
 
 /// Tên hàm: parse_remote_path

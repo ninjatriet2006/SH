@@ -406,3 +406,8 @@ pub async fn fs_get_thumbnail(path: String) -> Result<String, String> {
     .await
     .map_err(|e| e.to_string())?
 }
+
+#[tauri::command]
+pub fn fs_temp_dir() -> String {
+    std::env::temp_dir().to_string_lossy().to_string()
+}

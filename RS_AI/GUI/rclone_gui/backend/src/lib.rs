@@ -36,6 +36,7 @@ pub fn run() {
             api::files::get_home_dir,
             api::files::open_in_terminal,
             api::files::fs_get_thumbnail,
+            api::files::fs_temp_dir,
             
             // ==================
             // SYS API (Trong core/sys.rs)

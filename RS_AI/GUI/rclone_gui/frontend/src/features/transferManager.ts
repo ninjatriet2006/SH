@@ -11,7 +11,7 @@ import { joinPath } from './dragDrop';
 import * as fileOps from '../services/fileOps';
 import { FallbackModal } from '../components/FallbackModal';
 import { checkTransferCapability } from '../../../bridge/remote_api';
-import { fsDelete, fsCancel } from '../../../bridge/explorer_api';
+import { fsDelete, fsCancel, getTempDir } from '../../../bridge/explorer_api';
 import { listen } from '@tauri-apps/api/event';
 
 export type TransferKind = 'upload' | 'download' | 'copy' | 'move' | 'delete';
@@ -47,6 +47,7 @@ class TransferManager {
   public onQueueEmptyListeners: (() => void)[] = [];
   private nextId = 1;
   private isProcessing = false;
+  private fallbackApplyToAllCache: { action: 'copy_delete' | 'local_transfer' | 'cancel', expireAt: number } | null = null;
 
   constructor() {
     // Lắng nghe luồng sự kiện báo cáo tiến độ (progress) trực tiếp từ Backend Rclone
@@ -97,16 +98,30 @@ class TransferManager {
     excludes?: string[]
   ): Promise<number> {
     if (!isFallback && kind === 'move') {
-      const caps = await checkTransferCapability(src, dst);
-      const canMove = caps.canMove;
-      const canCopyDelete = caps.canCopyDelete;
+      let action: 'copy_delete' | 'local_transfer' | 'cancel' | null = null;
+      let canCopyDelete = false;
+
+      // Kiểm tra cache trước khi gọi API để tiết kiệm thời gian
+      if (this.fallbackApplyToAllCache && Date.now() < this.fallbackApplyToAllCache.expireAt) {
+        action = this.fallbackApplyToAllCache.action;
+      } else {
+        const caps = await checkTransferCapability(src, dst);
+        if (!caps.canMove) {
+          canCopyDelete = caps.canCopyDelete;
+          // Hiện thông báo cảnh báo (Fallback Modal) để hỏi ý kiến người dùng
+          const modal = new FallbackModal(canCopyDelete, "Nguồn", "Đích");
+          const res = await modal.open();
+          action = res.action;
+          
+          if (res.applyToAll) {
+            // Cache lựa chọn trong 5 giây để áp dụng cho các tác vụ trong cùng 1 vòng lặp bulk
+            this.fallbackApplyToAllCache = { action, expireAt: Date.now() + 5000 };
+          }
+        }
+      }
 
       // Xử lý khi Cloud KHÔNG HỖ TRỢ lệnh Move nguyên bản (Server-side Move)
-      if (!canMove) {
-        // Hiện thông báo cảnh báo (Fallback Modal) để hỏi ý kiến người dùng
-        const modal = new FallbackModal(canCopyDelete, "Nguồn", "Đích");
-        const action = await modal.open();
-        
+      if (action) {
         // Nếu người dùng chọn dùng Copy sau đó Delete (Server-side fallback)
         if (action === 'copy_delete') {
           await this.enqueue('copy', '[Copy] ' + name, src, dst, async () => {
@@ -116,11 +131,19 @@ class TransferManager {
         } 
         // Nếu chọn tải xuống máy sau đó tải lên (Local Bandwidth Fallback)
         else if (action === 'local_transfer') {
-          await this.enqueue('copy', '[Local Copy] ' + name, src, dst, async () => {
-            await this.enqueue('delete', '[Local Xoá gốc] ' + name, src, dst);
+          const sysTemp = await getTempDir();
+          const tempFolder = joinPath(`Local::${sysTemp}`, `rclone_gui_temp_${Date.now()}_${Math.floor(Math.random() * 1000)}`);
+          
+          await this.enqueue('copy', '[Download Tạm] ' + name, src, tempFolder, async () => {
+            await this.enqueue('copy', '[Upload Lên] ' + name, tempFolder, dst, async () => {
+              // Sau khi Upload xong thì dọn dẹp thư mục tạm và xoá gốc
+              await this.enqueue('delete', '[Dọn Temp] ' + name, tempFolder, dst, async () => {
+                await this.enqueue('delete', '[Xoá gốc] ' + name, src, dst);
+              });
+            }, true, excludes);
           }, true, excludes);
           return -1;
-        } 
+        }  
         // Nếu người dùng ấn nút Hủy
         else {
           console.log(`Đã huỷ Move: Bỏ qua move file ${name}`);
@@ -174,8 +197,7 @@ class TransferManager {
             // Lựa chọn lệnh thực thi dựa trên loại task
             if (task.kind === 'move') {
               await fileOps.moveLocal(task.src, task.dst, task.id, task.excludes);
-              // Xoá file nguồn vì đây là thao tác di chuyển
-              await fsDelete(task.src);
+              // rclone moveto đã tự động xoá nguồn sau khi check hash thành công
             } else if (task.kind === 'delete') {
               await fsDelete(task.src);
             } else {
@@ -252,6 +274,24 @@ class TransferManager {
       }
     }
     this.notify();
+  }
+
+  /** Tên hàm: retryFailed | Mô tả: Thử lại tất cả các tác vụ bị lỗi */
+  async retryFailed() {
+    let hasRetry = false;
+    for (const task of this.tasks.values()) {
+      if (task.status === 'error') {
+        task.status = 'queued';
+        task.error = undefined;
+        task.progress = 0;
+        task.bytesDone = 0;
+        hasRetry = true;
+      }
+    }
+    if (hasRetry) {
+      this.notify();
+      this.processQueue();
+    }
   }
 
   private notify() {

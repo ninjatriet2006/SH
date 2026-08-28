@@ -90,12 +90,21 @@ export class TransferDrawer {
     const header = document.createElement('div');
     header.style.display = 'flex';
     header.style.justifyContent = 'flex-end';
+    header.style.gap = '8px';
     header.style.marginBottom = '12px';
+    
+    const retryBtn = document.createElement('button');
+    retryBtn.textContent = 'Thử lại lỗi';
+    retryBtn.className = 'btn';
+    retryBtn.onclick = () => transferManager.retryFailed();
+    header.appendChild(retryBtn);
+
     const clearBtn = document.createElement('button');
     clearBtn.textContent = 'Dọn dẹp lịch sử';
     clearBtn.className = 'btn';
     clearBtn.onclick = () => transferManager.removeFinished();
     header.appendChild(clearBtn);
+    
     this.body.appendChild(header);
 
     const list = document.createElement('div');
@@ -118,7 +127,22 @@ export class TransferDrawer {
     
     const title = document.createElement('span');
     title.className = 'transfer-title';
-    title.textContent = `[${task.kind.toUpperCase()}] ${task.name}`;
+    
+    // Smart Tagging based on locality
+    let displayTag = task.kind.toUpperCase();
+    if (task.kind === 'copy' || task.kind === 'move') {
+      if (task.srcLocal && !task.dstLocal) displayTag = 'UPLOAD';
+      else if (!task.srcLocal && task.dstLocal) displayTag = 'DOWNLOAD';
+      else if (!task.srcLocal && !task.dstLocal) {
+        displayTag = task.kind === 'move' ? 'CLOUD-MOVE' : 'CLOUD-COPY';
+      }
+    }
+    
+    if (task.name.startsWith('[Local Copy]')) {
+      displayTag = 'RELAY'; // Fallback stream
+    }
+
+    title.textContent = `[${displayTag}] ${task.name}`;
     
     const status = document.createElement('span');
     status.className = 'transfer-status';

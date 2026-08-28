@@ -2,7 +2,7 @@ export type FallbackAction = 'copy_delete' | 'local_transfer' | 'cancel';
 
 export class FallbackModal {
   private element: HTMLDivElement;
-  private resolvePromise!: (action: FallbackAction) => void;
+  private resolvePromise!: (res: {action: FallbackAction, applyToAll: boolean}) => void;
 
   constructor(canCopyDelete: boolean, srcRemote: string, dstRemote: string) {
     this.element = document.createElement('div');
@@ -27,7 +27,10 @@ export class FallbackModal {
             ${copyDeleteBtnHtml}
             <button id="fb-local" class="btn" style="flex: 1; min-height: 40px; white-space: normal;">Tải về máy rồi Upload lên đích (Local Transfer - Chậm)</button>
         </div>
-        <div style="display: flex; gap: 10px; margin-top: 20px; justify-content: flex-end;">
+        <div style="display: flex; gap: 10px; margin-top: 20px; justify-content: flex-end; align-items: center;">
+            <label style="display: flex; align-items: center; gap: 8px; margin-right: auto; cursor: pointer; color: var(--text-color);">
+                <input type="checkbox" id="fb-apply-all"> Áp dụng cho các file tiếp theo
+            </label>
             <button id="fb-cancel" class="cancel btn">Huỷ (Cancel)</button>
         </div>
       </div>
@@ -50,7 +53,7 @@ export class FallbackModal {
     }
   }
 
-  public open(): Promise<FallbackAction> {
+  public open(): Promise<{action: FallbackAction, applyToAll: boolean}> {
     document.body.appendChild(this.element);
     return new Promise((resolve) => {
         this.resolvePromise = resolve;
@@ -58,9 +61,12 @@ export class FallbackModal {
   }
 
   private close(action: FallbackAction): void {
+    const applyToAllCheckbox = this.element.querySelector('#fb-apply-all') as HTMLInputElement;
+    const applyToAll = applyToAllCheckbox ? applyToAllCheckbox.checked : false;
+    
     this.element.remove();
     if (this.resolvePromise) {
-        this.resolvePromise(action);
+        this.resolvePromise({action, applyToAll});
     }
   }
 }

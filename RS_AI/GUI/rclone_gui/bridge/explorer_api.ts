@@ -19,6 +19,10 @@ export async function listFiles(path: string): Promise<FileItem[]> {
   }
 }
 
+export async function getTempDir(): Promise<string> {
+  return await invoke('fs_temp_dir');
+}
+
 export async function fsMkdir(path: string): Promise<void> {
   await invoke('fs_mkdir', { path });
 }
