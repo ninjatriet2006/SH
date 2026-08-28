@@ -31,6 +31,7 @@ Các module tương tác: /src/main.ts, /themes/tokens.css, /themes/style.css
           <button class="nav-tab" data-view="mounts" data-lang-id="nav_mounts">🖥️ Mounts</button>
           <button class="nav-tab" data-view="serves" data-lang-id="nav_serves">🌐 Serves</button>
           <button class="nav-tab" data-view="sync" data-lang-id="nav_sync">🔄 Sync</button>
+          <button class="nav-tab" data-view="debug" data-lang-id="nav_debug">🐞 Debug</button>
         </nav>
       </header>
 
@@ -107,6 +108,9 @@ Các module tương tác: /src/main.ts, /themes/tokens.css, /themes/style.css
             <!-- Mount End -->
           </main>
           
+          <main id="view-debug" class="app-view" style="display: none; padding: 10px; flex-direction: column;">
+            <!-- Render DebugView here -->
+          </main>
         </div>
       </div>
 

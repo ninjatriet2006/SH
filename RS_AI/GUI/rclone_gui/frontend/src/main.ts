@@ -9,6 +9,7 @@ import { RemotesManager } from './features/remotesManager.ts';
 import { MountManager } from './features/mountManager';
 import { DualPaneExplorer } from './components/DualPaneExplorer.ts';
 import { TransferDrawer } from './components/TransferDrawer';
+import { DebugView } from './components/DebugView.ts';
 
 // Nhúng CSS thông qua Vite bundler
 import '../../themes/tokens.css';
@@ -19,8 +20,9 @@ import viLang from '../../langs/vi.json';
 
 // State lưu trữ dữ liệu từ điển hiện tại
 let currentLangData: Record<string, string> = {};
-let remotesManager: RemotesManager;
-let mountManager: MountManager;
+let remotesManager: RemotesManager | null = null;
+let mountManager: MountManager | null = null;
+let debugView: DebugView | null = null;
 
 /**
  * Hàm đệ quy cập nhật UI text dựa trên data-lang-id.
@@ -165,7 +167,10 @@ function setupEvents() {
         if (!mountManager) {
           mountManager = new MountManager();
         }
-        mountManager.renderList();
+      } else if (viewName === 'debug') {
+        if (!debugView) {
+          debugView = new DebugView();
+        }
       }
     });
   });

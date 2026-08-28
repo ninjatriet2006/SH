@@ -231,7 +231,14 @@ export class TransferDrawer {
         nameSpan.style.overflow = 'hidden';
         nameSpan.style.textOverflow = 'ellipsis';
         nameSpan.style.maxWidth = '50%';
-        nameSpan.textContent = `📄 ${file.name}`;
+        
+        if (file.percentage === 100 && task.status === 'running') {
+            nameSpan.textContent = `🔍 [Check Hash] ${file.name}`;
+            nameSpan.style.color = 'var(--text-color)';
+            nameSpan.style.fontWeight = 'bold';
+        } else {
+            nameSpan.textContent = `📄 ${file.name}`;
+        }
         
         const statsSpan = document.createElement('span');
         statsSpan.style.whiteSpace = 'nowrap';

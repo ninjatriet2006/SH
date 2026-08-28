@@ -11,7 +11,8 @@ import { joinPath } from './dragDrop';
 import * as fileOps from '../services/fileOps';
 import { FallbackModal } from '../components/FallbackModal';
 import { checkTransferCapability } from '../../../bridge/remote_api';
-import { fsDelete, fsCancel, getTempDir } from '../../../bridge/explorer_api';
+import { getTempDir, fsDelete, fsCancel } from '../../../bridge/explorer_api';
+import { debugStore } from '../services/debugStore';
 import { listen } from '@tauri-apps/api/event';
 
 export type TransferKind = 'upload' | 'download' | 'copy' | 'move' | 'delete';
@@ -133,11 +134,13 @@ class TransferManager {
         else if (action === 'local_transfer') {
           const sysTemp = await getTempDir();
           const tempFolder = joinPath(`Local::${sysTemp}`, `rclone_gui_temp_${Date.now()}_${Math.floor(Math.random() * 1000)}`);
+          debugStore.log('TRANSFER', 'Create Temp Folder', { path: tempFolder, for: name });
           
           await this.enqueue('copy', '[Download Tạm] ' + name, src, tempFolder, async () => {
             await this.enqueue('copy', '[Upload Lên] ' + name, tempFolder, dst, async () => {
               // Sau khi Upload xong thì dọn dẹp thư mục tạm và xoá gốc
               await this.enqueue('delete', '[Dọn Temp] ' + name, tempFolder, dst, async () => {
+                debugStore.log('TRANSFER', 'Clean Temp Folder', { path: tempFolder, for: name });
                 await this.enqueue('delete', '[Xoá gốc] ' + name, src, dst);
               });
             }, true, excludes);
