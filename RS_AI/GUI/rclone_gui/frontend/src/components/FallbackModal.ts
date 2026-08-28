@@ -4,23 +4,25 @@ export class FallbackModal {
   private element: HTMLDivElement;
   private resolvePromise!: (res: {action: FallbackAction, applyToAll: boolean}) => void;
 
-  constructor(canCopyDelete: boolean, srcRemote: string, dstRemote: string) {
+  constructor(canCopyDelete: boolean, srcRemote: string, dstRemote: string, isMove: boolean = true) {
     this.element = document.createElement('div');
     this.element.className = 'modal-overlay';
     
     let copyDeleteBtnHtml = '';
-    if (canCopyDelete) {
+    const operationName = isMove ? "Di chuyển (Move)" : "Sao chép (Copy)";
+    
+    if (canCopyDelete && isMove) {
         copyDeleteBtnHtml = `<button id="fb-copy-delete" class="btn btn-primary" style="flex: 1; min-height: 40px; white-space: normal;">Sử dụng Sao chép & Xóa (Copy & Delete) trên máy chủ</button>`;
-    } else {
+    } else if (isMove) {
         const reason = srcRemote !== dstRemote ? "Di chuyển chéo Cloud" : "Cloud không hỗ trợ";
         copyDeleteBtnHtml = `<button class="btn disabled" disabled style="flex: 1; min-height: 40px; opacity: 0.5; white-space: normal;">Sử dụng Sao chép & Xóa (Không khả dụng: ${reason})</button>`;
     }
 
     this.element.innerHTML = `
       <div class="operation-modal" style="max-width: 450px;">
-        <h2>Di chuyển không được hỗ trợ</h2>
+        <h2>${operationName} không được hỗ trợ</h2>
         <div style="margin-bottom: 20px; color: var(--text-color);">
-            Cloud gốc không hỗ trợ tính năng Move (hoặc bạn đang kéo thả chéo Cloud). 
+            Cloud gốc không hỗ trợ tính năng ${operationName} (hoặc bạn đang kéo thả chéo Cloud). 
             Vui lòng chọn một phương pháp thay thế:
         </div>
         <div style="display: flex; flex-direction: column; gap: 10px;">

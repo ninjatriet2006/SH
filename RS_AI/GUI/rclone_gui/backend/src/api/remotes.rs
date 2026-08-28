@@ -167,10 +167,12 @@ pub async fn check_transfer_capability(src: String, dst: String) -> Result<Value
     let (dst_remote, _) = parse_remote_path(&dst);
 
     let mut can_move = false;
+    let mut can_copy = false;
     let mut can_copy_delete = false;
 
     if src_remote == dst_remote && src_remote == "Local" {
         can_move = true;
+        can_copy = true;
     } else if src_remote == dst_remote && src_remote != "Local" {
         // Hỏi features từ backend
         if let Ok(feats) = get_backend_features(src_remote).await {
@@ -181,8 +183,10 @@ pub async fn check_transfer_capability(src: String, dst: String) -> Result<Value
                 if let Some(dir_mv) = features.get("DirMove").and_then(|v| v.as_bool()) {
                     if dir_mv { can_move = true; }
                 }
-                
+
                 let copy = features.get("Copy").and_then(|v| v.as_bool()).unwrap_or(false);
+                if copy { can_copy = true; }
+                
                 let purge = features.get("Purge").and_then(|v| v.as_bool()).unwrap_or(false);
                 can_copy_delete = copy && purge;
             }
@@ -191,6 +195,7 @@ pub async fn check_transfer_capability(src: String, dst: String) -> Result<Value
 
     Ok(json!({
         "canMove": can_move,
+        "canCopy": can_copy,
         "canCopyDelete": can_copy_delete
     }))
 }

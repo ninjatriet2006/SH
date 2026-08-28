@@ -136,7 +136,15 @@ pub async fn fs_delete(path: String) -> Result<(), String> {
     file_ops::run_with_sudo_fallback(&remote, "rm", &[real_path.clone()], || {
         let output = rclone::run_cmd(&["purge", &target])?;
         if !output.status.success() {
-            Err(String::from_utf8_lossy(&output.stderr).into_owned())
+            let err_msg = String::from_utf8_lossy(&output.stderr).into_owned();
+            if err_msg.contains("is a file not a directory") || err_msg.contains("not a directory") {
+                let out2 = rclone::run_cmd(&["deletefile", &target])?;
+                if !out2.status.success() {
+                    return Err(String::from_utf8_lossy(&out2.stderr).into_owned());
+                }
+                return Ok(());
+            }
+            Err(err_msg)
         } else {
             Ok(())
         }
@@ -181,7 +189,6 @@ pub async fn fs_copy(
     src: String,
     dst: String,
     task_id: Option<u32>,
-    excludes: Option<Vec<String>>,
 ) -> Result<(), String> {
     let (src_remote, src_real) = file_ops::parse_remote_path(&src);
     let (dst_remote, dst_real) = file_ops::parse_remote_path(&dst);
@@ -199,7 +206,7 @@ pub async fn fs_copy(
         })?;
     }
 
-    transfer::run_transfer_task(app_handle, state, "copyto", src_target, dst_target, task_id, excludes).await
+    transfer::run_transfer_task(app_handle, state, "copyto", src_target, dst_target, task_id).await
 }
 
 #[tauri::command]
@@ -209,14 +216,13 @@ pub async fn fs_move(
     src: String,
     dst: String,
     task_id: Option<u32>,
-    excludes: Option<Vec<String>>,
 ) -> Result<(), String> {
     let (src_remote, src_real) = file_ops::parse_remote_path(&src);
     let (dst_remote, dst_real) = file_ops::parse_remote_path(&dst);
     
     let src_target = rclone::build_target(&src_remote, &src_real);
     let dst_target = rclone::build_target(&dst_remote, &dst_real);
-    transfer::run_transfer_task(app_handle, state, "moveto", src_target, dst_target, task_id, excludes).await
+    transfer::run_transfer_task(app_handle, state, "moveto", src_target, dst_target, task_id).await
 }
 
 #[tauri::command]

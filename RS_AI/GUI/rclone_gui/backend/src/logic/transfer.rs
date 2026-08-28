@@ -19,7 +19,6 @@ pub async fn run_transfer_task(
     src: String,
     dst: String,
     task_id: Option<u32>,
-    excludes: Option<Vec<String>>,
 ) -> Result<(), String> {
     
     let mut args = vec![
@@ -32,13 +31,6 @@ pub async fn run_transfer_task(
         "--stats".to_string(), "0.5s".to_string(),
         "-v".to_string(),
     ];
-
-    if let Some(excludes_list) = excludes {
-        for excl in excludes_list {
-            args.push("--exclude".to_string());
-            args.push(excl);
-        }
-    }
 
     let mut child = Command::new("rclone")
         .args(args)

@@ -172,9 +172,13 @@ export async function pasteTo(
         }
       }
 
-      // 3. Thực thi copy hàng loạt với mảng excludes
+      // 3. Thực thi copy hàng loạt
       for (const src of srcs) {
-         await transferManager.enqueue(mode === 'cut' ? 'move' : 'copy', baseName(src), src, joinPath(destPath, baseName(src)), undefined, false, excludes.length > 0 ? excludes : undefined);
+         const bName = baseName(src);
+         if (excludes.includes(bName)) {
+           continue; // Đã skip hoặc chuyển sang keep_both
+         }
+         await transferManager.enqueue(mode === 'cut' ? 'move' : 'copy', bName, src, joinPath(destPath, bName));
       }
 
       // 4. Thực thi copyto từng file cho các file keep_both
