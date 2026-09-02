@@ -647,4 +647,16 @@ export class DualPaneExplorer {
   getElement(): HTMLDivElement {
     return this.container;
   }
+
+  /**
+   * API hẹp dành cho các thành phần ngoài (MenuBar) tác động lên pane đang active,
+   * thay vì để chúng chạm trực tiếp vào nội bộ của DualPaneExplorer.
+   */
+  public get commands() {
+    return {
+      selectAllActive: () => this.selectAll(getActivePane()),
+      goHomeActive: () => this.goHome(getActivePane()),
+      refreshActive: () => this.refresh(getActivePane(), true),
+    };
+  }
 }

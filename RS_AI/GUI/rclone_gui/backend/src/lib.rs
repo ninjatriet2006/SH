@@ -61,13 +61,6 @@ pub fn run() {
             api::trash::fs_trash_empty_remote_terminal,
             
             // ==================
-            // AUTH API
-            // ==================
-            api::auth::auth_login_terminal,
-            api::auth::auth_login_twofa_terminal,
-            api::auth::auth_statfs_terminal,
-            
-            // ==================
             // REMOTES API
             // ==================
             api::remotes::list_remotes,

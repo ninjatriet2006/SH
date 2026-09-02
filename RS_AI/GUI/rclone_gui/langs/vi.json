@@ -5,6 +5,7 @@
   "nav_mounts": "🖥️ Mounts",
   "nav_serves": "🌐 Serves",
   "nav_sync": "🔄 Sync",
+  "nav_debug": "🐞 Debug",
   "side_heading_remotes": "📡 Remotes (Kết nối)",
   "side_heading_jobs": "🔄 Tiến trình (Jobs)",
   "place_jobs_active": "▶️ Đang chạy",
@@ -15,5 +16,14 @@
   "pane_placeholder_local": "Danh sách tệp — sẽ hiển thị ở đây",
   "pane_placeholder_cloud": "Danh sách tệp — sẽ hiển thị ở đây",
   "drawer_open": "⬇️ Transfer (0) — bấm để mở",
-  "drawer_placeholder": "Hàng đợi transfer (copy/move/sync) — trống"
+  "drawer_placeholder": "Hàng đợi transfer (copy/move/sync) — trống",
+  "btn_add_remote": "➕ Thêm Mới",
+  "btn_sort_remotes": "🔤 Sắp Xếp A-Z",
+  "btn_import_config": "📥 Nhập Config",
+  "btn_export_config": "📤 Xuất Config",
+  "btn_refresh_remotes": "🔄 Làm Mới",
+  "th_remote_name": "Tên Remote",
+  "th_remote_type": "Loại (Type)",
+  "th_remote_capacity": "Dung lượng",
+  "th_remote_actions": "Thao tác"
 }

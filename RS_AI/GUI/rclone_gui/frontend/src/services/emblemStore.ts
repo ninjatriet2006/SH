@@ -5,6 +5,8 @@
 - Tương tác: Gọi từ FileList UI để hiển thị, ContextMenu để toggle.
 */
 
+import { readStored } from '../store';
+
 type EmblemDict = Record<string, string[]>;
 
 class EmblemStore {
@@ -12,7 +14,7 @@ class EmblemStore {
 
   constructor() {
     try {
-      const saved = localStorage.getItem('filen_emblems');
+      const saved = readStored('rclonegui_emblems');
       if (saved) {
         this.emblems = JSON.parse(saved);
       }
@@ -22,8 +24,8 @@ class EmblemStore {
   }
 
   private save() {
-    localStorage.setItem('filen_emblems', JSON.stringify(this.emblems));
-    window.dispatchEvent(new Event('filen-emblems-changed'));
+    localStorage.setItem('rclonegui_emblems', JSON.stringify(this.emblems));
+    window.dispatchEvent(new Event('rclonegui-emblems-changed'));
   }
 
   public getEmblems(path: string): string[] {

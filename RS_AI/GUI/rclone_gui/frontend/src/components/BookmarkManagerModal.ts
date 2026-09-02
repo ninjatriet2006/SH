@@ -5,7 +5,7 @@ export class BookmarkManagerModal {
 
   constructor() {
     this.element = document.createElement('div');
-    this.element.className = 'auth-modal'; // Tạm dùng class auth-modal cho modal đơn giản
+    this.element.className = 'bookmark-modal';
     this.element.style.width = '400px';
     
     this.render();
@@ -124,8 +124,8 @@ export class BookmarkManagerModal {
 
   private saveAndRefresh() {
     try {
-      localStorage.setItem('filen_bookmarks', JSON.stringify(appState.bookmarks));
-      window.dispatchEvent(new CustomEvent('filen-bookmarks-changed'));
+      localStorage.setItem('rclonegui_bookmarks', JSON.stringify(appState.bookmarks));
+      window.dispatchEvent(new CustomEvent('rclonegui-bookmarks-changed'));
     } catch (e) {
       console.warn('Failed to save bookmarks', e);
     }

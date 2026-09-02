@@ -70,6 +70,8 @@ export class PaneContainer {
     const idx = this.tabs.findIndex(t => t.id === id);
     if (idx === -1) return;
     
+    // Giải phóng listener/observer của view bị đóng.
+    this.tabs[idx].view.destroy();
     this.tabs.splice(idx, 1);
     
     if (this.tabs.length === 0) {

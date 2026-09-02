@@ -5,7 +5,6 @@
 - Tương tác: Giao tiếp với `fileOps` (Frontend), gọi xuống backend qua IPC, hiển thị UI Fallback Modal.
 */
 
-import { appState } from '../store';
 import { undoManager } from '../services/undoManager';
 import { joinPath } from './dragDrop';
 import * as fileOps from '../services/fileOps';
@@ -180,7 +179,6 @@ class TransferManager {
                         type: 'move',
                         src: task.src,
                         dest: joinPath(task.dst, task.name),
-                        account: (task.srcLocal && task.dstLocal) ? undefined : appState.auth?.user,
                         isLocal: task.srcLocal && task.dstLocal
                       });
                     }, undefined, true);
@@ -204,7 +202,6 @@ class TransferManager {
                             type: 'move',
                             src: task.src,
                             dest: joinPath(task.dst, task.name),
-                            account: (task.srcLocal && task.dstLocal) ? undefined : appState.auth?.user,
                             isLocal: task.srcLocal && task.dstLocal
                           });
                         }, undefined, true);
@@ -250,7 +247,6 @@ class TransferManager {
                           type: 'copy',
                           src: task.src,
                           dest: joinPath(task.dst, task.name),
-                          account: (task.srcLocal && task.dstLocal) ? undefined : appState.auth?.user,
                           isLocal: task.srcLocal && task.dstLocal
                         });
                       }, undefined, true);
@@ -284,7 +280,6 @@ class TransferManager {
                 type: task.kind,
                 src: task.src,
                 dest: destPath,
-                account: (task.srcLocal && task.dstLocal) ? undefined : appState.auth?.user,
                 isLocal: task.srcLocal && task.dstLocal
               });
             }

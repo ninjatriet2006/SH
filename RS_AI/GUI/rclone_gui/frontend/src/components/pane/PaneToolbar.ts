@@ -1,5 +1,7 @@
 import { appState } from '../../store';
+import { saveSettings } from '../../store';
 import { showMenu } from '../../features/contextMenu';
+import { BookmarkManagerModal } from '../BookmarkManagerModal';
 
 export interface PaneToolbarOptions {
   labelElement: HTMLElement;
@@ -25,6 +27,13 @@ export class PaneToolbar {
   private backBtn: HTMLButtonElement;
   private forwardBtn: HTMLButtonElement;
   private state: 'remote-active' | 'path-active' | 'filter-active' = 'remote-active';
+  private onSettingsChanged?: () => void;
+
+  private onDocMouseDown = (e: MouseEvent) => {
+    if (!this.element.contains(e.target as Node)) {
+      this.setState('remote-active');
+    }
+  };
 
   constructor(opts: PaneToolbarOptions) {
     this.element = document.createElement('div');
@@ -58,12 +67,21 @@ export class PaneToolbar {
     const bmkBtn = mkBtn('🔖', undefined, 'nemo-btn-bookmark');
     bmkBtn.addEventListener('click', (e) => {
         const bookmarks = appState.bookmarks || [];
+        const MANAGE = '⚙️ Quản lý ghim…';
         if (bookmarks.length === 0) {
             showMenu(e, [{ label: '(Chưa có ghim nào)', disabled: true }], () => {});
             return;
         }
-        const items = bookmarks.map(b => b.name);
+        const items = [
+            ...bookmarks.map(b => b.name),
+            { separator: true },
+            MANAGE,
+        ];
         showMenu(e, items, (action) => {
+            if (action === MANAGE) {
+                new BookmarkManagerModal().open();
+                return;
+            }
             const b = bookmarks.find(x => x.name === action);
             if (b && opts.onBookmarkSelect) {
                 opts.onBookmarkSelect(b.path);
@@ -131,6 +149,28 @@ export class PaneToolbar {
     viewGroup.appendChild(btnViewMode);
     
     viewGroup.appendChild(separator());
+
+    // Toggle hiện/ẩn file bắt đầu bằng dấu chấm (áp dụng cho cả 2 pane).
+    const hiddenIcon = () => (appState.settings?.showHiddenFiles ? '👁️' : '🚫');
+    const hiddenTitle = () =>
+      appState.settings?.showHiddenFiles
+        ? 'Đang hiện file ẩn — bấm để ẩn'
+        : 'Đang ẩn file ẩn — bấm để hiện';
+    const btnHidden = mkBtn(hiddenIcon(), () => {
+      if (!appState.settings) return;
+      appState.settings.showHiddenFiles = !appState.settings.showHiddenFiles;
+      saveSettings(); // Tự phát sự kiện 'rclonegui-settings-changed'
+    });
+    btnHidden.title = hiddenTitle();
+    // Đồng bộ nhãn khi chính pane này hoặc pane kia toggle.
+    this.onSettingsChanged = () => {
+      btnHidden.textContent = hiddenIcon();
+      btnHidden.title = hiddenTitle();
+    };
+    window.addEventListener('rclonegui-settings-changed', this.onSettingsChanged);
+    viewGroup.appendChild(btnHidden);
+
+    viewGroup.appendChild(separator());
     
     viewGroup.appendChild(mkBtn('⟳', opts.onRefresh));
     
@@ -142,12 +182,15 @@ export class PaneToolbar {
     opts.filterElement.addEventListener('focus', () => this.setState('filter-active'));
 
     // Bấm ra ngoài (nếu mất focus) sẽ quay về remote-active
-    // Tuy nhiên, để cho trải nghiệm tự nhiên, ta dùng document click outside
-    document.addEventListener('mousedown', (e) => {
-      if (!this.element.contains(e.target as Node)) {
-        this.setState('remote-active');
-      }
-    });
+    document.addEventListener('mousedown', this.onDocMouseDown);
+  }
+
+  /** Giải phóng các listener gắn ngoài phạm vi element này. */
+  public destroy(): void {
+    document.removeEventListener('mousedown', this.onDocMouseDown);
+    if (this.onSettingsChanged) {
+      window.removeEventListener('rclonegui-settings-changed', this.onSettingsChanged);
+    }
   }
 
   private setState(newState: 'remote-active' | 'path-active' | 'filter-active') {

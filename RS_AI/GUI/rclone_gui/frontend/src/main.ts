@@ -8,6 +8,7 @@ Các module tương tác: /bridge/remote_api.ts, /langs/vi.json
 import { RemotesManager } from './features/remotesManager.ts';
 import { MountManager } from './features/mountManager';
 import { DualPaneExplorer } from './components/DualPaneExplorer.ts';
+import { MenuBar } from './components/MenuBar';
 import { TransferDrawer } from './components/TransferDrawer';
 import { DebugView } from './components/DebugView.ts';
 
@@ -148,6 +149,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     explorerContainer.innerHTML = '';
     const dualPane = new DualPaneExplorer();
     explorerContainer.appendChild(dualPane.container);
+
+    // MenuBar chỉ nhận đúng tập lệnh nó cần, không dùng biến toàn cục.
+    const menubarContainer = document.getElementById('menubar-container');
+    if (menubarContainer) {
+      menubarContainer.appendChild(new MenuBar(dualPane.commands).getElement());
+    }
   }
 
   await loadLanguage('vi');

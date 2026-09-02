@@ -819,7 +819,7 @@ export class RemotesManager {
 
         <div style="margin-bottom: 15px;">
             <label style="display: block; margin-bottom: 5px; font-weight: bold; color: var(--colors-text-primary, #fff);">Tên Remote (Remote Name) <span style="color: #ff5c5c;">*</span>:</label>
-            <input type="text" id="edit-remote-name" value="${remote.name}" style="color-scheme: dark; width: 100%; box-sizing: border-box; background: var(--colors-surface-input, #0e1422); color: var(--colors-text-primary, #fff); padding: 8px; border: 1px solid var(--colors-border-muted, #555); border-radius: 4px;" />
+            <input type="text" id="edit-remote-name" value="${escapeHtml(remote.name)}" style="color-scheme: dark; width: 100%; box-sizing: border-box; background: var(--colors-surface-input, #0e1422); color: var(--colors-text-primary, #fff); padding: 8px; border: 1px solid var(--colors-border-muted, #555); border-radius: 4px;" />
             <small style="color: var(--colors-text-secondary); display: block; margin-top: 4px;">Đổi tên sẽ xóa cấu hình cũ và tạo cấu hình mới (Cơ chế bắt buộc của Rclone)</small>
         </div>
 

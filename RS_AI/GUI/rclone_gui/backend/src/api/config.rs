@@ -16,17 +16,30 @@ fn get_rclone_config_path() -> Result<String, String> {
         .output()
         .map_err(|e| format!("Lỗi khi chạy lệnh rclone config file: {}", e))?;
 
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(format!(
+            "Lệnh `rclone config file` thất bại ({}): {}",
+            output.status, err
+        ));
+    }
+
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    
+
     // Output mẫu:
     // Configuration file is stored at:
     // /home/user/.config/rclone/rclone.conf
-    let lines: Vec<&str> = stdout.lines().collect();
-    if lines.len() >= 2 {
-        let path = lines[1].trim().to_string();
-        Ok(path)
-    } else {
+    let path = stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .last()
+        .unwrap_or("");
+
+    if path.is_empty() {
         Err(format!("Không thể trích xuất đường dẫn từ output: {}", stdout))
+    } else {
+        Ok(path.to_string())
     }
 }
 

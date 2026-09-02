@@ -324,7 +324,7 @@ function openRenameModal(
     const newName = input?.value?.trim();
     if (newName) {
       try {
-        await fileOps.rename(fullPath, newName, appState.auth?.user);
+        await fileOps.rename(fullPath, newName);
         logActivity('Đổi tên', `Từ ${f.name} thành ${newName}`);
       } catch (err) {
         console.warn('rename fail:', err);
@@ -362,7 +362,7 @@ function openDeleteModal(
   modal.open();
   modal.getElement().querySelector('.confirm')?.addEventListener('click', async () => {
     try {
-      await fileOps.remove(fullPath, appState.auth?.user);
+      await fileOps.remove(fullPath);
       logActivity('Xoá', `Đã xoá ${fullPath}`);
     } catch (err) {
       console.warn('delete fail:', err);

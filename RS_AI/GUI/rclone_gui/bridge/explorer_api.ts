@@ -72,7 +72,6 @@ export async function fsStatAdvanced(path: string): Promise<StatInfo> {
 export interface SearchResultItem {
   item: FileItem;
   path: string;
-  score?: number;
 }
 
 export async function fsSearch(path: string, query: string): Promise<SearchResultItem[]> {

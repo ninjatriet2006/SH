@@ -5,6 +5,7 @@
 - Tương tác: Các component (DualPaneExplorer) sẽ đọc/ghi qua đây thay vì dùng `appState.explorer`. Lấy và lưu từ localStorage.
 */
 import type { FileItem } from '../store';
+import { readStored } from '../store';
 import type { SortKey, SortDir } from '../features/sort';
 
 export type Pane = 'left' | 'right';
@@ -75,7 +76,7 @@ const state: ExplorerState = {
 
 // Khôi phục từ localStorage (tương tự như bookmarks/activityLog trong store.ts)
 try {
-  const savedState = localStorage.getItem('filen_explorer_state');
+  const savedState = readStored('rclonegui_explorer_state');
   if (savedState) {
     const parsed = JSON.parse(savedState);
     if (parsed.leftColWidths) state.leftColWidths = { ...state.leftColWidths, ...parsed.leftColWidths };
@@ -88,7 +89,7 @@ try {
 }
 
 function saveExplorerState() {
-  localStorage.setItem('filen_explorer_state', JSON.stringify({
+  localStorage.setItem('rclonegui_explorer_state', JSON.stringify({
     leftColWidths: state.leftColWidths,
     rightColWidths: state.rightColWidths,
     leftVisibleCols: state.leftVisibleCols,

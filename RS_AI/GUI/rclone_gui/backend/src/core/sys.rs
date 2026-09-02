@@ -60,6 +60,17 @@ pub struct OSClipboardData {
 /// Chức năng: Mở một file cụ thể bằng một ứng dụng hoặc lệnh tùy chỉnh
 #[tauri::command]
 pub async fn sys_open_with(path: String, exec_cmd: Option<String>, app: Option<String>) -> Result<(), String> {
+    // Frontend gửi xuống đường dẫn dạng "Remote::/path" (xem logic::file_ops::parse_remote_path).
+    // Chỉ ổ Local mới mở được bằng ứng dụng hệ điều hành.
+    let (remote, real_path) = crate::logic::file_ops::parse_remote_path(&path);
+    if remote != "Local" {
+        return Err(format!(
+            "Không thể mở trực tiếp file trên remote '{}'. Hãy copy về Local trước.",
+            remote
+        ));
+    }
+    let path = real_path;
+
     // Ưu tiên sử dụng exec_cmd nếu có, ngược lại dùng xdg-open làm mặc định trên Linux
     let cmd = exec_cmd
         .or(app)

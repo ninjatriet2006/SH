@@ -11,13 +11,6 @@ import { getAbout } from '../../../bridge/remote_api.ts';
 import type { StatInfo, SearchResultItem } from '../../../bridge/explorer_api.ts';
 import type { FileItem } from '../store';
 
-export interface SearchOptions {
-  fuzzy: boolean;
-  content_query?: string | null;
-  min_size?: number | null;
-  max_size?: number | null;
-}
-
 export type SearchResult = SearchResultItem;
 export type { StatInfo };
 
@@ -25,30 +18,30 @@ export async function listLocal(path: string): Promise<FileItem[]> {
     return listFiles(path);
 }
 
-export async function searchLocal(path: string, query: string, _options?: SearchOptions): Promise<SearchResult[]> {
+export async function searchLocal(path: string, query: string): Promise<SearchResult[]> {
     return fsSearch(path, query);
 }
 
-export async function mkdir(path: string, _account?: string): Promise<void> {
+export async function mkdir(path: string): Promise<void> {
     return fsMkdir(path);
 }
 
-export async function remove(path: string, _account?: string): Promise<void> {
+export async function remove(path: string): Promise<void> {
     return fsDelete(path);
 }
 
-export async function rename(path: string, newName: string, _account?: string): Promise<void> {
+export async function rename(path: string, newName: string): Promise<void> {
     // Chuyển đổi tên mới thành đường dẫn tuyệt đối mới
     const parentDir = path.substring(0, path.lastIndexOf('/'));
     const newPath = parentDir ? `${parentDir}/${newName}` : `/${newName}`;
     return fsRename(path, newPath);
 }
 
-export async function copy(src: string, dest: string, _account?: string, taskId?: number): Promise<void> {
+export async function copy(src: string, dest: string, taskId?: number): Promise<void> {
     return fsCopy(src, dest, taskId);
 }
 
-export async function move(src: string, dest: string, _account?: string, taskId?: number): Promise<void> {
+export async function move(src: string, dest: string, taskId?: number): Promise<void> {
     return fsMove(src, dest, taskId);
 }
 
@@ -64,11 +57,11 @@ export async function moveLocal(from: string, to: string, taskId?: number): Prom
     return fsMove(from, to, taskId);
 }
 
-export async function upload(local: string, remoteTarget: string, _account?: string): Promise<void> {
+export async function upload(local: string, remoteTarget: string): Promise<void> {
     return fsCopy(local, remoteTarget);
 }
 
-export async function download(remoteSource: string, local: string, _account?: string): Promise<void> {
+export async function download(remoteSource: string, local: string): Promise<void> {
     return fsCopy(remoteSource, local);
 }
 
@@ -81,12 +74,12 @@ export async function cpBatch(srcs: string[], dstDir: string, _overwrite = true)
     }
 }
 
-export async function cat(_path: string, _account?: string): Promise<string> {
+export async function cat(_path: string): Promise<string> {
     alert("Tính năng đọc nội dung file trực tiếp chưa được hỗ trợ trên cloud.");
     return "";
 }
 
-export async function write(path: string, content: string, _account?: string): Promise<void> {
+export async function write(path: string, content: string): Promise<void> {
     if (content === "") {
         await invoke('fs_touch', { path });
     } else {

@@ -42,12 +42,22 @@ pub async fn fs_trash_restore_local(item_id: String) -> Result<(), String> {
 /// Mô tả: Làm sạch toàn bộ thùng rác cục bộ bằng công cụ `gio trash --empty` (Linux)
 #[tauri::command]
 pub async fn fs_trash_empty_local() -> Result<(), String> {
-    // Spawn ngầm tiến trình làm sạch thùng rác
-    Command::new("gio")
+    // Chạy đồng bộ và kiểm tra exit code — trước đây dùng spawn() nên mọi lỗi
+    // (gio không tồn tại, thiếu quyền) đều bị báo là thành công cho Frontend.
+    let output = Command::new("gio")
         .arg("trash")
         .arg("--empty")
-        .spawn()
+        .output()
         .map_err(|e| format!("Lỗi khi dọn thùng rác hệ thống: {}", e))?;
+
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if err.is_empty() {
+            format!("Lệnh `gio trash --empty` thất bại: {}", output.status)
+        } else {
+            err
+        });
+    }
     Ok(())
 }
 

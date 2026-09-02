@@ -139,18 +139,18 @@ pub async fn check_conflicts(_app_handle: tauri::AppHandle, srcs: Vec<String>, d
             let dest_item_target = crate::core::rclone::build_target(&dest_remote, &dest_item_real);
 
             if let Some(&is_dest_dir) = existing_items.get(base_name) {
-                // Dùng rclone lsjson để kiểm tra xem src_target có phải là thư mục không
-                let mut src_is_dir = false;
-                if let Ok(src_stat) = crate::core::rclone::run_cmd(&["lsjson", &src_target]) {
-                    if src_stat.status.success() {
-                        let s = String::from_utf8_lossy(&src_stat.stdout);
-                        if let Ok(s_items) = serde_json::from_str::<Vec<serde_json::Value>>(&s) {
-                            if let Some(first) = s_items.first() {
-                                src_is_dir = first.get("IsDir").and_then(|v| v.as_bool()).unwrap_or(false);
-                            }
-                        }
+                // `lsjson --stat` trả về MỘT object mô tả chính target.
+                // (Dùng `lsjson` thường sẽ liệt kê các con, nên IsDir của phần tử
+                //  đầu tiên là của file con — không phải của target.)
+                let src_is_dir = match crate::core::rclone::run_cmd(&["lsjson", "--stat", &src_target]) {
+                    Ok(out) if out.status.success() => {
+                        serde_json::from_slice::<serde_json::Value>(&out.stdout)
+                            .ok()
+                            .and_then(|v| v.get("IsDir").and_then(|b| b.as_bool()))
+                            .unwrap_or(false)
                     }
-                }
+                    _ => false,
+                };
 
                 if src_is_dir && is_dest_dir {
                     // Cả 2 đều là thư mục -> Quét đệ quy các file con

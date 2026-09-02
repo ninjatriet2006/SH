@@ -5,7 +5,7 @@ import type { SortKey, SortDir } from '../../features/sort';
 import { upgradeSelectToCustomDropdown } from '../../features/customDropdown';
 import type { PaneColKey, PaneColWidths } from '../../services/explorerStore';
 import { parseDrag, type DragPayload } from '../../features/dragDrop';
-// Xoá import SearchModal
+import { SearchModal } from '../SearchModal';
 import { PaneStatusBar } from './PaneStatusBar';
 import { getAboutSpace } from '../../services/fileOps';
 import { escapeHtml } from '../../features/format';
@@ -58,11 +58,10 @@ export class PaneView {
     this.element = document.createElement('div');
     this.element.className = `pane ${opts.side}`;
 
-    window.addEventListener('filen-settings-changed', () => {
-      if (this.path) {
-        opts.onOpenDir(this.path);
-      }
-    });
+    // Cài đặt đổi (vd: bật/tắt hiện file ẩn) → nạp lại danh sách hiện tại.
+    // Dùng onRefresh chứ không phải onOpenDir để không đẩy thêm bản ghi vào
+    // lịch sử điều hướng back/forward.
+    window.addEventListener('rclonegui-settings-changed', this.onSettingsChanged);
 
     this.remoteSelect = document.createElement('select');
     this.remoteSelect.className = 'select-dropdown pane-side-label';
@@ -94,7 +93,9 @@ export class PaneView {
       onRefresh: opts.onRefresh,
       onEditPath: () => this.toggleEditPath(),
       onAdvancedSearch: () => {
-        console.log("Search not implemented yet in rclone_gui");
+        // Tìm kiếm đệ quy do backend `fs_search` đảm nhiệm; chọn kết quả sẽ
+        // điều hướng pane này tới thư mục chứa file đó.
+        new SearchModal(this.path, (dirPath) => this.opts.onOpenDir(dirPath)).open();
       },
       onBookmarkSelect: opts.onBookmarkSelect,
       currentViewMode: this.viewMode,
@@ -320,7 +321,7 @@ private renderBody(
     }
 
     // Bảng cũ bị thay thế: phải destroy để nhả IntersectionObserver và các
-    // window listener (pointermove/up, filen-emblems-changed) mà nó đã đăng ký.
+    // window listener (pointermove/up, rclonegui-emblems-changed) mà nó đã đăng ký.
     if (this.table) {
       this.table.destroy();
       this.table = null;
@@ -372,6 +373,18 @@ private renderBody(
 
   getElement(): HTMLDivElement {
     return this.element;
+  }
+
+  private onSettingsChanged = () => {
+    if (this.path) this.opts.onRefresh?.();
+  };
+
+  /** Giải phóng listener + bảng con. Gọi khi tab bị đóng. */
+  public destroy(): void {
+    window.removeEventListener('rclonegui-settings-changed', this.onSettingsChanged);
+    this.toolbar.destroy();
+    this.table?.destroy();
+    this.table = null;
   }
 
   public setRemotes(remotes: any[]) {

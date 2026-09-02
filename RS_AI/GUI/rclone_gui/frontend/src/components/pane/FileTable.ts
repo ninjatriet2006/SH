@@ -88,6 +88,24 @@ function renderRowHTML(f: FileItem, activeCols: any[], basePath: string): string
   return html;
 }
 
+/**
+ * Mở một file bằng ứng dụng mặc định của hệ điều hành.
+ * Chỉ hỗ trợ ổ Local; file trên cloud phải copy về trước.
+ * Dùng chung cho cả 3 chỗ bind dblclick (constructor / appendFiles / updateData).
+ */
+async function openFileRecord(path: string): Promise<void> {
+  if (!path.startsWith('Local::')) {
+    alert('File này đang ở trên Cloud. Bạn cần copy về Local để mở!');
+    return;
+  }
+  try {
+    const { open } = await import('@tauri-apps/plugin-shell');
+    await open(path.replace(/^Local::/, ''));
+  } catch (err) {
+    console.error('Lỗi khi mở file Local:', err);
+  }
+}
+
 const ALL_COLUMNS: { key: SortKey; label: string; resize?: PaneColKey }[] = [
   { key: 'name', label: 'Name', resize: 'name' },
   { key: 'type', label: 'Type', resize: 'type' },
@@ -266,7 +284,7 @@ export class FileTable {
       header.appendChild(th);
     });
 
-    window.addEventListener('filen-emblems-changed', this.onEmblemsChanged);
+    window.addEventListener('rclonegui-emblems-changed', this.onEmblemsChanged);
 
     this.tbody = this.element.createTBody();
     
@@ -311,18 +329,7 @@ export class FileTable {
         if (f.is_dir) {
           opts.onOpenDir(f.name);
         } else {
-          // Mở file (File Execution)
-          if (rec.path.startsWith('Local::')) {
-            try {
-              const { open } = await import('@tauri-apps/plugin-shell');
-              const localPath = rec.path.replace(/^Local::/, '');
-              await open(localPath);
-            } catch (err) {
-              console.error("Lỗi khi mở file Local:", err);
-            }
-          } else {
-            alert('File này đang ở trên Cloud. Bạn cần copy về Local để mở!');
-          }
+          await openFileRecord(rec.path);
         }
       });
       row.addEventListener('contextmenu', (e) => {
@@ -360,7 +367,7 @@ export class FileTable {
     window.removeEventListener('pointermove', this.onMove);
     window.removeEventListener('pointerup', this.onUp);
     window.removeEventListener('pointercancel', this.onUp);
-    window.removeEventListener('filen-emblems-changed', this.onEmblemsChanged);
+    window.removeEventListener('rclonegui-emblems-changed', this.onEmblemsChanged);
   }
 
   public appendFiles(chunk: FileItem[]) {
@@ -394,18 +401,7 @@ export class FileTable {
         if (f.is_dir) {
           this.opts.onOpenDir(f.name);
         } else {
-          // Mở file
-          if (rec.path.startsWith('Local::')) {
-            try {
-              const { open } = await import('@tauri-apps/plugin-shell');
-              const localPath = rec.path.replace(/^Local::/, '');
-              await open(localPath);
-            } catch (err) {
-              console.error("Lỗi khi mở file Local:", err);
-            }
-          } else {
-            alert('File này đang ở trên Cloud. Bạn cần copy về Local để mở!');
-          }
+          await openFileRecord(rec.path);
         }
       });
       row.addEventListener('contextmenu', (e) => {
@@ -477,15 +473,7 @@ export class FileTable {
         if (f.is_dir) {
           this.opts.onOpenDir(f.name);
         } else {
-          if (rec.path.startsWith('Local::')) {
-            try {
-              const { open } = await import('@tauri-apps/plugin-shell');
-              const localPath = rec.path.replace(/^Local::/, '');
-              await open(localPath);
-            } catch (err) { console.error("Lỗi khi mở file Local:", err); }
-          } else {
-            alert('File này đang ở trên Cloud. Bạn cần copy về Local để mở!');
-          }
+          await openFileRecord(rec.path);
         }
       });
       row.addEventListener('contextmenu', (e) => {

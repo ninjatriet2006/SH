@@ -1,1 +1,12 @@
-{"$schema": "../gen/schemas/capabilities.json", "identifier": "main-capability", "description": "Capability for the main window", "windows": ["*"], "permissions": ["core:default", "core:event:default"]}
+{
+  "$schema": "../gen/schemas/capabilities.json",
+  "identifier": "main-capability",
+  "description": "Capability for the main window",
+  "windows": ["*"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:allow-close",
+    "shell:allow-open"
+  ]
+}

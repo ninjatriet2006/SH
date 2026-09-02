@@ -14,7 +14,6 @@ export interface UndoAction {
   type: UndoActionType;
   src: string;
   dest: string;
-  account?: string;
   isLocal: boolean;
 }
 
@@ -58,18 +57,18 @@ class UndoManager {
       switch (action.type) {
         case 'rename':
           // Hoàn tác rename: đổi tên đích (dest) trở về nguồn (src)
-          await rename(action.dest, this.basename(action.src), action.account);
+          await rename(action.dest, this.basename(action.src));
           break;
         case 'copy':
           // Hoàn tác copy: xóa file/thư mục ở đích (dest)
-          await remove(action.dest, action.account);
+          await remove(action.dest);
           break;
         case 'move':
           // Hoàn tác move: di chuyển đích (dest) quay lại nguồn (src)
           if (action.isLocal) {
             await moveLocal(action.dest, action.src);
           } else {
-            await move(action.dest, action.src, action.account);
+            await move(action.dest, action.src);
           }
           break;
         case 'delete':
@@ -98,24 +97,24 @@ class UndoManager {
     try {
       switch (action.type) {
         case 'rename':
-          await rename(action.src, this.basename(action.dest), action.account);
+          await rename(action.src, this.basename(action.dest));
           break;
         case 'copy':
           if (action.isLocal) {
             await cpLocal(action.src, action.dest, true);
           } else {
-            await copy(action.src, action.dest, action.account);
+            await copy(action.src, action.dest);
           }
           break;
         case 'move':
           if (action.isLocal) {
             await moveLocal(action.src, action.dest);
           } else {
-            await move(action.src, action.dest, action.account);
+            await move(action.src, action.dest);
           }
           break;
         case 'delete':
-          await remove(action.src, action.account);
+          await remove(action.src);
           break;
       }
       this.undoStack.push(action);

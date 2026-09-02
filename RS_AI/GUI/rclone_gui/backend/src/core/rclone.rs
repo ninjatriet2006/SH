@@ -27,12 +27,19 @@ pub fn run_cmd(args: &[&str]) -> Result<Output, String> {
 }
 
 /// Tên hàm: spawn_cmd
-/// Mô tả: Khởi tạo lệnh `rclone` ở dạng spawn ngầm.
+/// Mô tả: Khởi tạo lệnh `rclone` ở dạng spawn ngầm (không chặn UI).
+/// Lưu ý: tiến trình con được reap bởi một thread nền — nếu không, mỗi lần gọi
+/// sẽ để lại một zombie process tồn tại đến khi ứng dụng thoát.
 pub fn spawn_cmd(args: &[&str]) -> Result<(), String> {
-    Command::new("rclone")
+    let mut child = Command::new("rclone")
         .args(args)
         .spawn()
         .map_err(|e| format!("Lỗi hệ thống khi spawn rclone: {}", e))?;
+
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+
     Ok(())
 }
 

@@ -97,19 +97,145 @@ pub async fn run_transfer_task(
     Ok(())
 }
 
-/// Hàm Hủy tiến trình dựa vào task_id
+/// Hàm Hủy tiến trình dựa vào task_id.
+///
+/// Quan trọng: phải gửi SIGTERM (không phải SIGKILL) để rclone kịp chạy handler
+/// dọn dẹp của nó. SIGKILL bỏ lại file rác `<tên>.<hash>.partial` trong thư mục
+/// đích; SIGTERM thì rclone tự xoá phần đã tải dở.
+///
+/// Hàm trả về ngay sau khi gửi SIGTERM. Việc chờ và leo thang sang SIGKILL được
+/// thực hiện trên thread nền để không chặn async runtime của Tauri.
 pub fn cancel_transfer(state: tauri::State<'_, AppState>, task_id: u32) -> Result<(), String> {
-    if let Ok(mut pids) = state.pids.lock() {
-        if let Some(pid) = pids.remove(&task_id) {
-            #[cfg(target_os = "windows")]
-            {
-                let _ = Command::new("taskkill").args(["/F", "/PID", &pid.to_string()]).output();
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                let _ = Command::new("kill").args(["-9", &pid.to_string()]).output();
-            }
+    // Mutex bị poison (một thread khác panic khi đang giữ lock) không nên làm
+    // mất khả năng hủy tác vụ — vẫn lấy dữ liệu bên trong ra dùng.
+    let pid = match state.pids.lock() {
+        Ok(mut pids) => pids.remove(&task_id),
+        Err(poisoned) => poisoned.into_inner().remove(&task_id),
+    };
+
+    let Some(pid) = pid else { return Ok(()) };
+
+    send_terminate(pid);
+
+    // Leo thang sang SIGKILL ở thread nền nếu tiến trình không tự kết thúc.
+    std::thread::spawn(move || {
+        if !wait_until_gone(pid, GRACE_PERIOD) {
+            send_kill(pid);
         }
-    }
+    });
+
     Ok(())
+}
+
+/// Thời gian chờ tối đa để rclone tự kết thúc và dọn dẹp sau SIGTERM.
+const GRACE_PERIOD: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Yêu cầu tiến trình kết thúc một cách có trật tự (cho phép dọn dẹp).
+fn send_terminate(pid: u32) {
+    #[cfg(target_os = "windows")]
+    {
+        // Windows không có SIGTERM; taskkill không kèm /F sẽ gửi WM_CLOSE.
+        let _ = Command::new("taskkill").args(["/PID", &pid.to_string()]).output();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = Command::new("kill").args(["-TERM", &pid.to_string()]).output();
+    }
+}
+
+/// Kết thúc tiến trình ngay lập tức (phương án cuối, có thể để lại file .partial).
+fn send_kill(pid: u32) {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = Command::new("taskkill").args(["/F", "/PID", &pid.to_string()]).output();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = Command::new("kill").args(["-KILL", &pid.to_string()]).output();
+    }
+}
+
+/// Chờ tiến trình `pid` kết thúc, tối đa `timeout`. Trả về true nếu đã kết thúc.
+fn wait_until_gone(pid: u32, timeout: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        if !process_alive(pid) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    !process_alive(pid)
+}
+
+/// Kiểm tra tiến trình còn sống thật sự hay không.
+///
+/// Trên Linux đọc `/proc/<pid>` thay vì `kill -0`: tiến trình đã chết nhưng chưa
+/// được reap (zombie) vẫn phản hồi `kill -0`. Đồng thời đối chiếu `comm` để
+/// tránh trường hợp PID đã bị hệ điều hành cấp lại cho tiến trình khác.
+#[cfg(target_os = "linux")]
+fn process_alive(pid: u32) -> bool {
+    let comm = match std::fs::read_to_string(format!("/proc/{}/comm", pid)) {
+        Ok(c) => c,
+        Err(_) => return false, // Không còn trong /proc → đã kết thúc
+    };
+    if comm.trim() != "rclone" {
+        return false; // PID đã được cấp lại cho tiến trình khác
+    }
+    // Trạng thái 'Z' = zombie: đã chết, chỉ chờ được reap.
+    match std::fs::read_to_string(format!("/proc/{}/stat", pid)) {
+        Ok(stat) => !stat
+            .rsplit(')')
+            .next()
+            .is_some_and(|rest| rest.split_whitespace().next() == Some("Z")),
+        Err(_) => false,
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn process_alive(pid: u32) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid), "/NH"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+            .unwrap_or(false)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn process_alive_false_for_nonexistent_pid() {
+        // PID 0 không bao giờ là một tiến trình người dùng hợp lệ.
+        assert!(!process_alive(0));
+        // PID rất lớn, gần như chắc chắn không tồn tại.
+        assert!(!process_alive(4_000_000));
+    }
+
+    #[test]
+    fn process_alive_false_when_pid_is_not_rclone() {
+        // Chính tiến trình test này đang sống, nhưng `comm` không phải "rclone"
+        // nên phải bị coi là "không còn tác vụ rclone" (chống PID reuse).
+        let me = std::process::id();
+        assert!(!process_alive(me));
+    }
+
+    #[test]
+    fn wait_until_gone_returns_immediately_for_dead_pid() {
+        let start = std::time::Instant::now();
+        assert!(wait_until_gone(0, std::time::Duration::from_secs(5)));
+        // Phải trả về ngay, không chờ hết timeout.
+        assert!(start.elapsed() < std::time::Duration::from_secs(1));
+    }
 }

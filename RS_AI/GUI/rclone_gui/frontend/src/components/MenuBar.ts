@@ -1,4 +1,17 @@
-import { getActivePane } from '../services/explorerStore';
+/*
+[INTEGRITY NOTES]
+- Mục đích: Thanh menu ngang (File / Edit / View / Go) ở đỉnh ứng dụng.
+- Trách nhiệm: Hiển thị dropdown và phát các lệnh tác động lên pane đang active.
+- Tương tác: Nhận `ExplorerCommands` do main.ts truyền vào (không truy cập biến
+  toàn cục), gọi plugin-process để thoát ứng dụng.
+*/
+
+/** Tập lệnh tối thiểu MenuBar cần từ Explorer. */
+export interface ExplorerCommands {
+  selectAllActive: () => void;
+  goHomeActive: () => void;
+  refreshActive: () => void;
+}
 
 interface MenuItem {
   label: string;
@@ -16,8 +29,10 @@ interface MenuDropdown {
 export class MenuBar {
   private element: HTMLElement;
   private activeDropdown: HTMLElement | null = null;
+  private commands: ExplorerCommands;
 
-  constructor() {
+  constructor(commands: ExplorerCommands) {
+    this.commands = commands;
     this.element = document.createElement('nav');
     this.element.className = 'nemo-menubar';
     this.init();
@@ -119,33 +134,27 @@ export class MenuBar {
 
   private async handleAction(action?: string) {
     if (!action) return;
-    
+
     switch (action) {
       case 'quit':
         try {
-          // In Tauri v2, exit is not in plugin:process usually, it's @tauri-apps/plugin-process.
-          // Wait, let's use window.close() instead? Or let's see.
-          window.close();
-        } catch(e) {
-          console.error(e);
+          // Tauri v2: window.close() của webview không có tác dụng; phải yêu cầu
+          // cửa sổ native đóng. Cần quyền `core:window:allow-close` trong
+          // backend/capabilities/main.json.
+          const { getCurrentWindow } = await import('@tauri-apps/api/window');
+          await getCurrentWindow().close();
+        } catch (e) {
+          console.error('Không thể đóng cửa sổ:', e);
         }
         break;
       case 'select_all':
-        const pane = getActivePane();
-        const explorer = (window as any).__explorer;
-        if (explorer && explorer.selectAll) {
-          explorer.selectAll(pane);
-        }
+        this.commands.selectAllActive();
         break;
       case 'reload':
-        location.reload();
+        this.commands.refreshActive();
         break;
       case 'go_home':
-        const active = getActivePane();
-        const expl = (window as any).__explorer;
-        if (expl && expl.goHome) {
-          expl.goHome(active);
-        }
+        this.commands.goHomeActive();
         break;
     }
   }
