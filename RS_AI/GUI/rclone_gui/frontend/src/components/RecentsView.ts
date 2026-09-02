@@ -1,4 +1,11 @@
+/*
+[INTEGRITY NOTES]
+- Mục đích: Hiển thị nhật ký hoạt động (activity log) mà `logActivity()` ghi lại.
+- Trách nhiệm: Render bảng thời gian / hành động / chi tiết từ `appState.activityLog`.
+- Tương tác: Mount vào #view-activity bởi main.ts khi người dùng mở tab Nhật ký.
+*/
 import { appState } from '../store';
+import { escapeHtml } from '../features/format';
 
 export class RecentsView {
   element: HTMLDivElement;
@@ -17,9 +24,9 @@ export class RecentsView {
       .map((item) => {
         const timeStr = new Date(item.timestamp).toLocaleString();
         return `<tr>
-          <td style="width: 150px; color: var(--text-muted);">${timeStr}</td>
-          <td style="width: 120px; font-weight: bold; color: var(--text-color);">${item.action}</td>
-          <td style="color: var(--text-color); word-break: break-all;">${item.details}</td>
+          <td style="width: 150px; color: var(--colors-text-muted);">${escapeHtml(timeStr)}</td>
+          <td style="width: 140px; font-weight: bold; color: var(--colors-text-primary);">${escapeHtml(item.action)}</td>
+          <td style="color: var(--colors-text-primary); word-break: break-all;">${escapeHtml(item.details)}</td>
         </tr>`;
       })
       .join('');
@@ -29,7 +36,7 @@ export class RecentsView {
         <thead>
           <tr>
             <th style="width: 150px;">Thời gian</th>
-            <th style="width: 120px;">Hành động</th>
+            <th style="width: 140px;">Hành động</th>
             <th>Chi tiết</th>
           </tr>
         </thead>

@@ -734,16 +734,14 @@ button.disabled {
 }
 
 /* ── Secondary views (Recents / Sync / Servers) ──────────────── */
-.recents-view,
-.sync-pairs-view {
+.recents-view {
   grid-column: 1 / -1;
   min-height: 0;
   overflow-y: auto;
   padding: 16px;
 }
 
-.recents-view h3,
-.sync-pairs-view h3 {
+.recents-view h3 {
   color: var(--colors-text-primary);
   margin: 0 0 12px;
   font-size: var(--typography-size-xl);
@@ -871,31 +869,9 @@ button.disabled {
   border-radius: var(--radius-xl);
 }
 
-.sync-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
 
-.sync-card {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
-  background: var(--colors-surface-card);
-  border: 1px solid var(--colors-border-muted);
-  border-radius: var(--radius-xl);
-}
 
-.sync-card-name {
-  color: var(--colors-text-primary);
-  font-size: var(--typography-size-base);
-}
 
-.sync-card-status {
-  color: var(--colors-neon-cyan);
-  font-size: var(--typography-size-md);
-}
 
 
 

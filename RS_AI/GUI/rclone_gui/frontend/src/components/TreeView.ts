@@ -1,15 +1,21 @@
+/*
+[INTEGRITY NOTES]
+- Mục đích: Cây thư mục ở sidebar, tải con theo yêu cầu (lazy) khi bung nhánh.
+- Trách nhiệm: Render node, gọi `fileOps.listLocal` để lấy thư mục con.
+- Tương tác: Nhận callback `onSelect` từ main.ts để điều hướng pane bên trái,
+  không truy cập biến toàn cục.
+*/
 import * as fileOps from '../services/fileOps';
-
-function joinPath(dir: string, name: string): string {
-  return dir.endsWith('/') ? dir + name : dir + '/' + name;
-}
+import { joinPath } from '../features/dragDrop';
 
 export class TreeView {
   private element: HTMLElement;
   private rootPath: string;
+  private onSelect: (path: string) => void;
 
-  constructor(rootPath: string) {
+  constructor(rootPath: string, onSelect: (path: string) => void) {
     this.rootPath = rootPath;
+    this.onSelect = onSelect;
     this.element = document.createElement('div');
     this.element.className = 'tree-view';
     this.renderNode(this.element, this.rootPath, 'Cục bộ');
@@ -92,19 +98,13 @@ export class TreeView {
       }
     });
 
-    // Click event to open in DualPaneExplorer
-    labelEl.addEventListener('click', async (e) => {
+    // Click nhãn → điều hướng pane (do main.ts quyết định pane nào).
+    labelEl.addEventListener('click', (e) => {
       e.stopPropagation();
-      // Dynamically import switchView doesn't work if switchView is not exported.
-      // Let's dispatch a custom event instead, or rely on window.__explorer.
-      const explorer = (window as any).__explorer;
-      if (explorer) {
-        explorer.loadPane('left', path);
-        // We also need to activate the 'explorer' view.
-        // We can click the nav-tab.
-        const tab = document.querySelector<HTMLButtonElement>('.nav-tab[data-view="explorer"]');
-        if (tab) tab.click();
-      }
+      this.onSelect(path);
+      // Đảm bảo đang ở tab Explorer để thấy kết quả.
+      const tab = document.querySelector<HTMLButtonElement>('.nav-tab[data-view="explorer"]');
+      if (tab && !tab.classList.contains('active')) tab.click();
     });
   }
 }

@@ -38,12 +38,6 @@ export interface AppSettings {
 }
 
 export interface AppState {
-  explorer?: {
-    leftPath?: string;
-    rightPath?: string;
-    leftFiles?: FileItem[];
-    rightFiles?: FileItem[];
-  };
   activityLog?: ActivityItem[];
   bookmarks?: BookmarkItem[];
   settings?: AppSettings;

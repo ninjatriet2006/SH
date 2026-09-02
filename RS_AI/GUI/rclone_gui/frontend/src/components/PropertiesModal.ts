@@ -88,8 +88,8 @@ export class PropertiesModal {
         <div class="prop-row" style="margin-bottom: 15px;">
           <span>Ownership</span>
           <span style="display: flex; gap: 10px; align-items: center;">
-            <label>UID: <input type="number" id="prop-uid" value="${uid}" style="width: 60px; padding: 2px;" disabled></label>
-            <label>GID: <input type="number" id="prop-gid" value="${gid}" style="width: 60px; padding: 2px;" disabled></label>
+            <label>UID: <input type="number" id="prop-uid" value="${uid}" style="width: 60px; padding: 2px;"></label>
+            <label>GID: <input type="number" id="prop-gid" value="${gid}" style="width: 60px; padding: 2px;"></label>
           </span>
         </div>
         
@@ -100,19 +100,19 @@ export class PropertiesModal {
           <div class="header">Execute</div>
           
           <div class="row-label">Owner</div>
-          <div class="check-cell"><input type="checkbox" data-bit="0400" ${this.hasPerm(0o400)} disabled></div>
-          <div class="check-cell"><input type="checkbox" data-bit="0200" ${this.hasPerm(0o200)} disabled></div>
-          <div class="check-cell"><input type="checkbox" data-bit="0100" ${this.hasPerm(0o100)} disabled></div>
+          <div class="check-cell"><input type="checkbox" data-bit="0400" ${this.hasPerm(0o400)}></div>
+          <div class="check-cell"><input type="checkbox" data-bit="0200" ${this.hasPerm(0o200)}></div>
+          <div class="check-cell"><input type="checkbox" data-bit="0100" ${this.hasPerm(0o100)}></div>
           
           <div class="row-label">Group</div>
-          <div class="check-cell"><input type="checkbox" data-bit="0040" ${this.hasPerm(0o040)} disabled></div>
-          <div class="check-cell"><input type="checkbox" data-bit="0020" ${this.hasPerm(0o020)} disabled></div>
-          <div class="check-cell"><input type="checkbox" data-bit="0010" ${this.hasPerm(0o010)} disabled></div>
+          <div class="check-cell"><input type="checkbox" data-bit="0040" ${this.hasPerm(0o040)}></div>
+          <div class="check-cell"><input type="checkbox" data-bit="0020" ${this.hasPerm(0o020)}></div>
+          <div class="check-cell"><input type="checkbox" data-bit="0010" ${this.hasPerm(0o010)}></div>
           
           <div class="row-label">Others</div>
-          <div class="check-cell"><input type="checkbox" data-bit="0004" ${this.hasPerm(0o004)} disabled></div>
-          <div class="check-cell"><input type="checkbox" data-bit="0002" ${this.hasPerm(0o002)} disabled></div>
-          <div class="check-cell"><input type="checkbox" data-bit="0001" ${this.hasPerm(0o001)} disabled></div>
+          <div class="check-cell"><input type="checkbox" data-bit="0004" ${this.hasPerm(0o004)}></div>
+          <div class="check-cell"><input type="checkbox" data-bit="0002" ${this.hasPerm(0o002)}></div>
+          <div class="check-cell"><input type="checkbox" data-bit="0001" ${this.hasPerm(0o001)}></div>
         </div>
         
         <div style="font-size: 13px; color: var(--text-muted); text-align: right;">
@@ -259,7 +259,9 @@ export class PropertiesModal {
     if (confirmBtn) {
       confirmBtn.addEventListener('click', async () => {
         if (this.fullPath.startsWith('Local::') || !this.fullPath.includes('::')) {
-          // 1. Save Permissions
+          const errors: string[] = [];
+
+          // 1. Lưu quyền (chmod) nếu người dùng đã đổi
           if (this.permOctalStr && this.stats) {
             const oldOctal = (this.stats.permissions & 0o777).toString(8).padStart(4, '0');
             if (this.permOctalStr !== oldOctal) {
@@ -267,12 +269,12 @@ export class PropertiesModal {
               try {
                 await fileOps.chmod(this.fullPath, mode);
               } catch (e) {
-                console.warn('chmod failed', e);
+                errors.push(`Đổi quyền thất bại: ${e}`);
               }
             }
           }
-          
-          // 2. Save Ownership
+
+          // 2. Lưu chủ sở hữu (chown) nếu người dùng đã đổi
           const uidInp = el.querySelector('#prop-uid') as HTMLInputElement;
           const gidInp = el.querySelector('#prop-gid') as HTMLInputElement;
           if (uidInp && gidInp && this.stats) {
@@ -282,9 +284,15 @@ export class PropertiesModal {
               try {
                 await fileOps.chown(this.fullPath, newUid, newGid);
               } catch (e) {
-                console.warn('chown failed', e);
+                errors.push(`Đổi chủ sở hữu thất bại: ${e}`);
               }
             }
+          }
+
+          // Báo lỗi cho người dùng thay vì im lặng ghi console.
+          if (errors.length > 0) {
+            alert(errors.join('\n'));
+            return; // Giữ modal mở để người dùng thấy giá trị đang nhập
           }
         }
         this.modal.close();

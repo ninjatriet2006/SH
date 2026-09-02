@@ -29,13 +29,21 @@ Các module tương tác: /src/main.ts, /themes/tokens.css, /themes/style.css
           <button class="nav-tab active" data-view="explorer" data-lang-id="nav_explorer">Explorer</button>
           <button class="nav-tab" data-view="remotes" data-lang-id="nav_remotes">📡 Remotes</button>
           <button class="nav-tab" data-view="mounts" data-lang-id="nav_mounts">🖥️ Mounts</button>
-          <button class="nav-tab" data-view="serves" data-lang-id="nav_serves">🌐 Serves</button>
-          <button class="nav-tab" data-view="sync" data-lang-id="nav_sync">🔄 Sync</button>
+          <button class="nav-tab" data-view="activity" data-lang-id="nav_activity">🕘 Nhật ký</button>
           <button class="nav-tab" data-view="debug" data-lang-id="nav_debug">🐞 Debug</button>
         </nav>
       </header>
 
-      <div class="body-row" style="grid-template-columns: 1fr;">
+      <div class="body-row">
+        <!-- ── Sidebar: cây thư mục Local ────────────────────── -->
+        <aside id="sidebar" class="sidebar">
+          <div class="side-section">
+            <div class="side-heading" data-lang-id="side_heading_places">Thư mục</div>
+            <div id="tree-container"></div>
+          </div>
+        </aside>
+        <div id="sidebar-resizer" class="sidebar-resizer"></div>
+
         <!-- ── Central: App Views Container ──────────────────── -->
         <div id="views-container" class="views-container">
           <!-- View 1: Explorer -->
@@ -108,6 +116,10 @@ Các module tương tác: /src/main.ts, /themes/tokens.css, /themes/style.css
             <!-- Mount End -->
           </main>
           
+          <main id="view-activity" class="app-view" style="display: none; flex-direction: column;">
+            <!-- RecentsView được render từ JS -->
+          </main>
+
           <main id="view-debug" class="app-view" style="display: none; padding: 10px; flex-direction: column;">
             <!-- Render DebugView here -->
           </main>

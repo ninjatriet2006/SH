@@ -1,5 +1,4 @@
 import { PaneView, type PaneViewOptions } from './PaneView';
-import { type Pane, getPanePath } from '../../services/explorerStore';
 
 export interface PaneContainerTab {
   id: string;
@@ -16,7 +15,6 @@ export class PaneContainer {
   activeTabId: string | null = null;
   
   private config: PaneViewOptions;
-  private paneSide: Pane;
   private lastRemotes: any[] | null = null;
   
   // Callback when a tab is activated or created, so DualPaneExplorer can reload it
@@ -24,7 +22,6 @@ export class PaneContainer {
 
   constructor(config: PaneViewOptions) {
     this.config = config;
-    this.paneSide = config.side;
     
     this.container = document.createElement('div');
     this.container.className = 'pane-container';
@@ -90,27 +87,24 @@ export class PaneContainer {
   }
   
   public setActiveTab(id: string) {
-    // 1. Save current state to the old active tab
-    if (this.activeTabId) {
-      const oldTab = this.tabs.find(t => t.id === this.activeTabId);
-      if (oldTab) {
-        oldTab.path = getPanePath(this.paneSide);
-        // We could save files/selection here, but DualPaneExplorer will just reload the path
-      }
-    }
-    
+    // `tab.path` được `render()` cập nhật liên tục qua `updateActiveTabPath`,
+    // nên đã là giá trị riêng của từng tab — không cần (và không nên) ghi lại
+    // từ path pane-level ở đây.
+    //
+    // Lưu ý giới hạn hiện tại: files/selection/history nằm ở cấp pane trong
+    // explorerStore, nên chuyển tab sẽ nạp lại thư mục thay vì phục hồi nguyên
+    // trạng. Chỉ vị trí (path) được giữ cho từng tab.
     this.activeTabId = id;
     const tab = this.tabs.find(t => t.id === id);
     if (!tab) return;
-    
-    // 2. Mount view
+
+    // Mount view của tab
     this.contentArea.innerHTML = '';
     this.contentArea.appendChild(tab.view.getElement());
-    
-    // 3. Render tab bar
+
     this.renderTabBar();
-    
-    // 4. Notify DualPaneExplorer to load this path
+
+    // Yêu cầu DualPaneExplorer nạp path của tab này
     if (this.onTabSwitch) {
       this.onTabSwitch(tab.path);
     }

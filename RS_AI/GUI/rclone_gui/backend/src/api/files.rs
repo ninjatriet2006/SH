@@ -486,3 +486,81 @@ pub async fn fs_get_thumbnail(path: String) -> Result<String, String> {
 pub fn fs_temp_dir() -> String {
     std::env::temp_dir().to_string_lossy().to_string()
 }
+
+/// Tên hàm: fs_chmod
+/// Mô tả: Đổi quyền (mode) của một file/thư mục trên ổ Local.
+/// Chỉ hỗ trợ Unix — remote cloud không có khái niệm mode POSIX.
+#[tauri::command]
+pub async fn fs_chmod(path: String, mode: u32) -> Result<(), String> {
+    let (remote, real_path) = file_ops::parse_remote_path(&path);
+    if remote != "Local" {
+        return Err(format!(
+            "Không thể đổi quyền trên remote '{}' — chỉ hỗ trợ ổ Local.",
+            remote
+        ));
+    }
+
+    #[cfg(unix)]
+    {
+        // Chỉ giữ 12 bit quyền (bao gồm setuid/setgid/sticky) để không ghi đè
+        // các bit loại file trong st_mode.
+        let safe_mode = mode & 0o7777;
+        let octal = format!("{:o}", safe_mode);
+
+        file_ops::run_with_sudo_fallback(
+            "Local",
+            "chmod",
+            &[octal.clone(), real_path.clone()],
+            || {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&real_path, std::fs::Permissions::from_mode(safe_mode))
+                    .map_err(|e| e.to_string())
+            },
+        )
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = (real_path, mode);
+        Err("Đổi quyền chỉ được hỗ trợ trên hệ điều hành Unix.".to_string())
+    }
+}
+
+/// Tên hàm: fs_chown
+/// Mô tả: Đổi chủ sở hữu (uid/gid) của một file/thư mục trên ổ Local.
+/// Thao tác này gần như luôn cần quyền root nên đi thẳng qua `pkexec chown`.
+#[tauri::command]
+pub async fn fs_chown(path: String, uid: u32, gid: u32) -> Result<(), String> {
+    let (remote, real_path) = file_ops::parse_remote_path(&path);
+    if remote != "Local" {
+        return Err(format!(
+            "Không thể đổi chủ sở hữu trên remote '{}' — chỉ hỗ trợ ổ Local.",
+            remote
+        ));
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let spec = format!("{}:{}", uid, gid);
+        let output = Command::new("pkexec")
+            .args(["chown", &spec, &real_path])
+            .output()
+            .map_err(|e| format!("Lỗi gọi pkexec: {}", e))?;
+
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(if err.is_empty() {
+                "Thao tác pkexec bị huỷ hoặc lỗi phân quyền.".to_string()
+            } else {
+                err
+            });
+        }
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (real_path, uid, gid);
+        Err("Đổi chủ sở hữu chỉ được hỗ trợ trên Linux.".to_string())
+    }
+}

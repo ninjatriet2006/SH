@@ -37,6 +37,8 @@ pub fn run() {
             api::files::open_in_terminal,
             api::files::fs_get_thumbnail,
             api::files::fs_temp_dir,
+            api::files::fs_chmod,
+            api::files::fs_chown,
             
             // ==================
             // SYS API (Trong core/sys.rs)

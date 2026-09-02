@@ -6,7 +6,18 @@
 */
 
 import { invoke } from '@tauri-apps/api/core';
-import { fsMkdir, fsDelete, fsRename, fsCopy, fsMove, listFiles, fsSearch, fsStatAdvanced } from '../../../bridge/explorer_api.ts';
+import {
+  fsMkdir,
+  fsDelete,
+  fsRename,
+  fsCopy,
+  fsMove,
+  listFiles,
+  fsSearch,
+  fsStatAdvanced,
+  fsChmod,
+  fsChown,
+} from '../../../bridge/explorer_api.ts';
 import { getAbout } from '../../../bridge/remote_api.ts';
 import type { StatInfo, SearchResultItem } from '../../../bridge/explorer_api.ts';
 import type { FileItem } from '../store';
@@ -95,8 +106,15 @@ export async function statAdvanced(path: string): Promise<StatInfo> {
     return fsStatAdvanced(path);
 }
 
-export async function chmod(_path: string, _mode: number): Promise<void> {}
-export async function chown(_path: string, _uid: number, _gid: number): Promise<void> {}
+/** Đổi quyền file (chỉ ổ Local). Ném lỗi nếu backend từ chối. */
+export async function chmod(path: string, mode: number): Promise<void> {
+    return fsChmod(path, mode);
+}
+
+/** Đổi chủ sở hữu file (chỉ ổ Local, cần quyền root). */
+export async function chown(path: string, uid: number, gid: number): Promise<void> {
+    return fsChown(path, uid, gid);
+}
 
 export async function getFreeSpace(path: string): Promise<number> {
     let remote = path.split('::')[0] || 'Local';

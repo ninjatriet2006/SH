@@ -2,7 +2,8 @@
 [INTEGRITY NOTES]
 - Mục đích: explorerStore.ts — Trạng thái riêng biệt cho trình khám phá file (tách khỏi store.ts toàn cục).
 - Trách nhiệm: Quản lý leftPath/rightPath/leftFiles/rightFiles, độ rộng cột, lịch sử điều hướng, lựa chọn file (selection) cho Dual Pane.
-- Tương tác: Các component (DualPaneExplorer) sẽ đọc/ghi qua đây thay vì dùng `appState.explorer`. Lấy và lưu từ localStorage.
+- Tương tác: Đây là nguồn sự thật duy nhất cho trạng thái explorer (trước đây bị
+  nhân đôi với `appState.explorer` — đã gỡ bỏ). Lấy và lưu từ localStorage.
 */
 import type { FileItem } from '../store';
 import { readStored } from '../store';

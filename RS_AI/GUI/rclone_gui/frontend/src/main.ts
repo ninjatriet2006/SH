@@ -11,6 +11,9 @@ import { DualPaneExplorer } from './components/DualPaneExplorer.ts';
 import { MenuBar } from './components/MenuBar';
 import { TransferDrawer } from './components/TransferDrawer';
 import { DebugView } from './components/DebugView.ts';
+import { RecentsView } from './components/RecentsView';
+import { TreeView } from './components/TreeView';
+import { getHomeDir } from '../../bridge/explorer_api';
 
 // Nhúng CSS thông qua Vite bundler
 import '../../themes/tokens.css';
@@ -24,6 +27,7 @@ let currentLangData: Record<string, string> = {};
 let remotesManager: RemotesManager | null = null;
 let mountManager: MountManager | null = null;
 let debugView: DebugView | null = null;
+let recentsView: RecentsView | null = null;
 
 /**
  * Hàm đệ quy cập nhật UI text dựa trên data-lang-id.
@@ -98,6 +102,15 @@ function setupEvents() {
         if (!mountManager) {
           mountManager = new MountManager();
         }
+      } else if (viewName === 'activity') {
+        // Nhật ký được ghi liên tục bởi logActivity() nên phải render lại
+        // mỗi lần mở tab để thấy bản ghi mới nhất.
+        if (!recentsView) {
+          recentsView = new RecentsView();
+          targetView.appendChild(recentsView.getElement());
+        } else {
+          recentsView.render();
+        }
       } else if (viewName === 'debug') {
         if (!debugView) {
           debugView = new DebugView();
@@ -113,7 +126,13 @@ function setupEvents() {
     drawer?.classList.toggle('open');
   });
 
-  // Resize Sidebar (đơn giản hóa)
+  // Toggle sidebar (nút ☰)
+  const sidebar = document.getElementById('sidebar');
+  document.getElementById('sidebar-toggle')?.addEventListener('click', () => {
+    sidebar?.classList.toggle('collapsed');
+  });
+
+  // Resize Sidebar
   const resizer = document.getElementById('sidebar-resizer');
   const bodyRow = document.querySelector('.body-row') as HTMLElement;
   
@@ -139,8 +158,6 @@ function setupEvents() {
   });
 }
 
-
-
 // Chạy khởi tạo khi load xong DOM
 document.addEventListener('DOMContentLoaded', async () => {
   // Tạo Explorer trước khi gắn các listener tương tác của ứng dụng.
@@ -150,10 +167,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     const dualPane = new DualPaneExplorer();
     explorerContainer.appendChild(dualPane.container);
 
-    // MenuBar chỉ nhận đúng tập lệnh nó cần, không dùng biến toàn cục.
+    // MenuBar và TreeView chỉ nhận đúng tập lệnh chúng cần, không dùng biến toàn cục.
     const menubarContainer = document.getElementById('menubar-container');
     if (menubarContainer) {
       menubarContainer.appendChild(new MenuBar(dualPane.commands).getElement());
+    }
+
+    const treeContainer = document.getElementById('tree-container');
+    if (treeContainer) {
+      const home = await getHomeDir().catch(() => '/');
+      const tree = new TreeView(`Local::${home}`, (path) =>
+        dualPane.commands.navigateActive(path),
+      );
+      treeContainer.appendChild(tree.getElement());
     }
   }
 

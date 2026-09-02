@@ -55,6 +55,10 @@ where
                             cmd_args.push("cp".to_string());
                             cmd_args.push("-r".to_string());
                         },
+                        // chmod nhận tham số dạng: <octal> <path>
+                        "chmod" => {
+                            cmd_args.push("chmod".to_string());
+                        },
                         _ => return Err("Hành động sudo không được hỗ trợ".into()),
                     }
                     for arg in args {

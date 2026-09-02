@@ -26,6 +26,12 @@ export async function getTempDir(): Promise<string> {
   return await invoke('fs_temp_dir');
 }
 
+/** Thư mục khởi điểm của người dùng (Desktop nếu có, ngược lại là $HOME). */
+export async function getHomeDir(): Promise<string> {
+  debugStore.log('API', 'get_home_dir', {});
+  return await invoke('get_home_dir');
+}
+
 export async function fsMkdir(path: string): Promise<void> {
   debugStore.log('API', 'fs_mkdir', { path });
   await invoke('fs_mkdir', { path });
@@ -76,4 +82,16 @@ export interface SearchResultItem {
 
 export async function fsSearch(path: string, query: string): Promise<SearchResultItem[]> {
   return invoke<SearchResultItem[]>('fs_search', { path, query });
+}
+
+/** Đổi quyền (mode POSIX) — chỉ hỗ trợ ổ Local. */
+export async function fsChmod(path: string, mode: number): Promise<void> {
+  debugStore.log('API', 'fs_chmod', { path, mode: mode.toString(8) });
+  await invoke('fs_chmod', { path, mode });
+}
+
+/** Đổi chủ sở hữu (uid/gid) — chỉ hỗ trợ Local, cần quyền root qua pkexec. */
+export async function fsChown(path: string, uid: number, gid: number): Promise<void> {
+  debugStore.log('API', 'fs_chown', { path, uid, gid });
+  await invoke('fs_chown', { path, uid, gid });
 }

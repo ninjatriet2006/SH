@@ -1,7 +1,7 @@
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { listFiles } from '../../../bridge/explorer_api.ts';
-import { appState, logActivity } from '../store';
+import { logActivity } from '../store';
 import type { FileItem } from '../store';
 import { OperationModal } from './OperationModal';
 import { PaneContainer } from './pane/PaneContainer';
@@ -26,6 +26,7 @@ import {
   getPanePath,
   setPanePath,
   setPaneFiles,
+  getPaneFiles,
   pushPaneHistory,
   popPaneBack,
   popPaneForward,
@@ -179,23 +180,23 @@ export class DualPaneExplorer {
   // Listen for local directory changes (inotify)
   private setupListeners() {
     listen('local-dir-changed', () => {
-      const leftPath = appState.explorer?.leftPath;
-      if (leftPath && leftPath.startsWith('Local::')) {
+      const leftPath = getPanePath('left');
+      if (leftPath.startsWith('Local::')) {
         // Reload without touching the selection
         this.loadPane('left', leftPath);
       }
-      const rightPath = appState.explorer?.rightPath;
-      if (rightPath && rightPath.startsWith('Local::')) {
+      const rightPath = getPanePath('right');
+      if (rightPath.startsWith('Local::')) {
         this.loadPane('right', rightPath);
       }
     });
 
     // Lắng nghe khi TransferManager xử lý xong một chuỗi tác vụ
     transferManager.addQueueEmptyListener(() => {
-       const leftPath = appState.explorer?.leftPath;
+       const leftPath = getPanePath('left');
        if (leftPath) this.loadPane('left', leftPath, true, true);
-       
-       const rightPath = appState.explorer?.rightPath;
+
+       const rightPath = getPanePath('right');
        if (rightPath) this.loadPane('right', rightPath, true, true);
     });
 
@@ -251,7 +252,7 @@ export class DualPaneExplorer {
     } else {
       if (key === 'ArrowUp' || key === 'ArrowDown') {
         e.preventDefault();
-        const files = pane === 'left' ? appState.explorer?.leftFiles : appState.explorer?.rightFiles;
+        const files = getPaneFiles(pane);
         if (!files || files.length === 0) return;
         
         const selection = getPaneSelection(pane);
@@ -302,12 +303,12 @@ export class DualPaneExplorer {
   async init() {
     window.addEventListener('keydown', this.handleKeyDown);
     
-    let leftPath = appState.explorer?.leftPath;
+    let leftPath = getPanePath('left');
     if (!leftPath || leftPath === '/') {
       leftPath = ''; // Không ép Local nữa, để trống cho người dùng tự chọn
     }
-    
-    let rightPath = appState.explorer?.rightPath;
+
+    let rightPath = getPanePath('right');
     if (!rightPath || rightPath === '/') {
       rightPath = '';
     }
@@ -326,17 +327,13 @@ export class DualPaneExplorer {
     }
     const currentReqId = pane === 'left' ? this.leftLoadRequestId : this.rightLoadRequestId;
 
-    const currentPath = pane === 'left' ? appState.explorer?.leftPath : appState.explorer?.rightPath;
+    const currentPath = getPanePath(pane);
     
-    // Cập nhật appState ngay từ đầu để getPanePath luôn trả về đúng path hiện tại (kể cả path rỗng)
-    if (appState.explorer) {
-      if (pane === 'left') {
-        appState.explorer.leftPath = path;
-        if (!path || !path.includes('::')) appState.explorer.leftFiles = [];
-      } else {
-        appState.explorer.rightPath = path;
-        if (!path || !path.includes('::')) appState.explorer.rightFiles = [];
-      }
+    // Cập nhật path ngay từ đầu để getPanePath luôn trả về đúng vị trí hiện tại
+    // (kể cả path rỗng). Nếu chưa chọn remote thì xoá luôn danh sách file cũ.
+    setPanePath(pane, path);
+    if (!path || !path.includes('::')) {
+      setPaneFiles(pane, []);
     }
 
     if (currentPath !== path && !silent) {
@@ -405,22 +402,13 @@ export class DualPaneExplorer {
     
     setPaneFiles(pane, files);
     setPanePath(pane, path);
-    if (pane === 'left') {
-      if (!appState.explorer) appState.explorer = {} as any;
-      appState.explorer!.leftPath = path;
-      appState.explorer!.leftFiles = files;
-    } else {
-      if (!appState.explorer) appState.explorer = {} as any;
-      appState.explorer!.rightPath = path;
-      appState.explorer!.rightFiles = files;
-    }
     this.renderPane(pane);
   }
 
   renderPane(pane: 'left' | 'right') {
     const view = pane === 'left' ? this.leftPane : this.rightPane;
-    const files = pane === 'left' ? appState.explorer?.leftFiles : appState.explorer?.rightFiles;
-    const path = pane === 'left' ? appState.explorer?.leftPath : appState.explorer?.rightPath;
+    const files = getPaneFiles(pane);
+    const path = getPanePath(pane);
     const sortKey = getPaneSortKey(pane);
     const sortDir = getPaneSortDir(pane);
     const colWidths = getPaneColWidths(pane);
@@ -448,7 +436,7 @@ export class DualPaneExplorer {
   }
 
   private async handleMkdir(pane: 'left' | 'right', name: string) {
-    const path = (pane === 'left' ? appState.explorer?.leftPath : appState.explorer?.rightPath) ?? '/';
+    const path = getPanePath(pane) || '/';
     await fileOps.mkdir(path + '/' + name);
     await this.loadPane(pane, path);
   }
@@ -478,7 +466,7 @@ export class DualPaneExplorer {
     modal.getElement().querySelector('.confirm')?.addEventListener('click', async () => {
       modal.close();
       try {
-        const destFiles = destPane === 'left' ? appState.explorer?.leftFiles || [] : appState.explorer?.rightFiles || [];
+        const destFiles = getPaneFiles(destPane);
         const destNames = destFiles.map(f => f.name);
         
         let applyToAllRes: ConflictResult | null = null;
@@ -557,7 +545,7 @@ export class DualPaneExplorer {
   }
 
   private handleSelectRow(pane: Pane, f: FileItem) {
-    const basePath = (pane === 'left' ? appState.explorer?.leftPath : appState.explorer?.rightPath) ?? '/';
+    const basePath = getPanePath(pane) || '/';
     const fullPath = basePath.endsWith('/') ? basePath + f.name : basePath + '/' + f.name;
     setPaneSelection(pane, [{
       pane,
@@ -569,7 +557,7 @@ export class DualPaneExplorer {
 
   /** Select All: chọn toàn bộ file trong pane active. */
   private selectAll(pane: Pane) {
-    const files = pane === 'left' ? appState.explorer?.leftFiles : appState.explorer?.rightFiles;
+    const files = getPaneFiles(pane);
     const basePath = getPanePath(pane);
     const sels = (files ?? []).map((f) => ({
       pane,
@@ -582,7 +570,7 @@ export class DualPaneExplorer {
   }
 
   private handleFolderContextMenu(pane: Pane, e: MouseEvent) {
-    const basePath = (pane === 'left' ? appState.explorer?.leftPath : appState.explorer?.rightPath) ?? '/';
+    const basePath = getPanePath(pane) || '/';
     MenuEmpty(e, {
       path: basePath,
       pane,
@@ -592,7 +580,7 @@ export class DualPaneExplorer {
   }
 
   private handleContextMenu(pane: Pane, e: MouseEvent, f: FileItem) {
-    const basePath = (pane === 'left' ? appState.explorer?.leftPath : appState.explorer?.rightPath) ?? '/';
+    const basePath = getPanePath(pane) || '/';
     
     // Nếu file được click chưa có trong danh sách đang chọn, chọn duy nhất file này
     const currentSelection = getPaneSelection(pane);
@@ -649,14 +637,16 @@ export class DualPaneExplorer {
   }
 
   /**
-   * API hẹp dành cho các thành phần ngoài (MenuBar) tác động lên pane đang active,
-   * thay vì để chúng chạm trực tiếp vào nội bộ của DualPaneExplorer.
+   * API hẹp dành cho các thành phần ngoài (MenuBar, TreeView) tác động lên
+   * explorer, thay vì để chúng chạm trực tiếp vào nội bộ của DualPaneExplorer.
    */
   public get commands() {
     return {
       selectAllActive: () => this.selectAll(getActivePane()),
       goHomeActive: () => this.goHome(getActivePane()),
       refreshActive: () => this.refresh(getActivePane(), true),
+      /** Điều hướng pane đang active tới `path` (có ghi lịch sử back/forward). */
+      navigateActive: (path: string) => this.navigate(getActivePane(), path),
     };
   }
 }

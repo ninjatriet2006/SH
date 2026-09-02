@@ -8,6 +8,23 @@ GUI/**/dist/
 GUI/**/target/
 GUI/temp_app/
 
+# Test / coverage output
+GUI/**/coverage/
+GUI/**/playwright-report/
+GUI/**/test-results/
+
+# Scratch & throwaway artifacts
+*.log
+/large*.bin
+/test_check
+/test_check.rs
+/test_src.txt
+/test_dst.txt
+/test_src/
+/test_dst/
+GUI/**/replace*.py
+GUI/**/testfile
+
 # IDE and editor files
 .vscode/
 .idea/

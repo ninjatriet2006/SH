@@ -18,7 +18,6 @@ import { setClipboard, pasteTo } from './clipboard';
 import { actionStore } from '../services/actionStore';
 import { escapeHtml } from './format';
 
-import { appState } from '../store';
 
 export interface ContextMenuOptions {
   file: FileItem;
@@ -380,8 +379,8 @@ async function handleTrashAction(action: string, f: FileItem, basePath: string, 
         const id = (f as any).path ? (f as any).path.split('/').pop() || '' : '';
         await trashOps.restoreLocalTrash(id);
       } else {
-        const files = pane === 'left' ? appState.explorer?.leftFiles : appState.explorer?.rightFiles;
-        const idx = (files?.findIndex(item => item.name === f.name) ?? -1) + 1;
+        const files = getPaneFiles(pane);
+        const idx = files.findIndex(item => item.name === f.name) + 1;
         if (idx > 0) await trashOps.restoreRemoteTrash(idx);
       }
     } else if (action === 'Xoá vĩnh viễn') {
@@ -389,8 +388,8 @@ async function handleTrashAction(action: string, f: FileItem, basePath: string, 
         alert('Tính năng xoá từng file cục bộ chưa hoàn thiện. Vui lòng làm trống toàn bộ thùng rác.');
         return;
       } else {
-        const files = pane === 'left' ? appState.explorer?.leftFiles : appState.explorer?.rightFiles;
-        const idx = (files?.findIndex(item => item.name === f.name) ?? -1) + 1;
+        const files = getPaneFiles(pane);
+        const idx = files.findIndex(item => item.name === f.name) + 1;
         if (idx > 0) await trashOps.deleteRemoteTrash(idx);
       }
     }
