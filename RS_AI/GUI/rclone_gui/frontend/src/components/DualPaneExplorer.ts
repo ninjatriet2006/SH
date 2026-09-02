@@ -1,4 +1,3 @@
-// Removed invoke import
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { listFiles } from '../../../bridge/explorer_api.ts';
@@ -8,6 +7,7 @@ import { OperationModal } from './OperationModal';
 import { PaneContainer } from './pane/PaneContainer';
 import { MenuFile, MenuEmpty } from '../features/contextMenu';
 import { sortFiles } from '../features/sort';
+import { escapeHtml } from '../features/format';
 import type { SortKey } from '../features/sort';
 import type { Pane, PaneColKey } from '../services/explorerStore';
 import {
@@ -471,7 +471,7 @@ export class DualPaneExplorer {
     const actionText = move ? 'Di chuyển' : 'Sao chép';
     const modal = new OperationModal(
       'Xác nhận Kéo thả',
-      `<p>Bạn có chắc muốn ${actionText} ${srcs.length} mục vào <br><strong>${destPath}</strong>?</p>`
+      `<p>Bạn có chắc muốn ${actionText} ${srcs.length} mục vào <br><strong>${escapeHtml(destPath)}</strong>?</p>`
     );
     modal.open();
     

@@ -50,7 +50,7 @@ class TransferManager {
   public onQueueEmptyListeners: (() => void)[] = [];
   private nextId = 1;
   private isProcessing = false;
-  private fallbackApplyToAllCache: { action: 'copy_delete' | 'local_transfer' | 'cancel', expireAt: number } | null = null;
+  private fallbackApplyToAllCache: { action: 'fallback_server_side' | 'fallback_local' | 'cancel', expireAt: number } | null = null;
 
   constructor() {
     // Lắng nghe luồng sự kiện báo cáo tiến độ (progress) trực tiếp từ Backend Rclone
@@ -150,7 +150,7 @@ class TransferManager {
           try {
             // Lựa chọn lệnh thực thi dựa trên loại task
             if (task.kind === 'move') {
-              let action: 'copy_delete' | 'local_transfer' | 'cancel' | null = null;
+              let action: 'fallback_server_side' | 'fallback_local' | 'cancel' | null = null;
               let canCopyDelete = false;
 
               // Kiểm tra cache trước khi gọi API
@@ -172,10 +172,10 @@ class TransferManager {
 
               // Xử lý khi Cloud KHÔNG HỖ TRỢ lệnh Move nguyên bản
               if (action) {
-                if (action === 'copy_delete') {
+                if (action === 'fallback_server_side') {
                   // Đẩy các task fallback dạng Copy/Delete ngang hàng vào hàng đợi UI
-                  await this.enqueue('copy', '[Copy] ' + task.name, task.src, task.dst, async () => {
-                    await this.enqueue('delete', '[Xoá gốc] ' + task.name, task.src, task.dst, async () => {
+                  await this.enqueue('copy', '[Move: Copy] ' + task.name, task.src, task.dst, async () => {
+                    await this.enqueue('delete', '[Move: Xoá gốc] ' + task.name, task.src, task.dst, async () => {
                       undoManager.push({
                         type: 'move',
                         src: task.src,
@@ -186,20 +186,20 @@ class TransferManager {
                     }, undefined, true);
                   }, undefined, true, task.excludes);
                 } 
-                else if (action === 'local_transfer') {
+                else if (action === 'fallback_local') {
                   const sysTemp = await getTempDir();
                   const tempFolder = joinPath(`Local::${sysTemp}`, `rclone_gui_temp_${Date.now()}_${Math.floor(Math.random() * 1000)}`);
                   debugStore.log('TRANSFER', 'Create Temp Folder', { path: tempFolder, for: task.name });
                   
                   const cleanupTemp = async () => {
-                    await this.enqueue('delete', '[Dọn Temp lỗi] ' + task.name, tempFolder, task.dst, undefined, undefined, true);
+                    await this.enqueue('delete', '[Move: Dọn Temp lỗi] ' + task.name, tempFolder, task.dst, undefined, undefined, true);
                   };
                   
-                  await this.enqueue('copy', '[Download Tạm] ' + task.name, task.src, tempFolder, async () => {
-                    await this.enqueue('copy', '[Upload Lên] ' + task.name, tempFolder, task.dst, async () => {
-                      await this.enqueue('delete', '[Dọn Temp] ' + task.name, tempFolder, task.dst, async () => {
+                  await this.enqueue('copy', '[Move: Download Tạm] ' + task.name, task.src, tempFolder, async () => {
+                    await this.enqueue('copy', '[Move: Upload Lên] ' + task.name, tempFolder, task.dst, async () => {
+                      await this.enqueue('delete', '[Move: Dọn Temp] ' + task.name, tempFolder, task.dst, async () => {
                         debugStore.log('TRANSFER', 'Clean Temp Folder', { path: tempFolder, for: task.name });
-                        await this.enqueue('delete', '[Xoá gốc] ' + task.name, task.src, task.dst, async () => {
+                        await this.enqueue('delete', '[Move: Xoá gốc] ' + task.name, task.src, task.dst, async () => {
                           undoManager.push({
                             type: 'move',
                             src: task.src,
@@ -223,7 +223,7 @@ class TransferManager {
               // Nếu không cần fallback (hoặc người dùng chọn server-side)
               await fileOps.moveLocal(task.src, task.dst, task.id);
             } else if (task.kind === 'copy') {
-              let action: 'local_transfer' | 'cancel' | null = null;
+              let action: 'fallback_local' | 'cancel' | null = null;
               
               const caps = await checkTransferCapability(task.src, task.dst);
               if (!caps.canCopy) {
@@ -233,18 +233,18 @@ class TransferManager {
               }
 
               if (action) {
-                if (action === 'local_transfer') {
+                if (action === 'fallback_local') {
                   const sysTemp = await getTempDir();
                   const tempFolder = joinPath(`Local::${sysTemp}`, `rclone_gui_temp_${Date.now()}_${Math.floor(Math.random() * 1000)}`);
                   debugStore.log('TRANSFER', 'Create Temp Folder', { path: tempFolder, for: task.name });
                   
                   const cleanupTemp = async () => {
-                    await this.enqueue('delete', '[Dọn Temp lỗi] ' + task.name, tempFolder, task.dst, undefined, undefined, true);
+                    await this.enqueue('delete', '[Copy: Dọn Temp lỗi] ' + task.name, tempFolder, task.dst, undefined, undefined, true);
                   };
 
-                  await this.enqueue('copy', '[Download Tạm] ' + task.name, task.src, tempFolder, async () => {
-                    await this.enqueue('copy', '[Upload Lên] ' + task.name, tempFolder, task.dst, async () => {
-                      await this.enqueue('delete', '[Dọn Temp] ' + task.name, tempFolder, task.dst, async () => {
+                  await this.enqueue('copy', '[Copy: Download Tạm] ' + task.name, task.src, tempFolder, async () => {
+                    await this.enqueue('copy', '[Copy: Upload Lên] ' + task.name, tempFolder, task.dst, async () => {
+                      await this.enqueue('delete', '[Copy: Dọn Temp] ' + task.name, tempFolder, task.dst, async () => {
                         debugStore.log('TRANSFER', 'Clean Temp Folder', { path: tempFolder, for: task.name });
                         undoManager.push({
                           type: 'copy',

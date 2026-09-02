@@ -4,6 +4,7 @@ import type { FileItem } from '../store';
 import * as fileOps from '../services/fileOps';
 import { invoke } from '@tauri-apps/api/core';
 import { emblemStore } from '../services/emblemStore';
+import { formatSize, formatDate, escapeHtml } from '../features/format';
 
 const AVAILABLE_EMOJIS = ['⭐', '❤️', '🔒', '🔥', '⚠️', '✅', '📌', '🎵', '📷', '💼', '🚀', '💡'];
 
@@ -40,7 +41,7 @@ export class PropertiesModal {
     }
 
     // Refresh UI with actual content
-    this.modal.getElement().querySelector('.modal-body')!.innerHTML = this.getContentHtml();
+    this.modal.getBody().innerHTML = this.getContentHtml();
     this.attachEventListeners();
   }
 
@@ -50,13 +51,13 @@ export class PropertiesModal {
 
   private getContentHtml(): string {
     const type = this.file.is_dir ? 'Folder' : this.file.file_type || 'Unknown';
-    let sizeStr = this.file.is_dir ? '-' : this.formatSize(this.file.size);
+    let sizeStr = this.file.is_dir ? '-' : formatSize(this.file.size);
     let contentStr = '-';
     let uid = 0;
     let gid = 0;
 
     if (this.stats) {
-      sizeStr = this.formatSize(this.stats.size);
+      sizeStr = formatSize(this.stats.size);
       if (this.file.is_dir) {
         contentStr = `${this.stats.file_count} files, ${this.stats.dir_count} folders`;
       }
@@ -74,12 +75,12 @@ export class PropertiesModal {
       </div>
 
       <div class="tab-pane active" id="tab-basic">
-        <div class="prop-row"><span>Name</span><span>${this.file.name}</span></div>
-        <div class="prop-row"><span>Type</span><span>${type}</span></div>
+        <div class="prop-row"><span>Name</span><span>${escapeHtml(this.file.name)}</span></div>
+        <div class="prop-row"><span>Type</span><span>${escapeHtml(type)}</span></div>
         <div class="prop-row"><span>Size</span><span>${sizeStr}</span></div>
-        ${this.file.is_dir && this.stats ? `<div class="prop-row"><span>Contents</span><span>${contentStr}</span></div>` : ''}
-        <div class="prop-row"><span>Path</span><span>${this.fullPath}</span></div>
-        <div class="prop-row"><span>Modified</span><span>${this.formatDate(this.file.mod_time)}</span></div>
+        ${this.file.is_dir && this.stats ? `<div class="prop-row"><span>Contents</span><span>${escapeHtml(contentStr)}</span></div>` : ''}
+        <div class="prop-row"><span>Path</span><span>${escapeHtml(this.fullPath)}</span></div>
+        <div class="prop-row"><span>Modified</span><span>${escapeHtml(formatDate(this.file.mod_time))}</span></div>
       </div>
 
       ${(this.fullPath.startsWith('Local::') || !this.fullPath.includes('::')) ? `
@@ -294,21 +295,5 @@ export class PropertiesModal {
   private hasPerm(bit: number): string {
     if (!this.stats) return '';
     return (this.stats.permissions & bit) ? 'checked' : '';
-  }
-
-  private formatSize(bytes: number): string {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  }
-
-  private formatDate(dateStr: string): string {
-    if (!dateStr || dateStr === '0') return 'Unknown';
-    const num = parseInt(dateStr, 10);
-    if (isNaN(num)) return dateStr;
-    if (num > 1e12) return new Date(num).toLocaleString();
-    return new Date(num * 1000).toLocaleString();
   }
 }

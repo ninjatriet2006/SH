@@ -21,7 +21,7 @@ pub async fn run_transfer_task(
     task_id: Option<u32>,
 ) -> Result<(), String> {
     
-    let mut args = vec![
+    let args = vec![
         cmd_name.to_string(),
         src.clone(),
         dst.clone(),

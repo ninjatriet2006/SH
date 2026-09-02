@@ -12,6 +12,7 @@ import { OperationModal } from '../components/OperationModal';
 import { logActivity } from '../store';
 import { ConflictModal, type ConflictResult } from '../components/ConflictModal';
 import { transferManager } from './transferManager';
+import { escapeHtml } from './format';
 
 export type ClipboardMode = 'copy' | 'cut';
 
@@ -104,16 +105,16 @@ export async function pasteTo(
   
   let targetNamesStr = '';
   if (items.length === 1) {
-    targetNamesStr = `<strong>${baseName(items[0].path)}</strong>`;
+    targetNamesStr = `<strong>${escapeHtml(baseName(items[0].path))}</strong>`;
   } else if (items.length <= 3) {
-    targetNamesStr = `<strong>${items.map(i => baseName(i.path)).join(', ')}</strong>`;
+    targetNamesStr = `<strong>${escapeHtml(items.map(i => baseName(i.path)).join(', '))}</strong>`;
   } else {
-    targetNamesStr = `<strong>${items.length} mục</strong> (gồm ${baseName(items[0].path)}...)`;
+    targetNamesStr = `<strong>${items.length} mục</strong> (gồm ${escapeHtml(baseName(items[0].path))}...)`;
   }
 
   const modal = new OperationModal(
     'Xác nhận Paste',
-    `<p>Bạn có chắc muốn ${actionText} ${targetNamesStr} vào <br><strong>${destPath}</strong>?</p>`
+    `<p>Bạn có chắc muốn ${actionText} ${targetNamesStr} vào <br><strong>${escapeHtml(destPath)}</strong>?</p>`
   );
   modal.open();
 

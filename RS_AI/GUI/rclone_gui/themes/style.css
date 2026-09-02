@@ -404,6 +404,15 @@ button.disabled {
   overflow-y: auto;
 }
 
+/* Thân hộp thoại — giữ nguyên cách xếp dọc + khoảng cách như khi các phần tử
+   còn là con trực tiếp của .operation-modal (trước khi bọc vào .modal-body). */
+.operation-modal .modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
 .operation-modal h2, .auth-modal h2 {
   margin: 0;
   font-size: 1.25rem;

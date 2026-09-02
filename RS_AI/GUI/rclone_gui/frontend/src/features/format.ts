@@ -28,3 +28,18 @@ export function formatDate(iso: string): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+
+/**
+ * Tên hàm: escapeHtml
+ * Mô tả: Thoát các ký tự đặc biệt của HTML để chuỗi dữ liệu ngoài (tên file, owner,
+ * group, mod_time từ remote) không thể chèn thẻ/script khi ghép vào innerHTML.
+ */
+export function escapeHtml(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}

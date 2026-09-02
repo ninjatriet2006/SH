@@ -8,6 +8,7 @@ import { parseDrag, type DragPayload } from '../../features/dragDrop';
 // Xoá import SearchModal
 import { PaneStatusBar } from './PaneStatusBar';
 import { getAboutSpace } from '../../services/fileOps';
+import { escapeHtml } from '../../features/format';
 
 export interface PaneViewOptions {
   side: 'left' | 'right';
@@ -201,6 +202,11 @@ export class PaneView {
       this.selectionAnchor.index = -1;
       this.renderBreadcrumb();
     }
+    // Placeholder thay bảng → phải destroy table cũ
+    if (this.table) {
+      this.table.destroy();
+      this.table = null;
+    }
     this.body.innerHTML = '';
     const div = document.createElement('div');
     div.className = 'pane-placeholder';
@@ -313,6 +319,12 @@ private renderBody(
       return;
     }
 
+    // Bảng cũ bị thay thế: phải destroy để nhả IntersectionObserver và các
+    // window listener (pointermove/up, filen-emblems-changed) mà nó đã đăng ký.
+    if (this.table) {
+      this.table.destroy();
+      this.table = null;
+    }
     this.body.innerHTML = '';
     const table = new FileTable({
       files,
@@ -377,7 +389,7 @@ private renderBody(
       if (remote.name === 'Local') {
         optionsHtml += `<option value="Local">💻 Local (Máy tính)</option>`;
       } else {
-        optionsHtml += `<option value="${remote.name}">☁️ ${remote.name} (${remote.type})</option>`;
+        optionsHtml += `<option value="${escapeHtml(remote.name)}">☁️ ${escapeHtml(remote.name)} (${escapeHtml(remote.type)})</option>`;
       }
     });
     this.remoteSelect.innerHTML = optionsHtml;

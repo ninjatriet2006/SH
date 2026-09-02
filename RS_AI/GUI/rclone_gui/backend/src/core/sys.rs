@@ -61,27 +61,80 @@ pub struct OSClipboardData {
 #[tauri::command]
 pub async fn sys_open_with(path: String, exec_cmd: Option<String>, app: Option<String>) -> Result<(), String> {
     // Ưu tiên sử dụng exec_cmd nếu có, ngược lại dùng xdg-open làm mặc định trên Linux
-    let cmd = if let Some(cmd) = exec_cmd {
-        cmd
-    } else if let Some(app_name) = app {
-        app_name // Nếu chỉ truyền tên app, thử gọi tên app đó như một lệnh
-    } else {
-        "xdg-open".to_string()
-    };
-    
-    // Gọi lệnh shell để thực thi mở file
-    Command::new("sh")
-        // Tham số -c để chạy chuỗi lệnh
-        .arg("-c")
-        // Gắn đường dẫn file vào lệnh (có bọc ngoặc kép để tránh lỗi khoảng trắng)
-        .arg(format!("{} \"{}\"", cmd, path))
-        // Khởi động tiến trình con chạy độc lập
-        .spawn()
-        // Nếu lỗi, chuyển sang chuỗi báo lỗi cho frontend
-        .map_err(|e| e.to_string())?;
+    let cmd = exec_cmd
+        .or(app)
+        .unwrap_or_else(|| "xdg-open".to_string());
 
-    // Trả về kết quả thành công
+    // Lệnh .desktop thường chứa placeholder (%f, %U, ...) và có thể có sẵn tham số.
+    // Tách theo cú pháp shell rồi exec trực tiếp — KHÔNG qua `sh -c` — để tên file
+    // chứa ký tự đặc biệt (`;`, `$(...)`, dấu nháy) không thể chèn thêm lệnh.
+    let mut parts = shell_split(&cmd);
+    if parts.is_empty() {
+        return Err("Lệnh mở file rỗng.".to_string());
+    }
+
+    let program = parts.remove(0);
+    let mut args: Vec<String> = Vec::new();
+    let mut path_injected = false;
+
+    for part in parts {
+        match part.as_str() {
+            // Placeholder theo Desktop Entry Spec: thay bằng đường dẫn file.
+            "%f" | "%F" | "%u" | "%U" => {
+                args.push(path.clone());
+                path_injected = true;
+            }
+            // Các placeholder không dùng tới (icon, tên app, ...) thì bỏ qua.
+            p if p.len() == 2 && p.starts_with('%') => {}
+            other => args.push(other.to_string()),
+        }
+    }
+
+    if !path_injected {
+        args.push(path);
+    }
+
+    Command::new(&program)
+        .args(&args)
+        .spawn()
+        .map_err(|e| format!("Lỗi khi chạy '{}': {}", program, e))?;
+
     Ok(())
+}
+
+/// Tách một chuỗi lệnh theo cú pháp shell tối giản (hỗ trợ nháy đơn/kép và `\`).
+/// Dùng để bóc tách Exec= của file .desktop mà không cần gọi shell.
+fn shell_split(input: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+
+    for c in input.chars() {
+        if escaped {
+            current.push(c);
+            escaped = false;
+        } else if c == '\\' && !in_single {
+            escaped = true;
+        } else if c == '\'' && !in_double {
+            in_single = !in_single;
+        } else if c == '"' && !in_single {
+            in_double = !in_double;
+        } else if c.is_whitespace() && !in_single && !in_double {
+            if !current.is_empty() {
+                parts.push(std::mem::take(&mut current));
+            }
+        } else {
+            current.push(c);
+        }
+    }
+
+    if !current.is_empty() {
+        parts.push(current);
+    }
+
+    parts
 }
 
 /// Hàm API: sys_list_apps
@@ -177,20 +230,25 @@ pub async fn sys_get_valid_actions(files: Vec<SimpleFileItem>) -> Result<Vec<Cus
 /// Chức năng: Thực thi một lệnh tùy chỉnh lên một danh sách file được chọn
 #[tauri::command]
 pub async fn sys_execute_custom_action(exec_template: String, base_path: String, file_names: Vec<String>) -> Result<(), String> {
-    let paths_str = file_names.iter().map(|name| {
-        let p = if base_path.starts_with("trash://") {
-            format!("{}/{}", base_path, name)
-        } else if base_path == "/" {
-            format!("/{}", name)
-        } else {
-            format!("{}/{}", base_path, name)
-        };
-        format!("\"{}\"", p)
-    }).collect::<Vec<String>>().join(" ");
-    
+    // exec_template do người dùng tự định nghĩa nên vẫn chạy qua shell (cho phép
+    // pipe, redirect...). Nhưng tên file đến từ dữ liệu ngoài, phải được bọc
+    // nháy đơn an toàn để không thể chèn thêm lệnh.
+    let paths_str = file_names
+        .iter()
+        .map(|name| {
+            let p = if base_path.starts_with("trash://") || base_path == "/" {
+                format!("{}/{}", base_path.trim_end_matches('/'), name)
+            } else {
+                format!("{}/{}", base_path, name)
+            };
+            shell_quote(&p)
+        })
+        .collect::<Vec<String>>()
+        .join(" ");
+
     // Thay thế biến %f trong mẫu lệnh bằng danh sách đường dẫn thực tế
     let cmd = exec_template.replace("%f", &paths_str);
-    
+
     // Khởi tạo tiến trình thực thi lệnh
     Command::new("sh")
         // Dùng -c để truyền vào chuỗi shell
@@ -204,4 +262,32 @@ pub async fn sys_execute_custom_action(exec_template: String, base_path: String,
 
     // Báo thành công
     Ok(())
+}
+
+/// Bọc một chuỗi bất kỳ thành literal an toàn cho shell POSIX bằng nháy đơn.
+/// Mỗi dấu `'` trong chuỗi gốc được thoát thành `'\''`.
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shell_split_handles_desktop_exec() {
+        assert_eq!(shell_split("xdg-open"), vec!["xdg-open"]);
+        assert_eq!(shell_split("code --wait %f"), vec!["code", "--wait", "%f"]);
+        assert_eq!(
+            shell_split("\"/opt/My App/run\" -a"),
+            vec!["/opt/My App/run", "-a"]
+        );
+    }
+
+    #[test]
+    fn shell_quote_escapes_injection() {
+        assert_eq!(shell_quote("/tmp/a b"), "'/tmp/a b'");
+        assert_eq!(shell_quote("/tmp/$(id)"), "'/tmp/$(id)'");
+        assert_eq!(shell_quote("/tmp/it's"), r"'/tmp/it'\''s'");
+    }
 }

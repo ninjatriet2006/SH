@@ -1,4 +1,4 @@
-export type FallbackAction = 'copy_delete' | 'local_transfer' | 'cancel';
+export type FallbackAction = 'fallback_server_side' | 'fallback_local' | 'cancel';
 
 export class FallbackModal {
   private element: HTMLDivElement;
@@ -41,12 +41,12 @@ export class FallbackModal {
     // Wire up buttons
     const btnCopyDelete = this.element.querySelector('#fb-copy-delete');
     if (btnCopyDelete) {
-        btnCopyDelete.addEventListener('click', () => this.close('copy_delete'));
+        btnCopyDelete.addEventListener('click', () => this.close('fallback_server_side'));
     }
 
     const btnLocal = this.element.querySelector('#fb-local');
     if (btnLocal) {
-        btnLocal.addEventListener('click', () => this.close('local_transfer'));
+        btnLocal.addEventListener('click', () => this.close('fallback_local'));
     }
 
     const btnCancel = this.element.querySelector('#fb-cancel');

@@ -18,6 +18,7 @@ import {
     MountConfig
 } from '../../../bridge/mount_api';
 import { listRemotes, RemoteConfig } from '../../../bridge/remote_api';
+import { escapeHtml } from './format';
 import { upgradeSelectToCustomDropdown } from './customDropdown';
 
 export class MountManager {
@@ -164,7 +165,7 @@ export class MountManager {
         const modal = document.createElement('div');
         modal.className = 'modal-overlay';
         
-        const remoteOptions = this.remotes.map(r => `<option value="${r.name}">${r.name} (${r.type})</option>`).join('');
+        const remoteOptions = this.remotes.map(r => `<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)} (${escapeHtml(r.type)})</option>`).join('');
     
         modal.innerHTML = `
           <div class="operation-modal" style="width: 600px; max-width: 90vw; max-height: 90vh; display: flex; flex-direction: column;">

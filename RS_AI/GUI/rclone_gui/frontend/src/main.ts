@@ -55,77 +55,6 @@ async function loadLanguage(_lang: string) {
   }
 }
 
-function setupTabs() {
-  document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.app-view').forEach(v => v.classList.remove('active'));
-      
-      btn.classList.add('active');
-      const viewId = btn.getAttribute('data-view');
-      if (viewId) {
-        document.getElementById(viewId)?.classList.add('active');
-      }
-    });
-  });
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  setupTabs();
-  
-  // Tích hợp DualPaneExplorer chuẩn từ filenGUI
-  const explorerContainer = document.getElementById('view-explorer');
-  if (explorerContainer) {
-    explorerContainer.innerHTML = ''; // Xoá code cũ
-    const dualPane = new DualPaneExplorer();
-    explorerContainer.appendChild(dualPane.container);
-  }
-});
-
-/**
- * Thiết lập Menu ngữ cảnh (Chuột phải)
- */
-function setupContextMenu() {
-  const contextMenu = document.getElementById('context-menu');
-  if (!contextMenu) return;
-
-  // Lắng nghe chuột phải toàn cục, nhưng chỉ hiện nếu click vào file-row
-  document.addEventListener('contextmenu', (e) => {
-    const target = e.target as HTMLElement;
-    const fileRow = target.closest('.file-row');
-    
-    if (fileRow) {
-      e.preventDefault();
-      const fileName = fileRow.getAttribute('data-name');
-      
-      contextMenu.innerHTML = `
-        <div class="item" id="ctx-copy">Copy ${fileName}</div>
-        <div class="item" id="ctx-move">Move ${fileName}</div>
-        <div class="item" id="ctx-rename">Rename</div>
-        <div class="separator"></div>
-        <div class="item" id="ctx-delete" style="color:var(--colors-neon-coral)">Delete</div>
-      `;
-      
-      contextMenu.style.display = 'block';
-      contextMenu.style.left = `${e.clientX}px`;
-      contextMenu.style.top = `${e.clientY}px`;
-      
-      // Xử lý sự kiện menu
-      document.getElementById('ctx-copy')?.addEventListener('click', () => {
-        console.log('Copy:', fileName);
-      });
-      // Tương tự cho các nút khác...
-    } else {
-      contextMenu.style.display = 'none';
-    }
-  });
-
-  // Ẩn menu khi click ra ngoài
-  document.addEventListener('click', () => {
-    contextMenu.style.display = 'none';
-  });
-}
-
 /**
  * Thiết lập các sự kiện giao diện (UI Events).
  */
@@ -135,11 +64,15 @@ function setupEvents() {
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
       // 1. Cập nhật class active cho tab
-      document.querySelector('.nav-tab.active')?.classList.remove('active');
-      tab.classList.add('active');
-      
       // 2. Lấy tên view cần chuyển
       const viewName = tab.getAttribute('data-view') || 'explorer';
+      const targetView = document.getElementById(`view-${viewName}`);
+      if (!targetView) {
+        console.warn(`View chưa được triển khai: ${viewName}`);
+        return;
+      }
+      document.querySelector('.nav-tab.active')?.classList.remove('active');
+      tab.classList.add('active');
       console.log('Chuyển sang view:', viewName);
       
       // 3. Ẩn tất cả các view
@@ -150,11 +83,8 @@ function setupEvents() {
       });
       
       // 4. Hiển thị view được chọn
-      const targetView = document.getElementById(`view-${viewName}`);
-      if (targetView) {
-        targetView.classList.add('active');
-        targetView.style.display = viewName === 'explorer' ? 'grid' : 'flex';
-      }
+      targetView.classList.add('active');
+      targetView.style.display = viewName === 'explorer' ? 'grid' : 'flex';
       
       // 5. Logic riêng từng trang
       if (viewName === 'remotes') {
@@ -212,9 +142,16 @@ function setupEvents() {
 
 // Chạy khởi tạo khi load xong DOM
 document.addEventListener('DOMContentLoaded', async () => {
+  // Tạo Explorer trước khi gắn các listener tương tác của ứng dụng.
+  const explorerContainer = document.getElementById('view-explorer');
+  if (explorerContainer) {
+    explorerContainer.innerHTML = '';
+    const dualPane = new DualPaneExplorer();
+    explorerContainer.appendChild(dualPane.container);
+  }
+
   await loadLanguage('vi');
   setupEvents();
-  setupContextMenu();
   new TransferDrawer();
   console.log('rcloneGUI khởi tạo thành công!');
 });

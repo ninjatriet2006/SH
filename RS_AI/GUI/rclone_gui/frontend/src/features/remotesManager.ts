@@ -6,7 +6,7 @@
 */
 
 
-import { formatSize } from './format';
+import { formatSize, escapeHtml } from './format';
 import { listRemotes, getProviders, ProviderInfo, ProviderOption, RemoteConfig, createRemote, updateRemote, deleteRemote, getBackendFeatures, getAbout, getSize } from '../../../bridge/remote_api.ts';
 import { getConfigContent, setConfigContent, reorderConfig } from '../../../bridge/config_api.ts';
 import { upgradeSelectToCustomDropdown } from './customDropdown.ts';
@@ -275,7 +275,7 @@ export class RemotesManager {
 
   public async renderList() {
     if (!this.tbody) return;
-    this.tbody.innerHTML = '<tr><td colspan="3" style="text-align: center;">Đang tải...</td></tr>';
+    this.tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">Đang tải...</td></tr>';
     
     const remotes = await listRemotes();
     
@@ -291,8 +291,8 @@ export class RemotesManager {
       
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td>${remote.name}</td>
-        <td>${remote.type}</td>
+        <td>${escapeHtml(remote.name)}</td>
+        <td>${escapeHtml(remote.type)}</td>
         <td class="capacity-cell" style="color: var(--colors-text-muted);">Đang tải...</td>
         <td class="actions">
           <button class="btn btn-secondary btn-move-up" title="Đẩy Lên">↑</button>

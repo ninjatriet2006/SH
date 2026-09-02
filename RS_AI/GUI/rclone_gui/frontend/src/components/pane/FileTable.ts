@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { FileItem } from '../../store';
-import { formatSize, formatDate } from '../../features/format';
+import { formatSize, formatDate, escapeHtml } from '../../features/format';
 import type { SortKey, SortDir } from '../../features/sort';
 import type {
   PaneColKey,
@@ -63,25 +63,25 @@ function renderRowHTML(f: FileItem, activeCols: any[], basePath: string): string
   activeCols.forEach(col => {
     switch(col.key) {
       case 'name':
-        html += `<td class="name-col"><div class="icon-container"><span class="file-icon">${icon}</span>${emblemHtml}</div><span class="file-name">${f.name}</span></td>`;
+        html += `<td class="name-col"><div class="icon-container"><span class="file-icon">${icon}</span>${emblemHtml}</div><span class="file-name">${escapeHtml(f.name)}</span></td>`;
         break;
       case 'type':
-        html += `<td>${typeOf(f)}</td>`;
+        html += `<td>${escapeHtml(typeOf(f))}</td>`;
         break;
       case 'size':
         html += `<td>${f.is_dir ? '-' : formatSize(f.size)}</td>`;
         break;
       case 'date':
-        html += `<td>${formatDate(f.mod_time)}</td>`;
+        html += `<td>${escapeHtml(formatDate(f.mod_time))}</td>`;
         break;
       case 'permissions':
-        html += `<td>${f.permissions || ''}</td>`;
+        html += `<td>${escapeHtml(f.permissions)}</td>`;
         break;
       case 'owner':
-        html += `<td>${f.owner || ''}</td>`;
+        html += `<td>${escapeHtml(f.owner)}</td>`;
         break;
       case 'group':
-        html += `<td>${f.group || ''}</td>`;
+        html += `<td>${escapeHtml(f.group)}</td>`;
         break;
     }
   });

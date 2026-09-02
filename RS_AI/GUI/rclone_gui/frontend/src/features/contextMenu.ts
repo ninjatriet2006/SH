@@ -16,6 +16,7 @@ import * as fileOps from '../services/fileOps';
 import * as trashOps from '../services/trashOps';
 import { setClipboard, pasteTo } from './clipboard';
 import { actionStore } from '../services/actionStore';
+import { escapeHtml } from './format';
 
 import { appState } from '../store';
 
@@ -264,7 +265,7 @@ function promptName(
 ): void {
   const modal = new OperationModal(
     title,
-    `<p>${title}:</p><input id="newName" type="text" placeholder="${placeholder}">`,
+    `<p>${escapeHtml(title)}:</p><input id="newName" type="text" placeholder="${escapeHtml(placeholder)}">`,
   );
   modal.open();
   const confirmBtn = modal.getElement().querySelector('.confirm') as HTMLButtonElement;
@@ -313,7 +314,7 @@ function openRenameModal(
 ): void {
   const modal = new OperationModal(
     'Rename',
-    `<p>Rename ${f.name}:</p><input id="newName" type="text" value="${f.name}">`,
+    `<p>Rename ${escapeHtml(f.name)}:</p><input id="newName" type="text" value="${escapeHtml(f.name)}">`,
   );
   modal.open();
   const confirmBtn = modal.getElement().querySelector('.confirm') as HTMLButtonElement;
@@ -357,7 +358,7 @@ function openDeleteModal(
   basePath: string,
   onRefresh: ContextMenuOptions['onRefresh'],
 ): void {
-  const modal = new OperationModal('Delete', `<p>Delete ${f.name}?</p>`);
+  const modal = new OperationModal('Delete', `<p>Delete ${escapeHtml(f.name)}?</p>`);
   modal.open();
   modal.getElement().querySelector('.confirm')?.addEventListener('click', async () => {
     try {

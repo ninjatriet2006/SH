@@ -192,21 +192,34 @@ pub async fn fs_copy(
 ) -> Result<(), String> {
     let (src_remote, src_real) = file_ops::parse_remote_path(&src);
     let (dst_remote, dst_real) = file_ops::parse_remote_path(&dst);
-    
+
     let src_target = rclone::build_target(&src_remote, &src_real);
     let dst_target = rclone::build_target(&dst_remote, &dst_real);
 
-    if src_remote == "Local" && dst_remote == "Local" {
-        file_ops::run_with_sudo_fallback("Local", "cp", &[src_real.clone(), dst_real.clone()], || {
-            // Sudo fallback will use 'cp'. But if it succeeds without sudo, we use transfer_task
-            // Wait, transfer_task is async and block on thread. We can't easily put it in closure.
-            // Let's just try running transfer_task. If it fails due to perm denied, how to catch?
-            // Actually transfer_task returns Result.
-            Ok(())
-        })?;
-    }
+    // Chạy tiến trình copy chính (có báo tiến độ). Nếu thất bại do thiếu quyền
+    // và cả hai đầu đều là Local, thử lại một lần qua pkexec (`cp -r`).
+    let result = transfer::run_transfer_task(
+        app_handle,
+        state,
+        "copyto",
+        src_target,
+        dst_target,
+        task_id,
+    )
+    .await;
 
-    transfer::run_transfer_task(app_handle, state, "copyto", src_target, dst_target, task_id).await
+    match result {
+        Ok(()) => Ok(()),
+        Err(e) if src_remote == "Local" && dst_remote == "Local" => {
+            file_ops::run_with_sudo_fallback(
+                "Local",
+                "cp",
+                &[src_real.clone(), dst_real.clone()],
+                || Err(e),
+            )
+        }
+        Err(e) => Err(e),
+    }
 }
 
 #[tauri::command]
@@ -219,10 +232,32 @@ pub async fn fs_move(
 ) -> Result<(), String> {
     let (src_remote, src_real) = file_ops::parse_remote_path(&src);
     let (dst_remote, dst_real) = file_ops::parse_remote_path(&dst);
-    
+
     let src_target = rclone::build_target(&src_remote, &src_real);
     let dst_target = rclone::build_target(&dst_remote, &dst_real);
-    transfer::run_transfer_task(app_handle, state, "moveto", src_target, dst_target, task_id).await
+
+    let result = transfer::run_transfer_task(
+        app_handle,
+        state,
+        "moveto",
+        src_target,
+        dst_target,
+        task_id,
+    )
+    .await;
+
+    match result {
+        Ok(()) => Ok(()),
+        Err(e) if src_remote == "Local" && dst_remote == "Local" => {
+            file_ops::run_with_sudo_fallback(
+                "Local",
+                "mv",
+                &[src_real.clone(), dst_real.clone()],
+                || Err(e),
+            )
+        }
+        Err(e) => Err(e),
+    }
 }
 
 #[tauri::command]
@@ -235,22 +270,56 @@ pub async fn fs_stat_advanced(path: String) -> Result<StatInfo, String> {
     let (remote, real_path) = file_ops::parse_remote_path(&path);
     let target = rclone::build_target(&remote, &real_path);
     let output = rclone::run_cmd(&["size", &target, "--json"])?;
-    
+
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).into_owned());
     }
-    
+
     let parsed: RcloneSizeOutput = serde_json::from_slice(&output.stdout)
         .map_err(|e| format!("Lỗi phân tích JSON rclone size: {}", e))?;
-        
+
+    // Đếm số thư mục con (đệ quy). Lệnh sẽ lỗi nếu target là file → coi như 0.
+    let dir_count = match rclone::run_cmd(&["lsjson", "-R", "--dirs-only", &target]) {
+        Ok(out) if out.status.success() => {
+            serde_json::from_slice::<Vec<serde_json::Value>>(&out.stdout)
+                .map(|v| v.len() as u64)
+                .unwrap_or(0)
+        }
+        _ => 0,
+    };
+
+    // Quyền/chủ sở hữu chỉ có ý nghĩa trên ổ Local.
+    let (permissions, uid, gid) = read_local_ownership(&remote, &target);
+
     Ok(StatInfo {
         size: parsed.bytes,
         file_count: parsed.count,
-        dir_count: 0,
-        permissions: 0,
-        uid: 0,
-        gid: 0,
+        dir_count,
+        permissions,
+        uid,
+        gid,
     })
+}
+
+/// Đọc mode/uid/gid thật của một đường dẫn Local. Trả về (0, 0, 0) trên các
+/// remote đám mây hoặc trên hệ điều hành không hỗ trợ khái niệm này.
+fn read_local_ownership(remote: &str, target: &str) -> (u32, u32, u32) {
+    if remote != "Local" {
+        return (0, 0, 0);
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let Ok(meta) = std::fs::metadata(target) {
+            return (meta.mode(), meta.uid(), meta.gid());
+        }
+    }
+
+    #[cfg(not(unix))]
+    let _ = target;
+
+    (0, 0, 0)
 }
 
 #[tauri::command]
