@@ -5,7 +5,6 @@ Trách nhiệm: Gọi lệnh get_remotes, add_remote, remove_remote.
 Các module tương tác: frontend/src/main.ts, backend/src/remote.rs
 */
 
-// @ts-ignore
 import { invoke } from '@tauri-apps/api/core';
 
 export interface RemoteConfig {

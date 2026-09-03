@@ -15,9 +15,18 @@ Backend theo kiến trúc 3 tầng, phụ thuộc một chiều `api → logic �
   - `app_state.rs`: Trạng thái toàn cục — map `task_id → PID` để hỗ trợ Hủy.
   - `file_ops.rs`: Bóc tách đường dẫn, sudo fallback, kiểm tra xung đột.
   - `transfer.rs`: Chạy tiến trình truyền tải, bóc tách tiến độ, hủy tác vụ.
+  - `watcher.rs`: inotify watcher cho thư mục Local, phát `local-dir-changed`.
 - **src/core/**: Tầng giao tiếp hệ điều hành.
   - `rclone.rs`: Dựng và thực thi lệnh `rclone`.
   - `sys.rs`: Mở file bằng ứng dụng OS, clipboard, custom action.
+  - `task.rs`: Helper `blocking()` đưa tác vụ chặn luồng ra khỏi async runtime.
+
+# QUY TẮC BẤT BIẾN: KHÔNG CHẶN ASYNC RUNTIME
+
+Mọi `#[tauri::command] async fn` có gọi `Command::output()`, `fs::read_to_string`,
+`fs::write`, `set_permissions`... **phải** bọc thân hàm trong `core::task::blocking`.
+Nếu không, lời gọi chặn sẽ giữ worker thread của runtime — với remote cloud chậm
+(`rclone about` có thể mất vài giây) sẽ làm nghẽn các lệnh IPC khác đang chờ.
 
 # QUY ƯỚC ĐƯỜNG DẪN
 
@@ -64,8 +73,9 @@ rồi dựng lại theo cú pháp rclone bằng `core::rclone::build_target`:
 # TÀI LIỆU HÀM (API DOCS)
 
 ## api/files.rs
-- **list_files**(`path: String`) → `Result<Vec<FileItem>, String>`
+- **list_files**(`path: String`, `pane: Option<String>`) → `Result<Vec<FileItem>, String>`
   Liệt kê file/thư mục ở cấp 1 của `path`. Thư mục xếp trước file.
+  `pane` (`"left"`/`"right"`) để đặt inotify watcher theo thư mục Local pane đang xem.
 - **fs_mkdir**(`path: String`) → `Result<(), String>` — có sudo fallback trên Local.
 - **fs_touch**(`path: String`) → `Result<(), String>`
 - **fs_delete**(`path: String`) → `Result<(), String>`
@@ -147,6 +157,13 @@ rồi dựng lại theo cú pháp rclone bằng `core::rclone::build_target`:
   Dùng `lsjson --stat` để xác định kiểu của chính target (không phải của file con).
   Nếu cả nguồn và đích là thư mục → quét đệ quy tìm file con trùng đường dẫn.
 
+## logic/watcher.rs
+- **init**(`app: &AppHandle`) — tạo watcher + thread nền, gọi một lần trong `setup`.
+  Debounce 300 ms và bỏ qua `EventKind::Access` để tránh phát sự kiện dồn dập.
+- **watch_pane**(`state`, `pane`, `local_path: Option<&str>`) — đổi thư mục theo dõi
+  của một pane; `None` để ngừng (khi pane chuyển sang remote cloud).
+  Chỉ unwatch khi không còn pane nào dùng đường dẫn đó.
+
 ## logic/transfer.rs
 - **run_transfer_task**(`app_handle`, `state`, `cmd_name`, `src`, `dst`, `task_id`) → `Result<(), String>`
   Chạy rclone với `--use-json-log --stats 0.5s`, đọc stderr theo dòng, phát
@@ -163,9 +180,15 @@ rồi dựng lại theo cú pháp rclone bằng `core::rclone::build_target`:
 
 # SỰ KIỆN PHÁT LÊN FRONTEND
 - `transfer_progress` — payload `{ id: u32, stats: {...} }`, phát từ `logic/transfer.rs`.
+- `local-dir-changed` — không payload, phát từ `logic/watcher.rs` khi thư mục Local
+  đang xem có biến động (tạo/sửa/xoá file).
 
 # QUYỀN (CAPABILITIES)
 `capabilities/main.json` cấp đúng mức tối thiểu:
 - `core:default`, `core:event:default` — nền tảng + event.
 - `core:window:allow-close` — cho MenuBar → File → Thoát.
 - `shell:allow-open` — cho double-click mở file Local qua `plugin-shell`.
+
+CSP được bật trong `tauri.conf.json` (`script-src 'self'`, `object-src 'none'`).
+`style-src` phải giữ `'unsafe-inline'` vì UI hiện dùng nhiều thuộc tính `style=`
+inline; `img-src` cần `data:` cho thumbnail base64.

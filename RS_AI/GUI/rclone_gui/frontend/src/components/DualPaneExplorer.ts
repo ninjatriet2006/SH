@@ -376,7 +376,8 @@ export class DualPaneExplorer {
 
     if (files.length === 0) {
       try {
-        files = await listFiles(path);
+        // Truyền `pane` để backend gắn inotify watcher đúng thư mục pane này xem.
+        files = await listFiles(path, pane);
         dirCache.set(path, { files: [...files], timestamp: Date.now() });
       } catch (e) {
       console.warn(`fs_list ${pane} fail (${path}):`, e);

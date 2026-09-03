@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { FileItem } from '../../store';
 import { formatSize, formatDate, escapeHtml } from '../../features/format';
-import type { SortKey, SortDir } from '../../features/sort';
+import { typeLabel, type SortKey, type SortDir } from '../../features/sort';
 import type {
   PaneColKey,
   PaneColWidths,
@@ -13,14 +13,6 @@ import { serializeDrag, parseDrag, type DragPayload } from '../../features/dragD
 import { ContextMenu } from '../ContextMenu';
 import { floatingStatusBar } from '../FloatingStatusBar';
 import { emblemStore } from '../../services/emblemStore';
-
-/** Lấy loại hiển thị cho cột Type (dự phòng khi backend chưa gửi file_type). */
-function typeOf(f: FileItem): string {
-  if (f.file_type) return f.file_type;
-  if (f.is_dir) return 'Folder';
-  const idx = f.name.lastIndexOf('.');
-  return idx > 0 && idx + 1 < f.name.length ? f.name.slice(idx + 1).toUpperCase() : '';
-}
 
 function getIconForFile(f: FileItem): string {
   if (f.is_dir) return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="var(--colors-blue)" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="file-icon-svg folder"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>`;
@@ -66,7 +58,7 @@ function renderRowHTML(f: FileItem, activeCols: any[], basePath: string): string
         html += `<td class="name-col"><div class="icon-container"><span class="file-icon">${icon}</span>${emblemHtml}</div><span class="file-name">${escapeHtml(f.name)}</span></td>`;
         break;
       case 'type':
-        html += `<td>${escapeHtml(typeOf(f))}</td>`;
+        html += `<td>${escapeHtml(typeLabel(f))}</td>`;
         break;
       case 'size':
         html += `<td>${f.is_dir ? '-' : formatSize(f.size)}</td>`;
@@ -352,6 +344,16 @@ export class FileTable {
     // Khôi phục selection từ store sau mỗi lần render (sort/load).
     this.selected = getPaneSelection(opts.pane);
     this.applyRowClasses();
+    this.emitSelectionChange();
+  }
+
+  /** Đồng bộ status bar với selection hiện tại (dùng khi khôi phục từ store). */
+  private emitSelectionChange(): void {
+    if (!this.opts.onSelectionChange) return;
+    const selectedFiles = this.opts.files.filter((f) =>
+      this.selected.some((s) => s.name === f.name),
+    );
+    this.opts.onSelectionChange(selectedFiles);
   }
 
   private onEmblemsChanged = () => {
@@ -439,6 +441,7 @@ export class FileTable {
         this.updateHeaderUI();
         this.selected = getPaneSelection(this.opts.pane);
         this.applyRowClasses();
+        this.emitSelectionChange();
         return;
     }
 
@@ -493,6 +496,7 @@ export class FileTable {
 
     this.selected = getPaneSelection(this.opts.pane);
     this.applyRowClasses();
+    this.emitSelectionChange();
 
     const parent = this.element.parentElement;
     const scrollTop = parent ? parent.scrollTop : 0;

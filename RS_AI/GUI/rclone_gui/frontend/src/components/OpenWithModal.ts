@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { OperationModal } from './OperationModal';
+import { escapeHtml } from '../features/format';
 
 export interface DesktopApp {
   name: string;
@@ -95,8 +96,8 @@ export class OpenWithModal {
       
       // Simple icon placeholder if no valid icon
       item.innerHTML = `
-        <div style="font-size: 14px; color: var(--text-color);">${app.name}</div>
-        <div style="font-size: 11px; color: var(--text-muted); margin-left: auto; max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${app.exec}</div>
+        <div style="font-size: 14px; color: var(--text-color);">${escapeHtml(app.name)}</div>
+        <div style="font-size: 11px; color: var(--text-muted); margin-left: auto; max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(app.exec)}</div>
       `;
 
       item.addEventListener('mouseover', () => {

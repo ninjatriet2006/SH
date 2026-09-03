@@ -1,19 +1,23 @@
 /*
 [INTEGRITY NOTES]
 Mục đích: Khai báo API giao tiếp Tauri/Backend cho việc duyệt file (Explorer).
-Trách nhiệm: Gọi lệnh list_remote, file_operations.
-Các module tương tác: frontend/src/main.ts, backend/src/explorer.rs
+Trách nhiệm: Gọi các Tauri command nhóm file/thư mục (list, mkdir, copy, move, search...).
+Các module tương tác: frontend/src/services/fileOps.ts, backend/src/api/files.rs
 */
 
-// @ts-ignore
 import { invoke } from '@tauri-apps/api/core';
 import type { FileItem } from '../frontend/src/store.ts';
 import { debugStore } from '../frontend/src/services/debugStore.ts';
 
-export async function listFiles(path: string): Promise<FileItem[]> {
+/**
+ * Liệt kê file/thư mục tại `path`.
+ * `pane` (nếu có) để backend đặt inotify watcher theo thư mục Local mà pane đang
+ * xem — nhờ đó phát `local-dir-changed` khi file thay đổi ngoài ứng dụng.
+ */
+export async function listFiles(path: string, pane?: 'left' | 'right'): Promise<FileItem[]> {
   try {
-    debugStore.log('API', 'list_files', { path });
-    const files = await invoke<FileItem[]>('list_files', { path });
+    debugStore.log('API', 'list_files', { path, pane });
+    const files = await invoke<FileItem[]>('list_files', { path, pane });
     return files;
   } catch (error) {
     console.error(`Lỗi khi lấy file từ ${path}:`, error);

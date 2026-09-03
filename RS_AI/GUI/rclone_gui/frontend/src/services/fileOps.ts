@@ -56,10 +56,6 @@ export async function move(src: string, dest: string, taskId?: number): Promise<
     return fsMove(src, dest, taskId);
 }
 
-export async function copyLocal(from: string, to: string, _overwrite: boolean = false, taskId?: number): Promise<void> {
-    return fsCopy(from, to, taskId);
-}
-
 export async function cpLocal(from: string, to: string, _overwrite: boolean = true, taskId?: number): Promise<void> {
     return fsCopy(from, to, taskId);
 }
@@ -74,20 +70,6 @@ export async function upload(local: string, remoteTarget: string): Promise<void>
 
 export async function download(remoteSource: string, local: string): Promise<void> {
     return fsCopy(remoteSource, local);
-}
-
-export async function cpBatch(srcs: string[], dstDir: string, _overwrite = true): Promise<void> {
-    // Để tối ưu, lý ra nên gọi fsBatchCopy dưới backend, nhưng để duy trì tương thích, vòng lặp gọi trực tiếp fsCopy
-    for (const src of srcs) {
-        const name = src.substring(src.lastIndexOf('/') + 1);
-        const dst = dstDir.endsWith('/') ? `${dstDir}${name}` : `${dstDir}/${name}`;
-        await fsCopy(src, dst);
-    }
-}
-
-export async function cat(_path: string): Promise<string> {
-    alert("Tính năng đọc nội dung file trực tiếp chưa được hỗ trợ trên cloud.");
-    return "";
 }
 
 export async function write(path: string, content: string): Promise<void> {
@@ -114,15 +96,6 @@ export async function chmod(path: string, mode: number): Promise<void> {
 /** Đổi chủ sở hữu file (chỉ ổ Local, cần quyền root). */
 export async function chown(path: string, uid: number, gid: number): Promise<void> {
     return fsChown(path, uid, gid);
-}
-
-export async function getFreeSpace(path: string): Promise<number> {
-    let remote = path.split('::')[0] || 'Local';
-    if (remote !== 'Local' && !remote.endsWith(':')) {
-        remote += ':';
-    }
-    const about = await getAbout(remote);
-    return about.free || 0;
 }
 
 export async function getAboutSpace(path: string): Promise<{ total?: number, used?: number, free?: number }> {

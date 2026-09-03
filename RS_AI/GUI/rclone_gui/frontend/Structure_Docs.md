@@ -39,6 +39,7 @@ Tiền tố `rclonegui_`. `store.readStored()` tự di trú một lần từ ti�
 | `rclonegui-settings-changed` | `store.saveSettings()` | `PaneView` (nạp lại), `PaneToolbar` (đồng bộ nhãn) |
 | `rclonegui-bookmarks-changed` | `store.toggleBookmark()`, `BookmarkManagerModal` | — (dành cho UI ghim tương lai) |
 | `rclonegui-emblems-changed` | `emblemStore.save()` | `FileTable` (vẽ lại emblem) |
+| `local-dir-changed` (Tauri) | backend `logic/watcher.rs` | `DualPaneExplorer` (nạp lại pane Local) |
 | `open-transfer-drawer` | `transferManager.enqueue()` | `TransferDrawer` |
 | `transfer_progress` (Tauri) | backend `logic/transfer.rs` | `transferManager` |
 
@@ -77,6 +78,8 @@ Tiền tố `rclonegui_`. `store.readStored()` tự di trú một lần từ ti�
 - **saveSettings**() — lưu `appState.settings`, phát `rclonegui-settings-changed`.
 
 ## services/explorerStore.ts
+`listFiles(path, pane?)` truyền thêm `pane` để backend gắn watcher đúng thư mục.
+
 Accessor cho từng pane: `getPanePath`/`setPanePath`, `getPaneFiles`/`setPaneFiles`,
 `getPaneSelection`/`setPaneSelection`/`clearPaneSelection`,
 `getPaneSortKey`/`getPaneSortDir`/`setPaneSort`, `getPaneColWidths`/`setPaneColWidth`,
@@ -90,13 +93,13 @@ xuống backend, không tự parse hay xử lý quyền.
 - **searchLocal**(`path`, `query`) → `Promise<SearchResult[]>`
 - **mkdir** / **remove** / **rename**(`path`, `newName`)
 - **copy** / **move**(`src`, `dest`, `taskId?`)
-- **cpLocal** / **moveLocal** / **upload** / **download** / **cpBatch**
+- **cpLocal** / **moveLocal** / **upload** / **download**
 - **open**(`path`) — mở bằng ứng dụng mặc định của OS.
 - **statAdvanced**(`path`) → `Promise<StatInfo>`
 - **getFreeSpace** / **getAboutSpace**(`path`)
 - **chmod**(`path`, `mode`) / **chown**(`path`, `uid`, `gid`) — chỉ ổ Local; lỗi
   được ném lên để `PropertiesModal` hiển thị cho người dùng.
-- Ghi chú: `cat` và `write` (với nội dung khác rỗng) chưa được backend hỗ trợ.
+- Ghi chú: `write` với nội dung khác rỗng chưa được backend hỗ trợ (chỉ tạo file rỗng).
 
 ## services/trashOps.ts
 Bọc các command `fs_trash_*`. Hiện phần lớn backend chưa triển khai và UI chưa có
@@ -165,6 +168,12 @@ Các component có đăng ký listener trên `window`/`document` hoặc
 `IntersectionObserver` **phải** có `destroy()` và được gọi khi bị thay thế:
 - `FileTable.destroy()` — gọi từ `PaneView.renderBody`/`renderPlaceholder`.
 - `PaneToolbar.destroy()` và `PaneView.destroy()` — gọi từ `PaneContainer.closeTab`.
+
+# TYPE-CHECK LỚP BRIDGE
+
+`frontend/tsconfig.json` khai báo `include: ["src", "../bridge"]` và `paths` ánh xạ
+`@tauri-apps/*` về `frontend/node_modules`. Nhờ đó `bridge/` được type-check thật
+thay vì phải `// @ts-ignore` như trước.
 
 # KIỂM THỬ
 - `features/format.test.ts` — `formatSize`, `formatDate`.

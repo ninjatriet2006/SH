@@ -39,7 +39,6 @@ pub fn run() {
             api::files::fs_temp_dir,
             api::files::fs_chmod,
             api::files::fs_chown,
-            
             // ==================
             // SYS API (Trong core/sys.rs)
             // ==================
@@ -50,7 +49,6 @@ pub fn run() {
             core::sys::sys_get_custom_actions,
             core::sys::sys_get_valid_actions,
             core::sys::sys_execute_custom_action,
-            
             // ==================
             // TRASH API
             // ==================
@@ -61,7 +59,6 @@ pub fn run() {
             api::trash::fs_trash_restore_remote_terminal,
             api::trash::fs_trash_delete_remote_terminal,
             api::trash::fs_trash_empty_remote_terminal,
-            
             // ==================
             // REMOTES API
             // ==================
@@ -74,7 +71,6 @@ pub fn run() {
             api::remotes::check_transfer_capability,
             api::remotes::rclone_about,
             api::remotes::rclone_size,
-            
             // ==================
             // MOUNT API
             // ==================
@@ -84,7 +80,6 @@ pub fn run() {
             api::mount::manage_mount_service,
             api::mount::list_mount_services,
             api::mount::get_mount_service_config,
-            
             // ==================
             // CONFIG API
             // ==================
@@ -92,6 +87,12 @@ pub fn run() {
             api::config::set_config_content,
             api::config::reorder_config,
         ])
+        .setup(|app| {
+            // Inotify watcher cho thư mục Local đang xem — phát `local-dir-changed`
+            // để Frontend tự nạp lại khi file đổi ngoài ứng dụng.
+            logic::watcher::init(app.handle());
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("Lỗi nghiêm trọng khi khởi chạy ứng dụng Tauri rcloneGUI");
 }

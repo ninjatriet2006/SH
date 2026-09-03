@@ -365,6 +365,10 @@ private renderBody(
       },
       onContextMenu: (e, file) => this.opts.onContextMenu(e, file),
       onDrop: (payload, destPath, move) => this.opts.onDrop(payload, destPath, move),
+      onSelectionChange: (selectedFiles) => {
+        const totalSize = selectedFiles.reduce((acc, f) => acc + (f.size || 0), 0);
+        this.statusBar.updateSelection(selectedFiles.length, totalSize);
+      },
     });
     this.table = table;
     this.table.element.dataset.viewMode = this.viewMode;

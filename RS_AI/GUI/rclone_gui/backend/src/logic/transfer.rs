@@ -5,11 +5,10 @@
 - Tương tác: Gọi `core::rclone::build_target`, gọi `app_state.rs`.
 */
 
-use std::process::{Command, Stdio};
-use std::io::{BufRead, BufReader};
-use tauri::Emitter;
 use crate::logic::app_state::AppState;
-
+use std::io::{BufRead, BufReader};
+use std::process::{Command, Stdio};
+use tauri::Emitter;
 
 /// Hàm tiện ích chạy tiến trình copy/move và báo cáo tiến độ về frontend
 pub async fn run_transfer_task(
@@ -20,7 +19,6 @@ pub async fn run_transfer_task(
     dst: String,
     task_id: Option<u32>,
 ) -> Result<(), String> {
-    
     let args = vec![
         cmd_name.to_string(),
         src.clone(),
@@ -28,7 +26,8 @@ pub async fn run_transfer_task(
         "--transfers=8".to_string(),
         "--checkers=8".to_string(),
         "--use-json-log".to_string(),
-        "--stats".to_string(), "0.5s".to_string(),
+        "--stats".to_string(),
+        "0.5s".to_string(),
         "-v".to_string(),
     ];
 
@@ -74,12 +73,13 @@ pub async fn run_transfer_task(
         }
         let exit_status = child.wait()?;
         Ok::<_, std::io::Error>((exit_status, error_msgs))
-    }).await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| format!("Lỗi khi đợi tiến trình rclone kết thúc: {}", e))?;
-    
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("Lỗi khi đợi tiến trình rclone kết thúc: {}", e))?;
+
     let (status, error_msgs) = status;
-    
+
     if let Some(id) = task_id {
         if let Ok(mut pids) = state.pids.lock() {
             pids.remove(&id);

@@ -43,6 +43,25 @@ pub fn spawn_cmd(args: &[&str]) -> Result<(), String> {
     Ok(())
 }
 
+/// Tên hàm: is_dir
+/// Mô tả: Xác định một target rclone là thư mục hay file.
+///
+/// Dùng `lsjson --stat` — lệnh này trả về MỘT object mô tả chính target.
+/// (`lsjson` thường sẽ liệt kê các *con*, nên `IsDir` của phần tử đầu tiên là
+/// của file con, không phải của target — một lỗi dễ mắc.)
+///
+/// Trả `None` nếu không xác định được (target không tồn tại, lỗi mạng, ...).
+pub fn is_dir(target: &str) -> Option<bool> {
+    let output = run_cmd(&["lsjson", "--stat", target]).ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    serde_json::from_slice::<serde_json::Value>(&output.stdout)
+        .ok()?
+        .get("IsDir")?
+        .as_bool()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -55,5 +74,35 @@ mod tests {
     #[test]
     fn test_build_target_remote() {
         assert_eq!(build_target("GDrive", "/Documents"), "GDrive:/Documents");
+    }
+
+    #[test]
+    fn test_is_dir_distinguishes_file_and_dir() {
+        // Chỉ chạy nếu có rclone trong PATH.
+        if run_cmd(&["version"]).map(|o| !o.status.success()).unwrap_or(true) {
+            return;
+        }
+
+        let dir = std::env::temp_dir().join("rclone_gui_is_dir_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("child.txt");
+        std::fs::write(&file, b"x").unwrap();
+
+        // Thư mục có một file con: nếu dùng `lsjson` (không --stat) thì sẽ đọc
+        // sai thành file. `--stat` phải trả về true.
+        assert_eq!(is_dir(&dir.to_string_lossy()), Some(true));
+        assert_eq!(is_dir(&file.to_string_lossy()), Some(false));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_is_dir_none_for_missing_target() {
+        if run_cmd(&["version"]).map(|o| !o.status.success()).unwrap_or(true) {
+            return;
+        }
+        let missing = std::env::temp_dir().join("rclone_gui_definitely_missing_xyz");
+        assert_eq!(is_dir(&missing.to_string_lossy()), None);
     }
 }

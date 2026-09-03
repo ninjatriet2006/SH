@@ -265,7 +265,16 @@ class TransferManager {
               await fsDelete(task.src);
             }
 
-            // Đánh dấu hoàn tất
+            // Đánh dấu hoàn tất — nhưng chỉ khi task chưa bị người dùng hủy.
+            // `cancel()` đặt status='cancelled' và kill tiến trình rclone; lệnh
+            // await ở trên khi đó vẫn resolve bình thường (không throw), nên nếu
+            // không kiểm tra lại thì task bị hủy sẽ hiện "hoàn tất" và còn bị
+            // đẩy vào undoManager cho một thao tác chưa từng xong.
+            if ((task.status as TransferStatus) === 'cancelled') {
+              this.notify();
+              continue;
+            }
+
             task.status = 'done';
             task.progress = 1.0;
 
@@ -284,11 +293,14 @@ class TransferManager {
               });
             }
           } catch (e: any) {
-            // Ghi nhận lỗi nếu thao tác thất bại
-            task.status = 'error';
-            task.error = e?.toString() || 'Lỗi không xác định';
-            if (task.onFail) {
-              task.onFail(e);
+            // Nếu người dùng đã hủy thì giữ nguyên trạng thái 'cancelled',
+            // không báo lỗi (rclone bị kill có thể throw).
+            if ((task.status as TransferStatus) !== 'cancelled') {
+              task.status = 'error';
+              task.error = e?.toString() || 'Lỗi không xác định';
+              if (task.onFail) {
+                task.onFail(e);
+              }
             }
           }
           

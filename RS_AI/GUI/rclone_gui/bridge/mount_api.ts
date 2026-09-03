@@ -5,7 +5,6 @@ Trách nhiệm: Gọi lệnh kiểm tra fuse, tạo/xoá/quản lý service, l�
 Các module tương tác: frontend/src/features/mountManager.ts, backend/src/mount.rs
 */
 
-// @ts-ignore
 import { invoke } from '@tauri-apps/api/core';
 
 export interface MountConfig {

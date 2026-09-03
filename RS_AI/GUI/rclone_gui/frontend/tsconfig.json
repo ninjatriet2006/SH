@@ -13,7 +13,13 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    // `../bridge` nằm ngoài thư mục này nên phép tra node_modules mặc định
+    // (đi ngược lên từ file import) không tìm thấy frontend/node_modules.
+    // Ánh xạ tường minh để bridge được type-check thật, thay vì phải @ts-ignore.
+    "paths": {
+      "@tauri-apps/*": ["./node_modules/@tauri-apps/*"]
+    }
   },
-  "include": ["src"]
+  "include": ["src", "../bridge"]
 }

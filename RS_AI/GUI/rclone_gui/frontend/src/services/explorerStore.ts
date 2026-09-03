@@ -98,10 +98,6 @@ function saveExplorerState() {
   }));
 }
 
-export function getExplorerState(): ExplorerState {
-  return state;
-}
-
 // ── Đường dẫn (Path) ────────────────────────────────────────────────────────
 export function getPanePath(pane: Pane): string {
   return pane === 'left' ? state.leftPath : state.rightPath;

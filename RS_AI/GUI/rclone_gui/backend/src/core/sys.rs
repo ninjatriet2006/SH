@@ -1,13 +1,14 @@
-/* 
+/*
 [INTEGRITY NOTES]
 - Mục đích: Xử lý các thao tác tương tác hệ thống (OS/System) như mở file, quản lý clipboard, danh sách ứng dụng và custom actions.
 - Trách nhiệm: Đóng vai trò là cầu nối giữa Tauri frontend và các lệnh shell/hệ điều hành gốc.
 - Tương tác: Gọi từ OpenWithModal.ts, clipboard.ts, actionStore.ts thông qua Tauri invoke. Không tương tác trực tiếp rclone.
 */
 
+use crate::core::task::blocking;
 use serde::{Deserialize, Serialize};
-use std::process::Command;
 use std::env;
+use std::process::Command;
 
 #[derive(Deserialize)]
 pub struct SimpleFileItem {
@@ -60,57 +61,58 @@ pub struct OSClipboardData {
 /// Chức năng: Mở một file cụ thể bằng một ứng dụng hoặc lệnh tùy chỉnh
 #[tauri::command]
 pub async fn sys_open_with(path: String, exec_cmd: Option<String>, app: Option<String>) -> Result<(), String> {
-    // Frontend gửi xuống đường dẫn dạng "Remote::/path" (xem logic::file_ops::parse_remote_path).
-    // Chỉ ổ Local mới mở được bằng ứng dụng hệ điều hành.
-    let (remote, real_path) = crate::logic::file_ops::parse_remote_path(&path);
-    if remote != "Local" {
-        return Err(format!(
-            "Không thể mở trực tiếp file trên remote '{}'. Hãy copy về Local trước.",
-            remote
-        ));
-    }
-    let path = real_path;
-
-    // Ưu tiên sử dụng exec_cmd nếu có, ngược lại dùng xdg-open làm mặc định trên Linux
-    let cmd = exec_cmd
-        .or(app)
-        .unwrap_or_else(|| "xdg-open".to_string());
-
-    // Lệnh .desktop thường chứa placeholder (%f, %U, ...) và có thể có sẵn tham số.
-    // Tách theo cú pháp shell rồi exec trực tiếp — KHÔNG qua `sh -c` — để tên file
-    // chứa ký tự đặc biệt (`;`, `$(...)`, dấu nháy) không thể chèn thêm lệnh.
-    let mut parts = shell_split(&cmd);
-    if parts.is_empty() {
-        return Err("Lệnh mở file rỗng.".to_string());
-    }
-
-    let program = parts.remove(0);
-    let mut args: Vec<String> = Vec::new();
-    let mut path_injected = false;
-
-    for part in parts {
-        match part.as_str() {
-            // Placeholder theo Desktop Entry Spec: thay bằng đường dẫn file.
-            "%f" | "%F" | "%u" | "%U" => {
-                args.push(path.clone());
-                path_injected = true;
-            }
-            // Các placeholder không dùng tới (icon, tên app, ...) thì bỏ qua.
-            p if p.len() == 2 && p.starts_with('%') => {}
-            other => args.push(other.to_string()),
+    blocking(move || {
+        // Frontend gửi xuống đường dẫn dạng "Remote::/path" (xem logic::file_ops::parse_remote_path).
+        // Chỉ ổ Local mới mở được bằng ứng dụng hệ điều hành.
+        let (remote, real_path) = crate::logic::file_ops::parse_remote_path(&path);
+        if remote != "Local" {
+            return Err(format!(
+                "Không thể mở trực tiếp file trên remote '{}'. Hãy copy về Local trước.",
+                remote
+            ));
         }
-    }
+        let path = real_path;
 
-    if !path_injected {
-        args.push(path);
-    }
+        // Ưu tiên sử dụng exec_cmd nếu có, ngược lại dùng xdg-open làm mặc định trên Linux
+        let cmd = exec_cmd.or(app).unwrap_or_else(|| "xdg-open".to_string());
 
-    Command::new(&program)
-        .args(&args)
-        .spawn()
-        .map_err(|e| format!("Lỗi khi chạy '{}': {}", program, e))?;
+        // Lệnh .desktop thường chứa placeholder (%f, %U, ...) và có thể có sẵn tham số.
+        // Tách theo cú pháp shell rồi exec trực tiếp — KHÔNG qua `sh -c` — để tên file
+        // chứa ký tự đặc biệt (`;`, `$(...)`, dấu nháy) không thể chèn thêm lệnh.
+        let mut parts = shell_split(&cmd);
+        if parts.is_empty() {
+            return Err("Lệnh mở file rỗng.".to_string());
+        }
 
-    Ok(())
+        let program = parts.remove(0);
+        let mut args: Vec<String> = Vec::new();
+        let mut path_injected = false;
+
+        for part in parts {
+            match part.as_str() {
+                // Placeholder theo Desktop Entry Spec: thay bằng đường dẫn file.
+                "%f" | "%F" | "%u" | "%U" => {
+                    args.push(path.clone());
+                    path_injected = true;
+                }
+                // Các placeholder không dùng tới (icon, tên app, ...) thì bỏ qua.
+                p if p.len() == 2 && p.starts_with('%') => {}
+                other => args.push(other.to_string()),
+            }
+        }
+
+        if !path_injected {
+            args.push(path);
+        }
+
+        Command::new(&program)
+            .args(&args)
+            .spawn()
+            .map_err(|e| format!("Lỗi khi chạy '{}': {}", program, e))?;
+
+        Ok(())
+    })
+    .await
 }
 
 /// Tách một chuỗi lệnh theo cú pháp shell tối giản (hỗ trợ nháy đơn/kép và `\`).
@@ -153,53 +155,57 @@ fn shell_split(input: &str) -> Vec<String> {
 #[tauri::command]
 pub async fn sys_list_apps() -> Result<Vec<DesktopApp>, String> {
     // (Làm giả dữ liệu tạm thời để trả nợ kỹ thuật, việc parse .desktop files phức tạp sẽ tối ưu sau)
-    Ok(vec![
-        DesktopApp {
-            // Tên ứng dụng mặc định
-            name: "Default OS App (xdg-open)".to_string(),
-            // Lệnh mặc định của Linux để mở file theo file type
-            exec: "xdg-open".to_string(),
-            // Icon để trống
-            icon: "".to_string(),
-        }
-    ])
+    Ok(vec![DesktopApp {
+        // Tên ứng dụng mặc định
+        name: "Default OS App (xdg-open)".to_string(),
+        // Lệnh mặc định của Linux để mở file theo file type
+        exec: "xdg-open".to_string(),
+        // Icon để trống
+        icon: "".to_string(),
+    }])
 }
 
 /// Hàm API: os_clipboard_set
 /// Chức năng: Lưu danh sách file vào clipboard giả lập (thông qua file JSON tạm)
 #[tauri::command]
 pub async fn os_clipboard_set(items: Vec<OSClipboardItem>, is_cut: bool) -> Result<(), String> {
-    let data = OSClipboardData { items, is_cut };
-    // Chuyển đối tượng thành chuỗi JSON
-    let json = serde_json::to_string(&data).unwrap();
-    // Ghi chuỗi JSON vào thư mục tạm của hệ điều hành
-    std::fs::write(env::temp_dir().join("rclone_gui_clipboard.json"), json)
-        // Bắt lỗi nếu không thể ghi file
-        .map_err(|e| e.to_string())?;
-    
-    // Trả về thành công
-    Ok(())
+    blocking(move || {
+        let data = OSClipboardData { items, is_cut };
+        // Chuyển đối tượng thành chuỗi JSON
+        let json = serde_json::to_string(&data).unwrap();
+        // Ghi chuỗi JSON vào thư mục tạm của hệ điều hành
+        std::fs::write(env::temp_dir().join("rclone_gui_clipboard.json"), json)
+            // Bắt lỗi nếu không thể ghi file
+            .map_err(|e| e.to_string())?;
+
+        // Trả về thành công
+        Ok(())
+    })
+    .await
 }
 
 /// Hàm API: os_clipboard_get
 /// Chức năng: Lấy danh sách file từ clipboard giả lập
 #[tauri::command]
 pub async fn os_clipboard_get() -> Result<Option<OSClipboardData>, String> {
-    // Đường dẫn tới file JSON clipboard
-    let path = env::temp_dir().join("rclone_gui_clipboard.json");
-    
-    // Kiểm tra xem file có tồn tại không
-    if path.exists() {
-        // Đọc toàn bộ nội dung file JSON
-        let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        // Parse chuỗi JSON ngược về đối tượng cấu trúc OSClipboardData
-        let data: OSClipboardData = serde_json::from_str(&json).map_err(|e| e.to_string())?;
-        // Trả về dữ liệu tìm thấy
-        Ok(Some(data))
-    } else {
-        // Nếu file không tồn tại (chưa copy gì), trả về rỗng
-        Ok(None)
-    }
+    blocking(|| {
+        // Đường dẫn tới file JSON clipboard
+        let path = env::temp_dir().join("rclone_gui_clipboard.json");
+
+        // Kiểm tra xem file có tồn tại không
+        if path.exists() {
+            // Đọc toàn bộ nội dung file JSON
+            let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+            // Parse chuỗi JSON ngược về đối tượng cấu trúc OSClipboardData
+            let data: OSClipboardData = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+            // Trả về dữ liệu tìm thấy
+            Ok(Some(data))
+        } else {
+            // Nếu file không tồn tại (chưa copy gì), trả về rỗng
+            Ok(None)
+        }
+    })
+    .await
 }
 
 /// Hàm API: sys_get_custom_actions
@@ -216,31 +222,46 @@ pub async fn sys_get_custom_actions() -> Result<Vec<CustomAction>, String> {
 pub async fn sys_get_valid_actions(files: Vec<SimpleFileItem>) -> Result<Vec<CustomAction>, String> {
     let actions = sys_get_custom_actions().await?;
     let sel_count = files.len();
-    
+
     if sel_count == 0 {
         return Ok(vec![]);
     }
-    
-    let valid: Vec<CustomAction> = actions.into_iter().filter(|a| {
-        if a.selection == "s" && sel_count != 1 { return false; }
-        if a.selection == "m" && sel_count < 2 { return false; }
-        
-        if a.extensions.iter().any(|ext| ext == "any") { return true; }
-        
-        files.iter().all(|f| {
-            if f.is_dir && a.extensions.iter().any(|ext| ext == "dir") { return true; }
-            let ext = f.name.split('.').last().unwrap_or("").to_lowercase();
-            a.extensions.iter().any(|e| e.to_lowercase() == ext)
+
+    let valid: Vec<CustomAction> = actions
+        .into_iter()
+        .filter(|a| {
+            if a.selection == "s" && sel_count != 1 {
+                return false;
+            }
+            if a.selection == "m" && sel_count < 2 {
+                return false;
+            }
+
+            if a.extensions.iter().any(|ext| ext == "any") {
+                return true;
+            }
+
+            files.iter().all(|f| {
+                if f.is_dir && a.extensions.iter().any(|ext| ext == "dir") {
+                    return true;
+                }
+                let ext = f.name.split('.').last().unwrap_or("").to_lowercase();
+                a.extensions.iter().any(|e| e.to_lowercase() == ext)
+            })
         })
-    }).collect();
-    
+        .collect();
+
     Ok(valid)
 }
 
 /// Hàm API: sys_execute_custom_action
 /// Chức năng: Thực thi một lệnh tùy chỉnh lên một danh sách file được chọn
 #[tauri::command]
-pub async fn sys_execute_custom_action(exec_template: String, base_path: String, file_names: Vec<String>) -> Result<(), String> {
+pub async fn sys_execute_custom_action(
+    exec_template: String,
+    base_path: String,
+    file_names: Vec<String>,
+) -> Result<(), String> {
     // exec_template do người dùng tự định nghĩa nên vẫn chạy qua shell (cho phép
     // pipe, redirect...). Nhưng tên file đến từ dữ liệu ngoài, phải được bọc
     // nháy đơn an toàn để không thể chèn thêm lệnh.
@@ -261,18 +282,21 @@ pub async fn sys_execute_custom_action(exec_template: String, base_path: String,
     let cmd = exec_template.replace("%f", &paths_str);
 
     // Khởi tạo tiến trình thực thi lệnh
-    Command::new("sh")
-        // Dùng -c để truyền vào chuỗi shell
-        .arg("-c")
-        // Truyền chuỗi lệnh đã thay thế biến %f
-        .arg(cmd)
-        // Kích hoạt tiến trình chạy ngầm
-        .spawn()
-        // Xử lý lỗi nếu lệnh không chạy được
-        .map_err(|e| e.to_string())?;
+    blocking(move || {
+        Command::new("sh")
+            // Dùng -c để truyền vào chuỗi shell
+            .arg("-c")
+            // Truyền chuỗi lệnh đã thay thế biến %f
+            .arg(cmd)
+            // Kích hoạt tiến trình chạy ngầm
+            .spawn()
+            // Xử lý lỗi nếu lệnh không chạy được
+            .map_err(|e| e.to_string())?;
 
-    // Báo thành công
-    Ok(())
+        // Báo thành công
+        Ok(())
+    })
+    .await
 }
 
 /// Bọc một chuỗi bất kỳ thành literal an toàn cho shell POSIX bằng nháy đơn.
@@ -289,10 +313,7 @@ mod tests {
     fn shell_split_handles_desktop_exec() {
         assert_eq!(shell_split("xdg-open"), vec!["xdg-open"]);
         assert_eq!(shell_split("code --wait %f"), vec!["code", "--wait", "%f"]);
-        assert_eq!(
-            shell_split("\"/opt/My App/run\" -a"),
-            vec!["/opt/My App/run", "-a"]
-        );
+        assert_eq!(shell_split("\"/opt/My App/run\" -a"), vec!["/opt/My App/run", "-a"]);
     }
 
     #[test]
