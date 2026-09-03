@@ -532,6 +532,61 @@ pub async fn fs_get_thumbnail(path: String) -> Result<String, String> {
     .await
 }
 
+/// Tên hàm: fs_read_text
+/// Mô tả: Đọc nội dung văn bản của một file (Local hoặc remote) qua `rclone cat`.
+/// Giới hạn kích thước để không kéo cả file lớn vào bộ nhớ / IPC.
+#[tauri::command]
+pub async fn fs_read_text(path: String, max_bytes: Option<u64>) -> Result<String, String> {
+    blocking(move || {
+        let (remote, real_path) = file_ops::parse_remote_path(&path);
+        let target = rclone::build_target(&remote, &real_path);
+
+        // Mặc định 1 MiB — đủ cho tệp cấu hình / ghi chú, tránh treo UI với file lớn.
+        let limit = max_bytes.unwrap_or(1_048_576);
+        let limit_arg = limit.to_string();
+
+        let output = rclone::run_cmd(&["cat", &target, "--count", &limit_arg])?;
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(if err.is_empty() {
+                format!("Không đọc được '{}': {}", path, output.status)
+            } else {
+                err
+            });
+        }
+
+        // Từ chối nội dung nhị phân thay vì trả về chuỗi lộn xộn.
+        String::from_utf8(output.stdout)
+            .map_err(|_| "Tệp không phải văn bản UTF-8 nên không thể mở bằng trình xem văn bản.".to_string())
+    })
+    .await
+}
+
+/// Tên hàm: fs_write_text
+/// Mô tả: Ghi nội dung văn bản vào một file (Local hoặc remote) qua `rclone rcat`.
+/// `rcat` đọc từ stdin nên hoạt động đồng nhất cho mọi backend.
+#[tauri::command]
+pub async fn fs_write_text(path: String, content: String) -> Result<(), String> {
+    blocking(move || {
+        let (remote, real_path) = file_ops::parse_remote_path(&path);
+        let target = rclone::build_target(&remote, &real_path);
+
+        file_ops::run_with_sudo_fallback(&remote, "write", &[real_path.clone()], || {
+            let output = rclone::run_cmd_with_stdin(&["rcat", &target], content.as_bytes())?;
+            if !output.status.success() {
+                let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                return Err(if err.is_empty() {
+                    format!("Ghi tệp thất bại: {}", output.status)
+                } else {
+                    err
+                });
+            }
+            Ok(())
+        })
+    })
+    .await
+}
+
 #[tauri::command]
 pub fn fs_temp_dir() -> String {
     std::env::temp_dir().to_string_lossy().to_string()

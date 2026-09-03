@@ -126,8 +126,8 @@ export class PropertiesModal {
         <div style="font-size: 13px; margin-bottom: 10px;">Select an application to open this file:</div>
         <div class="apps-list" style="max-height: 150px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 4px; margin-bottom: 15px; background: var(--bg-color);">
           ${this.apps.map(app => `
-            <div class="app-item" data-exec="${app.exec.replace(/%[a-zA-Z]/g, '').trim().replace(/"/g, '&quot;')}" style="padding: 6px 10px; cursor: pointer; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 8px;">
-              <span>${app.name}</span>
+            <div class="app-item" data-exec="${escapeHtml(app.exec)}" style="padding: 6px 10px; cursor: pointer; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 8px;">
+              <span>${escapeHtml(app.name)}</span>
             </div>
           `).join('')}
           ${this.apps.length === 0 ? '<div style="padding: 10px; color: var(--text-muted);">No applications found.</div>' : ''}

@@ -11,6 +11,7 @@ import { ContextMenu, type ContextMenuItem } from '../components/ContextMenu';
 import { OpenWithModal } from '../components/OpenWithModal';
 import { OperationModal } from '../components/OperationModal';
 import { PropertiesModal } from '../components/PropertiesModal';
+import { TextEditorModal } from '../components/TextEditorModal';
 import { BatchRenameModal, type BatchRenameItem } from '../components/BatchRenameModal';
 import * as fileOps from '../services/fileOps';
 import * as trashOps from '../services/trashOps';
@@ -91,7 +92,7 @@ export async function MenuFile(e: MouseEvent, opts: ContextMenuOptions): Promise
   const isSelected = sels.some((s) => s.name === f.name);
   const batchMode = isSelected && sels.length > 1;
 
-  const isTrash = basePath.startsWith('trash://');
+  const isTrash = trashOps.isTrashPath(basePath);
   if (isTrash) {
     showMenu(e, ['Khôi phục', 'Xoá vĩnh viễn'], (action) => {
       handleTrashAction(action, f, basePath, pane, onRefresh);
@@ -102,11 +103,17 @@ export async function MenuFile(e: MouseEvent, opts: ContextMenuOptions): Promise
   const menuItems: (string | ContextMenuItem)[] = [
     'Open',
     'Open With...',
+  ];
+  // Sửa nội dung: chỉ có ý nghĩa với tệp đơn (không phải thư mục, không batch).
+  if (!f.is_dir && !batchMode) {
+    menuItems.push('Sửa nội dung (Text)');
+  }
+  menuItems.push(
     'New Folder',
     'New File',
     batchMode ? `Rename (${sels.length} mục)` : 'Rename',
     'Delete',
-  ];
+  );
   if (f.is_dir && !batchMode) {
     if (opts.onOpenInNewTab) menuItems.push('Open in New Tab');
     menuItems.push(isBookmarked(fullPath) ? '❌ Bỏ ghim (Bookmark)' : '📌 Ghim (Bookmark)');
@@ -145,6 +152,9 @@ export async function MenuFile(e: MouseEvent, opts: ContextMenuOptions): Promise
       switch (action) {
         case 'Open':
           fileOps.open(fullPath).catch((err) => console.warn('open fail:', err));
+          break;
+        case 'Sửa nội dung (Text)':
+          openTextEditor(f, fullPath, pane, basePath, onRefresh);
           break;
         case 'Open in New Tab':
           if (opts.onOpenInNewTab) opts.onOpenInNewTab(fullPath);
@@ -210,6 +220,34 @@ export async function MenuFile(e: MouseEvent, opts: ContextMenuOptions): Promise
 /** Tên hàm: MenuEmpty | Mô tả: Hiện Context Menu trên vùng trống của pane (menu cấp thư mục chứa). */
 export function MenuEmpty(e: MouseEvent, opts: FolderContextMenuOptions): void {
   const { path: basePath, pane, onRefresh, onSelectAll } = opts;
+
+  // Trong thùng rác chỉ có 2 hành động hợp lệ; các lệnh tạo/dán đều vô nghĩa.
+  const trashTarget = trashOps.parseTrashPath(basePath);
+  if (trashTarget) {
+    showMenu(e, ['Dọn sạch thùng rác', 'Select All'], async (action) => {
+      if (action === 'Select All') {
+        onSelectAll?.();
+        return;
+      }
+      const where = trashTarget.isLocal ? 'thùng rác hệ thống' : `thùng rác của ${trashTarget.remote}`;
+      if (!confirm(`Xoá vĩnh viễn toàn bộ ${where}? Thao tác này không thể hoàn tác.`)) {
+        return;
+      }
+      try {
+        if (trashTarget.isLocal) {
+          await trashOps.emptyLocalTrash();
+        } else {
+          await trashOps.emptyRemoteTrash(trashTarget.remote!);
+        }
+        logActivity('Dọn sạch thùng rác', where);
+      } catch (err) {
+        logActivity('Lỗi Dọn thùng rác', String(err));
+        alert('Lỗi: ' + String(err));
+      }
+      await onRefresh(pane, basePath);
+    });
+    return;
+  }
 
   const isLocal = basePath.startsWith('Local::');
   const items: (string | ContextMenuItem)[] = [
@@ -304,6 +342,24 @@ async function showPropertiesModal(f: FileItem, fullPath: string, pane: Pane): P
   await modal.open();
 }
 
+/**
+ * Tên hàm: openTextEditor
+ * Mô tả: Mở trình sửa nội dung văn bản tối giản cho một tệp (Local hoặc cloud).
+ * Nội dung đọc/ghi qua `rclone cat` / `rclone rcat` nên hoạt động với mọi backend.
+ */
+async function openTextEditor(
+  f: FileItem,
+  fullPath: string,
+  pane: Pane,
+  basePath: string,
+  onRefresh: (pane: Pane, path: string) => Promise<void>,
+): Promise<void> {
+  const modal = new TextEditorModal(f.name, fullPath, async () => {
+    await onRefresh(pane, basePath);
+  });
+  await modal.open();
+}
+
 function openRenameModal(
   f: FileItem,
   fullPath: string,
@@ -372,30 +428,43 @@ function openDeleteModal(
   });
 }
 
-async function handleTrashAction(action: string, f: FileItem, basePath: string, pane: Pane, onRefresh: (pane: Pane, path: string) => Promise<void>) {
+async function handleTrashAction(
+  action: string,
+  f: FileItem,
+  basePath: string,
+  pane: Pane,
+  onRefresh: (pane: Pane, path: string) => Promise<void>,
+) {
+  const target = trashOps.parseTrashPath(basePath);
+  if (!target) return;
+
+  // `uuid` do trashOps.listTrash gán: id (Local) hoặc đường dẫn tương đối (Remote).
+  // Không dùng chỉ số mảng — chỉ số lệch ngay khi danh sách thay đổi.
+  const ref = f.uuid || f.name;
+
   try {
     if (action === 'Khôi phục') {
-      if (basePath === 'trash://local') {
-        const id = (f as any).path ? (f as any).path.split('/').pop() || '' : '';
-        await trashOps.restoreLocalTrash(id);
+      if (target.isLocal) {
+        await trashOps.restoreLocalTrash(ref);
       } else {
-        const files = getPaneFiles(pane);
-        const idx = files.findIndex(item => item.name === f.name) + 1;
-        if (idx > 0) await trashOps.restoreRemoteTrash(idx);
+        await trashOps.restoreRemoteTrash(ref, target.remote!);
       }
+      logActivity('Khôi phục', `Đã khôi phục ${f.name}`);
     } else if (action === 'Xoá vĩnh viễn') {
-      if (basePath === 'trash://local') {
-        alert('Tính năng xoá từng file cục bộ chưa hoàn thiện. Vui lòng làm trống toàn bộ thùng rác.');
+      if (!confirm(`Xoá vĩnh viễn "${f.name}"? Thao tác này không thể hoàn tác.`)) {
         return;
-      } else {
-        const files = getPaneFiles(pane);
-        const idx = files.findIndex(item => item.name === f.name) + 1;
-        if (idx > 0) await trashOps.deleteRemoteTrash(idx);
       }
+      if (target.isLocal) {
+        await trashOps.deleteLocalTrash(ref);
+      } else {
+        await trashOps.deleteRemoteTrash(ref, target.remote!);
+      }
+      logActivity('Xoá vĩnh viễn', `Đã xoá ${f.name} khỏi thùng rác`);
     }
-    onRefresh(pane, basePath);
+    await onRefresh(pane, basePath);
   } catch (e) {
     console.warn('Trash action error:', e);
+    logActivity('Lỗi Thùng rác', String(e));
     alert('Lỗi: ' + String(e));
   }
 }

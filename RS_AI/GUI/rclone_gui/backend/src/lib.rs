@@ -39,6 +39,8 @@ pub fn run() {
             api::files::fs_temp_dir,
             api::files::fs_chmod,
             api::files::fs_chown,
+            api::files::fs_read_text,
+            api::files::fs_write_text,
             // ==================
             // SYS API (Trong core/sys.rs)
             // ==================
@@ -54,6 +56,7 @@ pub fn run() {
             // ==================
             api::trash::fs_trash_list_local,
             api::trash::fs_trash_restore_local,
+            api::trash::fs_trash_delete_local,
             api::trash::fs_trash_empty_local,
             api::trash::fs_trash_list_remote_terminal,
             api::trash::fs_trash_restore_remote_terminal,

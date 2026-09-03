@@ -6,7 +6,6 @@ export interface DesktopApp {
   name: string;
   exec: string;
   icon: string;
-  mime_types: string[];
 }
 
 export class OpenWithModal {

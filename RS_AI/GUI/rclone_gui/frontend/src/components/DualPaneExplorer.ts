@@ -35,6 +35,7 @@ import {
 } from '../services/explorerStore';
 import { setClipboard, hasClipboard, pasteTo } from '../features/clipboard';
 import * as fileOps from '../services/fileOps';
+import { isTrashPath, listTrash } from '../services/trashOps';
 import { undoManager } from '../services/undoManager';
 import { baseName, joinPath, generateUniqueName, type DragPayload } from '../features/dragDrop';
 import { ConflictModal, type ConflictResult } from './ConflictModal';
@@ -80,20 +81,7 @@ export class DualPaneExplorer {
       onHome: () => this.goHome('left'),
       onRefresh: () => this.refresh('left', true),
       onBookmarkSelect: (path) => this.navigate('left', path),
-      onRemoteChange: async (remote) => {
-        if (remote === 'Local') {
-          try {
-            const homeDir = await invoke<string>('get_home_dir');
-            this.navigate('left', `Local::${homeDir}`);
-          } catch (e) {
-            this.navigate('left', `Local::/`);
-          }
-        } else if (remote) {
-          this.navigate('left', `${remote}::/`);
-        } else {
-          this.navigate('left', '');
-        }
-      }
+      onRemoteChange: (remote) => this.handleRemoteChange('left', remote)
     });
     this.leftPane.onTabSwitch = (path) => this.loadPane('left', path);
 
@@ -117,20 +105,7 @@ export class DualPaneExplorer {
       onHome: () => this.goHome('right'),
       onRefresh: () => this.refresh('right', true),
       onBookmarkSelect: (path) => this.navigate('right', path),
-      onRemoteChange: async (remote) => {
-        if (remote === 'Local') {
-          try {
-            const homeDir = await invoke<string>('get_home_dir');
-            this.navigate('right', `Local::${homeDir}`);
-          } catch (e) {
-            this.navigate('right', `Local::/`);
-          }
-        } else if (remote) {
-          this.navigate('right', `${remote}::/`);
-        } else {
-          this.navigate('right', '');
-        }
-      }
+      onRemoteChange: (remote) => this.handleRemoteChange('right', remote)
     });
     this.rightPane.onTabSwitch = (path) => this.loadPane('right', path);
 
@@ -332,12 +307,37 @@ export class DualPaneExplorer {
     // Cập nhật path ngay từ đầu để getPanePath luôn trả về đúng vị trí hiện tại
     // (kể cả path rỗng). Nếu chưa chọn remote thì xoá luôn danh sách file cũ.
     setPanePath(pane, path);
-    if (!path || !path.includes('::')) {
+    if (!path || (!path.includes('::') && !isTrashPath(path))) {
       setPaneFiles(pane, []);
     }
 
     if (currentPath !== path && !silent) {
       clearPaneSelection(pane);
+    }
+
+    // ── Nhánh Thùng rác (đường dẫn ảo `trash://...`) ───────────────────────
+    // Không đi qua rclone lsjson nên xử lý riêng, cũng không dùng dirCache vì
+    // nội dung thùng rác đổi ngay sau mỗi lần khôi phục/xoá.
+    if (isTrashPath(path)) {
+      try {
+        const trashFiles = await listTrash(path);
+        if (pane === 'left' && this.leftLoadRequestId !== currentReqId) return;
+        if (pane === 'right' && this.rightLoadRequestId !== currentReqId) return;
+
+        setPaneFiles(pane, trashFiles);
+        if (trashFiles.length === 0) {
+          const view = pane === 'left' ? this.leftPane : this.rightPane;
+          view.renderPlaceholder('🗑️ Thùng rác trống', path);
+        } else {
+          this.renderPane(pane);
+        }
+      } catch (e) {
+        if (pane === 'left' && this.leftLoadRequestId !== currentReqId) return;
+        if (pane === 'right' && this.rightLoadRequestId !== currentReqId) return;
+        const view = pane === 'left' ? this.leftPane : this.rightPane;
+        view.renderPlaceholder(`⚠️ Không đọc được thùng rác: ${String(e)}`, path);
+      }
+      return;
     }
 
     let remote = '';
@@ -603,6 +603,32 @@ export class DualPaneExplorer {
     });
   }
 
+  /**
+   * Xử lý khi người dùng đổi nguồn ở dropdown của pane.
+   * Nhận cả remote thường, `Local`, và đường dẫn ảo `trash://...`.
+   */
+  private async handleRemoteChange(pane: Pane, remote: string): Promise<void> {
+    if (!remote) {
+      this.navigate(pane, '');
+      return;
+    }
+    // Thùng rác: value chính là đường dẫn ảo, dùng nguyên.
+    if (isTrashPath(remote)) {
+      this.navigate(pane, remote);
+      return;
+    }
+    if (remote === 'Local') {
+      try {
+        const homeDir = await invoke<string>('get_home_dir');
+        this.navigate(pane, `Local::${homeDir}`);
+      } catch {
+        this.navigate(pane, 'Local::/');
+      }
+      return;
+    }
+    this.navigate(pane, `${remote}::/`);
+  }
+
   private navigate(pane: Pane, path: string) {
     pushPaneHistory(pane, path);
     this.loadPane(pane, path);
@@ -621,6 +647,8 @@ export class DualPaneExplorer {
   private goUp(pane: Pane) {
     const current = getPanePath(pane);
     if (current === '/') return;
+    // Thùng rác là danh sách phẳng, không có cấp trên.
+    if (isTrashPath(current)) return;
     const parent = current.substring(0, current.lastIndexOf('/')) || '/';
     this.navigate(pane, parent);
   }

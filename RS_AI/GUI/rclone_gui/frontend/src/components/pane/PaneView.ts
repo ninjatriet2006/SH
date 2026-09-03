@@ -6,12 +6,21 @@ import { upgradeSelectToCustomDropdown } from '../../features/customDropdown';
 import type { PaneColKey, PaneColWidths } from '../../services/explorerStore';
 import { parseDrag, type DragPayload } from '../../features/dragDrop';
 import { SearchModal } from '../SearchModal';
+import { TRASH_PREFIX } from '../../services/trashOps';
 import { PaneStatusBar } from './PaneStatusBar';
 import { getAboutSpace } from '../../services/fileOps';
 import { escapeHtml } from '../../features/format';
 
-export interface PaneViewOptions {
-  side: 'left' | 'right';
+/** Value của option "Thùng rác (Máy tính)" trong dropdown chọn nguồn. */
+const TRASH_LOCAL_VALUE = `${TRASH_PREFIX}local`;
+
+/**
+ * Các loại backend rclone hỗ trợ xem thùng rác (`--<type>-trashed-only`).
+ * Danh sách này phải khớp `logic/trash_remote.rs::trashed_only_flag`.
+ */
+const TRASH_CAPABLE_TYPES = ['drive', 'jottacloud', 'pikpak'];
+
+export interface PaneViewOptions {  side: 'left' | 'right';
   sideLabel: string;
   onOpenDir: (path: string) => void;
   onOpenInNewTab?: (path: string) => void;
@@ -186,7 +195,13 @@ export class PaneView {
 
     const totalSize = visibleFiles.reduce((acc, f) => acc + (f.size || 0), 0);
     this.statusBar.updateTotal(visibleFiles.length, totalSize);
-    
+
+    // Thùng rác không phải một filesystem nên `rclone about` vô nghĩa ở đây.
+    if (this.path.startsWith(TRASH_PREFIX)) {
+      this.statusBar.updateSpace({});
+      return;
+    }
+
     // Fetch about space
     getAboutSpace(this.path).then(about => {
       this.statusBar.updateSpace(about);
@@ -264,6 +279,17 @@ export class PaneView {
       this.breadcrumbDiv.appendChild(input);
       input.focus();
       input.select();
+    } else if (this.path.startsWith(TRASH_PREFIX)) {
+      // Thùng rác là danh sách phẳng: chỉ một chip, không phân cấp.
+      if (this.remoteSelect) {
+        this.remoteSelect.value = this.path;
+        (this.remoteSelect as any)._syncCustomDropdown?.();
+      }
+      const target = this.path.slice(TRASH_PREFIX.length) || 'local';
+      const chip = document.createElement('span');
+      chip.className = 'crumb';
+      chip.textContent = target === 'local' ? '🗑️ Thùng rác (Máy tính)' : `🗑️ Thùng rác ${target}`;
+      this.breadcrumbDiv.appendChild(chip);
     } else {
       let remote = this.path.includes('::') ? this.path.split('::')[0] : 'Local';
       let realPath = this.path.includes('::') ? this.path.split('::').slice(1).join('::') : this.path;
@@ -394,12 +420,15 @@ private renderBody(
   public setRemotes(remotes: any[]) {
     if (!this.remoteSelect) return;
     let optionsHtml = '<option value="">☁️ Chọn Remote...</option>';
-    
+
     // Luôn luôn chèn Local vào đầu danh sách (nếu mảng remotes không có)
     const hasLocal = remotes.some(r => r.name === 'Local');
     if (!hasLocal) {
       optionsHtml += `<option value="Local">💻 Local (Máy tính)</option>`;
     }
+
+    // Thùng rác hệ điều hành — đường dẫn ảo `trash://local`.
+    optionsHtml += `<option value="${TRASH_LOCAL_VALUE}">🗑️ Thùng rác (Máy tính)</option>`;
 
     remotes.forEach(remote => {
       // Fix visual name for Local
@@ -409,15 +438,29 @@ private renderBody(
         optionsHtml += `<option value="${escapeHtml(remote.name)}">☁️ ${escapeHtml(remote.name)} (${escapeHtml(remote.type)})</option>`;
       }
     });
+
+    // Thùng rác đám mây: chỉ 3 loại backend được rclone hỗ trợ xem thùng rác.
+    const trashCapable = remotes.filter(r => TRASH_CAPABLE_TYPES.includes(r.type));
+    if (trashCapable.length > 0) {
+      trashCapable.forEach(remote => {
+        const value = `${TRASH_PREFIX}${remote.name}`;
+        optionsHtml += `<option value="${escapeHtml(value)}">🗑️ Thùng rác ${escapeHtml(remote.name)}</option>`;
+      });
+    }
+
     this.remoteSelect.innerHTML = optionsHtml;
     // Báo cho custom dropdown biết options đã đổi
     (this.remoteSelect as any)._updateCustomDropdown?.();
-    
-    // Sync the select value with the current path
-    let remote = this.path.includes('::') ? this.path.split('::')[0] : 'Local';
-    if (!this.path || this.path === '/') remote = '';
-    if (remote) {
-      this.remoteSelect.value = remote;
+
+    // Đồng bộ giá trị select với path hiện tại
+    let selected = '';
+    if (this.path.startsWith(TRASH_PREFIX)) {
+      selected = this.path; // Chính path ảo là value của option
+    } else if (this.path && this.path !== '/') {
+      selected = this.path.includes('::') ? this.path.split('::')[0] : 'Local';
+    }
+    if (selected) {
+      this.remoteSelect.value = selected;
       (this.remoteSelect as any)._syncCustomDropdown?.();
     }
   }

@@ -59,6 +59,14 @@ where
                         "chmod" => {
                             cmd_args.push("chmod".to_string());
                         }
+                        // Ghi nội dung cần quyền root: dùng `tee` để nhận stdin.
+                        // (Không dùng ở nhánh này vì pkexec không chuyển tiếp stdin;
+                        //  chỉ báo lỗi rõ ràng cho người dùng.)
+                        "write" => {
+                            return Err(
+                                "Không đủ quyền ghi tệp này. Hãy đổi quyền hoặc chọn vị trí khác.".into()
+                            );
+                        }
                         _ => return Err("Hành động sudo không được hỗ trợ".into()),
                     }
                     for arg in args {

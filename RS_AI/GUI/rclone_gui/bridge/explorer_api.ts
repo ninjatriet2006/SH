@@ -99,3 +99,18 @@ export async function fsChown(path: string, uid: number, gid: number): Promise<v
   debugStore.log('API', 'fs_chown', { path, uid, gid });
   await invoke('fs_chown', { path, uid, gid });
 }
+
+/**
+ * Đọc nội dung văn bản của một file (Local hoặc remote).
+ * `maxBytes` mặc định 1 MiB ở backend; file nhị phân sẽ bị từ chối.
+ */
+export async function fsReadText(path: string, maxBytes?: number): Promise<string> {
+  debugStore.log('API', 'fs_read_text', { path, maxBytes });
+  return await invoke<string>('fs_read_text', { path, maxBytes });
+}
+
+/** Ghi nội dung văn bản vào một file (Local hoặc remote) qua `rclone rcat`. */
+export async function fsWriteText(path: string, content: string): Promise<void> {
+  debugStore.log('API', 'fs_write_text', { path, bytes: content.length });
+  await invoke('fs_write_text', { path, content });
+}

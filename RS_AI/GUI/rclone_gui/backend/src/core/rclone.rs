@@ -43,6 +43,35 @@ pub fn spawn_cmd(args: &[&str]) -> Result<(), String> {
     Ok(())
 }
 
+/// Tên hàm: run_cmd_with_stdin
+/// Mô tả: Chạy lệnh `rclone` đồng bộ, đẩy `input` vào stdin của tiến trình.
+/// Dùng cho `rclone rcat` (ghi nội dung file từ stdin) — cách này hoạt động
+/// đồng nhất cho cả ổ Local và mọi remote.
+pub fn run_cmd_with_stdin(args: &[&str], input: &[u8]) -> Result<Output, String> {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let mut child = Command::new("rclone")
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Lỗi hệ thống khi gọi rclone: {}", e))?;
+
+    // `take()` để stdin được đóng sau khi ghi — nếu không, rclone chờ EOF mãi.
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| "Không mở được stdin của tiến trình rclone".to_string())?
+        .write_all(input)
+        .map_err(|e| format!("Lỗi ghi dữ liệu vào rclone: {}", e))?;
+
+    child
+        .wait_with_output()
+        .map_err(|e| format!("Lỗi khi đợi rclone kết thúc: {}", e))
+}
+
 /// Tên hàm: is_dir
 /// Mô tả: Xác định một target rclone là thư mục hay file.
 ///

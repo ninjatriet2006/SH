@@ -154,15 +154,8 @@ fn shell_split(input: &str) -> Vec<String> {
 /// Chức năng: Lấy danh sách ứng dụng trên hệ điều hành để hiển thị mục Open With
 #[tauri::command]
 pub async fn sys_list_apps() -> Result<Vec<DesktopApp>, String> {
-    // (Làm giả dữ liệu tạm thời để trả nợ kỹ thuật, việc parse .desktop files phức tạp sẽ tối ưu sau)
-    Ok(vec![DesktopApp {
-        // Tên ứng dụng mặc định
-        name: "Default OS App (xdg-open)".to_string(),
-        // Lệnh mặc định của Linux để mở file theo file type
-        exec: "xdg-open".to_string(),
-        // Icon để trống
-        icon: "".to_string(),
-    }])
+    // Quét Desktop Entry thật (chuẩn FreeDesktop.org) thay vì trả dữ liệu giả.
+    blocking(|| Ok(crate::logic::desktop_apps::list())).await
 }
 
 /// Hàm API: os_clipboard_set

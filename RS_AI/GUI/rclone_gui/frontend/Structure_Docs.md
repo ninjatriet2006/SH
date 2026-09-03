@@ -93,17 +93,28 @@ xuống backend, không tự parse hay xử lý quyền.
 - **searchLocal**(`path`, `query`) → `Promise<SearchResult[]>`
 - **mkdir** / **remove** / **rename**(`path`, `newName`)
 - **copy** / **move**(`src`, `dest`, `taskId?`)
-- **cpLocal** / **moveLocal** / **upload** / **download**
+- **cpLocal** / **moveLocal**
+- **read**(`path`, `maxBytes?`) / **write**(`path`, `content`) — đọc/ghi văn bản
+  (backend dùng `rclone cat`/`rcat` nên hoạt động cả trên cloud).
 - **open**(`path`) — mở bằng ứng dụng mặc định của OS.
 - **statAdvanced**(`path`) → `Promise<StatInfo>`
 - **getFreeSpace** / **getAboutSpace**(`path`)
 - **chmod**(`path`, `mode`) / **chown**(`path`, `uid`, `gid`) — chỉ ổ Local; lỗi
   được ném lên để `PropertiesModal` hiển thị cho người dùng.
-- Ghi chú: `write` với nội dung khác rỗng chưa được backend hỗ trợ (chỉ tạo file rỗng).
+
 
 ## services/trashOps.ts
-Bọc các command `fs_trash_*`. Hiện phần lớn backend chưa triển khai và UI chưa có
-đường dẫn `trash://` nào, nên nhánh này chưa hoạt động đầy đủ.
+Đường dẫn ảo: `trash://local` (thùng rác hệ điều hành) và `trash://<remote>`.
+- **isTrashPath**(`path`) / **parseTrashPath**(`path`) — nhận diện và bóc đích.
+- **listTrash**(`path`) — quy đổi về `FileItem[]` để pane render như thư mục thường;
+  `uuid` giữ định danh (id Local hoặc đường dẫn tương đối Remote) cho các thao tác sau.
+- Local: **listLocalTrash** / **restoreLocalTrash** / **deleteLocalTrash** / **emptyLocalTrash**
+- Remote: **listRemoteTrash** / **restoreRemoteTrash** / **deleteRemoteTrash** / **emptyRemoteTrash**
+
+Vào thùng rác bằng dropdown chọn nguồn của pane. Mục thùng rác đám mây chỉ hiện với
+remote thuộc `drive`/`jottacloud`/`pikpak` (giới hạn của rclone).
+`loadPane` xử lý nhánh này riêng và **không** dùng `dirCache` vì nội dung đổi ngay
+sau mỗi lần khôi phục/xoá.
 
 ## services/undoManager.ts
 - **push**(`action`) — ghi vào ngăn xếp undo (tối đa 50), xoá ngăn xếp redo.
@@ -155,6 +166,7 @@ Bọc các command `fs_trash_*`. Hiện phần lớn backend chưa triển khai 
 | `DebugView` | Log lời gọi API | `#view-debug` |
 | `TransferDrawer` | Hàng đợi truyền tải | `#transfer-drawer` |
 | `SearchModal` | Tìm kiếm đệ quy theo tên | mở từ nút 🔍 |
+| `TextEditorModal` | Sửa nội dung tệp văn bản (Local & cloud) | context menu → Sửa nội dung |
 | `BookmarkManagerModal` | Sửa/xoá/sắp xếp ghim | mở từ menu 🔖 |
 | `PropertiesModal` | Thuộc tính file + emblem | mở từ context menu |
 | `OpenWithModal`, `ConflictModal`, `FallbackModal`, `BatchRenameModal`, `OperationModal`, `ContextMenu`, `FloatingStatusBar` | Hộp thoại / tiện ích dùng chung | theo ngữ cảnh |

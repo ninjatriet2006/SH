@@ -16,6 +16,9 @@ Backend theo kiến trúc 3 tầng, phụ thuộc một chiều `api → logic �
   - `file_ops.rs`: Bóc tách đường dẫn, sudo fallback, kiểm tra xung đột.
   - `transfer.rs`: Chạy tiến trình truyền tải, bóc tách tiến độ, hủy tác vụ.
   - `watcher.rs`: inotify watcher cho thư mục Local, phát `local-dir-changed`.
+  - `trash_local.rs`: Thùng rác hệ điều hành theo chuẩn FreeDesktop.org.
+  - `trash_remote.rs`: Thùng rác phía remote qua rclone.
+  - `desktop_apps.rs`: Quét Desktop Entry (`.desktop`) để dựng danh sách "Open With".
 - **src/core/**: Tầng giao tiếp hệ điều hành.
   - `rclone.rs`: Dựng và thực thi lệnh `rclone`.
   - `sys.rs`: Mở file bằng ứng dụng OS, clipboard, custom action.
@@ -94,6 +97,11 @@ rồi dựng lại theo cú pháp rclone bằng `core::rclone::build_target`:
 - **open_in_terminal**(`path: String`) → `Result<(), String>`
 - **fs_get_thumbnail**(`path: String`) → `Result<String, String>` — data URI base64.
 - **fs_temp_dir**() → `String`
+- **fs_read_text**(`path: String`, `max_bytes: Option<u64>`) → `Result<String, String>`
+  Đọc văn bản qua `rclone cat --count` (mặc định giới hạn 1 MiB). Từ chối file
+  không phải UTF-8 thay vì trả chuỗi lộn xộn.
+- **fs_write_text**(`path: String`, `content: String`) → `Result<(), String>`
+  Ghi qua `rclone rcat` (nhận stdin) nên hoạt động cho cả Local và mọi remote.
 - **fs_chmod**(`path: String`, `mode: u32`) → `Result<(), String>`
   Chỉ ổ Local (Unix). Giữ 12 bit quyền; có sudo fallback qua `pkexec chmod`.
 - **fs_chown**(`path: String`, `uid: u32`, `gid: u32`) → `Result<(), String>`
@@ -121,13 +129,20 @@ rồi dựng lại theo cú pháp rclone bằng `core::rclone::build_target`:
 - **get_mount_service_config**(`service_name`, `is_user`) → `Result<MountConfig, String>`
 
 ## api/trash.rs
-- **fs_trash_list_local**() → `Result<Vec<TrashItemLocal>, String>` — *chưa triển khai, trả rỗng.*
-- **fs_trash_restore_local**(`item_id`) → `Result<(), String>` — *chưa triển khai.*
-- **fs_trash_empty_local**() → `Result<(), String>` — `gio trash --empty`, kiểm tra exit code.
-- **fs_trash_list_remote_terminal**(`account`) → `Result<Vec<FileItem>, String>` — *chưa triển khai.*
-- **fs_trash_restore_remote_terminal**(`account`, `idx`) → *chưa triển khai.*
-- **fs_trash_delete_remote_terminal**(`account`, `idx`) → *chưa triển khai.*
+Đường dẫn ảo phía Frontend: `trash://local` và `trash://<remote>`.
+
+- **fs_trash_list_local**() → `Result<Vec<TrashItemLocal>, String>`
+  Đọc `$XDG_DATA_HOME/Trash/info/*.trashinfo`, mới xoá xếp trước.
+- **fs_trash_restore_local**(`item_id`) → `Result<(), String>` — `gio trash --restore`.
+- **fs_trash_delete_local**(`item_id`) → `Result<(), String>` — xoá cả nội dung và metadata.
+- **fs_trash_empty_local**() → `Result<(), String>` — lặp qua danh sách, báo rõ mục nào lỗi.
+- **fs_trash_list_remote_terminal**(`account`) → `Result<Vec<FileItem>, String>`
+- **fs_trash_restore_remote_terminal**(`account`, `path`) → `Result<(), String>`
+- **fs_trash_delete_remote_terminal**(`account`, `path`) → `Result<(), String>`
 - **fs_trash_empty_remote_terminal**(`account`) → `Result<(), String>` — `rclone cleanup`.
+
+Định danh mục dùng `path` (đường dẫn tương đối) / `item_id` (tên trong `Trash/files/`),
+**không** dùng chỉ số mảng — chỉ số lệch ngay khi danh sách đổi và có thể xoá sai mục.
 
 ## api/config.rs
 - **get_config_content**() → `Result<String, String>`
@@ -139,7 +154,9 @@ rồi dựng lại theo cú pháp rclone bằng `core::rclone::build_target`:
   Chỉ hỗ trợ ổ `Local`. Tách lệnh theo cú pháp shell rồi `exec` trực tiếp
   (KHÔNG qua `sh -c`) để tên file không thể chèn thêm lệnh. Hỗ trợ placeholder
   `%f`/`%F`/`%u`/`%U` của Desktop Entry.
-- **sys_list_apps**() → `Result<Vec<DesktopApp>, String>` — hiện chỉ trả `xdg-open`.
+- **sys_list_apps**() → `Result<Vec<DesktopApp>, String>`
+  Quét Desktop Entry thật từ các thư mục XDG (kể cả Flatpak/Snap), lọc
+  `NoDisplay`/`Hidden`/`Terminal=true`, xếp theo tên; `xdg-open` luôn ở đầu.
 - **os_clipboard_set**(`items`, `is_cut`) / **os_clipboard_get**() — qua file JSON trong temp dir.
 - **sys_get_custom_actions**() → `Result<Vec<CustomAction>, String>` — hiện trả rỗng.
 - **sys_get_valid_actions**(`files`) → `Result<Vec<CustomAction>, String>`
@@ -152,10 +169,29 @@ rồi dựng lại theo cú pháp rclone bằng `core::rclone::build_target`:
   Không có `::` → mặc định remote là `Local`.
 - **run_with_sudo_fallback**(`remote`, `action`, `args`, `fallback_cmd`) → `Result<(), String>`
   Chạy closure; nếu lỗi Permission Denied trên Local (Linux) thì thử lại qua `pkexec`.
-  Action được hỗ trợ: `rm`, `mkdir`, `mv`, `cp`, `chmod`.
+  Action được hỗ trợ: `rm`, `mkdir`, `mv`, `cp`, `chmod`. Riêng `write` trả lỗi rõ
+  ràng vì `pkexec` không chuyển tiếp stdin cho `rclone rcat`.
 - **check_conflicts**(`srcs`, `dest_path`) → `Result<Vec<ConflictInfo>, String>`
   Dùng `lsjson --stat` để xác định kiểu của chính target (không phải của file con).
   Nếu cả nguồn và đích là thư mục → quét đệ quy tìm file con trùng đường dẫn.
+
+## logic/trash_local.rs
+- **list**() / **restore**(`id`) / **delete**(`id`)
+  Đọc metadata `.trashinfo` (trường `Path=` là percent-encoded → phải decode).
+  `delete` chặn path traversal; `restore` dùng `gio` vì nó tự tạo lại thư mục cha.
+
+## logic/trash_remote.rs
+- **list** / **restore** / **delete** / **empty**(`remote`, ...)
+  Giới hạn của rclone: chỉ `drive`/`jottacloud`/`pikpak` có cờ `--<type>-trashed-only`;
+  chỉ `drive` có `backend untrash`. Backend khác trả lỗi nêu rõ lý do.
+  `delete` **phải** kèm cờ trashed-only, nếu không rclone sẽ xoá file cùng tên đang
+  ở ngoài thùng rác.
+
+## logic/desktop_apps.rs
+- **list**() → `Vec<DesktopApp>` — quét và phân tích `.desktop`.
+- **default_for_file**(`path`) → `Option<String>` — tra ứng dụng mặc định qua `xdg-mime`.
+  Lưu ý phân tích: chỉ đọc section `[Desktop Entry]` (file có thêm `[Desktop Action ...]`
+  với `Exec` riêng), và bỏ qua khoá có locale (`Name[vi]=`).
 
 ## logic/watcher.rs
 - **init**(`app: &AppHandle`) — tạo watcher + thread nền, gọi một lần trong `setup`.
