@@ -165,7 +165,7 @@ impl App {
         let project = self.projects[idx].clone();
         let root = self.root.clone();
         let tx = self.tx.clone();
-        self.push_log(format!("── Bắt đầu: {} ──", project.bin_name));
+        self.push_log(format!("── Bắt đầu: {} ──", project.release_name));
         std::thread::spawn(move || build_project(root, project, tx));
     }
 
@@ -194,7 +194,7 @@ impl App {
                     let name = self
                         .current
                         .and_then(|i| self.projects.get(i))
-                        .map(|p| p.bin_name.clone())
+                        .map(|p| p.release_name.clone())
                         .unwrap_or_else(|| "?".to_string());
                     self.results.push(BuildResult {
                         name,
@@ -247,8 +247,11 @@ mod tests {
             .map(|i| Project {
                 package: format!("p{i}"),
                 bin_name: format!("bin{i}"),
+                release_name: format!("bin{i}"),
                 rel_dir: format!("dir/{i}"),
                 kind: BuildKind::Cargo,
+                target_dir: PathBuf::from("/tmp/target"),
+                app_root: None,
             })
             .collect()
     }

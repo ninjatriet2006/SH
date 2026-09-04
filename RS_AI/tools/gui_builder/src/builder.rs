@@ -3,7 +3,7 @@
 - Mục đích: Thực thi build một project và phát tiến trình về UI.
 - Trách nhiệm: Chạy `cargo build`/`cargo tauri build` với `--message-format=json`,
   bóc tách từng dòng để biết đang biên dịch crate nào và đã xong bao nhiêu, rồi
-  copy binary vào `release/<bin>/`.
+  copy binary + tài nguyên chạy kèm vào `release/<release_name>/`.
 - Tương tác: Chạy trên thread nền, gửi `BuildEvent` qua mpsc channel cho `app.rs`.
 
 Vì sao dùng `--message-format=json`: cargo không cho biết tổng số crate trước khi
@@ -37,11 +37,16 @@ pub enum BuildEvent {
     Finished { ok: bool, message: String },
 }
 
+/// Tài nguyên chạy kèm cần copy sang release cho app Tauri.
+/// `dist/` cần cho trường hợp webview đọc asset ngoài binary; `langs`/`themes`/
+/// `fonts` là tài nguyên runtime của các app trong repo này.
+const APP_RESOURCES: [&str; 4] = ["langs", "themes", "fonts", "storage"];
+
 /// Đếm tổng số crate cần biên dịch (kể cả dependency) để làm mốc tiến trình.
-fn total_units(root: &Path) -> usize {
+fn total_units(dir: &Path) -> usize {
     Command::new("cargo")
         .args(["metadata", "--format-version=1"])
-        .current_dir(root)
+        .current_dir(dir)
         .output()
         .ok()
         .filter(|o| o.status.success())
@@ -133,17 +138,22 @@ fn run_streaming(
 }
 
 /// Tên hàm: build_project
-/// Mô tả: Build một project và copy binary vào `release/<bin_name>/`.
+/// Mô tả: Build một project và copy binary + tài nguyên vào `release/<release_name>/`.
 /// Gửi toàn bộ tiến trình qua `tx`; luôn kết thúc bằng `BuildEvent::Finished`.
 pub fn build_project(root: PathBuf, project: Project, tx: Sender<BuildEvent>) {
-    let total = total_units(&root);
+    // Đếm tổng crate tại chính thư mục build (workspace lồng có bộ dep riêng).
+    let count_dir = match &project.kind {
+        BuildKind::Tauri { config_dir } => config_dir.clone(),
+        BuildKind::Cargo => root.clone(),
+    };
+    let total = total_units(&count_dir);
     let mut counter = 0usize;
 
     let result = match &project.kind {
         BuildKind::Tauri { config_dir } => {
             let _ = tx.send(BuildEvent::Stage(format!(
                 "Build Tauri: {} (frontend + backend)",
-                project.bin_name
+                project.release_name
             )));
             // `cargo tauri build` chạy beforeBuildCommand (dựng frontend) rồi
             // nhúng dist vào binary. Dùng `cargo build` trực tiếp sẽ tạo binary
@@ -180,30 +190,31 @@ pub fn build_project(root: PathBuf, project: Project, tx: Sender<BuildEvent>) {
     if let Err(e) = result {
         let _ = tx.send(BuildEvent::Finished {
             ok: false,
-            message: format!("{} — build thất bại: {}", project.bin_name, e),
+            message: format!("{} — build thất bại: {}", project.release_name, e),
         });
         return;
     }
 
-    // ── Xuất binary vào release/ ─────────────────────────────────────────────
+    // ── Xuất vào release/ ────────────────────────────────────────────────────
     let _ = tx.send(BuildEvent::Stage(format!(
         "Xuất vào release/{}/",
-        project.bin_name
+        project.release_name
     )));
 
-    let src = root.join("target/release").join(&project.bin_name);
+    // Binary mang tên crate; thư mục + file xuất ra mang tên sản phẩm.
+    let src = project.target_dir.join("release").join(&project.bin_name);
     if !src.is_file() {
         let _ = tx.send(BuildEvent::Finished {
             ok: false,
             message: format!(
-                "Không tìm thấy binary: target/release/{} (build xong nhưng thiếu file?)",
-                project.bin_name
+                "Không tìm thấy binary: {} (build xong nhưng thiếu file?)",
+                src.display()
             ),
         });
         return;
     }
 
-    let dest_dir = root.join("release").join(&project.bin_name);
+    let dest_dir = root.join("release").join(&project.release_name);
     if let Err(e) = std::fs::create_dir_all(&dest_dir) {
         let _ = tx.send(BuildEvent::Finished {
             ok: false,
@@ -212,7 +223,7 @@ pub fn build_project(root: PathBuf, project: Project, tx: Sender<BuildEvent>) {
         return;
     }
 
-    let dest = dest_dir.join(&project.bin_name);
+    let dest = dest_dir.join(&project.release_name);
     if let Err(e) = std::fs::copy(&src, &dest) {
         let _ = tx.send(BuildEvent::Finished {
             ok: false,
@@ -229,36 +240,92 @@ pub fn build_project(root: PathBuf, project: Project, tx: Sender<BuildEvent>) {
 
     let size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
     let _ = tx.send(BuildEvent::Log(format!(
-        "Đã copy {} ({})",
-        dest.strip_prefix(&root).unwrap_or(&dest).display(),
+        "Binary → release/{}/{} ({})",
+        project.release_name,
+        project.release_name,
         human_size(size)
     )));
 
-    // Với app Tauri, copy kèm tài nguyên chạy ngoài binary nếu có.
-    if let BuildKind::Tauri { config_dir } = &project.kind {
-        if let Some(app_dir) = config_dir.parent() {
-            for extra in ["langs", "themes"] {
-                let from = app_dir.join(extra);
-                if from.is_dir() {
-                    let to = dest_dir.join(extra);
-                    let _ = std::fs::remove_dir_all(&to);
-                    if copy_dir(&from, &to).is_ok() {
-                        let _ = tx.send(BuildEvent::Log(format!("Đã copy thư mục {extra}/")));
-                    } else {
-                        let _ = tx.send(BuildEvent::Warn(format!("Không copy được {extra}/")));
-                    }
-                }
-            }
-        }
+    // Với app Tauri, copy kèm tài nguyên chạy ngoài binary.
+    if let (BuildKind::Tauri { config_dir }, Some(app_root)) = (&project.kind, &project.app_root) {
+        copy_app_resources(app_root, config_dir, &dest_dir, &tx);
     }
 
     let _ = tx.send(BuildEvent::Finished {
         ok: true,
-        message: format!("{} — xong ({})", project.bin_name, human_size(size)),
+        message: format!("{} — xong ({})", project.release_name, human_size(size)),
     });
 }
 
-/// Copy đệ quy một thư mục (không theo symlink ra ngoài).
+/// Copy tài nguyên chạy kèm của app Tauri: `frontend/dist`, các thư mục runtime
+/// và icons. Thiếu chúng thì app vẫn chạy nhưng mất theme/ngôn ngữ.
+fn copy_app_resources(
+    app_root: &Path,
+    config_dir: &Path,
+    dest_dir: &Path,
+    tx: &Sender<BuildEvent>,
+) {
+    // frontend/dist — hữu ích khi cần soi asset đã build, và một số app đọc ngoài.
+    let dist = app_root.join("frontend/dist");
+    if dist.is_dir() {
+        let to = dest_dir.join("dist");
+        let _ = std::fs::remove_dir_all(&to);
+        match copy_dir(&dist, &to) {
+            Ok(_) => {
+                let _ = tx.send(BuildEvent::Log("Đã copy dist/".to_string()));
+            }
+            Err(e) => {
+                let _ = tx.send(BuildEvent::Warn(format!("Không copy được dist/: {e}")));
+            }
+        }
+    }
+
+    for name in APP_RESOURCES {
+        let from = app_root.join(name);
+        if !from.is_dir() {
+            continue;
+        }
+        let to = dest_dir.join(name);
+        let _ = std::fs::remove_dir_all(&to);
+        match copy_dir(&from, &to) {
+            Ok(_) => {
+                let _ = tx.send(BuildEvent::Log(format!("Đã copy {name}/")));
+            }
+            Err(e) => {
+                let _ = tx.send(BuildEvent::Warn(format!("Không copy được {name}/: {e}")));
+            }
+        }
+    }
+
+    // Icons nằm cạnh tauri.conf.json.
+    let icons = config_dir.join("icons");
+    if icons.is_dir() {
+        let to = dest_dir.join("icons");
+        let _ = std::fs::create_dir_all(&to);
+        let mut copied = 0usize;
+        if let Ok(entries) = std::fs::read_dir(&icons) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                let ext = p
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                // Chỉ lấy định dạng icon dùng khi chạy/đóng gói.
+                if matches!(ext.as_str(), "png" | "ico" | "icns") {
+                    if std::fs::copy(&p, to.join(entry.file_name())).is_ok() {
+                        copied += 1;
+                    }
+                }
+            }
+        }
+        if copied > 0 {
+            let _ = tx.send(BuildEvent::Log(format!("Đã copy {copied} icon")));
+        }
+    }
+}
+
+/// Copy đệ quy một thư mục.
 fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(to)?;
     for entry in std::fs::read_dir(from)? {

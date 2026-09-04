@@ -91,7 +91,7 @@ fn draw_select(f: &mut Frame, app: &App) {
 
                 ListItem::new(Line::from(vec![
                     Span::styled(mark, style),
-                    Span::styled(format!("{:<26}", p.bin_name), style),
+                    Span::styled(format!("{:<26}", p.release_name), style),
                     Span::styled(
                         match p.kind {
                             BuildKind::Tauri { .. } => "[Tauri]",
@@ -160,7 +160,7 @@ fn draw_building(f: &mut Frame, app: &App) {
     let name = app
         .current
         .and_then(|i| app.projects.get(i))
-        .map(|p| p.bin_name.as_str())
+        .map(|p| p.release_name.as_str())
         .unwrap_or("—");
     header(
         chunks[0],

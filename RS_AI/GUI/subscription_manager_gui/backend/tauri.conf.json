@@ -1,13 +1,19 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "subscription_manager",
+  "productName": "subscription_manager_gui",
   "version": "0.1.0",
   "identifier": "com.subscription.manager",
   "build": {
     "frontendDist": "../frontend/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "npm --prefix ../frontend run dev",
-    "beforeBuildCommand": "npm --prefix ../frontend run build"
+    "beforeDevCommand": {
+      "cwd": "../frontend",
+      "script": "npm run dev"
+    },
+    "beforeBuildCommand": {
+      "cwd": "../frontend",
+      "script": "npm run build"
+    }
   },
   "app": {
     "windows": [

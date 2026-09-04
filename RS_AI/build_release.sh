@@ -10,6 +10,10 @@
 # Vì sao cần TUI: bản cũ hard-code 11 project và bỏ sót rclone_gui; đồng thời
 # build app Tauri bằng `cargo build` khiến frontend không được nhúng vào binary,
 # app chạy lên báo "connection refused" vì rơi về devUrl.
+#
+# Đây là script build DUY NHẤT của repo. Các `GUI/*/build_release.sh` riêng lẻ đã
+# được gộp vào GUI BUILDER (chúng hard-code đường dẫn và tên binary, dễ lệch khi
+# cấu trúc project đổi).
 # =============================================================================
 set -euo pipefail
 cd "$(dirname "$0")"

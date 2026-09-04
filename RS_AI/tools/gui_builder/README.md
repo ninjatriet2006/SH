@@ -37,6 +37,26 @@ Phân loại tự động:
 Phân biệt này là bắt buộc: build app Tauri bằng `cargo build` tạo binary rơi về
 `devUrl`, app mở lên báo *connection refused*.
 
+### Ba trường hợp đặc biệt được xử lý
+
+1. **Tên crate khác tên sản phẩm.** Template Tauri hay để `name = "app"`.
+   Builder lấy `productName` trong `tauri.conf.json` làm tên thư mục/file xuất ra,
+   nên `release/` mang tên sản phẩm thật thay vì `app`.
+2. **Workspace lồng.** `GUI/filen_gui/bridge` có `[workspace]` riêng nên
+   `cargo metadata` ở root không thấy. Builder quét bổ sung mọi thư mục có
+   `tauri.conf.json` + `Cargo.toml` chưa được workspace gốc quản lý.
+3. **Target riêng.** Crate ở workspace lồng build vào `target/` của chính nó,
+   không phải target chung — builder ghi nhớ `target_dir` cho từng project.
+
+Test `no_duplicate_release_names` đảm bảo không có hai project cùng tên xuất release
+(nếu trùng, chúng sẽ ghi đè nhau trong `release/`).
+
+## Tài nguyên chạy kèm
+
+Với app Tauri, builder copy sang `release/<tên>/`: `dist/`, `langs/`, `themes/`,
+`fonts/`, `storage/` (nếu có) và icon `.png`/`.ico`/`.icns`. Đây là phần việc mà
+các `GUI/*/build_release.sh` cũ làm bằng tay.
+
 ## Tiến trình
 
 Hai thanh gauge:
