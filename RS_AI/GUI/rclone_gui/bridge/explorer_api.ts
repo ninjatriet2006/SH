@@ -30,10 +30,24 @@ export async function getTempDir(): Promise<string> {
   return await invoke('fs_temp_dir');
 }
 
-/** Thư mục khởi điểm của người dùng (Desktop nếu có, ngược lại là $HOME). */
+/** Thư mục khởi điểm của người dùng ($HOME). */
 export async function getHomeDir(): Promise<string> {
   debugStore.log('API', 'get_home_dir', {});
   return await invoke('get_home_dir');
+}
+
+/** Một vị trí truy cập nhanh chuẩn XDG (Home, Desktop, Downloads...). */
+export interface UserPlace {
+  name: string;
+  path: string;
+  icon: string;
+  kind: string;
+}
+
+/** Danh sách thư mục người dùng chuẩn XDG (chỉ những thư mục thực sự tồn tại). */
+export async function getUserPlaces(): Promise<UserPlace[]> {
+  debugStore.log('API', 'get_user_places', {});
+  return await invoke<UserPlace[]>('get_user_places');
 }
 
 export async function fsMkdir(path: string): Promise<void> {

@@ -1,7 +1,7 @@
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { listFiles } from '../../../bridge/explorer_api.ts';
-import { logActivity } from '../store';
+import { logActivity, isBookmarked, toggleBookmark } from '../store';
 import type { FileItem } from '../store';
 import { OperationModal } from './OperationModal';
 import { PaneContainer } from './pane/PaneContainer';
@@ -80,7 +80,7 @@ export class DualPaneExplorer {
       onUp: () => this.goUp('left'),
       onHome: () => this.goHome('left'),
       onRefresh: () => this.refresh('left', true),
-      onBookmarkSelect: (path) => this.navigate('left', path),
+      onToggleBookmark: (path) => this.handleToggleBookmark('left', path),
       onRemoteChange: (remote) => this.handleRemoteChange('left', remote)
     });
     this.leftPane.onTabSwitch = (path) => this.loadPane('left', path);
@@ -104,7 +104,7 @@ export class DualPaneExplorer {
       onUp: () => this.goUp('right'),
       onHome: () => this.goHome('right'),
       onRefresh: () => this.refresh('right', true),
-      onBookmarkSelect: (path) => this.navigate('right', path),
+      onToggleBookmark: (path) => this.handleToggleBookmark('right', path),
       onRemoteChange: (remote) => this.handleRemoteChange('right', remote)
     });
     this.rightPane.onTabSwitch = (path) => this.loadPane('right', path);
@@ -420,6 +420,7 @@ export class DualPaneExplorer {
       colWidths
     );
     view.toolbar?.updateHistoryState(canPaneGoBack(pane), canPaneGoForward(pane));
+    view.toolbar?.updateBookmarkState(path ?? '', isBookmarked(path ?? ''));
   }
 
   /** Click tiêu đề cột → sort; cùng cột thì toggle asc/desc. */
@@ -601,6 +602,21 @@ export class DualPaneExplorer {
         activeContainer.addTab(path);
       },
     });
+  }
+
+  /**
+   * Ghim/bỏ ghim vị trí hiện tại của pane (dấu sao trên toolbar).
+   * Tên ghim mặc định là tên thư mục cuối để dễ nhận ra trong sidebar.
+   */
+  private handleToggleBookmark(pane: Pane, path: string): void {
+    if (!path) return;
+    const wasBookmarked = isBookmarked(path);
+    const label = baseName(path.replace(/^[^:]+::/, '')) || path;
+    toggleBookmark(label, path);
+    logActivity(wasBookmarked ? 'Bỏ ghim' : 'Ghim', path);
+    // Cập nhật ngay icon của pane vừa bấm; pane còn lại đồng bộ ở lần render sau.
+    const view = pane === 'left' ? this.leftPane : this.rightPane;
+    view.toolbar?.updateBookmarkState(path, isBookmarked(path));
   }
 
   /**

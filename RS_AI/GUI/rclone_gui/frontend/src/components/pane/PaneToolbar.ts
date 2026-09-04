@@ -1,7 +1,5 @@
-import { appState } from '../../store';
-import { saveSettings } from '../../store';
+import { appState, saveSettings } from '../../store';
 import { showMenu } from '../../features/contextMenu';
-import { BookmarkManagerModal } from '../BookmarkManagerModal';
 
 export interface PaneToolbarOptions {
   labelElement: HTMLElement;
@@ -16,7 +14,8 @@ export interface PaneToolbarOptions {
   onAdvancedSearch?: () => void;
   currentViewMode?: 'list' | 'grid' | 'compact';
   onChangeViewMode?: (mode: 'list' | 'grid' | 'compact') => void;
-  onBookmarkSelect?: (path: string) => void;
+  /** Bấm dấu sao → ghim/bỏ ghim vị trí hiện tại. */
+  onToggleBookmark?: (path: string) => void;
 }
 
 /**
@@ -28,6 +27,8 @@ export class PaneToolbar {
   private forwardBtn: HTMLButtonElement;
   private state: 'remote-active' | 'path-active' | 'filter-active' = 'remote-active';
   private onSettingsChanged?: () => void;
+  private bookmarkBtn!: HTMLButtonElement;
+  private currentPath = '';
 
   private onDocMouseDown = (e: MouseEvent) => {
     if (!this.element.contains(e.target as Node)) {
@@ -62,33 +63,6 @@ export class PaneToolbar {
     navGroup.appendChild(this.forwardBtn);
     navGroup.appendChild(mkBtn('⬆', opts.onUp));
     navGroup.appendChild(mkBtn('🏠', opts.onHome));
-
-    // Bookmark menu button
-    const bmkBtn = mkBtn('🔖', undefined, 'nemo-btn-bookmark');
-    bmkBtn.addEventListener('click', (e) => {
-        const bookmarks = appState.bookmarks || [];
-        const MANAGE = '⚙️ Quản lý ghim…';
-        if (bookmarks.length === 0) {
-            showMenu(e, [{ label: '(Chưa có ghim nào)', disabled: true }], () => {});
-            return;
-        }
-        const items = [
-            ...bookmarks.map(b => b.name),
-            { separator: true },
-            MANAGE,
-        ];
-        showMenu(e, items, (action) => {
-            if (action === MANAGE) {
-                new BookmarkManagerModal().open();
-                return;
-            }
-            const b = bookmarks.find(x => x.name === action);
-            if (b && opts.onBookmarkSelect) {
-                opts.onBookmarkSelect(b.path);
-            }
-        });
-    });
-    navGroup.appendChild(bmkBtn);
 
     navGroup.appendChild(opts.labelElement);
     this.element.appendChild(navGroup);
@@ -171,7 +145,19 @@ export class PaneToolbar {
     viewGroup.appendChild(btnHidden);
 
     viewGroup.appendChild(separator());
-    
+
+    // Ghim vị trí hiện tại — hành vi như dấu sao trên thanh địa chỉ trình duyệt.
+    // ☆ chưa ghim, ★ đã ghim. Đặt giữa nút ẩn/hiện và reload.
+    this.bookmarkBtn = mkBtn('☆', () => {
+      const path = this.currentPath;
+      if (!path) return;
+      opts.onToggleBookmark?.(path);
+    }, 'nemo-btn-bookmark');
+    this.bookmarkBtn.title = 'Ghim vị trí này';
+    viewGroup.appendChild(this.bookmarkBtn);
+
+    viewGroup.appendChild(separator());
+
     viewGroup.appendChild(mkBtn('⟳', opts.onRefresh));
     
     this.element.appendChild(viewGroup);
@@ -198,6 +184,24 @@ export class PaneToolbar {
       this.state = newState;
       this.element.className = `pane-toolbar-nemo state-${newState}`;
     }
+  }
+
+  /**
+   * Cập nhật dấu sao theo path đang xem.
+   * Gọi mỗi lần pane render để icon phản ánh đúng trạng thái ghim.
+   */
+  updateBookmarkState(path: string, bookmarked: boolean): void {
+    this.currentPath = path;
+    if (!this.bookmarkBtn) return;
+    const enabled = Boolean(path);
+    this.bookmarkBtn.disabled = !enabled;
+    this.bookmarkBtn.textContent = bookmarked ? '★' : '☆';
+    this.bookmarkBtn.classList.toggle('is-bookmarked', bookmarked);
+    this.bookmarkBtn.title = !enabled
+      ? 'Chưa chọn vị trí'
+      : bookmarked
+        ? 'Bỏ ghim vị trí này'
+        : 'Ghim vị trí này';
   }
 
   updateHistoryState(canBack: boolean, canForward: boolean): void {

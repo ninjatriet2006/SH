@@ -39,7 +39,8 @@ export interface PaneViewOptions {  side: 'left' | 'right';
   onHome?: () => void;
   onRefresh?: () => void;
   onRemoteChange?: (remote: string) => void;
-  onBookmarkSelect?: (path: string) => void;
+  /** Bấm dấu sao trên toolbar → ghim/bỏ ghim vị trí hiện tại. */
+  onToggleBookmark?: (path: string) => void;
 }
 
 export interface PaneSort {
@@ -106,7 +107,7 @@ export class PaneView {
         // điều hướng pane này tới thư mục chứa file đó.
         new SearchModal(this.path, (dirPath) => this.opts.onOpenDir(dirPath)).open();
       },
-      onBookmarkSelect: opts.onBookmarkSelect,
+      onToggleBookmark: opts.onToggleBookmark,
       currentViewMode: this.viewMode,
       onChangeViewMode: (mode) => {
         this.viewMode = mode;

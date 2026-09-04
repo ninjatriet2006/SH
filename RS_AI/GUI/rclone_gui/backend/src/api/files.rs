@@ -401,13 +401,84 @@ pub async fn fs_search(path: String, query: String) -> Result<Vec<SearchResultIt
 
 #[tauri::command]
 pub async fn get_home_dir() -> Result<String, String> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
-    let desktop = format!("{}/Desktop", home);
-    if std::path::Path::new(&desktop).exists() {
-        Ok(desktop)
-    } else {
-        Ok(home)
+    // Trả về đúng $HOME. (Trước đây hàm này trả về ~/Desktop nhưng vẫn được gọi
+    // dưới nhãn "Local", gây nhầm lẫn về vị trí thực tế đang mở.)
+    Ok(std::env::var("HOME").unwrap_or_else(|_| "/".to_string()))
+}
+
+/// Một vị trí truy cập nhanh trong sidebar.
+#[derive(serde::Serialize)]
+pub struct UserPlace {
+    /// Nhãn hiển thị (đã theo ngôn ngữ hệ thống nếu XDG cung cấp).
+    pub name: String,
+    /// Đường dẫn tuyệt đối trên ổ Local.
+    pub path: String,
+    /// Emoji gợi ý cho UI.
+    pub icon: String,
+    /// Khoá XDG (`HOME`, `DESKTOP`, ...) để Frontend nhận diện.
+    pub kind: String,
+}
+
+/// Tra một thư mục XDG bằng `xdg-user-dir`. Trả `None` nếu không có hoặc trùng $HOME
+/// (khi thư mục chưa được tạo, `xdg-user-dir` trả về chính $HOME).
+fn xdg_user_dir(key: &str, home: &str) -> Option<String> {
+    let out = Command::new("xdg-user-dir").arg(key).output().ok()?;
+    if !out.status.success() {
+        return None;
     }
+    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if path.is_empty() || path == home {
+        return None;
+    }
+    Some(path)
+}
+
+/// Tên hàm: get_user_places
+/// Mô tả: Danh sách thư mục người dùng chuẩn XDG để dựng mục "Truy cập nhanh".
+/// Chỉ trả về thư mục thực sự tồn tại, nên không hiện mục dẫn tới đường dẫn rỗng.
+#[tauri::command]
+pub async fn get_user_places() -> Result<Vec<UserPlace>, String> {
+    blocking(|| {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
+
+        let mut places = vec![UserPlace {
+            name: "Home".to_string(),
+            path: home.clone(),
+            icon: "🏠".to_string(),
+            kind: "HOME".to_string(),
+        }];
+
+        // Thứ tự giống trình quản lý tệp thông dụng (Nemo/Nautilus).
+        let candidates = [
+            ("DESKTOP", "🖥️"),
+            ("DOWNLOAD", "⬇️"),
+            ("DOCUMENTS", "📄"),
+            ("PICTURES", "🖼️"),
+            ("MUSIC", "🎵"),
+            ("VIDEOS", "🎬"),
+        ];
+
+        for (key, icon) in candidates {
+            if let Some(path) = xdg_user_dir(key, &home) {
+                if std::path::Path::new(&path).is_dir() {
+                    let name = std::path::Path::new(&path)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(key)
+                        .to_string();
+                    places.push(UserPlace {
+                        name,
+                        path,
+                        icon: icon.to_string(),
+                        kind: key.to_string(),
+                    });
+                }
+            }
+        }
+
+        Ok(places)
+    })
+    .await
 }
 
 #[tauri::command]

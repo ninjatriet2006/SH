@@ -2927,6 +2927,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gui_builder"
+version = "0.1.0"
+dependencies = [
+ "crossterm 0.27.0",
+ "ratatui 0.26.3",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "h2"
 version = "0.3.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"

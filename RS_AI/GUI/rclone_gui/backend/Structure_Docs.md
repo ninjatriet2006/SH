@@ -228,3 +228,19 @@ rồi dựng lại theo cú pháp rclone bằng `core::rclone::build_target`:
 CSP được bật trong `tauri.conf.json` (`script-src 'self'`, `object-src 'none'`).
 `style-src` phải giữ `'unsafe-inline'` vì UI hiện dùng nhiều thuộc tính `style=`
 inline; `img-src` cần `data:` cho thumbnail base64.
+
+# CÁCH BUILD (QUAN TRỌNG)
+
+**Không** chạy `cargo build --release -p rclone_gui` trực tiếp. Lệnh đó không gọi
+`beforeBuildCommand`, nên frontend không được dựng và **không được nhúng** vào
+binary — app khởi động sẽ rơi về `devUrl` (`http://localhost:5173`) và báo
+*connection refused* nếu không có Vite dev server.
+
+Dùng một trong hai:
+- `./build_release.sh` ở workspace root → mở TUI **GUI BUILDER**, chọn project bằng phím.
+- `cargo tauri build --no-bundle` trong `backend/` (cần `cargo-tauri`).
+
+Kiểm tra binary đã nhúng frontend hay chưa:
+```sh
+strings target/release/rclone_gui | grep -c 'assets/index-'   # > 0 là đã nhúng
+```

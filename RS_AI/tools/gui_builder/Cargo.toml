@@ -1,0 +1,15 @@
+[package]
+name = "gui_builder"
+version = "0.1.0"
+edition = "2024"
+description = "TUI chọn và build các project trong workspace RS_AI, rồi xuất vào release/"
+
+[[bin]]
+name = "gui_builder"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = "0.26"
+crossterm = "0.27"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

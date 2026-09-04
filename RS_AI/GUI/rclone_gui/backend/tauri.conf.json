@@ -5,7 +5,15 @@
   "identifier": "com.rclone.gui",
   "build": {
     "frontendDist": "../frontend/dist",
-    "devUrl": "http://localhost:5173"
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": {
+      "cwd": "../frontend",
+      "script": "npm run dev"
+    },
+    "beforeBuildCommand": {
+      "cwd": "../frontend",
+      "script": "npm run build"
+    }
   },
   "app": {
     "windows": [

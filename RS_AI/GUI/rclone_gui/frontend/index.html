@@ -17,8 +17,8 @@ Các module tương tác: /src/main.ts, /themes/tokens.css, /themes/style.css
       <!-- ── Top bar ─────────────────────────────────────────── -->
       <div id="menubar-container"></div>
       <header id="top-bar" class="top-bar">
-        <!-- Nút ẩn/hiện sidebar trên mobile -->
-        <button id="sidebar-toggle" class="hamburger" aria-label="Toggle sidebar">☰</button>
+        <!-- Thu gọn/mở rộng sidebar (thu gọn = chỉ còn dải icon) -->
+        <button id="sidebar-toggle" class="sidebar-toggle" aria-label="Thu gọn sidebar" title="Thu gọn / mở rộng sidebar">☰</button>
         <div class="top-left">
           <span class="app-logo">☁️</span>
           <!-- Tiêu đề ứng dụng, dùng data-lang-id để đa ngôn ngữ -->
@@ -35,12 +35,9 @@ Các module tương tác: /src/main.ts, /themes/tokens.css, /themes/style.css
       </header>
 
       <div class="body-row">
-        <!-- ── Sidebar: cây thư mục Local ────────────────────── -->
+        <!-- ── Sidebar: Truy cập nhanh + Đã ghim + Cây thư mục ─── -->
         <aside id="sidebar" class="sidebar">
-          <div class="side-section">
-            <div class="side-heading" data-lang-id="side_heading_places">Thư mục</div>
-            <div id="tree-container"></div>
-          </div>
+          <!-- Nội dung do components/Sidebar.ts dựng -->
         </aside>
         <div id="sidebar-resizer" class="sidebar-resizer"></div>
 

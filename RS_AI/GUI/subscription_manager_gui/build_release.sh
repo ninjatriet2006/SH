@@ -38,7 +38,7 @@ echo "    (bắt buộc: nhúng frontend assets vào binary, nếu không webvie
 echo "     sẽ fallback về devUrl localhost:5173 → Connection refused)"
 (
     cd "$APP_DIR"
-    npx @tauri-apps/cli build --no-bundle
+    cargo tauri build --no-bundle
 )
 
 # --- 3. Tạo thư mục release/subscription_manager_gui/ ----------------------------------------

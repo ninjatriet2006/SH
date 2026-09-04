@@ -12,8 +12,7 @@ import { MenuBar } from './components/MenuBar';
 import { TransferDrawer } from './components/TransferDrawer';
 import { DebugView } from './components/DebugView.ts';
 import { RecentsView } from './components/RecentsView';
-import { TreeView } from './components/TreeView';
-import { getHomeDir } from '../../bridge/explorer_api';
+import { Sidebar } from './components/Sidebar';
 
 // Nhúng CSS thông qua Vite bundler
 import '../../themes/tokens.css';
@@ -28,6 +27,7 @@ let remotesManager: RemotesManager | null = null;
 let mountManager: MountManager | null = null;
 let debugView: DebugView | null = null;
 let recentsView: RecentsView | null = null;
+let sidebar: Sidebar | null = null;
 
 /**
  * Hàm đệ quy cập nhật UI text dựa trên data-lang-id.
@@ -126,15 +126,19 @@ function setupEvents() {
     drawer?.classList.toggle('open');
   });
 
-  // Toggle sidebar (nút ☰)
-  const sidebar = document.getElementById('sidebar');
+  // Nút ☰: thu gọn sidebar thành dải icon (không ẩn hẳn) — giống sidebar dọc Firefox.
+  const bodyRowEl = document.querySelector('.body-row') as HTMLElement | null;
   document.getElementById('sidebar-toggle')?.addEventListener('click', () => {
-    sidebar?.classList.toggle('collapsed');
+    const collapsed = !(sidebar?.isCollapsed() ?? false);
+    sidebar?.setCollapsed(collapsed);
+    bodyRowEl?.classList.toggle('sidebar-collapsed', collapsed);
+    // Bỏ chiều rộng do kéo tay để lớp .sidebar-collapsed áp dụng được.
+    if (bodyRowEl) bodyRowEl.style.gridTemplateColumns = '';
   });
 
   // Resize Sidebar
   const resizer = document.getElementById('sidebar-resizer');
-  const bodyRow = document.querySelector('.body-row') as HTMLElement;
+  const bodyRow = bodyRowEl;
   
   let isResizing = false;
   resizer?.addEventListener('mousedown', () => {
@@ -144,6 +148,7 @@ function setupEvents() {
   
   document.addEventListener('mousemove', (e) => {
     if (!isResizing) return;
+    if (sidebar?.isCollapsed()) return; // Đang thu gọn thì không kéo giãn
     const newWidth = Math.max(150, Math.min(e.clientX, 400));
     if (bodyRow) {
       bodyRow.style.gridTemplateColumns = `${newWidth}px 4px 1fr`;
@@ -173,13 +178,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       menubarContainer.appendChild(new MenuBar(dualPane.commands).getElement());
     }
 
-    const treeContainer = document.getElementById('tree-container');
-    if (treeContainer) {
-      const home = await getHomeDir().catch(() => '/');
-      const tree = new TreeView(`Local::${home}`, (path) =>
-        dualPane.commands.navigateActive(path),
-      );
-      treeContainer.appendChild(tree.getElement());
+    // Sidebar: Truy cập nhanh (XDG) + Đã ghim + Cây thư mục.
+    const sidebarEl = document.getElementById('sidebar');
+    if (sidebarEl) {
+      sidebar = new Sidebar({
+        onSelect: (path) => dualPane.commands.navigateActive(path),
+      });
+      sidebarEl.appendChild(sidebar.getElement());
+      await sidebar.init();
     }
   }
 

@@ -34,6 +34,7 @@ pub fn run() {
             api::files::fs_search,
             api::files::fs_check_conflicts,
             api::files::get_home_dir,
+            api::files::get_user_places,
             api::files::open_in_terminal,
             api::files::fs_get_thumbnail,
             api::files::fs_temp_dir,

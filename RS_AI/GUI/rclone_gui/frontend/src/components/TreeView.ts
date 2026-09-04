@@ -13,12 +13,18 @@ export class TreeView {
   private rootPath: string;
   private onSelect: (path: string) => void;
 
-  constructor(rootPath: string, onSelect: (path: string) => void) {
+  /**
+   * @param rootPath Đường dẫn gốc dạng `Local::/...`
+   * @param onSelect Callback điều hướng khi bấm vào một nhánh
+   * @param rootLabel Nhãn của node gốc. Trước đây hard-code "Cục bộ" trong khi
+   *   đường dẫn lại là thư mục khác — nhãn và vị trí thực tế không khớp nhau.
+   */
+  constructor(rootPath: string, onSelect: (path: string) => void, rootLabel?: string) {
     this.rootPath = rootPath;
     this.onSelect = onSelect;
     this.element = document.createElement('div');
     this.element.className = 'tree-view';
-    this.renderNode(this.element, this.rootPath, 'Cục bộ');
+    this.renderNode(this.element, this.rootPath, rootLabel);
   }
 
   public getElement(): HTMLElement {
@@ -42,8 +48,10 @@ export class TreeView {
     
     const labelEl = document.createElement('span');
     labelEl.className = 'tree-label';
-    labelEl.textContent = label || path.split('/').filter(Boolean).pop() || path;
-    labelEl.title = path;
+    // Bỏ tiền tố `Local::` khi suy ra tên từ path để nhãn không lộ chi tiết nội bộ.
+    labelEl.textContent =
+      label || path.replace(/^Local::/, '').split('/').filter(Boolean).pop() || path;
+    labelEl.title = path.replace(/^Local::/, '');
 
     itemEl.appendChild(toggleEl);
     itemEl.appendChild(iconEl);

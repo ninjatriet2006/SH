@@ -13,6 +13,7 @@ members = [
     "GUI/universal_converter_gui",
     "GUI/subscription_manager_gui/backend",
     "GUI/rclone_gui/backend",
+    "tools/gui_builder",
 ]
 
 [workspace.package]
