@@ -1,12 +1,11 @@
 import { create } from 'zustand';
 import type { Transaction } from '../../../bridge/types';
-import { listUserTransactions, listAllTransactions, deleteTransaction } from '../../../bridge/transaction_bridge';
+import { listAllTransactions, deleteTransaction } from '../../../bridge/transaction_bridge';
 
 interface TransactionState {
     transactions: Transaction[];
     isLoading: boolean;
     
-    fetchUserTransactions: (userId: string) => Promise<void>;
     fetchAllTransactions: () => Promise<void>;
     removeTransaction: (id: string) => Promise<void>;
 }
@@ -14,18 +13,6 @@ interface TransactionState {
 export const useTransactionStore = create<TransactionState>((set) => ({
     transactions: [],
     isLoading: false,
-
-    fetchUserTransactions: async (userId) => {
-        set({ isLoading: true });
-        try {
-            const data = await listUserTransactions(userId);
-            set({ transactions: data });
-        } catch (error) {
-            console.error("Lỗi lấy lịch sử giao dịch:", error);
-        } finally {
-            set({ isLoading: false });
-        }
-    },
 
     fetchAllTransactions: async () => {
         set({ isLoading: true });

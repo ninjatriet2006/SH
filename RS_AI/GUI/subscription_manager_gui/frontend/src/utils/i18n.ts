@@ -4,21 +4,23 @@ import { useSettingsStore } from '../store/useSettingsStore';
 export function useTranslation() {
     const dictionary = useSettingsStore(state => state.dictionary);
 
-    // Hàm lấy chuỗi bằng ID (VD: t('sidebar.dashboard'))
+    // Hàm lấy chuỗi bằng ID (VD: t('sidebar.dashboard')).
+    // Thiếu key thì trả về chính key để lộ lỗi dịch thay vì render chuỗi rỗng
+    // (trước đây `<p>{t('...')}</p>` render thẻ trống, khó phát hiện thiếu dịch).
     const t = (key: string): string => {
-        if (!dictionary || Object.keys(dictionary).length === 0) return "";
+        if (!dictionary || Object.keys(dictionary).length === 0) return key;
 
         const keys = key.split('.');
         let current: any = dictionary;
 
         for (const k of keys) {
             if (current[k] === undefined) {
-                return ""; // Fallback trả về rỗng nếu thiếu
+                return key;
             }
             current = current[k];
         }
 
-        return typeof current === 'string' ? current : "";
+        return typeof current === 'string' ? current : key;
     };
 
     return { t };

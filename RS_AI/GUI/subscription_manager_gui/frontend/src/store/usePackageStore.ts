@@ -50,6 +50,7 @@ export const usePackageStore = create<PackageState>((set, get) => ({
             set({ packages: [...get().packages, newPkg] });
         } catch (error) {
             console.error("Lỗi thêm package:", error);
+            throw error;
         } finally {
             set({ isLoading: false });
         }
@@ -64,6 +65,7 @@ export const usePackageStore = create<PackageState>((set, get) => ({
             set({ packages: get().packages.map(p => p.id === id ? updatedPkg : p) });
         } catch (error) {
             console.error("Lỗi cập nhật package:", error);
+            throw error;
         } finally {
             set({ isLoading: false });
         }
@@ -78,6 +80,7 @@ export const usePackageStore = create<PackageState>((set, get) => ({
             set({ packages: get().packages.filter(p => p.id !== id) });
         } catch (error) {
             console.error("Lỗi xóa package:", error);
+            throw error;
         } finally {
             set({ isLoading: false });
         }

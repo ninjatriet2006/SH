@@ -61,6 +61,7 @@ export const useUserStore = create<UserState>((set, get) => ({
             set({ users: [...currentUsers, newUser] });
         } catch (error) {
             console.error("Lỗi thêm user:", error);
+            throw error;
         } finally {
             set({ isLoading: false });
         }
@@ -77,6 +78,7 @@ export const useUserStore = create<UserState>((set, get) => ({
             set({ users: currentUsers.map(u => u.id === id ? updatedUser : u) });
         } catch (error) {
             console.error("Lỗi cập nhật user:", error);
+            throw error;
         } finally {
             set({ isLoading: false });
         }
@@ -93,6 +95,7 @@ export const useUserStore = create<UserState>((set, get) => ({
             set({ users: currentUsers.filter(u => u.id !== id) });
         } catch (error) {
             console.error("Lỗi xóa user:", error);
+            throw error;
         } finally {
             set({ isLoading: false });
         }

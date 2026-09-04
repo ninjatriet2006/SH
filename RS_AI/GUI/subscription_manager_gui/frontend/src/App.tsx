@@ -27,7 +27,9 @@ function App() {
 
   useEffect(() => {
     const initAll = async () => {
-      await initSettings();
+      // initSettings tự chữa (fallback 'vi') và chỉ ném khi backend sập hẳn —
+      // bắt ở đây để app vẫn lên (với mặc định) thay vì treo ở màn hình tải.
+      try { await initSettings(); } catch (e) { console.error("initSettings thất bại:", e); }
       await initThemes();
       await initFonts();
     };

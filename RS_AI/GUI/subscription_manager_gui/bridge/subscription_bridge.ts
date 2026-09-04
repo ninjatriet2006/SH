@@ -20,10 +20,10 @@ export async function addSubscriptionToUser(
     try {
         // Gọi lệnh "add_subscription_to_user"
         const result = await invoke<Subscription>('add_subscription_to_user', {
-            userId: user_id,
-            packageId: package_id,
-            customExpirationDate: custom_expiration_date || null,
-            amount: amount || null
+            user_id: user_id,
+            package_id: package_id,
+            custom_expiration_date: custom_expiration_date ?? null,
+            amount: amount ?? null
         });
         return result;
     } catch (error) {
@@ -40,9 +40,9 @@ export async function updateSubscriptionExpiry(
     try {
         // Gọi lệnh "update_subscription_expiry"
         const result = await invoke<Subscription>('update_subscription_expiry', {
-            subscriptionId: subscription_id,
-            newExpirationDate: new_expiration_date,
-            amount: amount || null
+            subscription_id: subscription_id,
+            new_expiration_date: new_expiration_date,
+            amount: amount ?? null
         });
         return result;
     } catch (error) {
@@ -55,7 +55,7 @@ export async function removeSubscriptionFromUser(subscription_id: string): Promi
     try {
         // Gọi "remove_subscription_from_user"
         await invoke<void>('remove_subscription_from_user', {
-            subscriptionId: subscription_id
+            subscription_id: subscription_id
         });
     } catch (error) {
         throw new Error(String(error));
@@ -67,7 +67,7 @@ export async function listUserSubscriptions(userId: string): Promise<Subscriptio
     try {
         // Gọi "list_user_subscriptions"
         const result = await invoke<Subscription[]>('list_user_subscriptions', {
-            userId: userId
+            user_id: userId
         });
         return result;
     } catch (error) {
@@ -80,7 +80,7 @@ export async function checkSubscriptionStatus(subscription_id: string): Promise<
     try {
         // Gọi "check_subscription_status"
         const result = await invoke<boolean>('check_subscription_status', {
-            subscriptionId: subscription_id
+            subscription_id: subscription_id
         });
         return result;
     } catch (error) {

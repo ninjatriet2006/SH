@@ -13,10 +13,9 @@ import { useTranslation } from '../utils/i18n';
 
 interface SubscriptionModalProps {
     isOpen: boolean;
-    selectedUserId: string;
     subscriptionData: Subscription | null;
     onClose: () => void;
-    onSave: (packageId: string, customExpiry?: number, amount?: number) => void;
+    onSave: (packageId: string, customExpiry?: number, amount?: number) => Promise<void>;
 }
 
 export function SubscriptionModal({ isOpen, subscriptionData, onClose, onSave }: SubscriptionModalProps) {
@@ -27,7 +26,8 @@ export function SubscriptionModal({ isOpen, subscriptionData, onClose, onSave }:
     const [dateParts, setDateParts] = useState({ dd: '', mm: '', yyyy: '' }); // Hiển thị 3 ô tách biệt
     const [displayTime, setDisplayTime] = useState(''); // Hiển thị thời gian HH:mm
     const [timeParts, setTimeParts] = useState({ hh: '', mm: '' }); // Hiển thị 2 ô tách biệt
-    const [amount, setAmount] = useState<number>(0); // Số tiền thu thực tế
+    // undefined = không thu tiền → backend không ghi log tx (tránh log 0đ giả).
+    const [amount, setAmount] = useState<number | undefined>(undefined); // Số tiền thu thực tế
 
     // Load danh sách packages khi mở form nếu chưa có
     useEffect(() => {
@@ -52,14 +52,15 @@ export function SubscriptionModal({ isOpen, subscriptionData, onClose, onSave }:
             setDateParts({ dd, mm, yyyy });
             setDisplayTime(`${hh}:${min}`);
             setTimeParts({ hh, mm: min });
-            setAmount(0); // Mặc định chỉnh sửa thì không tính tiền
+            // Chế độ sửa: để trống = không thu thêm, không ghi log RENEW.
+            setAmount(undefined);
         } else {
             setSelectedPackage('');
             setCustomDate('');
             setDateParts({ dd: '', mm: '', yyyy: '' });
             setDisplayTime('');
             setTimeParts({ hh: '', mm: '' });
-            setAmount(0);
+            setAmount(undefined);
         }
     }, [subscriptionData, isOpen]);
 
@@ -68,7 +69,7 @@ export function SubscriptionModal({ isOpen, subscriptionData, onClose, onSave }:
         if (!subscriptionData && selectedPackage) {
             const pkg = packages.find(p => p.id === selectedPackage);
             if (pkg) {
-                setAmount(pkg.price || 0);
+                setAmount(pkg.price);
             }
         }
     }, [selectedPackage, subscriptionData, packages]);
@@ -206,7 +207,7 @@ export function SubscriptionModal({ isOpen, subscriptionData, onClose, onSave }:
 
     if (!isOpen) return null;
 
-    const handleSave = (e: React.FormEvent) => {
+    const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedPackage) {
             alert("Vui lòng chọn một gói dịch vụ!");
@@ -217,13 +218,34 @@ export function SubscriptionModal({ isOpen, subscriptionData, onClose, onSave }:
         if (customDate) {
             // Lấy time hoặc mặc định
             const [hr, mn] = displayTime ? displayTime.split(':') : ['00', '00'];
-            
-            // Đổi chuỗi ngày về timestamp (mili-giây)
+
+            // Đổi chuỗi ngày về timestamp (mili-giây). Ngày nhập tay có thể
+            // không hợp lệ (ví dụ 31/02) → getTime() ra NaN, JSON hóa thành
+            // null khiến backend báo lỗi khó hiểu. Chặn ngay tại đây.
             expiryTimestamp = new Date(`${customDate}T${hr.padStart(2, '0')}:${mn.padStart(2, '0')}:00`).getTime();
+            if (!Number.isFinite(expiryTimestamp)) {
+                alert("Ngày hết hạn không hợp lệ. Vui lòng kiểm tra lại!");
+                return;
+            }
         }
-        
-        onSave(selectedPackage, expiryTimestamp, amount);
-        onClose();
+
+        if (!Number.isFinite(amount) && amount !== undefined) {
+            alert("Số tiền không hợp lệ!");
+            return;
+        }
+        if (amount !== undefined && amount < 0) {
+            alert("Số tiền không hợp lệ!");
+            return;
+        }
+
+        // Đợi lưu xong mới đóng — trước đây đóng ngay cả khi backend báo lỗi,
+        // người dùng tưởng đã lưu thành công.
+        try {
+            await onSave(selectedPackage, expiryTimestamp, amount);
+            onClose();
+        } catch (err) {
+            alert(`Lưu thất bại: ${err instanceof Error ? err.message : String(err)}`);
+        }
     };
 
     return (
@@ -359,13 +381,13 @@ export function SubscriptionModal({ isOpen, subscriptionData, onClose, onSave }:
                             <input 
                                 type="number" 
                                 className="input-field" 
-                                value={amount === 0 ? '' : amount} 
-                                onChange={(e) => setAmount(Number(e.target.value))} 
+                                value={amount ?? ''} 
+                                onChange={(e) => setAmount(e.target.value === '' ? undefined : Number(e.target.value))} 
                                 placeholder="Nhập số tiền (VD: 500000)"
                                 min="0"
                             />
                             <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
-                                {subscriptionData ? 'Để trống hoặc 0 nếu không thu thêm tiền.' : 'Mặc định là giá gốc của gói.'}
+                                {subscriptionData ? 'Để trống nếu không thu thêm tiền (không ghi log).' : 'Mặc định là giá gốc của gói.'}
                             </small>
                         </div>
 

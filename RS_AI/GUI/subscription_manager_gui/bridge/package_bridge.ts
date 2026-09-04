@@ -16,7 +16,7 @@ export async function addPackage(name: string, duration_days: number, price: num
         // Gửi lệnh "add_package" xuống Rust
         const result = await invoke<Package>('add_package', { 
             name, 
-            durationDays: duration_days, 
+            duration_days: duration_days, 
             price,
             description: description || null 
         });
@@ -33,9 +33,10 @@ export async function updatePackage(id: string, name?: string, duration_days?: n
         const result = await invoke<Package>('update_package', { 
             id, 
             name: name || null, 
-            durationDays: duration_days || null, 
+            duration_days: duration_days ?? null, 
             price: price ?? null,
-            description: description || null 
+            // `??` để "" đi qua = xóa mô tả (backend hiểu "" = None).
+            description: description ?? null 
         });
         return result;
     } catch (error) {

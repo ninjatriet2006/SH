@@ -1,7 +1,7 @@
 ---
 description: Tester - Chạy test, viết test mới, verify build và báo cáo lỗi chi tiết.
 mode: subagent
-model: opencode/mimo-v2.5-free
+model: opencode/deepseek-v4-flash-free
 temperature: 0.1
 permission:
   edit: allow

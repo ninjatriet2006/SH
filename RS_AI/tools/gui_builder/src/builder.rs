@@ -40,19 +40,117 @@ pub enum BuildEvent {
 /// Tài nguyên chạy kèm cần copy sang release cho app Tauri.
 /// `dist/` cần cho trường hợp webview đọc asset ngoài binary; `langs`/`themes`/
 /// `fonts` là tài nguyên runtime của các app trong repo này.
-const APP_RESOURCES: [&str; 4] = ["langs", "themes", "fonts", "storage"];
+const APP_RESOURCES: [&str; 3] = ["langs", "themes", "fonts"];
 
-/// Đếm tổng số crate cần biên dịch (kể cả dependency) để làm mốc tiến trình.
-fn total_units(dir: &Path) -> usize {
-    Command::new("cargo")
+/// Chuẩn version Node cho vite 8: ^20.19.0 || >=22.12.0.
+/// Tách hàm thuần để unit-test được.
+fn node_version_ok(ver: &str) -> bool {
+    let nums: Vec<u64> = ver
+        .trim()
+        .trim_start_matches('v')
+        .split('.')
+        .take(3)
+        .filter_map(|p| p.parse().ok())
+        .collect();
+    match nums.as_slice() {
+        [20, minor, ..] => *minor >= 19,
+        [major, ..] if *major >= 22 => true,
+        _ => false,
+    }
+}
+
+/// Kiểm tra Node trước khi build Tauri: `beforeBuildCommand` chạy `npm run build`
+/// (vite 8) cần Node ^20.19 || >=22.12. Mở TUI bằng double-click không load nvm
+/// nên hay rớt về node hệ thống v18 → chết với lỗi khó hiểu
+/// (`node:util does not provide styleText`). Chặn sớm với thông báo rõ ràng.
+fn check_node_for_tauri(tx: &Sender<BuildEvent>) -> Result<(), String> {
+    let out = Command::new("node")
+        .arg("--version")
+        .output()
+        .map_err(|e| format!("Không tìm thấy `node` trên PATH: {e}"))?;
+    let ver = String::from_utf8_lossy(&out.stdout).trim().to_string(); // "v20.20.2"
+    if node_version_ok(&ver) {
+        let _ = tx.send(BuildEvent::Log(format!("Node {ver} — đạt yêu cầu vite")));
+        Ok(())
+    } else {
+        Err(format!(
+            "Node {ver} quá cũ (vite 8 cần ^20.19 || >=22.12). \
+             Mở terminal có nvm (node -v) rồi chạy lại ./build_release.sh, \
+             hoặc cài Node mới từ nodejs.org"
+        ))
+    }
+}
+
+/// Đếm tổng số crate cần biên dịch cho RIÊNG package đang build.
+///
+/// Trước đây đếm `packages.len()` của cả workspace (909) trong khi build một
+/// app chỉ sinh ~450 artifact → thanh gauge kẹt ở giữa dù đã xong. Giờ duyệt
+/// bao đóng phụ thuộc (transitive closure) của package qua `resolve.nodes`
+/// trong `cargo metadata` nên mẫu số khớp với số artifact thực tế.
+fn total_units(dir: &Path, package: &str) -> usize {
+    const FALLBACK: usize = 300;
+    let out = Command::new("cargo")
         .args(["metadata", "--format-version=1"])
         .current_dir(dir)
         .output()
         .ok()
-        .filter(|o| o.status.success())
-        .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
-        .and_then(|v| v.get("packages").and_then(|p| p.as_array()).map(Vec::len))
-        .unwrap_or(300)
+        .filter(|o| o.status.success());
+    let Some(out) = out else { return FALLBACK };
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(&out.stdout) else {
+        return FALLBACK;
+    };
+
+    // Tìm id của package cần build trong workspace members.
+    let members: Vec<&str> = v
+        .get("workspace_members")
+        .and_then(|m| m.as_array())
+        .map(|a| a.iter().filter_map(|x| x.as_str()).collect())
+        .unwrap_or_default();
+    let root_id = v
+        .get("packages")
+        .and_then(|p| p.as_array())
+        .and_then(|pkgs| {
+            pkgs.iter().find(|p| {
+                p.get("name").and_then(|n| n.as_str()) == Some(package)
+                    && p
+                        .get("id")
+                        .and_then(|id| id.as_str())
+                        .is_some_and(|id| members.contains(&id))
+            })
+        })
+        .and_then(|p| p.get("id"))
+        .and_then(|id| id.as_str());
+    let Some(root_id) = root_id else { return FALLBACK };
+
+    // BFS qua resolve.nodes để đếm bao đóng.
+    let nodes: Vec<&serde_json::Value> = v
+        .get("resolve")
+        .and_then(|r| r.get("nodes"))
+        .and_then(|n| n.as_array())
+        .map(|a| a.iter().collect())
+        .unwrap_or_default();
+    if nodes.is_empty() {
+        return FALLBACK;
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut stack = vec![root_id.to_string()];
+    while let Some(id) = stack.pop() {
+        if !seen.insert(id.clone()) {
+            continue;
+        }
+        if let Some(node) = nodes
+            .iter()
+            .find(|n| n.get("id").and_then(|i| i.as_str()) == Some(id.as_str()))
+            && let Some(deps) = node.get("deps").and_then(|d| d.as_array())
+        {
+            for d in deps {
+                if let Some(pkg) = d.get("pkg").and_then(|p| p.as_str()) {
+                    stack.push(pkg.to_string());
+                }
+            }
+        }
+    }
+    if seen.is_empty() { FALLBACK } else { seen.len() }
 }
 
 /// Chạy một lệnh, chuyển từng dòng stdout/stderr thành `BuildEvent`.
@@ -146,7 +244,7 @@ pub fn build_project(root: PathBuf, project: Project, tx: Sender<BuildEvent>) {
         BuildKind::Tauri { config_dir } => config_dir.clone(),
         BuildKind::Cargo => root.clone(),
     };
-    let total = total_units(&count_dir);
+    let total = total_units(&count_dir, &project.package);
     let mut counter = 0usize;
 
     let result = match &project.kind {
@@ -155,6 +253,14 @@ pub fn build_project(root: PathBuf, project: Project, tx: Sender<BuildEvent>) {
                 "Build Tauri: {} (frontend + backend)",
                 project.release_name
             )));
+            // Chặn sớm nếu Node quá cũ, thay vì để npm chết giữa chừng.
+            if let Err(e) = check_node_for_tauri(&tx) {
+                let _ = tx.send(BuildEvent::Finished {
+                    ok: false,
+                    message: format!("{} — build thất bại: {}", project.release_name, e),
+                });
+                return;
+            }
             // `cargo tauri build` chạy beforeBuildCommand (dựng frontend) rồi
             // nhúng dist vào binary. Dùng `cargo build` trực tiếp sẽ tạo binary
             // rơi về devUrl → app báo "connection refused".
@@ -371,9 +477,24 @@ mod tests {
     }
 
     #[test]
+    fn node_version_gate() {
+        // Case thật của user: node hệ thống v18 → phải chặn.
+        assert!(!node_version_ok("v18.19.1"));
+        assert!(!node_version_ok("v20.18.0"));
+        // Vite 8 cần ^20.19 || >=22.12.
+        assert!(node_version_ok("v20.19.0"));
+        assert!(node_version_ok("v20.20.2"));
+        assert!(node_version_ok("v22.12.0"));
+        assert!(node_version_ok("v26.3.1"));
+        // Rác vào → chặn an toàn.
+        assert!(!node_version_ok(""));
+        assert!(!node_version_ok("vXX"));
+    }
+
+    #[test]
     fn total_units_returns_positive() {
         // Kể cả khi cargo lỗi, hàm phải trả về mốc dự phòng > 0 để không chia cho 0.
-        let n = total_units(Path::new("/definitely/not/a/workspace"));
+        let n = total_units(Path::new("/definitely/not/a/workspace"), "nope");
         assert!(n > 0);
     }
 

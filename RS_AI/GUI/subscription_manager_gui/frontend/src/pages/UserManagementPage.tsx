@@ -20,7 +20,7 @@ import { useTranslation, formatDateTime } from '../utils/i18n';
 export function UserManagementPage() {
     const { t } = useTranslation();
     const { users, isLoading: userLoading, fetchUsers, addNewUser, editUser, removeUser } = useUserStore();
-    const { subscriptions, isLoading: subLoading, fetchUserSubscriptions, addSubscription, removeSubscription, updateExpiry } = useSubscriptionStore();
+    const { subscriptions, allSubscriptions, isLoading: subLoading, fetchAllSubscriptions, fetchUserSubscriptions, addSubscription, removeSubscription, updateExpiry } = useSubscriptionStore();
     const { packages, fetchPackages } = usePackageStore();
     
     // State Modal User
@@ -74,6 +74,9 @@ export function UserManagementPage() {
     const confirmDeleteUser = async () => {
         if (userToDelete) {
             await removeUser(userToDelete);
+            // Backend xóa cascade subscription/transaction, nạp lại để state
+            // zustand không giữ xác chết làm filter trạng thái hiển thị sai.
+            await fetchAllSubscriptions();
             setIsConfirmOpen(false);
             setUserToDelete(null);
         }
@@ -132,7 +135,7 @@ export function UserManagementPage() {
     };
 
     // Filter, Sort, Paginate Logic
-    const { allSubscriptions } = useSubscriptionStore();
+    // (allSubscriptions lấy từ subscribe ở đầu component — không subscribe trùng.)
     
     const filteredUsers = useMemo(() => {
         const now = Date.now();
@@ -151,7 +154,9 @@ export function UserManagementPage() {
             if (statusFilter === 'ALL') return true;
 
             const userSubs = allSubscriptions.filter(s => s.user_id === u.id);
-            if (userSubs.length === 0) return statusFilter === 'EXPIRED'; // Nếu ko có gói nào, coi như Expired (hoặc có thể bỏ qua)
+            // Không có gói nào: coi như hết hạn (quy ước hiển thị, ghi rõ ở đây
+            // để không ai "sửa" thành ALL vì tưởng là bug).
+            if (userSubs.length === 0) return statusFilter === 'EXPIRED';
 
             let isExpiringSoon = false;
             let isActive = false;
@@ -168,7 +173,10 @@ export function UserManagementPage() {
             }
 
             if (statusFilter === 'ACTIVE') return isActive;
-            if (statusFilter === 'EXPIRING_SOON') return isExpiringSoon && !isActive;
+            // User có gói sắp hết hạn vẫn hiện ở đây dù còn gói active dài hạn —
+            // trước đây `isExpiringSoon && !isActive` giấu họ khỏi cả 2 bộ lọc.
+            // Một user có thể xuất hiện ở cả ACTIVE lẫn EXPIRING_SOON: đúng ý đồ.
+            if (statusFilter === 'EXPIRING_SOON') return isExpiringSoon;
             if (statusFilter === 'EXPIRED') return !isActive && !isExpiringSoon;
 
             return true;
@@ -430,7 +438,6 @@ export function UserManagementPage() {
             <UserModal isOpen={isUserModalOpen} userData={selectedUser} onClose={() => setIsUserModalOpen(false)} onSave={handleSaveUser} />
             <SubscriptionModal 
                 isOpen={isSubscriptionModalOpen} 
-                selectedUserId={activeUserIdForSub} 
                 subscriptionData={selectedSubForEdit} 
                 onClose={() => setIsSubscriptionModalOpen(false)} 
                 onSave={handleSaveSubscription} 

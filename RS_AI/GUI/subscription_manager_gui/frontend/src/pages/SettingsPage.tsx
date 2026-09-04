@@ -5,7 +5,7 @@
 - Tương tác: Kết nối với `useSettingsStore` và i18n hook.
 */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTranslation } from '../utils/i18n';
 import { Settings as SettingsIcon, Globe, Clock, Save, Palette, Type } from 'lucide-react';
@@ -25,6 +25,13 @@ export const SettingsPage: React.FC = () => {
     const [message, setMessage] = useState('');
     const [isSaving, setIsSaving] = useState(false);
 
+    // Đồng bộ form theo store khi `initSettings()` async hoàn tất — trước đây
+    // local state chỉ init một lần nên luôn hiển thị giá trị mặc định cũ.
+    useEffect(() => { setLocalLang(language); }, [language]);
+    useEffect(() => { setLocalTz(timezone); }, [timezone]);
+    useEffect(() => { setLocalTheme(theme_id); }, [theme_id]);
+    useEffect(() => { setLocalFont(font_id); }, [font_id]);
+
     const timezones = [
         "Asia/Ho_Chi_Minh",
         "Asia/Bangkok",
@@ -38,14 +45,20 @@ export const SettingsPage: React.FC = () => {
 
     const handleSave = async () => {
         setIsSaving(true);
-        await updateSettings(localLang, localTz, localTheme, localFont);
-        setActiveTheme(localTheme);
-        setActiveFont(localFont);
-        setMessage(t('settings.save_success'));
-        setIsSaving(false);
+        try {
+            await updateSettings(localLang, localTz, localTheme, localFont);
+            setActiveTheme(localTheme);
+            setActiveFont(localFont);
+            setMessage(t('settings.save_success'));
+        } catch (err) {
+            alert(`Lưu cài đặt thất bại: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+            setIsSaving(false);
+        }
         
-        // Tắt thông báo sau 3s
-        setTimeout(() => setMessage(''), 3000);
+        // Tắt thông báo sau 3s - lưu ref để cleanup khi unmount
+        const timer = setTimeout(() => setMessage(''), 3000);
+        return () => clearTimeout(timer);
     };
 
     return (
@@ -65,7 +78,7 @@ export const SettingsPage: React.FC = () => {
                 {/* Chọn Ngôn ngữ */}
                 <div className="form-group" style={{ marginBottom: '1.5rem' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <Globe size={18} /> {t('settings.lbl_lang') || t('settings.language')}
+                        <Globe size={18} /> {t('settings.lbl_lang')}
                     </label>
                     <select 
                         className="form-control" 
@@ -83,7 +96,7 @@ export const SettingsPage: React.FC = () => {
                 {/* Chọn Múi giờ */}
                 <div className="form-group" style={{ marginBottom: '2rem' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <Clock size={18} /> {t('settings.lbl_tz') || t('settings.timezone')}
+                        <Clock size={18} /> {t('settings.lbl_tz')}
                     </label>
                     <select 
                         className="form-control" 

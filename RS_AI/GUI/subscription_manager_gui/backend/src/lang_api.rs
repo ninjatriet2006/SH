@@ -1,24 +1,10 @@
 use std::fs;
 use std::path::PathBuf;
 
-// Hàm lấy đường dẫn thư mục `langs` ngang hàng với backend
+// Hàm lấy đường dẫn thư mục `langs`: dùng chung rule với storage
+// (CWD trước, rồi tới cạnh binary) thay vì tự chế như trước.
 fn get_langs_dir() -> PathBuf {
-    let mut base_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    
-    // Thường backend chạy ở thư mục src-tauri, hoặc thư mục dự án gốc.
-    // Thư mục langs nằm ngang hàng backend: GUI/subscription_manager_gui/langs
-    // Nếu chạy từ thư mục gốc của app, base_dir là "subscription_manager_gui"
-    base_dir.push("langs");
-    
-    // Nếu không thấy (khi build release binary), thử tìm ngang hàng file thực thi
-    if !base_dir.exists() {
-        let mut exe_path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
-        exe_path.pop(); // Thư mục chứa app
-        exe_path.push("langs");
-        return exe_path;
-    }
-    
-    base_dir
+    crate::storage::resource_dir("langs")
 }
 
 // Lấy danh sách các ngôn ngữ có sẵn (dựa vào file JSON trong thư mục langs)
@@ -46,6 +32,15 @@ pub fn get_available_langs() -> Result<Vec<String>, String> {
 // Đọc nội dung file JSON ngôn ngữ
 #[tauri::command]
 pub fn get_lang_content(lang_code: String) -> Result<serde_json::Value, String> {
+    // Chặn path traversal — trước đây `lang_code = "../../x"` đọc file ngoài
+    // thư mục langs. Chỉ cho phép chữ, số, gạch nối và gạch dưới.
+    if lang_code.is_empty()
+        || !lang_code
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(format!("Mã ngôn ngữ không hợp lệ: {}", lang_code));
+    }
     let mut path = get_langs_dir();
     path.push(format!("{}.json", lang_code));
 

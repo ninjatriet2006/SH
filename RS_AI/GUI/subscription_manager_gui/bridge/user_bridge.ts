@@ -27,16 +27,18 @@ export async function addUser(username: string, email?: string, phone?: string, 
     }
 }
 
-// Hàm gọi API cập nhật người dùng
+// Hàm gọi API cập nhật người dùng.
+// Dùng `?? null` (không phải `||`) để chuỗi rỗng "" đi qua được — backend
+// hiểu "" = xóa field về None, null = giữ nguyên.
 export async function updateUser(id: string, username?: string, email?: string, phone?: string, contact_url?: string): Promise<User> {
     try {
         // Gửi lệnh "update_user" xuống Rust
         const result = await invoke<User>('update_user', { 
             id, 
-            username: username || null, 
-            email: email || null,
-            phone: phone || null,
-            contact_url: contact_url || null 
+            username: username ?? null, 
+            email: email ?? null,
+            phone: phone ?? null,
+            contact_url: contact_url ?? null 
         });
         return result;
     } catch (error) {

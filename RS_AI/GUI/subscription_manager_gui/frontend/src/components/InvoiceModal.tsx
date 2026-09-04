@@ -19,26 +19,36 @@ export function InvoiceModal({ isOpen, transactions, username, packages, onClose
     const [accountName, setAccountName] = useState('');
     const [transferContent, setTransferContent] = useState('');
 
+    // Chỉ fetch khi modal mở — trước đây fetch + đọc localStorage ngay khi
+    // mount dù isOpen=false (tốn request VietQR mỗi lần vào trang).
+    // AbortController tránh setState sau khi đóng modal.
     useEffect(() => {
+        if (!isOpen) return;
+        const ctrl = new AbortController();
+
         // Fetch bank list from VietQR API
-        fetch('https://api.vietqr.io/v2/banks')
+        fetch('https://api.vietqr.io/v2/banks', { signal: ctrl.signal })
             .then(res => res.json())
             .then(data => {
                 if (data.code === '00' && data.data) {
                     setBanks(data.data);
                 }
             })
-            .catch(err => console.error("Error fetching banks:", err));
-        
+            .catch(err => {
+                if (err?.name !== 'AbortError') console.error("Error fetching banks:", err);
+            });
+
         // Load settings from localStorage
         const savedBin = localStorage.getItem('vietqr_bank_bin');
         const savedAccNo = localStorage.getItem('vietqr_account_no');
         const savedAccName = localStorage.getItem('vietqr_account_name');
-        
+
         if (savedBin) setBankBin(savedBin);
         if (savedAccNo) setAccountNo(savedAccNo);
         if (savedAccName) setAccountName(savedAccName);
-    }, []);
+
+        return () => ctrl.abort();
+    }, [isOpen]);
 
     // Set default transfer content when transaction changes
     useEffect(() => {

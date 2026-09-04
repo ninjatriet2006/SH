@@ -10,10 +10,9 @@ use std::path::PathBuf;
 use crate::models::FontInfo;
 
 
-// Lấy đường dẫn tới thư mục fonts
+// Lấy đường dẫn tới thư mục fonts (chung rule resource_dir).
 fn get_fonts_path() -> PathBuf {
-    let mut base_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    base_dir.push("fonts");
+    let base_dir = crate::storage::resource_dir("fonts");
     if !base_dir.exists() {
         let _ = fs::create_dir_all(&base_dir);
     }
@@ -51,8 +50,11 @@ pub fn get_available_fonts() -> Result<Vec<FontInfo>, String> {
                             let file_name = file_path.file_stem().and_then(|n| n.to_str()).unwrap_or("Unknown");
                             let font_id = format!("local_{}", file_name.replace(" ", "_").to_lowercase());
                             
-                            // Trả về URI nội bộ để Frontend dùng @font-face
-                            // Dùng path tuyệt đối (sẽ do Frontend quyết định ConvertFileSrc)
+                            // Trả về URI nội bộ để Frontend dùng @font-face.
+                            // Path tuyệt đối là CỐ Ý: frontend dùng convertFileSrc
+                            // để webview đọc font local; app desktop chạy local nên
+                            // không phải leak qua mạng. Đừng đổi thành tương đối
+                            // (webview không resolve được).
                             let src_path = file_path.to_string_lossy().to_string();
                             
                             fonts.push(FontInfo {

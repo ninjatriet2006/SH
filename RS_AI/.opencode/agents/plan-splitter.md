@@ -1,7 +1,7 @@
 ---
 description: Plan Splitter - Phân rã nhiệm vụ phức tạp thành các subtask rõ ràng, có thứ tự ưu tiên và quan hệ phụ thuộc.
 mode: subagent
-model: opencode/big-pickle
+model: opencode/mimo-v2.5-free
 temperature: 0.15
 permission:
   edit: deny

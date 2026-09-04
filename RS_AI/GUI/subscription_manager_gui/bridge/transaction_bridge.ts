@@ -4,7 +4,7 @@ import type { Transaction } from './types';
 export async function listUserTransactions(userId: string): Promise<Transaction[]> {
     try {
         const result = await invoke<Transaction[]>('list_user_transactions', {
-            userId: userId
+            user_id: userId
         });
         return result;
     } catch (error) {

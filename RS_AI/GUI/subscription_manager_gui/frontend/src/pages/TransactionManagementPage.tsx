@@ -81,12 +81,24 @@ export function TransactionManagementPage() {
         );
     };
 
+    // Chọn tất cả CHỈ trong trang hiện tại, giữ nguyên chọn ở trang khác —
+    // trước đây check là thay thế toàn bộ selection, uncheck là xóa hết.
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const pageIds = paginatedTransactions.map(t => t.id);
         if (e.target.checked) {
-            setSelectedTxIds(paginatedTransactions.map(t => t.id));
+            setSelectedTxIds(prev => [...new Set([...prev, ...pageIds])]);
         } else {
-            setSelectedTxIds([]);
+            const pageSet = new Set(pageIds);
+            setSelectedTxIds(prev => prev.filter(id => !pageSet.has(id)));
         }
+    };
+
+    // Nhãn hành động: ASSIGN/RENEW dịch ra, action lạ trong tương lai hiện raw
+    // thay vì auto-dán nhãn "renew" sai (trước đây `!== 'ASSIGN'` → renew).
+    const actionLabel = (action: string): string => {
+        if (action === 'ASSIGN') return t('transactions.assign');
+        if (action === 'RENEW') return t('transactions.renew');
+        return action;
     };
 
     const requestDeleteTransaction = (id: string) => {
@@ -122,7 +134,7 @@ export function TransactionManagementPage() {
             const date = formatDateTime(tx.created_at);
             const username = user ? user.username : tx.user_id;
             const pkgName = pkg ? pkg.name : tx.package_id;
-            const actionText = tx.action === 'ASSIGN' ? t('transactions.assign') : t('transactions.renew');
+            const actionText = actionLabel(tx.action);
             
             const row = [
                 `"${tx.id}"`,
@@ -210,7 +222,7 @@ export function TransactionManagementPage() {
                                     <th style={{ width: '40px' }}>
                                         <input 
                                             type="checkbox" 
-                                            checked={paginatedTransactions.length > 0 && selectedTxIds.length === paginatedTransactions.length}
+                                            checked={paginatedTransactions.length > 0 && paginatedTransactions.every(t => selectedTxIds.includes(t.id))}
                                             onChange={handleSelectAll}
                                         />
                                     </th>
@@ -253,7 +265,7 @@ export function TransactionManagementPage() {
                                                 <td>{pkg ? pkg.name : tx.package_id}</td>
                                                 <td>
                                                     <span className={`badge ${tx.action === 'ASSIGN' ? 'badge-active' : 'badge-inactive'}`}>
-                                                        {tx.action === 'ASSIGN' ? t('transactions.assign') : t('transactions.renew')}
+                                                        {actionLabel(tx.action)}
                                                     </span>
                                                 </td>
                                                 <td style={{ color: 'var(--success-color, #34d399)', fontWeight: 'bold' }}>

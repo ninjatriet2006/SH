@@ -1,7 +1,7 @@
 ---
 description: Docs Manager - Cập nhật README, AGENTS.md, hướng dẫn sử dụng và đảm bảo docs luôn khớp với code.
 mode: subagent
-model: opencode/mimo-v2.5-free
+model: opencode/muse-spark-1.2-contributor-free
 temperature: 0.1
 permission:
   edit: allow

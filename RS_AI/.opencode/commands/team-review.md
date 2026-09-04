@@ -1,7 +1,7 @@
 ---
 description: Review các thay đổi hiện tại (git diff) bởi Reviewer agent.
 agent: lead
-model: opencode/x-preview-f-free
+model: opencode/big-pickle
 ---
 
 # Teamwork Review Command

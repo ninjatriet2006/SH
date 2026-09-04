@@ -11,6 +11,22 @@ use crate::models::{Subscription, Transaction};
 use crate::storage::{load_data, save_data};
 use crate::utils::{current_timestamp, generate_id};
 
+// Quét toàn bộ subscription và đồng bộ `is_active` theo thời gian hiện tại.
+// Trả về true nếu có thay đổi (để caller quyết định có ghi file không).
+// Tách helper vì block này bị copy-paste ở 3 command (trước đây lệch nhau:
+// hai chỗ nuốt lỗi save, một chỗ lại `?` cho thao tác chỉ đọc).
+fn refresh_statuses(data: &mut crate::storage::DataStore, now: i64) -> bool {
+    let mut changed = false;
+    for sub in data.subscriptions.iter_mut() {
+        let should_be_active = sub.expiration_date > now;
+        if sub.is_active != should_be_active {
+            sub.is_active = should_be_active;
+            changed = true;
+        }
+    }
+    changed
+}
+
 // Lệnh Tauri để gán một gói dịch vụ cho một người dùng
 #[tauri::command]
 pub fn add_subscription_to_user(
@@ -19,6 +35,7 @@ pub fn add_subscription_to_user(
     custom_expiration_date: Option<i64>,
     amount: Option<u64>,
 ) -> Result<Subscription, String> {
+    let _store_guard = crate::storage::lock_store();
     // Tải toàn bộ cơ sở dữ liệu
     let mut data = load_data();
     
@@ -33,21 +50,26 @@ pub fn add_subscription_to_user(
         None => return Err(format!("Gói dịch vụ không tồn tại: {}", package_id)),
     };
     
-    // Tính toán ngày hết hạn (expiration_date)
+    // Tính toán ngày hết hạn (expiration_date), đơn vị mili-giây epoch.
+    let now = current_timestamp();
     let expiration_date = match custom_expiration_date {
-        // Nếu admin truyền vào ngày tùy chỉnh, thì dùng ngày đó
+        // Ngày tùy chỉnh phải trong tương lai — trước đây nhận cả 0/âm/quá khứ
+        // rồi vẫn ghi log ASSIGN, tạo subscription chết ngay từ đầu.
+        Some(custom_date) if custom_date <= now => {
+            return Err("Ngày hết hạn tùy chỉnh phải trong tương lai".to_string());
+        }
         Some(custom_date) => custom_date,
         // Nếu không có, tự động tính bằng cách cộng số ngày của gói vào thời gian hiện tại
         None => {
             // 1 ngày = 86400 giây = 86_400_000 mili-giây
             let ms_in_day: i64 = 86_400_000;
             // Tính hạn sử dụng
-            current_timestamp() + (package.duration_days as i64 * ms_in_day)
+            now + (package.duration_days as i64 * ms_in_day)
         }
     };
-    
+
     // Tính trạng thái is_active
-    let is_active = expiration_date > current_timestamp();
+    let is_active = expiration_date > now;
     
     // Khởi tạo đối tượng Subscription
     let new_subscription = Subscription {
@@ -58,19 +80,22 @@ pub fn add_subscription_to_user(
         is_active,             // Bật/tắt tùy theo thời hạn
     };
     
-    // Khởi tạo đối tượng Transaction log
-    let new_tx = Transaction {
-        id: generate_id("tx"),
-        user_id: user_id.clone(),
-        package_id: package_id.clone(),
-        amount: amount.unwrap_or(0),
-        action: "ASSIGN".to_string(),
-        created_at: current_timestamp(),
-    };
-    
-    // Thêm vào danh sách subscriptions và transactions
+    // Thêm vào danh sách subscriptions
     data.subscriptions.push(new_subscription.clone());
-    data.transactions.push(new_tx);
+
+    // Chỉ ghi log giao dịch khi có thu tiền thật (amount = Some).
+    // Trước đây `unwrap_or(0)` biến "không thu" thành log ASSIGN 0đ giả.
+    if let Some(paid) = amount {
+        let new_tx = Transaction {
+            id: generate_id("tx"),
+            user_id: user_id.clone(),
+            package_id: package_id.clone(),
+            amount: paid,
+            action: "ASSIGN".to_string(),
+            created_at: current_timestamp(),
+        };
+        data.transactions.push(new_tx);
+    }
     
     // Ghi dữ liệu
     save_data(&data)?;
@@ -86,6 +111,7 @@ pub fn update_subscription_expiry(
     new_expiration_date: i64,
     amount: Option<u64>,
 ) -> Result<Subscription, String> {
+    let _store_guard = crate::storage::lock_store();
     // Tải dữ liệu
     let mut data = load_data();
     
@@ -102,16 +128,18 @@ pub fn update_subscription_expiry(
             sub.is_active = false;
         }
         
-        // Ghi log giao dịch gia hạn
-        let new_tx = Transaction {
-            id: generate_id("tx"),
-            user_id: sub.user_id.clone(),
-            package_id: sub.package_id.clone(),
-            amount: amount.unwrap_or(0),
-            action: "RENEW".to_string(),
-            created_at: current_timestamp(),
-        };
-        data.transactions.push(new_tx);
+        // Ghi log giao dịch gia hạn — chỉ khi có thu tiền thật.
+        if let Some(paid) = amount {
+            let new_tx = Transaction {
+                id: generate_id("tx"),
+                user_id: sub.user_id.clone(),
+                package_id: sub.package_id.clone(),
+                amount: paid,
+                action: "RENEW".to_string(),
+                created_at: current_timestamp(),
+            };
+            data.transactions.push(new_tx);
+        }
         
         // Tạo bản copy để trả về
         let updated_sub = sub.clone();
@@ -130,6 +158,7 @@ pub fn update_subscription_expiry(
 // Lệnh Tauri để gỡ bỏ / xóa một gói đăng ký khỏi người dùng
 #[tauri::command]
 pub fn remove_subscription_from_user(subscription_id: String) -> Result<(), String> {
+    let _store_guard = crate::storage::lock_store();
     // Lấy dữ liệu hiện tại
     let mut data = load_data();
     // Lọc mảng, bỏ qua ID cần xóa
@@ -153,19 +182,9 @@ pub fn list_user_subscriptions(user_id: String) -> Result<Vec<Subscription>, Str
     // Lấy dữ liệu
     let mut data = load_data();
     let now = current_timestamp();
-    let mut changed = false;
-    
-    // Tự động quét và cập nhật trạng thái
-    for sub in data.subscriptions.iter_mut() {
-        let should_be_active = sub.expiration_date > now;
-        if sub.is_active != should_be_active {
-            sub.is_active = should_be_active;
-            changed = true;
-        }
-    }
-    
-    // Lưu lại nếu có thay đổi
-    if changed {
+
+    // Đồng bộ trạng thái qua helper dùng chung.
+    if refresh_statuses(&mut data, now) {
         let _ = save_data(&data);
     }
 
@@ -185,12 +204,8 @@ pub fn check_subscription_status(subscription_id: String) -> Result<bool, String
     // Tìm kiếm đăng ký
     if let Some(sub) = data.subscriptions.iter_mut().find(|s| s.id == subscription_id) {
         let now = current_timestamp();
-        // Nếu ngày hết hạn bé hơn hoặc bằng hiện tại, gói đã hết hạn
-        if sub.expiration_date <= now {
-            sub.is_active = false;
-        } else {
-            sub.is_active = true;
-        }
+        // Gán trực tiếp thay cho if/else bool (clippy::needless_bool_assign).
+        sub.is_active = sub.expiration_date > now;
         
         // Trạng thái (để trả về hàm)
         let active_status = sub.is_active;
@@ -210,21 +225,11 @@ pub fn check_subscription_status(subscription_id: String) -> Result<bool, String
 pub fn list_all_subscriptions() -> Result<Vec<Subscription>, String> {
     let mut data = load_data();
     let now = current_timestamp();
-    let mut changed = false;
-    
-    // Tự động quét và cập nhật trạng thái
-    for sub in data.subscriptions.iter_mut() {
-        let should_be_active = sub.expiration_date > now;
-        if sub.is_active != should_be_active {
-            sub.is_active = should_be_active;
-            changed = true;
-        }
-    }
-    
-    // Lưu lại nếu có thay đổi
-    if changed {
+
+    // Đồng bộ trạng thái qua helper dùng chung.
+    if refresh_statuses(&mut data, now) {
         let _ = save_data(&data);
     }
-    
+
     Ok(data.subscriptions)
 }

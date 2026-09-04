@@ -14,14 +14,16 @@ interface PackageModalProps {
     isOpen: boolean;
     packageData: Package | null;
     onClose: () => void;
-    onSave: (name: string, durationDays: number, price: number, description?: string) => void;
+    onSave: (name: string, durationDays: number, price: number, description?: string) => Promise<void>;
 }
 
 export function PackageModal({ isOpen, packageData, onClose, onSave }: PackageModalProps) {
     const { t } = useTranslation();
     const [name, setName] = useState('');
     const [durationDays, setDurationDays] = useState(30);
-    const [price, setPrice] = useState<number>(0);
+    // Giữ raw chuỗi để phân biệt "bỏ trống" với nhập 0 — trước đây
+    // `Number('') === 0` nên xóa trắng ô giá vẫn lưu 0 mà không hay biết.
+    const [priceInput, setPriceInput] = useState<string>('0');
     const [description, setDescription] = useState('');
 
     // Khôi phục dữ liệu lên form nếu là chế độ chỉnh sửa
@@ -29,22 +31,43 @@ export function PackageModal({ isOpen, packageData, onClose, onSave }: PackageMo
         if (packageData) {
             setName(packageData.name);
             setDurationDays(packageData.duration_days);
-            setPrice(packageData.price || 0);
+            setPriceInput(String(packageData.price ?? 0));
             setDescription(packageData.description || '');
         } else {
             setName('');
             setDurationDays(30);
-            setPrice(0);
+            setPriceInput('0');
             setDescription('');
         }
     }, [packageData, isOpen]);
 
     if (!isOpen) return null;
 
-    const handleSave = (e: React.FormEvent) => {
+    const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
-        onSave(name, durationDays, price, description || undefined);
-        onClose();
+        // Ô number bỏ trống cho NaN — chặn trước khi gửi sang backend (u32/u64).
+        if (!name.trim()) {
+            alert("Tên gói không được để trống!");
+            return;
+        }
+        if (!Number.isFinite(durationDays) || durationDays < 1) {
+            alert("Thời hạn gói phải là số nguyên ≥ 1 ngày!");
+            return;
+        }
+        // Ô bỏ trống = 0 (miễn phí) một cách tường minh, có comment thay vì
+        // `Number('')` ngầm định. Chữ không phải số → báo lỗi.
+        const price = priceInput.trim() === '' ? 0 : Number(priceInput);
+        if (!Number.isFinite(price) || price < 0) {
+            alert("Giá tiền không hợp lệ!");
+            return;
+        }
+        try {
+            // description "" = xóa mô tả (backend hiểu "" = None).
+            await onSave(name, Math.trunc(durationDays), Math.trunc(price), description);
+            onClose();
+        } catch (err) {
+            alert(`Lưu thất bại: ${err instanceof Error ? err.message : String(err)}`);
+        }
     };
 
     return (
@@ -84,14 +107,14 @@ export function PackageModal({ isOpen, packageData, onClose, onSave }: PackageMo
                     
                     <div className="form-group">
                         <label className="form-label">{t('packages.lbl_price')}</label>
-                        <input 
-                            type="number" 
-                            className="input-field" 
-                            value={price === 0 ? '' : price} 
-                            onChange={(e) => setPrice(Number(e.target.value))} 
-                            placeholder="Nhập giá tiền gốc (Ví dụ: 500000)"
-                            min="0"
-                        />
+                            <input 
+                                type="number" 
+                                className="input-field" 
+                                value={priceInput} 
+                                onChange={(e) => setPriceInput(e.target.value)} 
+                                placeholder="Nhập giá tiền gốc (Ví dụ: 500000)"
+                                min="0"
+                            />
                     </div>
                     
                     <div className="form-group">

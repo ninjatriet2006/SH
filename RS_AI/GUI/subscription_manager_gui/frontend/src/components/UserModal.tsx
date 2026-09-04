@@ -14,7 +14,7 @@ interface UserModalProps {
     isOpen: boolean;
     userData: User | null;
     onClose: () => void;
-    onSave: (username: string, email?: string, phone?: string, contactUrl?: string) => void;
+    onSave: (username: string, email?: string, phone?: string, contactUrl?: string) => Promise<void>;
 }
 
 export function UserModal({ isOpen, userData, onClose, onSave }: UserModalProps) {
@@ -44,11 +44,20 @@ export function UserModal({ isOpen, userData, onClose, onSave }: UserModalProps)
     // Nếu modal không mở thì ẩn đi
     if (!isOpen) return null;
 
-    // Xử lý khi nhấn lưu
-    const handleSave = (e: React.FormEvent) => {
+    // Xử lý khi nhấn lưu — đợi backend xong mới đóng, báo lỗi nếu thất bại.
+    const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
-        onSave(username, email || undefined, phone || undefined, contactUrl || undefined);
-        onClose();
+        if (!username.trim()) {
+            alert("Tên người dùng không được để trống!");
+            return;
+        }
+        try {
+            // Truyền raw (kể cả "") — backend hiểu "" = xóa field về None.
+            await onSave(username, email, phone, contactUrl);
+            onClose();
+        } catch (err) {
+            alert(`Lưu thất bại: ${err instanceof Error ? err.message : String(err)}`);
+        }
     };
 
     return (

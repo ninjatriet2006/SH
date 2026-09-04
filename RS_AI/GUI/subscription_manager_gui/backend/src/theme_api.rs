@@ -9,10 +9,9 @@ use std::fs;
 use std::path::PathBuf;
 use crate::models::Theme;
 
-// Lấy đường dẫn tới thư mục lưu trữ themes
+// Lấy đường dẫn tới thư mục lưu trữ themes (chung rule resource_dir).
 fn get_themes_path() -> PathBuf {
-    let mut base_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    base_dir.push("themes");
+    let base_dir = crate::storage::resource_dir("themes");
     if !base_dir.exists() {
         let _ = fs::create_dir_all(&base_dir);
     }
@@ -54,10 +53,20 @@ pub fn get_available_themes() -> Result<Vec<Theme>, String> {
                 if file_type.is_file() {
                     let file_path = entry.path();
                     if file_path.extension().and_then(|e| e.to_str()) == Some("json") {
-                        if let Ok(content) = fs::read_to_string(&file_path) {
-                            if let Ok(theme) = serde_json::from_str::<Theme>(&content) {
-                                themes.push(theme);
-                            }
+                        match fs::read_to_string(&file_path) {
+                            Ok(content) => match serde_json::from_str::<Theme>(&content) {
+                                Ok(theme) => themes.push(theme),
+                                // Báo rõ file nào hỏng thay vì im lặng bỏ qua
+                                // (trước đây theme lỗi biến mất khỏi list không dấu vết).
+                                Err(e) => eprintln!(
+                                    "[theme] bỏ qua file hỏng {}: {e}",
+                                    file_path.display()
+                                ),
+                            },
+                            Err(e) => eprintln!(
+                                "[theme] không đọc được {}: {e}",
+                                file_path.display()
+                            ),
                         }
                     }
                 }

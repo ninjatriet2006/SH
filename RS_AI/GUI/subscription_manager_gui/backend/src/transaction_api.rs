@@ -6,7 +6,7 @@
 */
 
 use crate::models::Transaction;
-use crate::storage::load_data;
+use crate::storage::{load_data, save_data};
 
 // Lệnh Tauri lấy lịch sử giao dịch của một người dùng cụ thể
 #[tauri::command]
@@ -14,7 +14,7 @@ pub fn list_user_transactions(user_id: String) -> Result<Vec<Transaction>, Strin
     let data = load_data();
     // Lọc và sắp xếp mới nhất lên đầu
     let mut user_txs: Vec<Transaction> = data.transactions.into_iter().filter(|t| t.user_id == user_id).collect();
-    user_txs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    user_txs.sort_by_key(|t| std::cmp::Reverse(t.created_at));
     Ok(user_txs)
 }
 
@@ -23,13 +23,14 @@ pub fn list_user_transactions(user_id: String) -> Result<Vec<Transaction>, Strin
 pub fn list_all_transactions() -> Result<Vec<Transaction>, String> {
     let data = load_data();
     let mut all_txs = data.transactions;
-    all_txs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    all_txs.sort_by_key(|t| std::cmp::Reverse(t.created_at));
     Ok(all_txs)
 }
 
 // Lệnh Tauri để xóa giao dịch theo ID
 #[tauri::command]
 pub fn delete_transaction(id: String) -> Result<(), String> {
+    let _store_guard = crate::storage::lock_store();
     let mut data = load_data();
     let initial_len = data.transactions.len();
     
@@ -39,6 +40,6 @@ pub fn delete_transaction(id: String) -> Result<(), String> {
         return Err(format!("Không tìm thấy giao dịch với ID: {}", id));
     }
     
-    crate::storage::save_data(&data)?;
+    save_data(&data)?;
     Ok(())
 }

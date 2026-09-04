@@ -322,3 +322,26 @@ tbody tr:hover {
   right: 10px;
   z-index: 10;
 }
+
+/* In hóa đơn: chỉ giữ .print-area, ẩn form cấu hình và overlay.
+   Trước đây window.print() in cả app (sidebar + form nhập). */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-area, .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-height: none;
+    overflow: visible;
+    box-shadow: none;
+  }
+  .no-print {
+    display: none;
+  }
+}

@@ -14,6 +14,13 @@ use crate::utils::generate_id;
 // Lệnh Tauri để tạo một gói dịch vụ mới
 #[tauri::command]
 pub fn add_package(name: String, duration_days: u32, description: Option<String>, price: Option<u64>) -> Result<Package, String> {
+    if name.trim().is_empty() {
+        return Err("Tên gói dịch vụ không được để trống".to_string());
+    }
+    if duration_days == 0 {
+        return Err("Thời hạn gói phải lớn hơn 0 ngày".to_string());
+    }
+    let _store_guard = crate::storage::lock_store();
     // Tải dữ liệu toàn hệ thống
     let mut data = load_data();
     
@@ -39,6 +46,7 @@ pub fn add_package(name: String, duration_days: u32, description: Option<String>
 // Lệnh Tauri để cập nhật thông tin của một gói dịch vụ hiện có
 #[tauri::command]
 pub fn update_package(id: String, name: Option<String>, duration_days: Option<u32>, description: Option<String>, price: Option<u64>) -> Result<Package, String> {
+    let _store_guard = crate::storage::lock_store();
     // Tải dữ liệu hệ thống
     let mut data = load_data();
     
@@ -46,15 +54,21 @@ pub fn update_package(id: String, name: Option<String>, duration_days: Option<u3
     if let Some(pkg) = data.packages.iter_mut().find(|p| p.id == id) {
         // Cập nhật tên nếu có truyền vào
         if let Some(n) = name {
+            if n.trim().is_empty() {
+                return Err("Tên gói dịch vụ không được để trống".to_string());
+            }
             pkg.name = n;
         }
         // Cập nhật thời hạn ngày nếu có
         if let Some(d) = duration_days {
+            if d == 0 {
+                return Err("Thời hạn gói phải lớn hơn 0 ngày".to_string());
+            }
             pkg.duration_days = d;
         }
-        // Cập nhật mô tả nếu có
+        // Cập nhật mô tả nếu có (`Some("")` = xóa về None, `None` = giữ nguyên).
         if let Some(desc) = description {
-            pkg.description = Some(desc);
+            pkg.description = if desc.is_empty() { None } else { Some(desc) };
         }
         // Cập nhật giá tiền nếu có
         if let Some(pr) = price {
@@ -78,6 +92,7 @@ pub fn update_package(id: String, name: Option<String>, duration_days: Option<u3
 // Lệnh Tauri để xóa gói dịch vụ
 #[tauri::command]
 pub fn delete_package(id: String) -> Result<(), String> {
+    let _store_guard = crate::storage::lock_store();
     // Tải dữ liệu hệ thống
     let mut data = load_data();
     
@@ -91,7 +106,12 @@ pub fn delete_package(id: String) -> Result<(), String> {
     if data.packages.len() == initial_len {
         return Err(format!("Không tìm thấy gói dịch vụ với ID: {}", id));
     }
-    
+
+    // Chặn xóa khi còn subscription tham chiếu — trước đây để lại package_id treo.
+    if data.subscriptions.iter().any(|s| s.package_id == id) {
+        return Err("Không thể xóa: vẫn còn đăng ký đang dùng gói này".to_string());
+    }
+
     // Lưu lại dữ liệu sau khi xóa
     save_data(&data)?;
     
@@ -104,11 +124,16 @@ pub fn delete_package(id: String) -> Result<(), String> {
 pub fn list_packages(page: Option<u32>, limit: Option<u32>) -> Result<Vec<Package>, String> {
     // Tải danh sách từ storage
     let data = load_data();
+
+    // Như list_users: thiếu một phía là lỗi gọi sai, không im lặng trả full.
+    if page.is_some() ^ limit.is_some() {
+        return Err("Phân trang cần cả `page` và `limit`".to_string());
+    }
     
     // Kiểm tra và thực hiện phân trang nếu có đủ 2 tham số page và limit
     if let (Some(p), Some(l)) = (page, limit) {
-        // Vị trí bắt đầu cắt mảng
-        let start = (p * l) as usize;
+        // Vị trí bắt đầu cắt mảng (saturating chống tràn u32 ở bản debug)
+        let start = (p as usize).saturating_mul(l as usize);
         // Thực hiện skip và take để lấy mảng con
         let paged_pkgs = data.packages.into_iter().skip(start).take(l as usize).collect();
         return Ok(paged_pkgs);

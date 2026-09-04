@@ -57,29 +57,34 @@ export const useFontStore = create<FontState>((set, get) => ({
             const styleEl = document.createElement('style');
             styleEl.id = 'dynamic-font-style';
             
+            // Sanitize font-family để tránh CSS injection qua tên font độc hại
+            const sanitizeCss = (str: string) => str.replace(/['"\\<>{}]/g, '');
+            const safeFamily = sanitizeCss(fontToSet.family);
+            
             if (!fontToSet.is_local && fontToSet.src_url) {
-                // Web Font: Dùng @import url
-                styleEl.innerHTML = `
-                    @import url('${fontToSet.src_url}');
+                // Web Font: Dùng @import url - sanitize URL
+                const safeUrl = fontToSet.src_url.replace(/['"\\<>]/g, '');
+                styleEl.textContent = `
+                    @import url('${safeUrl}');
                     :root {
-                        --font-family-base: '${fontToSet.family}', sans-serif;
+                        --font-family-base: '${safeFamily}', sans-serif;
                     }
                 `;
             } else if (fontToSet.is_local && fontToSet.src_url) {
                 // Local Font: Dùng @font-face và convertFileSrc để Tauri cho phép đọc file
                 const assetUrl = convertFileSrc(fontToSet.src_url);
-                styleEl.innerHTML = `
+                styleEl.textContent = `
                     @font-face {
-                        font-family: '${fontToSet.family}';
+                        font-family: '${safeFamily}';
                         src: url('${assetUrl}');
                     }
                     :root {
-                        --font-family-base: '${fontToSet.family}', sans-serif;
+                        --font-family-base: '${safeFamily}', sans-serif;
                     }
                 `;
             } else {
                 // Font rỗng/mặc định hệ thống
-                styleEl.innerHTML = `
+                styleEl.textContent = `
                     :root {
                         --font-family-base: system-ui, -apple-system, sans-serif;
                     }

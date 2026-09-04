@@ -31,25 +31,19 @@ impl Default for Settings {
     }
 }
 
-// Lấy đường dẫn tới thư mục lưu trữ settings
+// Lấy đường dẫn tới file settings: dùng chung rule resolve với `storage`
+// (CWD trước để tương thích cũ, rồi tới thư mục chứa binary).
 fn get_settings_path() -> PathBuf {
-    // Để an toàn, chúng ta lấy thư mục chứa app hiện tại
-    let mut path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
-    // Loại bỏ tên file thực thi (app)
-    path.pop();
-    
-    // Nếu chạy cargo run, path sẽ ở target/debug. Ta muốn data luôn ở ./storage
-    // Dùng cách tìm lên thư mục gốc
-    let mut base_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    
+    let path = crate::storage::storage_file_path("settings.json");
+
     // Đảm bảo tạo mục storage
-    base_dir.push("storage");
-    if !base_dir.exists() {
-        let _ = fs::create_dir_all(&base_dir);
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            let _ = fs::create_dir_all(parent);
+        }
     }
-    
-    base_dir.push("settings.json");
-    base_dir
+
+    path
 }
 
 // Đọc cài đặt
@@ -75,6 +69,22 @@ pub fn get_settings() -> Result<Settings, String> {
 // Lưu cài đặt
 #[tauri::command]
 pub fn save_settings(language: String, timezone: String, theme_id: String, font_id: String) -> Result<(), String> {
+    // Từ chối giá trị rỗng — trước đây ghi đè settings.json bằng chuỗi trống
+    // khiến theme/font rơi về trạng thái không tồn tại.
+    if language.trim().is_empty() {
+        return Err("Ngôn ngữ không được để trống".to_string());
+    }
+    if timezone.trim().is_empty() {
+        return Err("Múi giờ không được để trống".to_string());
+    }
+    if theme_id.trim().is_empty() {
+        return Err("Theme không được để trống".to_string());
+    }
+    if font_id.trim().is_empty() {
+        return Err("Font không được để trống".to_string());
+    }
+    // Settings ghi file riêng nhưng vẫn serialize chung để tránh nghẽn IO dồn dập.
+    let _store_guard = crate::storage::lock_store();
     let settings = Settings { language, timezone, theme_id, font_id };
     let path = get_settings_path();
     

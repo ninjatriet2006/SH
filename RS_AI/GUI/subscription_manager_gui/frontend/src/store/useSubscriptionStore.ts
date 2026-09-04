@@ -12,7 +12,6 @@ import {
     addSubscriptionToUser, 
     updateSubscriptionExpiry, 
     removeSubscriptionFromUser,
-    checkSubscriptionStatus,
     listAllSubscriptions
 } from '../../../bridge/subscription_bridge';
 
@@ -35,8 +34,6 @@ interface SubscriptionState {
     updateExpiry: (subId: string, newExpiry: number, amount?: number) => Promise<void>;
     // Thu hồi gói
     removeSubscription: (subId: string) => Promise<void>;
-    // Làm mới trạng thái của 1 gói
-    refreshStatus: (subId: string) => Promise<void>;
 }
 
 export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
@@ -80,6 +77,7 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
             set({ allSubscriptions: [...get().allSubscriptions, newSub] });
         } catch (error) {
             console.error("Lỗi gán gói đăng ký:", error);
+            throw error;
         } finally {
             set({ isLoading: false });
         }
@@ -93,6 +91,7 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
             set({ allSubscriptions: get().allSubscriptions.map(s => s.id === subId ? updatedSub : s) });
         } catch (error) {
             console.error("Lỗi gia hạn gói:", error);
+            throw error;
         } finally {
             set({ isLoading: false });
         }
@@ -106,26 +105,9 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
             set({ allSubscriptions: get().allSubscriptions.filter(s => s.id !== subId) });
         } catch (error) {
             console.error("Lỗi xóa gói:", error);
+            throw error;
         } finally {
             set({ isLoading: false });
-        }
-    },
-
-    refreshStatus: async (subId) => {
-        try {
-            // Gọi kiểm tra trạng thái
-            const isActive = await checkSubscriptionStatus(subId);
-            // Sửa đổi trạng thái trên giao diện ngay lập tức
-            set({ 
-                subscriptions: get().subscriptions.map(s => 
-                    s.id === subId ? { ...s, is_active: isActive } : s
-                ),
-                allSubscriptions: get().allSubscriptions.map(s => 
-                    s.id === subId ? { ...s, is_active: isActive } : s
-                )
-            });
-        } catch (error) {
-            console.error("Lỗi kiểm tra trạng thái:", error);
         }
     }
 }));

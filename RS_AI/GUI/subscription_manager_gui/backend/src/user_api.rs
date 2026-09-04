@@ -17,6 +17,12 @@ use crate::utils::{current_timestamp, generate_id};
 // Lệnh Tauri để thêm một người dùng mới
 #[tauri::command]
 pub fn add_user(username: String, email: Option<String>, phone: Option<String>, contact_url: Option<String>) -> Result<User, String> {
+    // Từ chối tên rỗng/khoảng trắng — trước đây tạo user "ma" không dùng được.
+    if username.trim().is_empty() {
+        return Err("Tên người dùng không được để trống".to_string());
+    }
+    // Serialize đọc-sửa-ghi với các lệnh khác (xem `storage::lock_store`).
+    let _store_guard = crate::storage::lock_store();
     // Tải toàn bộ dữ liệu từ file storage
     let mut data = load_data();
     
@@ -43,6 +49,7 @@ pub fn add_user(username: String, email: Option<String>, phone: Option<String>, 
 // Lệnh Tauri để cập nhật thông tin người dùng
 #[tauri::command]
 pub fn update_user(id: String, username: Option<String>, email: Option<String>, phone: Option<String>, contact_url: Option<String>) -> Result<User, String> {
+    let _store_guard = crate::storage::lock_store();
     // Tải toàn bộ dữ liệu hiện có
     let mut data = load_data();
     
@@ -50,17 +57,22 @@ pub fn update_user(id: String, username: Option<String>, email: Option<String>, 
     if let Some(user) = data.users.iter_mut().find(|u| u.id == id) {
         // Nếu client có truyền username mới, thì cập nhật lại username
         if let Some(new_username) = username {
+            if new_username.trim().is_empty() {
+                return Err("Tên người dùng không được để trống".to_string());
+            }
             user.username = new_username;
         }
-        // Nếu client có truyền email mới, thì cập nhật lại email
+        // Nếu client có truyền email mới, thì cập nhật lại email.
+        // Quy ước clear-field: `Some("")` = xóa về None, `None` (null) = giữ
+        // nguyên. Trước đây không có cách nào xóa email/phone đã lưu.
         if let Some(new_email) = email {
-            user.email = Some(new_email);
+            user.email = if new_email.is_empty() { None } else { Some(new_email) };
         }
         if let Some(new_phone) = phone {
-            user.phone = Some(new_phone);
+            user.phone = if new_phone.is_empty() { None } else { Some(new_phone) };
         }
         if let Some(new_contact_url) = contact_url {
-            user.contact_url = Some(new_contact_url);
+            user.contact_url = if new_contact_url.is_empty() { None } else { Some(new_contact_url) };
         }
         
         // Clone dữ liệu người dùng sau khi đã cập nhật để trả về
@@ -80,6 +92,7 @@ pub fn update_user(id: String, username: Option<String>, email: Option<String>, 
 // Lệnh Tauri để xóa một người dùng
 #[tauri::command]
 pub fn delete_user(id: String) -> Result<(), String> {
+    let _store_guard = crate::storage::lock_store();
     // Lấy dữ liệu hiện tại
     let mut data = load_data();
     
@@ -93,7 +106,11 @@ pub fn delete_user(id: String) -> Result<(), String> {
     if data.users.len() == initial_len {
         return Err(format!("Không tìm thấy người dùng với ID: {}", id));
     }
-    
+
+    // Xóa cascade: subscription và transaction của user này thành orphan nếu giữ lại.
+    data.subscriptions.retain(|s| s.user_id != id);
+    data.transactions.retain(|t| t.user_id != id);
+
     // Lưu dữ liệu sau khi xóa thành công
     save_data(&data)?;
     
@@ -106,11 +123,18 @@ pub fn delete_user(id: String) -> Result<(), String> {
 pub fn list_users(page: Option<u32>, limit: Option<u32>) -> Result<Vec<User>, String> {
     // Tải toàn bộ dữ liệu từ storage
     let data = load_data();
+
+    // Phân trang cần CẢ page và limit — truyền thiếu một phía là lỗi gọi sai,
+    // báo rõ thay vì im lặng trả full list như trước.
+    if page.is_some() ^ limit.is_some() {
+        return Err("Phân trang cần cả `page` và `limit`".to_string());
+    }
     
     // Nếu người dùng yêu cầu phân trang, chúng ta tính toán điểm bắt đầu và kết thúc
     if let (Some(p), Some(l)) = (page, limit) {
-        // Tính vị trí phần tử bắt đầu
-        let start = (p * l) as usize;
+        // limit = 0 nghĩa là không lấy gì; saturating_mul chống tràn u32
+        // (trước đây `p * l` panic ở bản debug khi tràn số).
+        let start = (p as usize).saturating_mul(l as usize);
         // Lấy danh sách cắt từ vị trí start
         let paged_users = data.users.into_iter().skip(start).take(l as usize).collect();
         // Trả về mảng đã cắt

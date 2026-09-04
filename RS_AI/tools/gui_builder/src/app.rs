@@ -191,6 +191,13 @@ impl App {
                     self.current_unit = name;
                 }
                 BuildEvent::Finished { ok, message } => {
+                    // Build xong (thành công) thì chốt gauge cargo ở 100% — mẫu số
+                    // chỉ là ước lượng nên sự kiện Progress cuối có thể dừng ở
+                    // 450/909 dù không còn gì để biên dịch. Thất bại thì giữ
+                    // nguyên vị trí để nhìn ra build chết ở đâu.
+                    if ok && self.progress.1 > 0 {
+                        self.progress.0 = self.progress.0.max(self.progress.1);
+                    }
                     let name = self
                         .current
                         .and_then(|i| self.projects.get(i))

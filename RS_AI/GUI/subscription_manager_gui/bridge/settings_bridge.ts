@@ -19,7 +19,7 @@ export async function getSettings(): Promise<Settings> {
 
 // Gọi API lưu cài đặt
 export async function saveSettings(language: string, timezone: string, theme_id: string, font_id: string): Promise<void> {
-    await invoke('save_settings', { language, timezone, themeId: theme_id, fontId: font_id });
+    await invoke('save_settings', { language, timezone, theme_id: theme_id, font_id: font_id });
 }
 
 // Gọi API lấy danh sách ngôn ngữ
@@ -35,7 +35,7 @@ export async function getAvailableLangs(): Promise<string[]> {
 // Gọi API lấy nội dung ngôn ngữ
 export async function getLangContent(langCode: string): Promise<Record<string, any>> {
     try {
-        return await invoke<Record<string, any>>('get_lang_content', { langCode });
+        return await invoke<Record<string, any>>('get_lang_content', { lang_code: langCode });
     } catch (error) {
         console.error(`Lỗi lấy dữ liệu ngôn ngữ ${langCode}:`, error);
         return {};

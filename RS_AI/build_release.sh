@@ -18,6 +18,17 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Chọn Node mới nhất từ nvm (nếu có): mở TUI bằng double-click từ file manager
+# không load nvm → rớt về node hệ thống v18 → `npm run build` (vite 8) chết với
+# lỗi `node:util does not provide styleText`. Vite 8 cần Node ^20.19 || >=22.12.
+if [[ -d "$HOME/.nvm/versions/node" ]]; then
+    newest="$(ls "$HOME/.nvm/versions/node" | sort -V | tail -n 1)"
+    if [[ -n "$newest" && -x "$HOME/.nvm/versions/node/$newest/bin/node" ]]; then
+        export PATH="$HOME/.nvm/versions/node/$newest/bin:$PATH"
+        echo "▶ Dùng Node $newest từ nvm ($(node --version))"
+    fi
+fi
+
 BUILDER_BIN="target/release/gui_builder"
 
 # Dựng builder nếu chưa có hoặc mã nguồn đã đổi.

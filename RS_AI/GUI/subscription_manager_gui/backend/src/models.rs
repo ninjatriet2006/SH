@@ -17,6 +17,7 @@ pub struct User {
     // Tên đăng nhập hoặc tên hiển thị của người dùng
     pub username: String,
     // Địa chỉ email (tùy chọn, có thể có hoặc không)
+    #[serde(default)]
     pub email: Option<String>,
     // Số điện thoại (tùy chọn)
     #[serde(default)]
@@ -25,6 +26,8 @@ pub struct User {
     #[serde(default)]
     pub contact_url: Option<String>,
     // Thời điểm người dùng được tạo (được lưu dưới dạng số nguyên timestamp)
+    // `default` để file data.json cũ thiếu field vẫn đọc được thay vì mất toàn bộ.
+    #[serde(default)]
     pub created_at: i64,
 }
 
@@ -36,8 +39,10 @@ pub struct Package {
     // Tên của gói dịch vụ (ví dụ: Gói Cơ Bản, Gói Cao Cấp)
     pub name: String,
     // Mô tả chi tiết về gói dịch vụ (tùy chọn)
+    #[serde(default)]
     pub description: Option<String>,
     // Thời lượng của gói tính bằng ngày (ví dụ: 30 ngày)
+    #[serde(default)]
     pub duration_days: u32,
     // Giá tiền của gói (sử dụng serde default để tương thích ngược)
     #[serde(default)]
@@ -54,8 +59,10 @@ pub struct Subscription {
     // ID của gói dịch vụ được đăng ký
     pub package_id: String,
     // Thời điểm hết hạn của gói đăng ký (timestamp)
+    #[serde(default)]
     pub expiration_date: i64,
     // Trạng thái kích hoạt của gói đăng ký (true = đang hoạt động, false = đã hủy/hết hạn)
+    #[serde(default)]
     pub is_active: bool,
 }
 
@@ -69,10 +76,13 @@ pub struct Transaction {
     // ID của gói dịch vụ liên quan
     pub package_id: String,
     // Số tiền thu thực tế (VNĐ)
+    #[serde(default)]
     pub amount: u64,
     // Hành động: "ASSIGN" (Gán mới) hoặc "RENEW" (Gia hạn)
+    #[serde(default)]
     pub action: String,
     // Thời điểm ghi nhận giao dịch (timestamp)
+    #[serde(default)]
     pub created_at: i64,
 }
 
