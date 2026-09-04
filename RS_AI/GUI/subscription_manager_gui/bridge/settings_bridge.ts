@@ -13,7 +13,9 @@ export async function getSettings(): Promise<Settings> {
         return await invoke<Settings>('get_settings');
     } catch (error) {
         console.error("Lỗi lấy cài đặt:", error);
-        return { language: 'vi', timezone: 'Asia/Ho_Chi_Minh', theme_id: 'default', font_id: 'default' };
+        // `language` rỗng = "để store tự chọn theo file có thật trong langs/".
+        // Không đoán 'vi' ở đây vì bộ ngôn ngữ có thể không chứa vi.
+        return { language: '', timezone: 'Asia/Ho_Chi_Minh', theme_id: 'default', font_id: 'default' };
     }
 }
 
@@ -28,7 +30,9 @@ export async function getAvailableLangs(): Promise<string[]> {
         return await invoke<string[]>('get_available_langs');
     } catch (error) {
         console.error("Lỗi lấy danh sách ngôn ngữ:", error);
-        return ['vi']; // Fallback an toàn
+        // Trả rỗng thay vì bịa ['vi']: danh sách này quyết định dropdown và
+        // ngôn ngữ fallback, đoán sai sẽ che mất lỗi thật.
+        return [];
     }
 }
 

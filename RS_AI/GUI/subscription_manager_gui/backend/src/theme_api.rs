@@ -10,39 +10,20 @@ use std::path::PathBuf;
 use crate::models::Theme;
 
 // Lấy đường dẫn tới thư mục lưu trữ themes (chung rule resource_dir).
+// KHÔNG tự ghi ra `default.json`: trước đây hàm này sinh file theme cứng, nên
+// người dùng xoá/sửa theme mặc định thì lần chạy sau nó mọc lại, và app ngầm
+// phụ thuộc vào đúng một cái tên. Giờ theme nào cũng như nhau, thiếu hết thì
+// frontend giữ màu mặc định trong CSS.
 fn get_themes_path() -> PathBuf {
     let base_dir = crate::storage::resource_dir("themes");
     if !base_dir.exists() {
         let _ = fs::create_dir_all(&base_dir);
     }
-    
-    // Tự động tạo theme mặc định nếu chưa tồn tại
-    let default_theme_path = base_dir.join("default.json");
-    if !default_theme_path.exists() {
-        let default_theme_content = r##"{
-    "id": "default",
-    "name": "Mặc định (Deep Space)",
-    "type": "dark",
-    "colors": {
-      "bg_dark": "#0f172a",
-      "bg_panel": "rgba(30, 41, 59, 0.7)",
-      "text_primary": "#f8fafc",
-      "text_secondary": "#94a3b8",
-      "primary": "#6366f1",
-      "primary_hover": "#818cf8",
-      "success": "#10b981",
-      "danger": "#ef4444",
-      "warning": "#f59e0b",
-      "border": "rgba(255, 255, 255, 0.1)"
-    }
-}"##;
-        let _ = fs::write(default_theme_path, default_theme_content);
-    }
-
     base_dir
 }
 
-#[tauri::command]
+// Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
+#[tauri::command(rename_all = "snake_case")]
 pub fn get_available_themes() -> Result<Vec<Theme>, String> {
     let path = get_themes_path();
     let mut themes = Vec::new();
@@ -73,6 +54,10 @@ pub fn get_available_themes() -> Result<Vec<Theme>, String> {
             }
         }
     }
+
+    // Sắp theo id để "theme đầu tiên" ổn định giữa các máy — `read_dir` không
+    // bảo đảm thứ tự nên nếu không sắp thì fallback mỗi nơi một kết quả.
+    themes.sort_by(|a, b| a.id.cmp(&b.id));
 
     Ok(themes)
 }

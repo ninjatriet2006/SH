@@ -15,7 +15,8 @@ use crate::utils::{current_timestamp, generate_id};
 
 
 // Lệnh Tauri để thêm một người dùng mới
-#[tauri::command]
+// Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
+#[tauri::command(rename_all = "snake_case")]
 pub fn add_user(username: String, email: Option<String>, phone: Option<String>, contact_url: Option<String>) -> Result<User, String> {
     // Từ chối tên rỗng/khoảng trắng — trước đây tạo user "ma" không dùng được.
     if username.trim().is_empty() {
@@ -47,7 +48,8 @@ pub fn add_user(username: String, email: Option<String>, phone: Option<String>, 
 }
 
 // Lệnh Tauri để cập nhật thông tin người dùng
-#[tauri::command]
+// Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
+#[tauri::command(rename_all = "snake_case")]
 pub fn update_user(id: String, username: Option<String>, email: Option<String>, phone: Option<String>, contact_url: Option<String>) -> Result<User, String> {
     let _store_guard = crate::storage::lock_store();
     // Tải toàn bộ dữ liệu hiện có
@@ -90,7 +92,8 @@ pub fn update_user(id: String, username: Option<String>, email: Option<String>, 
 }
 
 // Lệnh Tauri để xóa một người dùng
-#[tauri::command]
+// Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
+#[tauri::command(rename_all = "snake_case")]
 pub fn delete_user(id: String) -> Result<(), String> {
     let _store_guard = crate::storage::lock_store();
     // Lấy dữ liệu hiện tại
@@ -119,7 +122,8 @@ pub fn delete_user(id: String) -> Result<(), String> {
 }
 
 // Lệnh Tauri để lấy danh sách người dùng (hỗ trợ phân trang cơ bản)
-#[tauri::command]
+// Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_users(page: Option<u32>, limit: Option<u32>) -> Result<Vec<User>, String> {
     // Tải toàn bộ dữ liệu từ storage
     let data = load_data();

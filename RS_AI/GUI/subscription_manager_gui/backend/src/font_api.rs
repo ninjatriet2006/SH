@@ -21,7 +21,8 @@ fn get_fonts_path() -> PathBuf {
 
 
 
-#[tauri::command]
+// Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
+#[tauri::command(rename_all = "snake_case")]
 pub fn get_available_fonts() -> Result<Vec<FontInfo>, String> {
     let mut fonts = Vec::new();
     let fonts_dir = get_fonts_path();

@@ -12,6 +12,18 @@ import { Settings as SettingsIcon, Globe, Clock, Save, Palette, Type } from 'luc
 import { useThemeStore } from '../store/useThemeStore';
 import { useFontStore } from '../store/useFontStore';
 
+/// Nhãn ngôn ngữ trong dropdown. Dùng `Intl.DisplayNames` để mọi mã ngôn ngữ
+/// thả vào `langs/` đều có tên đọc được, thay vì bảng if/else chỉ biết vi/en.
+function langLabel(code: string): string {
+    try {
+        const name = new Intl.DisplayNames([code], { type: 'language' }).of(code);
+        if (name && name.toLowerCase() !== code.toLowerCase()) {
+            return `${name} (${code})`;
+        }
+    } catch { /* mã không chuẩn: hiện nguyên mã */ }
+    return code;
+}
+
 export const SettingsPage: React.FC = () => {
     const { t } = useTranslation();
     const { language, timezone, theme_id, font_id, availableLangs, updateSettings } = useSettingsStore();
@@ -85,10 +97,11 @@ export const SettingsPage: React.FC = () => {
                         value={localLang}
                         onChange={(e) => setLocalLang(e.target.value)}
                     >
+                        {availableLangs.length === 0 && (
+                            <option value="">(không tìm thấy file nào trong langs/)</option>
+                        )}
                         {availableLangs.map(l => (
-                            <option key={l} value={l}>
-                                {l === 'vi' ? 'Tiếng Việt (vi)' : l === 'en' ? 'English (en)' : l}
-                            </option>
+                            <option key={l} value={l}>{langLabel(l)}</option>
                         ))}
                     </select>
                 </div>

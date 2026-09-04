@@ -371,34 +371,35 @@ fn copy_app_resources(
     dest_dir: &Path,
     tx: &Sender<BuildEvent>,
 ) {
-    // frontend/dist — hữu ích khi cần soi asset đã build, và một số app đọc ngoài.
+    // frontend/dist — build output thuần (tên file có hash), KHÔNG chứa dữ liệu
+    // người dùng nên thay trọn bộ để asset cũ không dồn lại. Nhưng thay qua
+    // staging rồi mới đổi tên: copy lỗi giữa đường không làm mất bản đang chạy.
     let dist = app_root.join("frontend/dist");
     if dist.is_dir() {
-        let to = dest_dir.join("dist");
-        let _ = std::fs::remove_dir_all(&to);
-        match copy_dir(&dist, &to) {
-            Ok(_) => {
-                let _ = tx.send(BuildEvent::Log("Đã copy dist/".to_string()));
-            }
-            Err(e) => {
-                let _ = tx.send(BuildEvent::Warn(format!("Không copy được dist/: {e}")));
-            }
-        }
+        replace_dir_atomically(&dist, &dest_dir.join("dist"), "dist", tx);
     }
 
+    // langs/themes/fonts — người dùng CÓ thả file riêng vào đây (font .ttf tự
+    // tải, theme tự viết, bản dịch thêm). Vì vậy chỉ ghi đè file trùng tên và
+    // giữ nguyên file lạ, KHÔNG xoá thư mục. Trước đây `remove_dir_all` làm mất
+    // toàn bộ font/theme người dùng thêm sau mỗi lần build.
     for name in APP_RESOURCES {
         let from = app_root.join(name);
         if !from.is_dir() {
             continue;
         }
         let to = dest_dir.join(name);
-        let _ = std::fs::remove_dir_all(&to);
-        match copy_dir(&from, &to) {
-            Ok(_) => {
-                let _ = tx.send(BuildEvent::Log(format!("Đã copy {name}/")));
+        let kept = count_extra_files(&from, &to);
+        match merge_dir(&from, &to) {
+            Ok(copied) => {
+                let mut msg = format!("Đã cập nhật {name}/ ({copied} file)");
+                if kept > 0 {
+                    msg.push_str(&format!(", giữ {kept} file riêng của bạn"));
+                }
+                let _ = tx.send(BuildEvent::Log(msg));
             }
             Err(e) => {
-                let _ = tx.send(BuildEvent::Warn(format!("Không copy được {name}/: {e}")));
+                let _ = tx.send(BuildEvent::Warn(format!("Không cập nhật được {name}/: {e}")));
             }
         }
     }
@@ -431,7 +432,7 @@ fn copy_app_resources(
     }
 }
 
-/// Copy đệ quy một thư mục.
+/// Copy đệ quy một thư mục (tạo mới hoặc ghi đè file trùng tên).
 fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(to)?;
     for entry in std::fs::read_dir(from)? {
@@ -445,6 +446,87 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Ghi đè `to` bằng nội dung `from` NHƯNG giữ lại các file chỉ có ở `to`.
+/// Trả về số file đã ghi. Dùng cho tài nguyên mà người dùng có thể bổ sung.
+fn merge_dir(from: &Path, to: &Path) -> std::io::Result<usize> {
+    std::fs::create_dir_all(to)?;
+    let mut copied = 0usize;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let src = entry.path();
+        let dst = to.join(entry.file_name());
+        if src.is_dir() {
+            copied += merge_dir(&src, &dst)?;
+        } else {
+            std::fs::copy(&src, &dst)?;
+            copied += 1;
+        }
+    }
+    Ok(copied)
+}
+
+/// Đếm file chỉ tồn tại ở `to` (người dùng tự thêm) để báo lại cho họ biết
+/// những file đó được giữ nguyên.
+fn count_extra_files(from: &Path, to: &Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(to) else {
+        return 0;
+    };
+    let mut n = 0usize;
+    for entry in entries.flatten() {
+        let dst = entry.path();
+        let src = from.join(entry.file_name());
+        if dst.is_dir() {
+            n += count_extra_files(&src, &dst);
+        } else if !src.exists() {
+            n += 1;
+        }
+    }
+    n
+}
+
+/// Thay trọn nội dung `to` bằng `from` một cách an toàn: dựng thư mục tạm cạnh
+/// đích, copy xong mới hoán đổi. Nếu copy lỗi thì đích cũ vẫn còn nguyên —
+/// trước đây `remove_dir_all` chạy trước copy nên lỗi giữa đường là mất trắng.
+fn replace_dir_atomically(from: &Path, to: &Path, label: &str, tx: &Sender<BuildEvent>) {
+    let staging = to.with_extension("new");
+    let _ = std::fs::remove_dir_all(&staging);
+    if let Err(e) = copy_dir(from, &staging) {
+        let _ = std::fs::remove_dir_all(&staging);
+        let _ = tx.send(BuildEvent::Warn(format!("Không copy được {label}/: {e}")));
+        return;
+    }
+
+    let backup = to.with_extension("old");
+    let _ = std::fs::remove_dir_all(&backup);
+    let had_old = to.exists();
+    if had_old && std::fs::rename(to, &backup).is_err() {
+        // Không đổi tên được (khác filesystem/quyền): rơi về copy trực tiếp.
+        let _ = std::fs::remove_dir_all(&staging);
+        match copy_dir(from, to) {
+            Ok(_) => {
+                let _ = tx.send(BuildEvent::Log(format!("Đã cập nhật {label}/")));
+            }
+            Err(e) => {
+                let _ = tx.send(BuildEvent::Warn(format!("Không copy được {label}/: {e}")));
+            }
+        }
+        return;
+    }
+
+    if let Err(e) = std::fs::rename(&staging, to) {
+        // Hoán đổi thất bại → phục hồi bản cũ.
+        if had_old {
+            let _ = std::fs::rename(&backup, to);
+        }
+        let _ = std::fs::remove_dir_all(&staging);
+        let _ = tx.send(BuildEvent::Warn(format!("Không thay được {label}/: {e}")));
+        return;
+    }
+
+    let _ = std::fs::remove_dir_all(&backup);
+    let _ = tx.send(BuildEvent::Log(format!("Đã cập nhật {label}/")));
 }
 
 /// Định dạng byte sang chuỗi dễ đọc.
@@ -498,6 +580,81 @@ mod tests {
         assert!(n > 0);
     }
 
+    /// Kiểm tra TOÀN BỘ bước copy tài nguyên (không chỉ hàm con): sau khi
+    /// "build lại", font/theme người dùng thả vào release phải còn, dist phải
+    /// được thay mới.
+    #[test]
+    fn copy_app_resources_giu_tai_nguyen_nguoi_dung() {
+        let base = std::env::temp_dir().join("gui_builder_resources_test");
+        let _ = std::fs::remove_dir_all(&base);
+
+        // Cây nguồn giả lập: app_root có dist + langs + themes + fonts.
+        let app_root = base.join("app");
+        std::fs::create_dir_all(app_root.join("frontend/dist/assets")).unwrap();
+        std::fs::write(
+            app_root.join("frontend/dist/assets/index-new.js"),
+            b"bundle moi",
+        )
+        .unwrap();
+        for (dir, file, content) in [
+            ("langs", "vi.json", "{}"),
+            ("themes", "default.json", "moi"),
+            ("fonts", "README.md", "huong dan"),
+        ] {
+            std::fs::create_dir_all(app_root.join(dir)).unwrap();
+            std::fs::write(app_root.join(dir).join(file), content).unwrap();
+        }
+        let config_dir = app_root.join("backend");
+        std::fs::create_dir_all(config_dir.join("icons")).unwrap();
+        std::fs::write(config_dir.join("icons/32x32.png"), b"png").unwrap();
+
+        // Thư mục release đang dùng: có asset cũ + file riêng của người dùng.
+        let dest = base.join("release/app");
+        std::fs::create_dir_all(dest.join("dist/assets")).unwrap();
+        std::fs::write(dest.join("dist/assets/index-old.js"), b"bundle cu").unwrap();
+        std::fs::create_dir_all(dest.join("fonts/local")).unwrap();
+        std::fs::write(dest.join("fonts/local/MyFont.ttf"), b"font cua toi").unwrap();
+        std::fs::create_dir_all(dest.join("themes")).unwrap();
+        std::fs::write(dest.join("themes/my_theme.json"), b"theme cua toi").unwrap();
+        std::fs::create_dir_all(dest.join("langs")).unwrap();
+        std::fs::write(dest.join("langs/ja.json"), b"ban dich cua toi").unwrap();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        copy_app_resources(&app_root, &config_dir, &dest, &tx);
+        drop(tx);
+        let _: Vec<_> = rx.iter().collect();
+
+        // Tài nguyên người dùng tự thêm: PHẢI còn.
+        for (path, expect) in [
+            ("fonts/local/MyFont.ttf", "font cua toi"),
+            ("themes/my_theme.json", "theme cua toi"),
+            ("langs/ja.json", "ban dich cua toi"),
+        ] {
+            assert_eq!(
+                std::fs::read_to_string(dest.join(path)).unwrap_or_default(),
+                expect,
+                "{path} bị mất sau khi build lại"
+            );
+        }
+
+        // File từ repo: được ghi đè/thêm mới.
+        assert_eq!(
+            std::fs::read_to_string(dest.join("themes/default.json")).unwrap(),
+            "moi"
+        );
+        assert!(dest.join("langs/vi.json").is_file());
+        assert!(dest.join("icons/32x32.png").is_file());
+
+        // dist: thay trọn bộ, không dồn asset cũ.
+        assert!(dest.join("dist/assets/index-new.js").is_file());
+        assert!(
+            !dest.join("dist/assets/index-old.js").exists(),
+            "asset cũ phải được dọn"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     #[test]
     fn copy_dir_copies_nested_files() {
         let base = std::env::temp_dir().join("gui_builder_copy_test");
@@ -512,6 +669,110 @@ mod tests {
             std::fs::read_to_string(dst.join("sub/a.txt")).unwrap(),
             "hello"
         );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Bug đã gặp: mỗi lần build lại, `remove_dir_all` xoá sạch `fonts/` và
+    /// `themes/` ở release nên font .ttf người dùng tự thả vào và theme tự viết
+    /// đều mất. `merge_dir` phải ghi đè file trùng tên mà giữ file lạ.
+    #[test]
+    fn merge_dir_giu_file_nguoi_dung_them() {
+        let base = std::env::temp_dir().join("gui_builder_merge_test");
+        let _ = std::fs::remove_dir_all(&base);
+
+        // Nguồn (repo): 1 theme mặc định.
+        let from = base.join("from");
+        std::fs::create_dir_all(from.join("local")).unwrap();
+        std::fs::write(from.join("default.json"), b"moi").unwrap();
+
+        // Đích (release đang dùng): theme mặc định bản cũ + font người dùng thả vào.
+        let to = base.join("to");
+        std::fs::create_dir_all(to.join("local")).unwrap();
+        std::fs::write(to.join("default.json"), b"cu").unwrap();
+        std::fs::write(to.join("my_theme.json"), b"cua toi").unwrap();
+        std::fs::write(to.join("local/Inter.ttf"), b"font").unwrap();
+
+        let extra = count_extra_files(&from, &to);
+        let copied = merge_dir(&from, &to).unwrap();
+
+        // File của repo được ghi đè.
+        assert_eq!(std::fs::read_to_string(to.join("default.json")).unwrap(), "moi");
+        // File riêng của người dùng còn nguyên — đây chính là hồi quy cần chặn.
+        assert_eq!(
+            std::fs::read_to_string(to.join("my_theme.json")).unwrap(),
+            "cua toi"
+        );
+        assert_eq!(
+            std::fs::read_to_string(to.join("local/Inter.ttf")).unwrap(),
+            "font"
+        );
+        assert_eq!(copied, 1, "chỉ ghi file từ nguồn");
+        assert_eq!(extra, 2, "phải nhận ra 2 file riêng của người dùng");
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// `dist/` thay trọn bộ (tên file có hash, không phải dữ liệu người dùng)
+    /// nhưng phải qua staging: file cũ chỉ bị bỏ SAU khi bản mới copy xong.
+    #[test]
+    fn replace_dir_atomically_thay_tron_bo() {
+        let base = std::env::temp_dir().join("gui_builder_replace_test");
+        let _ = std::fs::remove_dir_all(&base);
+
+        let from = base.join("from/assets");
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::write(from.join("index-new.js"), b"new").unwrap();
+
+        let to = base.join("to");
+        std::fs::create_dir_all(to.join("assets")).unwrap();
+        std::fs::write(to.join("assets/index-old.js"), b"old").unwrap();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        replace_dir_atomically(&base.join("from"), &to, "dist", &tx);
+        drop(tx);
+
+        assert!(to.join("assets/index-new.js").is_file(), "thiếu asset mới");
+        assert!(
+            !to.join("assets/index-old.js").exists(),
+            "asset cũ phải bị dọn để không dồn rác"
+        );
+        // Không để lại thư mục tạm.
+        assert!(!to.with_extension("new").exists());
+        assert!(!to.with_extension("old").exists());
+        assert!(
+            rx.iter().any(|e| matches!(e, BuildEvent::Log(_))),
+            "phải báo log thành công"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Nguồn lỗi (không tồn tại) thì đích cũ PHẢI còn nguyên — trước đây xoá
+    /// trước copy nên lỗi giữa đường là mất trắng.
+    #[test]
+    fn replace_dir_atomically_khong_lam_mat_ban_cu_khi_loi() {
+        let base = std::env::temp_dir().join("gui_builder_replace_fail_test");
+        let _ = std::fs::remove_dir_all(&base);
+
+        let to = base.join("to");
+        std::fs::create_dir_all(&to).unwrap();
+        std::fs::write(to.join("keep.js"), b"quan trong").unwrap();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        replace_dir_atomically(&base.join("khong-ton-tai"), &to, "dist", &tx);
+        drop(tx);
+
+        assert_eq!(
+            std::fs::read_to_string(to.join("keep.js")).unwrap(),
+            "quan trong",
+            "copy lỗi không được làm mất bản đang chạy"
+        );
+        assert!(!to.with_extension("new").exists(), "phải dọn thư mục tạm");
+        assert!(
+            rx.iter().any(|e| matches!(e, BuildEvent::Warn(_))),
+            "phải cảnh báo khi lỗi"
+        );
+
         let _ = std::fs::remove_dir_all(&base);
     }
 }

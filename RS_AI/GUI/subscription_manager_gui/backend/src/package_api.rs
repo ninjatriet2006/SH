@@ -12,7 +12,8 @@ use crate::storage::{load_data, save_data};
 use crate::utils::generate_id;
 
 // Lệnh Tauri để tạo một gói dịch vụ mới
-#[tauri::command]
+// Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
+#[tauri::command(rename_all = "snake_case")]
 pub fn add_package(name: String, duration_days: u32, description: Option<String>, price: Option<u64>) -> Result<Package, String> {
     if name.trim().is_empty() {
         return Err("Tên gói dịch vụ không được để trống".to_string());
@@ -44,7 +45,8 @@ pub fn add_package(name: String, duration_days: u32, description: Option<String>
 }
 
 // Lệnh Tauri để cập nhật thông tin của một gói dịch vụ hiện có
-#[tauri::command]
+// Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
+#[tauri::command(rename_all = "snake_case")]
 pub fn update_package(id: String, name: Option<String>, duration_days: Option<u32>, description: Option<String>, price: Option<u64>) -> Result<Package, String> {
     let _store_guard = crate::storage::lock_store();
     // Tải dữ liệu hệ thống
@@ -90,7 +92,8 @@ pub fn update_package(id: String, name: Option<String>, duration_days: Option<u3
 }
 
 // Lệnh Tauri để xóa gói dịch vụ
-#[tauri::command]
+// Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
+#[tauri::command(rename_all = "snake_case")]
 pub fn delete_package(id: String) -> Result<(), String> {
     let _store_guard = crate::storage::lock_store();
     // Tải dữ liệu hệ thống
@@ -120,7 +123,8 @@ pub fn delete_package(id: String) -> Result<(), String> {
 }
 
 // Lệnh Tauri để lấy danh sách toàn bộ các gói dịch vụ (có phân trang)
-#[tauri::command]
+// Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_packages(page: Option<u32>, limit: Option<u32>) -> Result<Vec<Package>, String> {
     // Tải danh sách từ storage
     let data = load_data();

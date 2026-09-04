@@ -9,7 +9,8 @@ use crate::models::Transaction;
 use crate::storage::{load_data, save_data};
 
 // Lệnh Tauri lấy lịch sử giao dịch của một người dùng cụ thể
-#[tauri::command]
+// Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_user_transactions(user_id: String) -> Result<Vec<Transaction>, String> {
     let data = load_data();
     // Lọc và sắp xếp mới nhất lên đầu
@@ -19,7 +20,8 @@ pub fn list_user_transactions(user_id: String) -> Result<Vec<Transaction>, Strin
 }
 
 // Lệnh Tauri lấy tất cả giao dịch (để làm báo cáo nếu cần)
-#[tauri::command]
+// Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_all_transactions() -> Result<Vec<Transaction>, String> {
     let data = load_data();
     let mut all_txs = data.transactions;
@@ -28,7 +30,8 @@ pub fn list_all_transactions() -> Result<Vec<Transaction>, String> {
 }
 
 // Lệnh Tauri để xóa giao dịch theo ID
-#[tauri::command]
+// Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
+#[tauri::command(rename_all = "snake_case")]
 pub fn delete_transaction(id: String) -> Result<(), String> {
     let _store_guard = crate::storage::lock_store();
     let mut data = load_data();

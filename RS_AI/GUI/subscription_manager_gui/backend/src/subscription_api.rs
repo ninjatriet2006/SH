@@ -28,7 +28,8 @@ fn refresh_statuses(data: &mut crate::storage::DataStore, now: i64) -> bool {
 }
 
 // Lệnh Tauri để gán một gói dịch vụ cho một người dùng
-#[tauri::command]
+// Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
+#[tauri::command(rename_all = "snake_case")]
 pub fn add_subscription_to_user(
     user_id: String,
     package_id: String,
@@ -105,7 +106,8 @@ pub fn add_subscription_to_user(
 }
 
 // Lệnh Tauri để thay đổi ngày hết hạn của một subscription
-#[tauri::command]
+// Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
+#[tauri::command(rename_all = "snake_case")]
 pub fn update_subscription_expiry(
     subscription_id: String,
     new_expiration_date: i64,
@@ -156,7 +158,8 @@ pub fn update_subscription_expiry(
 }
 
 // Lệnh Tauri để gỡ bỏ / xóa một gói đăng ký khỏi người dùng
-#[tauri::command]
+// Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
+#[tauri::command(rename_all = "snake_case")]
 pub fn remove_subscription_from_user(subscription_id: String) -> Result<(), String> {
     let _store_guard = crate::storage::lock_store();
     // Lấy dữ liệu hiện tại
@@ -177,7 +180,8 @@ pub fn remove_subscription_from_user(subscription_id: String) -> Result<(), Stri
 }
 
 // Lệnh Tauri để liệt kê các đăng ký của một người dùng cụ thể
-#[tauri::command]
+// Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_user_subscriptions(user_id: String) -> Result<Vec<Subscription>, String> {
     // Lấy dữ liệu
     let mut data = load_data();
@@ -196,7 +200,8 @@ pub fn list_user_subscriptions(user_id: String) -> Result<Vec<Subscription>, Str
 }
 
 // Lệnh Tauri để kiểm tra xem một đăng ký còn hạn hay không
-#[tauri::command]
+// Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
+#[tauri::command(rename_all = "snake_case")]
 pub fn check_subscription_status(subscription_id: String) -> Result<bool, String> {
     // Tải dữ liệu
     let mut data = load_data();
@@ -221,7 +226,8 @@ pub fn check_subscription_status(subscription_id: String) -> Result<bool, String
 }
 
 // Lệnh Tauri để liệt kê toàn bộ gói đăng ký (hỗ trợ hiển thị cảnh báo cho tất cả người dùng)
-#[tauri::command]
+// Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_all_subscriptions() -> Result<Vec<Subscription>, String> {
     let mut data = load_data();
     let now = current_timestamp();

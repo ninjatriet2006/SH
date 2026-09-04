@@ -23,43 +23,71 @@ interface SettingsState {
     updateSettings: (lang: string, tz: string, themeId: string, fontId: string) => Promise<void>;
 }
 
+// `default` là quy ước "dùng giá trị gốc trong CSS", KHÔNG phải tên file nên
+// không cần `themes/default.json` tồn tại.
+const DEFAULT_STYLE_ID = 'default';
+
 export const useSettingsStore = create<SettingsState>((set) => ({
-    language: 'vi',
+    // Khởi tạo rỗng: ngôn ngữ do backend quyết theo file thực có trong `langs/`.
+    // Trước đây hardcode 'vi' nên bộ ngôn ngữ không chứa vi sẽ hiện sai/ID.
+    language: '',
     timezone: 'Asia/Ho_Chi_Minh',
-    theme_id: 'default',
-    font_id: 'default',
-    availableLangs: ['vi'],
+    theme_id: DEFAULT_STYLE_ID,
+    font_id: DEFAULT_STYLE_ID,
+    availableLangs: [],
     dictionary: {},
     isLoading: true,
-    
+
     initSettings: async () => {
         set({ isLoading: true });
         try {
-            // Lấy danh sách ngôn ngữ có sẵn
+            // Danh sách ngôn ngữ thực có (backend quét thư mục `langs/`).
             const langs = await getAvailableLangs();
 
             // Lấy cài đặt hiện tại
             const settings = await getSettings();
 
-            // Lấy nội dung từ điển của ngôn ngữ hiện tại
-            let lang = settings.language;
-            let dict = await getLangContent(lang);
+            // Thứ tự thử: ngôn ngữ đã lưu → file đầu tiên trong langs/.
+            // Không hardcode 'vi': app phải chạy với bộ ngôn ngữ bất kỳ.
+            const candidates = [settings.language, ...langs].filter(Boolean);
+            let lang = '';
+            let dict: Record<string, any> = {};
+            for (const code of candidates) {
+                const loaded = await getLangContent(code);
+                if (Object.keys(loaded).length > 0) {
+                    lang = code;
+                    dict = loaded;
+                    break;
+                }
+            }
 
-            // Tự phục hồi: settings.json có thể lưu mã ngôn ngữ không còn tồn
-            // tại (vd "5555" từ file test đã xóa) → từ điển rỗng làm cả UI
-            // hiện raw key. Rớt về 'vi' và chữa luôn file settings.
-            if (Object.keys(dict).length === 0) {
-                lang = 'vi';
-                dict = await getLangContent('vi');
-                try { await saveSettings('vi', settings.timezone, settings.theme_id || 'default', settings.font_id || 'default'); } catch { /* giữ state, bỏ qua lỗi chữa file */ }
+            // Chữa lại settings nếu ngôn ngữ đang lưu không dùng được.
+            if (lang && lang !== settings.language) {
+                try {
+                    await saveSettings(
+                        lang,
+                        settings.timezone,
+                        settings.theme_id || DEFAULT_STYLE_ID,
+                        settings.font_id || DEFAULT_STYLE_ID
+                    );
+                } catch { /* giữ state trong bộ nhớ, bỏ qua lỗi ghi file */ }
+            }
+
+            // Không có file ngôn ngữ nào dùng được → để `dictionary` rỗng, `t()`
+            // trả về ID (vd "sidebar.dashboard") để lỗi hiện rõ thay vì im lặng.
+            if (!lang) {
+                console.error(
+                    `Không tải được ngôn ngữ nào (thư mục langs/ rỗng hoặc file hỏng). ` +
+                    `Đã thử: ${candidates.join(', ') || '(không có)'}`
+                );
             }
 
             set({
                 language: lang,
                 timezone: settings.timezone,
-                theme_id: settings.theme_id || 'default',
-                font_id: settings.font_id || 'default',
-                availableLangs: langs.length > 0 ? langs : ['vi'],
+                theme_id: settings.theme_id || DEFAULT_STYLE_ID,
+                font_id: settings.font_id || DEFAULT_STYLE_ID,
+                availableLangs: langs,
                 dictionary: dict
             });
         } catch (error) {
