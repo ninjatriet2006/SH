@@ -11,7 +11,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 // Import Serialize/Deserialize và các Models đã tạo
 use serde::{Deserialize, Serialize};
-use crate::models::{Package, Subscription, User, Transaction};
+use crate::models::{Package, PaymentRef, Subscription, Transaction, User};
 
 /// Thư mục gốc chứa tài nguyên app (`langs/`, `themes/`, `fonts/`).
 /// Dò MỘT LẦN rồi cache: mọi resource phải cùng một base, nếu không sẽ xảy ra
@@ -128,6 +128,10 @@ pub struct DataStore {
     // Lịch sử giao dịch (có serde default để tương thích file cũ)
     #[serde(default)]
     pub transactions: Vec<Transaction>,
+    // Mã tra cứu thanh toán đã phát hành khi in hóa đơn (serde default để
+    // data.json của bản cũ vẫn đọc được).
+    #[serde(default)]
+    pub payment_refs: Vec<PaymentRef>,
 }
 
 // Dùng `DataStore::default()` từ derive ở trên để khởi tạo rỗng.
@@ -151,12 +155,121 @@ pub fn load_data() -> DataStore {
                 Ok(data) => return data,
                 // Báo rõ lý do thay vì im lặng trả rỗng (trước đây file hỏng
                 // làm mất toàn bộ dữ liệu mà không để lại dấu vết nào).
-                Err(e) => eprintln!("[storage] data.json hỏng, dùng dữ liệu trống: {e}"),
+                Err(e) => eprintln!("[storage] data.json hỏng: {e}"),
             }
         }
+
+        // File tồn tại nhưng không đọc/parse được → thử bản sao lưu gần nhất.
+        // Nếu KHÔNG làm việc này, `save_data` tiếp theo sẽ ghi DataStore rỗng
+        // lên data.json, biến một file hỏng tạm thời thành mất dữ liệu vĩnh viễn.
+        if let Some((path, data)) = load_newest_backup(&data_file) {
+            eprintln!(
+                "[storage] đã phục hồi từ bản sao lưu {} ({} user, {} đăng ký)",
+                path.display(),
+                data.users.len(),
+                data.subscriptions.len()
+            );
+            return data;
+        }
+        eprintln!("[storage] không có bản sao lưu dùng được, dùng dữ liệu trống");
     }
     // Trả về dữ liệu trống nếu file không tồn tại hoặc lỗi đọc/parse JSON
     DataStore::default()
+}
+
+/// Tìm bản sao lưu MỚI NHẤT còn parse được trong `storage/backups/`.
+/// Duyệt từ mới về cũ vì bản mới nhất có thể cũng đã hỏng.
+fn load_newest_backup(data_file: &std::path::Path) -> Option<(PathBuf, DataStore)> {
+    let backup_dir = data_file.parent()?.join("backups");
+    let entries = std::fs::read_dir(&backup_dir).ok()?;
+    let mut files: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| {
+            p.is_file()
+                && p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with("data-") && n.ends_with(".json"))
+        })
+        .collect();
+    files.sort();
+    for path in files.into_iter().rev() {
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            if let Ok(data) = serde_json::from_str::<DataStore>(&text) {
+                return Some((path, data));
+            }
+            eprintln!("[storage] bản sao lưu {} cũng hỏng, thử bản cũ hơn", path.display());
+        }
+    }
+    None
+}
+
+/// Số bản sao lưu `data.json` được giữ lại. Đủ để lùi vài bước khi phát hiện
+/// sai sót muộn, nhưng không phình vô hạn.
+const BACKUP_KEEP: usize = 10;
+
+/// Sao lưu `data.json` hiện tại vào `storage/backups/` trước khi ghi bản mới.
+///
+/// Sao lưu ĐẶT CẠNH data (không dùng git): repo này công khai còn data.json
+/// chứa thông tin khách hàng, số dư, giao dịch. `.gitignore` chặn cả
+/// `storage/` lẫn `**/data.json`.
+///
+/// Bỏ qua im lặng nếu chưa có file (lần chạy đầu) hoặc backup thất bại — sao
+/// lưu không được phép làm hỏng luồng ghi chính.
+fn backup_data_file(data_file: &std::path::Path) {
+    if !data_file.is_file() {
+        return;
+    }
+    // File rỗng/0 byte không đáng sao lưu, và sao lưu nó có thể đẩy bản tốt ra
+    // khỏi hạn mức giữ lại.
+    if data_file.metadata().map(|m| m.len()).unwrap_or(0) == 0 {
+        return;
+    }
+
+    let Some(dir) = data_file.parent() else { return };
+    let backup_dir = dir.join("backups");
+    if std::fs::create_dir_all(&backup_dir).is_err() {
+        return;
+    }
+
+    // Tên theo timestamp mili-giây: sắp xếp theo tên = sắp theo thời gian, và
+    // hai lần ghi trong cùng giây không ghi đè nhau.
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let dest = backup_dir.join(format!("data-{stamp}.json"));
+    if std::fs::copy(data_file, &dest).is_err() {
+        return;
+    }
+
+    prune_backups(&backup_dir);
+}
+
+/// Xoá bản sao lưu cũ, chỉ giữ `BACKUP_KEEP` bản mới nhất.
+fn prune_backups(backup_dir: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(backup_dir) else {
+        return;
+    };
+    let mut files: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| {
+            p.is_file()
+                && p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with("data-") && n.ends_with(".json"))
+        })
+        .collect();
+    if files.len() <= BACKUP_KEEP {
+        return;
+    }
+    // Sắp theo tên = theo timestamp (tên có độ dài cố định trong cùng thời đại).
+    files.sort();
+    let excess = files.len() - BACKUP_KEEP;
+    for old in files.into_iter().take(excess) {
+        let _ = std::fs::remove_file(old);
+    }
 }
 
 // Hàm ghi dữ liệu xuống file JSON
@@ -167,23 +280,43 @@ pub fn save_data(data: &DataStore) -> Result<(), String> {
         Ok(j) => j,
         Err(e) => return Err(format!("Lỗi chuyển đổi dữ liệu thành JSON: {}", e)),
     };
-    
+
     // Đảm bảo thư mục cha tồn tại
     if let Some(parent) = data_file.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    
-    // Mở file (hoặc tạo mới nếu chưa có) và xóa nội dung cũ (truncate)
-    let mut file = match File::create(&data_file) {
-        Ok(f) => f,
-        Err(e) => return Err(format!("Lỗi tạo file lưu trữ: {}", e)),
-    };
-    
-    // Ghi chuỗi JSON vào file
-    match file.write_all(json.as_bytes()) {
-        Ok(_) => Ok(()),
-        Err(e) => Err(format!("Lỗi ghi dữ liệu vào file: {}", e)),
+
+    // Sao lưu bản hiện tại TRƯỚC khi ghi đè.
+    backup_data_file(&data_file);
+
+    // Ghi qua file tạm rồi `rename`: `File::create` truncate ngay lập tức, nên
+    // nếu tiến trình chết giữa lúc ghi (hoặc hết đĩa) thì data.json còn lại là
+    // file rỗng/một nửa → mất trắng dữ liệu khách. `rename` trong cùng thư mục
+    // là nguyên tử trên POSIX, đọc song song luôn thấy bản cũ hoặc bản mới trọn vẹn.
+    let tmp_file = data_file.with_extension("json.tmp");
+    {
+        let mut file = match File::create(&tmp_file) {
+            Ok(f) => f,
+            Err(e) => return Err(format!("Lỗi tạo file lưu trữ tạm: {}", e)),
+        };
+        if let Err(e) = file.write_all(json.as_bytes()) {
+            let _ = std::fs::remove_file(&tmp_file);
+            return Err(format!("Lỗi ghi dữ liệu vào file: {}", e));
+        }
+        // `sync_all` để dữ liệu thực sự xuống đĩa trước khi rename — mất điện
+        // ngay sau rename vẫn còn nội dung, không phải file rỗng.
+        if let Err(e) = file.sync_all() {
+            let _ = std::fs::remove_file(&tmp_file);
+            return Err(format!("Lỗi đồng bộ dữ liệu xuống đĩa: {}", e));
+        }
     }
+
+    if let Err(e) = std::fs::rename(&tmp_file, &data_file) {
+        let _ = std::fs::remove_file(&tmp_file);
+        return Err(format!("Lỗi thay thế file lưu trữ: {}", e));
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -258,5 +391,60 @@ mod tests {
             p.display(),
             base.display()
         );
+    }
+
+    /// Tương thích ngược: `data.json` của bản CŨ không có `balance`,
+    /// `auto_renew`, `last_auto_renew_at`. Thiếu `serde(default)` ở các field
+    /// mới sẽ làm parse thất bại → `load_data` trả rỗng → mất TOÀN BỘ dữ liệu
+    /// khách hàng. Test này chốt: file cũ vẫn đọc được, field mới nhận giá trị
+    /// mặc định an toàn (số dư 0, auto-renew TẮT).
+    #[test]
+    fn doc_duoc_data_json_cua_ban_cu() {
+        let json_cu = r#"{
+            "users": [
+                {
+                    "id": "usr_1",
+                    "username": "Khach cu",
+                    "email": null,
+                    "phone": null,
+                    "contact_url": null,
+                    "created_at": 1700000000000
+                }
+            ],
+            "packages": [
+                {
+                    "id": "pkg_1",
+                    "name": "Goi thang",
+                    "description": null,
+                    "duration_days": 30,
+                    "price": 200000
+                }
+            ],
+            "subscriptions": [
+                {
+                    "id": "sub_1",
+                    "user_id": "usr_1",
+                    "package_id": "pkg_1",
+                    "expiration_date": 1800000000000,
+                    "is_active": true
+                }
+            ],
+            "transactions": []
+        }"#;
+
+        let data: DataStore =
+            serde_json::from_str(json_cu).expect("data.json bản cũ phải đọc được");
+
+        assert_eq!(data.users.len(), 1, "không được mất user");
+        assert_eq!(data.users[0].balance, 0, "số dư mặc định phải là 0");
+        assert_eq!(data.subscriptions.len(), 1, "không được mất đăng ký");
+        assert!(
+            !data.subscriptions[0].auto_renew,
+            "auto_renew mặc định phải TẮT — không tự trừ tiền khách khi họ chưa đồng ý"
+        );
+        assert_eq!(data.subscriptions[0].last_auto_renew_at, None);
+        // Dữ liệu cũ vẫn nguyên vẹn.
+        assert_eq!(data.subscriptions[0].expiration_date, 1_800_000_000_000);
+        assert!(data.subscriptions[0].is_active);
     }
 }

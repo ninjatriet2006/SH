@@ -19,6 +19,8 @@ export interface User {
     contact_url: string | null;
     // Thời gian tạo tài khoản (lưu dưới dạng timestamp)
     created_at: number;
+    // Số dư (VNĐ), CÓ DẤU: > 0 là tiền khả dụng, < 0 là công nợ.
+    balance: number;
 }
 
 // Định nghĩa giao diện mô tả cấu trúc của một gói dịch vụ
@@ -47,6 +49,27 @@ export interface Subscription {
     expiration_date: number;
     // Trạng thái (đang kích hoạt hay đã vô hiệu hóa)
     is_active: boolean;
+    // Tự động gia hạn cho riêng đăng ký này (chỉ chạy khi số dư đủ)
+    auto_renew: boolean;
+    // Thời điểm gia hạn tự động gần nhất; null = chưa từng
+    last_auto_renew_at: number | null;
+}
+
+// Kết quả một lần rà tự động gia hạn (trả về từ `process_auto_renewals`)
+export interface AutoRenewReport {
+    // Số đăng ký đã gia hạn thành công
+    renewed: number;
+    // Tổng tiền đã trừ vào số dư (VNĐ)
+    total_charged: number;
+    // Các đăng ký bật auto-renew nhưng không gia hạn được, kèm lý do
+    skipped: AutoRenewSkip[];
+}
+
+export interface AutoRenewSkip {
+    subscription_id: string;
+    user_id: string;
+    package_id: string;
+    reason: string;
 }
 
 // Định nghĩa giao diện mô tả cấu trúc Lịch sử giao dịch
@@ -75,4 +98,34 @@ export interface FontInfo {
     family: string;
     is_local: boolean;
     src_url: string | null;
+}
+
+// Mã tra cứu thanh toán — dùng làm NỘI DUNG CHUYỂN KHOẢN trên hóa đơn/QR.
+// Dạng: <PREFIX><user_token 4 ký tự><ngẫu nhiên 4 ký tự>, ví dụ "SM7K2MX4B9".
+// `user_token` cố định theo khách nên vẫn truy được người chuyển dù mã bị gõ sai.
+export interface PaymentRef {
+    // Mã đầy đủ, chính là chuỗi khách gõ vào nội dung chuyển khoản
+    code: string;
+    // 4 ký tự nhận dạng người chuyển (nằm trong `code`)
+    user_token: string;
+    user_id: string;
+    // Tên khách tại thời điểm phát hành (snapshot)
+    username: string;
+    // Các giao dịch mà mã này thu tiền cho (1 hoặc nhiều khi in gộp)
+    transaction_ids: string[];
+    // Tổng tiền tại thời điểm phát hành (VNĐ)
+    amount: number;
+    created_at: number;
+    // Thời điểm đối soát xong; null = chưa nhận được tiền
+    settled_at: number | null;
+}
+
+// Kết quả tra cứu một mã từ sao kê ngân hàng
+export interface PaymentLookup {
+    // Khớp chính xác mã đã phát hành
+    exact: PaymentRef | null;
+    // Khi không khớp chính xác: các mã CÙNG người chuyển (theo user_token)
+    same_user: PaymentRef[];
+    // Token đọc được từ chuỗi đã nhập (rỗng nếu không hợp lệ)
+    user_token: string;
 }

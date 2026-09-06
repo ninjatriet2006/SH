@@ -353,6 +353,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                         }
+                        // Chỉnh khả năng model đang chọn (tool_call/reasoning/
+                        // interleaved — case hy3: model reasoning cần khai đúng
+                        // nếu không OpenCode gửi request sai shape).
+                        // Dùng Tab chứ không dùng chữ cái: mọi ký tự đều thuộc
+                        // ô tìm kiếm, phím chữ sẽ bị nó nuốt.
+                        KeyCode::Tab => {
+                            app.open_model_caps();
+                            draw_needed = true;
+                        }
                         KeyCode::Backspace => {
                             app.model_search_query.pop();
                             app.selected_model_idx = 0;
@@ -376,6 +385,87 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         _ => {}
                     },
+
+                    Screen::ModelCaps => {
+                        // 0: tool_call, 1: reasoning, 2: interleaved field.
+                        const CAPS_FIELDS: usize = 3;
+                        if app.caps_focus == 2 && app.caps_field_editing {
+                            // Đang gõ tên field interleaved (vd reasoning_content)
+                            match key.code {
+                                KeyCode::Enter | KeyCode::Esc => {
+                                    app.caps_field_editing = false;
+                                    draw_needed = true;
+                                }
+                                KeyCode::Backspace => {
+                                    app.caps_draft.interleaved_field.pop();
+                                    draw_needed = true;
+                                }
+                                KeyCode::Char(c)
+                                    if !key.modifiers.contains(KeyModifiers::CONTROL)
+                                        && !key.modifiers.contains(KeyModifiers::ALT) =>
+                                {
+                                    app.caps_draft.interleaved_field.push(c);
+                                    draw_needed = true;
+                                }
+                                _ => {}
+                            }
+                        } else {
+                            match key.code {
+                                KeyCode::Esc => {
+                                    // Huỷ: quay lại danh sách model, không ghi gì.
+                                    app.current_screen = Screen::ModelScanResult;
+                                    app.log("Huỷ chỉnh khả năng model.");
+                                    draw_needed = true;
+                                }
+                                KeyCode::Up | KeyCode::Char('k') => {
+                                    app.caps_focus = app.caps_focus.checked_sub(1).unwrap_or(CAPS_FIELDS - 1);
+                                    draw_needed = true;
+                                }
+                                KeyCode::Down | KeyCode::Char('j') => {
+                                    app.caps_focus = (app.caps_focus + 1) % CAPS_FIELDS;
+                                    draw_needed = true;
+                                }
+                                KeyCode::Tab => {
+                                    app.caps_focus = (app.caps_focus + 1) % CAPS_FIELDS;
+                                    draw_needed = true;
+                                }
+                                KeyCode::Enter | KeyCode::Char(' ') => match app.caps_focus {
+                                    0 => {
+                                        // None→Some(true)→Some(false)→None để người dùng
+                                        // xoá field khỏi config bằng vòng này.
+                                        app.caps_draft.tool_call = match app.caps_draft.tool_call {
+                                            None => Some(true),
+                                            Some(true) => Some(false),
+                                            Some(false) => None,
+                                        };
+                                        draw_needed = true;
+                                    }
+                                    1 => {
+                                        app.caps_draft.reasoning = match app.caps_draft.reasoning {
+                                            None => Some(true),
+                                            Some(true) => Some(false),
+                                            Some(false) => None,
+                                        };
+                                        draw_needed = true;
+                                    }
+                                    _ => {
+                                        // Vào chế độ gõ tên field interleaved;
+                                        // đánh dấu touched để dòng rỗng = XOÁ field.
+                                        app.caps_field_editing = true;
+                                        app.caps_draft.interleaved_touched = true;
+                                        draw_needed = true;
+                                    }
+                                },
+                                KeyCode::Char('s') | KeyCode::Char('S') => {
+                                    if let Err(e) = app.apply_model_caps() {
+                                        app.log(format!("Không lưu được khả năng model: {}", e));
+                                    }
+                                    draw_needed = true;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
 
                     Screen::ManageAuthKeys => match key.code {
                         KeyCode::Esc => {
@@ -591,9 +681,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         app.ckey_pick_selected_idx -= 1;
                                         draw_needed = true;
                                     }
-                                    KeyCode::Down
-                                        if app.ckey_pick_selected_idx < app.ckey_account_options.len() =>
-                                    {
+                                    KeyCode::Down if app.ckey_pick_selected_idx < app.ckey_account_options.len() => {
                                         app.ckey_pick_selected_idx += 1;
                                         draw_needed = true;
                                     }
@@ -710,8 +798,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     app.current_screen = Screen::Main;
                                     draw_needed = true;
                                 }
-                                KeyCode::Up | KeyCode::Down | KeyCode::Tab
-                                | KeyCode::Char('j') | KeyCode::Char('k') => {
+                                KeyCode::Up
+                                | KeyCode::Down
+                                | KeyCode::Tab
+                                | KeyCode::Char('j')
+                                | KeyCode::Char('k') => {
                                     app.bulk_focus = match app.bulk_focus {
                                         app::BulkFocus::Endpoint => app::BulkFocus::Keys,
                                         app::BulkFocus::Keys => app::BulkFocus::Execute,

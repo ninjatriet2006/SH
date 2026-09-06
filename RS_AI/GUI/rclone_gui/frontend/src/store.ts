@@ -98,7 +98,9 @@ if (!appState.bookmarks) {
 /** Giá trị mặc định cho cài đặt — dùng khi localStorage chưa có gì. */
 const DEFAULT_SETTINGS: AppSettings = {
   showHiddenFiles: false,
-  language: 'vi',
+  // Rỗng = "chưa chọn": để `resolveLanguage()` lấy file đầu tiên thực có trong
+  // `langs/`. Không hardcode 'vi' vì bộ ngôn ngữ có thể không chứa vi.
+  language: '',
   theme: 'dark',
 };
 

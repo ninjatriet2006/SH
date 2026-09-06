@@ -268,9 +268,11 @@ fn parse_object_keys(src: &str, open_brace: usize) -> Vec<String> {
 fn moi_command_khai_bao_snake_case() {
     // Assert nằm trong `rust_commands()`; gọi ở đây để test chạy độc lập.
     let cmds = rust_commands();
+    // Con số này là chốt có chủ đích: thêm/bớt command phải sửa test, buộc
+    // người sửa nhìn lại xem command mới đã đăng ký và đúng quy ước chưa.
     assert_eq!(
         cmds.len(),
-        23,
+        30,
         "số command thay đổi ({}) — cập nhật test nếu thêm/bớt command có chủ đích",
         cmds.len()
     );

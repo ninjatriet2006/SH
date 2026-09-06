@@ -1,8 +1,8 @@
 use crate::api::{ApiClient, ApiStatus};
 use crate::ckey::{CkeyAiKey, CkeyModel, CkeyProfile, CkeyUsageItem, CkeyUsagePage, CkeyUsageStats};
 use crate::config::{
-    normalize_base_url, AuthConfig, CkeyConfig, ModelEntry, ModelLimit, ModelModalities, OpencodeConfig,
-    Provider, ProviderOptions,
+    AuthConfig, CkeyConfig, Interleaved, ModelEntry, ModelModalities, OpencodeConfig, Provider, ProviderOptions,
+    normalize_base_url,
 };
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
@@ -14,6 +14,7 @@ pub enum Screen {
     EditProvider,
     ManageAuthKeys,
     ModelScanResult,
+    ModelCaps,
     QuickClean,
     Confirmation,
     SelectPreset,
@@ -47,6 +48,77 @@ pub enum BulkFocus {
     Execute,
 }
 
+/// Khả năng (capability) của một model đang chỉnh trong màn hình ModelCaps.
+///
+/// Đây là bản nháp trên UI: `None` = "không đổi so với config" (để round-trip
+/// không phá field người dùng đã đặt tay trong opencode.json), `Some` = ghi đè.
+/// `interleaved` là tên field reasoning (vd "reasoning_content") — rỗng = bỏ.
+#[derive(Debug, Clone, Default)]
+pub struct ModelCapsDraft {
+    pub tool_call: Option<bool>,
+    pub reasoning: Option<bool>,
+    pub interleaved_field: String,
+    /// Người dùng đã vào ô nhập interleaved — từ đây dòng rỗng nghĩa là XOÁ
+    /// field khỏi config (có đường gỡ capability đã đặt).
+    pub interleaved_touched: bool,
+}
+
+impl ModelCapsDraft {
+    /// Lấy draft ban đầu từ entry trong config (mở màn hình chỉnh).
+    pub fn from_entry(entry: &ModelEntry) -> Self {
+        let interleaved_field = match &entry.interleaved {
+            Some(Interleaved::Object { field }) => field.clone(),
+            Some(Interleaved::Field(f)) => f.clone(),
+            _ => String::new(),
+        };
+        Self {
+            tool_call: entry.tool_call,
+            reasoning: entry.reasoning,
+            interleaved_field,
+            interleaved_touched: false,
+        }
+    }
+
+    /// Ghi draft vào entry (chỉ đè field đã chỉnh).
+    pub fn apply_to(&self, entry: &mut ModelEntry) {
+        if let Some(v) = self.tool_call {
+            entry.tool_call = Some(v);
+        }
+        if let Some(v) = self.reasoning {
+            entry.reasoning = Some(v);
+        }
+        if self.interleaved_touched {
+            let field = self.interleaved_field.trim();
+            if field.is_empty() {
+                entry.interleaved = None;
+            } else {
+                entry.interleaved = Some(Interleaved::Object {
+                    field: field.to_string(),
+                });
+            }
+        }
+    }
+
+    /// Mô tả ngắn để hiển thị ở footer/danh sách (vd "tool+reason").
+    pub fn summary(&self) -> String {
+        let mut parts: Vec<&str> = Vec::new();
+        if self.tool_call == Some(true) {
+            parts.push("tool");
+        }
+        if self.reasoning == Some(true) {
+            parts.push("reason");
+        }
+        if !self.interleaved_field.trim().is_empty() {
+            parts.push("interleaved");
+        }
+        if parts.is_empty() {
+            "-".to_string()
+        } else {
+            parts.join("+")
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ProviderForm {
     pub id: String,
@@ -54,7 +126,7 @@ pub struct ProviderForm {
     pub name: String,
     pub base_url: String,
     pub api_key: String,
-    pub focus_index: usize,  // 0: Preset, 1: Name, 2: URL, 3: Key, 4: Test, 5: Save, 6: Cancel
+    pub focus_index: usize, // 0: Preset, 1: Name, 2: URL, 3: Key, 4: Test, 5: Save, 6: Cancel
     pub test_status: Option<ApiStatus>,
     pub is_testing: bool,
     pub is_editing_field: bool,
@@ -124,6 +196,16 @@ pub struct App {
     pub selected_model_idx: usize,
     pub scanning_provider_id: String,
     pub model_search_query: String,
+
+    // Model capabilities editor (màn hình ModelCaps — case `hy3`)
+    pub caps_draft: ModelCapsDraft,
+    /// Id model đang chỉnh (snapshot — danh sách quét có thể được thay thế bởi
+    /// background scan trong lúc người dùng đang ở màn hình này).
+    pub caps_model_id: String,
+    /// Ô đang focus: 0 = tool_call, 1 = reasoning, 2 = interleaved field.
+    pub caps_focus: usize,
+    /// Đang gõ chữ vào ô tên field interleaved.
+    pub caps_field_editing: bool,
 
     // Auth keys manager
     pub auth_keys: Vec<(String, String)>, // (key_name, key_value)
@@ -250,6 +332,10 @@ impl App {
             selected_model_idx: 0,
             scanning_provider_id: String::new(),
             model_search_query: String::new(),
+            caps_draft: ModelCapsDraft::default(),
+            caps_model_id: String::new(),
+            caps_focus: 0,
+            caps_field_editing: false,
             auth_keys: Vec::new(),
             selected_auth_idx: 0,
             clean_list: Vec::new(),
@@ -528,15 +614,19 @@ impl App {
                 Provider {
                     npm,
                     name,
-                    options: ProviderOptions { base_url, api_key },
+                    options: ProviderOptions {
+                        base_url,
+                        api_key,
+                        ..Default::default()
+                    },
                     models: HashMap::new(),
+                    ..Default::default()
                 },
             );
         }
 
         // 4. Lưu cấu hình cả hai file
         self.save_all_config()?;
-
 
         self.log(format!(
             "Đã gộp/ghi đè cấu hình trùng lặp vào Provider: {}",
@@ -632,8 +722,10 @@ impl App {
                             options: ProviderOptions {
                                 base_url: preset.base_url.clone(),
                                 api_key: auth_entry.key.clone(),
+                                ..Default::default()
                             },
                             models: HashMap::new(),
+                            ..Default::default()
                         },
                     );
                     added.push(preset.name.clone());
@@ -681,10 +773,32 @@ impl App {
             }
         }
 
-        // Dọn dẹp auth_config: nếu key trong auth_config không còn trong config.provider
+        // Dọn dẹp auth_config. Chỉ đụng entry mà merge_auth_into_providers HỢP
+        // LỆ dùng (khớp preset + type "api" + key không rỗng) — entry OAuth
+        // hoặc id ngoài preset (app khác ghi) phải giữ nguyên, xoá bừa là mất
+        // dữ liệu người dùng. Trong phần merge quản lý, xoá 2 dạng:
+        //   - Mồ côi: provider đã bị xoá (giữ lại thì provider sống lại).
+        //   - Treo: provider còn nhưng không còn built-in (URL trỏ đi chỗ
+        //     khác) — entry giữ khoá cũ, dữ liệu lệch.
         let mut keys_to_remove = Vec::new();
-        for auth_id in self.auth_config.keys() {
-            if !self.config.provider.contains_key(auth_id) {
+        for (auth_id, entry) in &self.auth_config {
+            let would_merge = entry.auth_type == "api"
+                && !entry.key.trim().is_empty()
+                && self.presets.iter().any(|p| p.id == *auth_id);
+            if !would_merge {
+                continue;
+            }
+            let stale = match self.config.provider.get(auth_id) {
+                None => true,
+                Some(p) => {
+                    let clean_prov_url = normalize_base_url(&p.options.base_url);
+                    !self
+                        .presets
+                        .iter()
+                        .any(|preset| preset.id == *auth_id && clean_prov_url == normalize_base_url(&preset.base_url))
+                }
+            };
+            if stale {
                 keys_to_remove.push(auth_id.clone());
             }
         }
@@ -850,11 +964,8 @@ impl App {
                             // Các model đang có trong config nhưng KHÔNG còn trên provider
                             // (provider đã xoá model) → đánh dấu stale, mặc định unchecked để
                             // khi đồng bộ (Enter) sẽ bị xoá khỏi config.
-                            let stale_models: Vec<String> = existing_models
-                                .iter()
-                                .filter(|m| !list.contains(*m))
-                                .cloned()
-                                .collect();
+                            let stale_models: Vec<String> =
+                                existing_models.iter().filter(|m| !list.contains(*m)).cloned().collect();
 
                             if !stale_models.is_empty() {
                                 self.log(format!(
@@ -944,9 +1055,7 @@ impl App {
                         self.ckey_stats = Some(s.clone());
                         self.log(format!(
                             "CKey: {} request, {} token, {}.",
-                            s.requests,
-                            s.total_tokens,
-                            s.charged_vnd_text
+                            s.requests, s.total_tokens, s.charged_vnd_text
                         ));
                     }
                     Err(e) => {
@@ -967,7 +1076,9 @@ impl App {
                         self.ckey_usage = page.items;
                         self.log(format!(
                             "CKey usage trang {}/{}: {} bản ghi.",
-                            self.ckey_usage_page, self.ckey_usage_total_pages, self.ckey_usage.len()
+                            self.ckey_usage_page,
+                            self.ckey_usage_total_pages,
+                            self.ckey_usage.len()
                         ));
                     }
                     Err(e) => {
@@ -1058,9 +1169,7 @@ impl App {
             let preset_id = self
                 .presets
                 .iter()
-                .find(|p| {
-                    normalize_base_url(&p.base_url) == normalize_base_url(&provider.options.base_url)
-                })
+                .find(|p| normalize_base_url(&p.base_url) == normalize_base_url(&provider.options.base_url))
                 .map(|p| p.id.clone())
                 .unwrap_or_else(|| "custom".to_string());
 
@@ -1179,8 +1288,10 @@ impl App {
                 options: ProviderOptions {
                     base_url: base_url.clone(),
                     api_key: api_key.clone(),
+                    ..Default::default()
                 },
                 models: HashMap::new(),
+                ..Default::default()
             }
         };
 
@@ -1190,7 +1301,6 @@ impl App {
 
         self.config.provider.insert(id.clone(), provider);
         self.save_all_config()?;
-
 
         self.log(format!("Đã lưu cấu hình Provider: {}", id));
         self.update_provider_keys();
@@ -1253,6 +1363,96 @@ impl App {
         Ok(())
     }
 
+    /// Mở màn hình chỉnh capability cho model đang chọn trong danh sách quét.
+    ///
+    /// Draft lấy từ entry trong config nếu model đã có (để người dùng chỉnh
+    /// tiếp thay vì gõ lại từ đầu), rỗng nếu model mới.
+    pub fn open_model_caps(&mut self) {
+        let filtered = self.filtered_scanned_models();
+        if filtered.is_empty() || self.selected_model_idx >= filtered.len() {
+            return;
+        }
+        let (original_idx, _, _, _) = filtered[self.selected_model_idx];
+        let Some((model_id, _, _)) = self.scanned_models.get(original_idx) else {
+            return;
+        };
+        let model_id = model_id.clone();
+
+        let entry = self
+            .config
+            .provider
+            .get(&self.scanning_provider_id)
+            .and_then(|p| p.models.get(&model_id));
+        self.caps_draft = entry.map(ModelCapsDraft::from_entry).unwrap_or_default();
+        // Snapshot theo ID, không theo vị trí: danh sách quét có thể bị thay
+        // thế bởi background scan trong lúc người dùng đang ở màn hình này.
+        self.caps_model_id = model_id;
+        self.caps_focus = 0;
+        self.caps_field_editing = false;
+        self.current_screen = Screen::ModelCaps;
+        self.log(format!(
+            "Chỉnh khả năng model '{}': Enter/Space đổi từng ô, S lưu, Esc huỷ.",
+            self.caps_model_id
+        ));
+    }
+
+    /// Hạ cánh draft capability vào config rồi LƯU NGAY (phím S).
+    pub fn apply_model_caps(&mut self) -> Result<(), String> {
+        let model_id = self.caps_model_id.clone();
+        if model_id.is_empty() {
+            return Err("Không tìm thấy model đang chỉnh.".to_string());
+        }
+
+        let provider_id = self.scanning_provider_id.clone();
+        let provider = self
+            .config
+            .provider
+            .get_mut(&provider_id)
+            .ok_or_else(|| format!("Không tìm thấy provider: {provider_id}"))?;
+
+        // Model chưa có trong config: chỉ tạo entry khi nó đang ĐƯỢC CHỌN
+        // (tự sinh model chỉ vì người dùng chỉnh caps là rác config). Người
+        // dùng muốn chọn thì tick rồi Enter đồng bộ như thường.
+        if !provider.models.contains_key(&model_id) {
+            let checked = self.scanned_models.iter().any(|(id, c, _)| *id == model_id && *c);
+            if !checked {
+                return Err(format!(
+                    "Model '{model_id}' chưa được chọn — tick chọn nó trước khi đặt khả năng."
+                ));
+            }
+            let input_modalities =
+                if model_id.contains("vision") || model_id.contains("omni") || model_id.contains("image") {
+                    vec!["text".to_string(), "image".to_string()]
+                } else {
+                    vec!["text".to_string()]
+                };
+            provider.models.insert(
+                model_id.clone(),
+                ModelEntry {
+                    name: model_id.clone(),
+                    // Không đoán limit: để None cho OpenCode/models.dev tự suy.
+                    limit: None,
+                    modalities: Some(ModelModalities {
+                        input: input_modalities,
+                        output: vec!["text".to_string()],
+                    }),
+                    ..Default::default()
+                },
+            );
+        }
+
+        let entry = provider.models.get_mut(&model_id).expect("entry vừa chắc chắn có");
+        self.caps_draft.apply_to(entry);
+        self.save_all_config()?;
+        self.log(format!(
+            "Đã lưu khả năng model '{}' ({}).",
+            model_id,
+            self.caps_draft.summary()
+        ));
+        self.current_screen = Screen::ModelScanResult;
+        Ok(())
+    }
+
     pub fn add_scanned_models(&mut self) -> Result<(), String> {
         let provider_id = self.scanning_provider_id.clone();
 
@@ -1260,10 +1460,10 @@ impl App {
             let mut added_count = 0;
             let mut removed_count = 0;
 
-            for (m_id, checked, _stale) in &self.scanned_models {
-                if *checked {
+            for (m_id, checked, _stale) in self.scanned_models.clone() {
+                if checked {
                     // Nếu checked và chưa có trong config -> Thêm vào
-                    if !provider.models.contains_key(m_id) {
+                    if !provider.models.contains_key(&m_id) {
                         let input_modalities =
                             if m_id.contains("vision") || m_id.contains("omni") || m_id.contains("image") {
                                 vec!["text".to_string(), "image".to_string()]
@@ -1273,22 +1473,25 @@ impl App {
 
                         let model_entry = ModelEntry {
                             name: m_id.clone(),
-                            limit: Some(ModelLimit {
-                                context: Some(1048576), // mặc định 1M context
-                                output: Some(131072),
-                            }),
+                            // Không đoán limit: để None cho OpenCode/models.dev tự suy.
+                            // Số hardcode 1M/131k gây 400 context_length_exceeded
+                            // trên router có quota thực nhỏ hơn.
+                            limit: None,
                             modalities: Some(ModelModalities {
                                 input: input_modalities,
                                 output: vec!["text".to_string()],
                             }),
+                            ..Default::default()
                         };
                         provider.models.insert(m_id.clone(), model_entry);
                         added_count += 1;
                     }
+                    // Capability model chỉnh ở màn ModelCaps được ghi thẳng
+                    // khi bấm Lưu (S) — không cần gì thêm ở đây; Esc = huỷ.
                 } else {
                     // Nếu unchecked và đang có trong config -> Xoá đi
-                    if provider.models.contains_key(m_id) {
-                        provider.models.remove(m_id);
+                    if provider.models.contains_key(&m_id) {
+                        provider.models.remove(&m_id);
                         removed_count += 1;
                     }
                 }
@@ -1389,7 +1592,10 @@ impl App {
         };
 
         if self.ckey_account_key(&provider_id).is_some() {
-            self.log(format!("Mở màn hình kiểm tra thông tin CKey (provider '{}').", provider_id));
+            self.log(format!(
+                "Mở màn hình kiểm tra thông tin CKey (provider '{}').",
+                provider_id
+            ));
             self.ckey_fetch_all();
         } else {
             // Chưa có account key → bật popup chọn/nhập key ngay tại đây.
@@ -1527,9 +1733,7 @@ impl App {
         }
         // Validate: phải có scheme://host (không chấp nhận chuỗi thiếu scheme hoặc host rỗng).
         let host = endpoint.split_once("://").map(|(_, rest)| rest);
-        let host_ok = host
-            .map(|h| !h.is_empty() && !h.starts_with('/'))
-            .unwrap_or(false);
+        let host_ok = host.map(|h| !h.is_empty() && !h.starts_with('/')).unwrap_or(false);
         if !host_ok {
             return Err("Endpoint không hợp lệ: phải có dạng https://host...".to_string());
         }
@@ -1554,12 +1758,18 @@ impl App {
 
         for key in keys {
             // Bỏ cặp (endpoint, key) đã tồn tại trong provider
-            if let Some((pid, p)) = self.config.provider.iter().find(|(_, p)| {
-                normalize_base_url(&p.options.base_url) == endpoint && p.options.api_key.trim() == key
-            }) {
+            if let Some((pid, p)) =
+                self.config.provider.iter().find(|(_, p)| {
+                    normalize_base_url(&p.options.base_url) == endpoint && p.options.api_key.trim() == key
+                })
+            {
                 self.log(format!(
                     "Bỏ key trùng provider {} ({}).",
-                    if p.name.is_empty() { pid.as_str() } else { p.name.as_str() },
+                    if p.name.is_empty() {
+                        pid.as_str()
+                    } else {
+                        p.name.as_str()
+                    },
                     pid
                 ));
                 skipped += 1;
@@ -1576,8 +1786,10 @@ impl App {
                     options: ProviderOptions {
                         base_url: endpoint.clone(),
                         api_key: key,
+                        ..Default::default()
                     },
                     models: HashMap::new(),
+                    ..Default::default()
                 },
             );
             added += 1;
@@ -1618,12 +1830,21 @@ impl App {
             .iter()
             .map(|m| {
                 let exists = existing_models.contains(&m.public_name);
-                (m.public_name.clone(), exists, false, m.input_price_per_million_vnd, m.output_price_per_million_vnd)
+                (
+                    m.public_name.clone(),
+                    exists,
+                    false,
+                    m.input_price_per_million_vnd,
+                    m.output_price_per_million_vnd,
+                )
             })
             .collect();
 
         // Model bị CKey xoá nhưng còn trong config → stale, xếp cuối
-        for stale in existing_models.iter().filter(|m| !self.ckey_models.iter().any(|cm| &cm.public_name == *m)) {
+        for stale in existing_models
+            .iter()
+            .filter(|m| !self.ckey_models.iter().any(|cm| &cm.public_name == *m))
+        {
             list.push((stale.clone(), false, true, 0.0, 0.0));
         }
 
@@ -1674,8 +1895,10 @@ impl App {
                     options: ProviderOptions {
                         base_url: crate::ckey::CKEY_LLM_BASE_URL.to_string(),
                         api_key,
+                        ..Default::default()
                     },
                     models: HashMap::new(),
+                    ..Default::default()
                 },
             );
         }
@@ -1692,7 +1915,8 @@ impl App {
         for (m_id, checked, _stale, _, _) in &self.ckey_import_list {
             if *checked {
                 if !provider.models.contains_key(m_id) {
-                    let input_modalities = if m_id.contains("vision") || m_id.contains("omni") || m_id.contains("image") {
+                    let input_modalities = if m_id.contains("vision") || m_id.contains("omni") || m_id.contains("image")
+                    {
                         vec!["text".to_string(), "image".to_string()]
                     } else {
                         vec!["text".to_string()]
@@ -1701,14 +1925,13 @@ impl App {
                         m_id.clone(),
                         ModelEntry {
                             name: m_id.clone(),
-                            limit: Some(ModelLimit {
-                                context: Some(1048576),
-                                output: Some(131072),
-                            }),
+                            // Không đoán limit (xem chú thích ở add_scanned_models).
+                            limit: None,
                             modalities: Some(ModelModalities {
                                 input: input_modalities,
                                 output: vec!["text".to_string()],
                             }),
+                            ..Default::default()
                         },
                     );
                     added += 1;
@@ -1759,12 +1982,6 @@ impl App {
             return;
         };
         let endpoint = crate::ckey::CKEY_MANAGE_API_BASE.to_string();
-        // Hint lọc theo AI key của user (prefix từ /api/llm/keys); rỗng vẫn được chấp nhận.
-        let ai_key_hint = self
-            .ckey_keys
-            .first()
-            .map(|k| k.key_prefix.clone())
-            .unwrap_or_default();
         self.ckey_loading = true;
         self.ckey_error = None;
         self.ckey_usage_scroll = 0;
@@ -1773,7 +1990,7 @@ impl App {
         let tx = self.tx.clone();
         tokio::spawn(async move {
             let client = crate::ckey::CkeyClient::new(&endpoint);
-            let result = client.fetch_usage(&account_key, &ai_key_hint, page, 30).await;
+            let result = client.fetch_usage(&account_key, page, 30).await;
             let _ = tx.send(AppMessage::CkeyUsage { result });
         });
     }
@@ -2181,14 +2398,8 @@ mod tests {
         cfg.save().unwrap();
         let loaded = crate::config::CkeyConfig::load().unwrap();
         assert_eq!(loaded.accounts.len(), 2);
-        assert_eq!(
-            loaded.accounts.get("ckey").map(String::as_str),
-            Some("ck-account-1")
-        );
-        assert_eq!(
-            loaded.accounts.get("X7K2P9").map(String::as_str),
-            Some("ck-account-2")
-        );
+        assert_eq!(loaded.accounts.get("ckey").map(String::as_str), Some("ck-account-1"));
+        assert_eq!(loaded.accounts.get("X7K2P9").map(String::as_str), Some("ck-account-2"));
 
         let _ = fs::remove_dir_all(&test_dir);
     }
@@ -2228,31 +2439,22 @@ mod tests {
         .unwrap();
         let loaded2 = crate::config::CkeyConfig::load().unwrap();
         assert_eq!(loaded2.accounts.len(), 1, "chỉ lấy account đầu tiên cho 'ckey'");
-        assert_eq!(
-            loaded2.accounts.get("ckey").map(String::as_str),
-            Some("ck-account-1")
-        );
+        assert_eq!(loaded2.accounts.get("ckey").map(String::as_str), Some("ck-account-1"));
 
         let _ = fs::remove_dir_all(&test_dir);
     }
 
     #[test]
     fn test_generate_provider_name_unique() {
-        let existing: std::collections::HashSet<String> = [
-            "ckey".to_string(),
-            "X7K2P9".to_string(),
-            "abc123".to_string(),
-        ]
-        .into_iter()
-        .collect();
+        let existing: std::collections::HashSet<String> =
+            ["ckey".to_string(), "X7K2P9".to_string(), "abc123".to_string()]
+                .into_iter()
+                .collect();
         for _ in 0..200 {
             let name = crate::ckey::generate_provider_name(&existing);
             assert!(!existing.contains(&name), "tên phải unique so với existing");
             assert_eq!(name.len(), 6, "phải đúng 6 ký tự");
-            assert!(
-                name.chars().all(|c| c.is_ascii_alphanumeric()),
-                "phải là ký tự alnum"
-            );
+            assert!(name.chars().all(|c| c.is_ascii_alphanumeric()), "phải là ký tự alnum");
         }
     }
 
@@ -2311,7 +2513,9 @@ mod tests {
             .collect();
         assert_eq!(matched.len(), 2, "phải có 2 provider cùng endpoint");
         assert!(
-            matched.iter().all(|(id, _)| id.len() == 6 && id.chars().all(|c| c.is_ascii_alphanumeric())),
+            matched
+                .iter()
+                .all(|(id, _)| id.len() == 6 && id.chars().all(|c| c.is_ascii_alphanumeric())),
             "id phải là 6 ký tự alnum ngẫu nhiên"
         );
         assert!(
@@ -2319,7 +2523,9 @@ mod tests {
             "không được trùng id builtin ckey"
         );
         assert!(
-            matched.iter().all(|(_, p)| p.npm.as_deref() == Some("@ai-sdk/openai-compatible"))
+            matched
+                .iter()
+                .all(|(_, p)| p.npm.as_deref() == Some("@ai-sdk/openai-compatible"))
         );
 
         // Chạy lại cùng endpoint + key → cặp trùng bị bỏ, không thêm mới
@@ -2387,7 +2593,10 @@ mod tests {
         let added = app.execute_bulk_add().unwrap();
         assert_eq!(added, 1, "chỉ thêm key mới, key trùng cặp phải bị bỏ");
 
-        assert!(app.config.provider.contains_key("myprov"), "provider có sẵn phải giữ nguyên");
+        assert!(
+            app.config.provider.contains_key("myprov"),
+            "provider có sẵn phải giữ nguyên"
+        );
         assert_eq!(app.config.provider.len(), 2, "myprov + 1 provider mới");
 
         let _ = fs::remove_dir_all(&test_dir);
@@ -2433,8 +2642,10 @@ mod tests {
                 options: ProviderOptions {
                     base_url: "https://api.xah.io/v1".to_string(),
                     api_key: "k1".to_string(),
+                    ..Default::default()
                 },
                 models: HashMap::new(),
+                ..Default::default()
             },
         );
         app.update_provider_keys();
@@ -2443,8 +2654,7 @@ mod tests {
         assert!(app.has_ckey_support(), "provider đang chọn api.xah.io/v1 → true");
 
         // 3. trailing slash vẫn khớp
-        app.config.provider.get_mut("p1").unwrap().options.base_url =
-            "https://api.xah.io/v1/".to_string();
+        app.config.provider.get_mut("p1").unwrap().options.base_url = "https://api.xah.io/v1/".to_string();
         assert!(app.has_ckey_support(), "trailing slash phải khớp → true");
 
         // 4. Có CKey nhưng chuyển sang chọn provider khác → false
@@ -2456,8 +2666,10 @@ mod tests {
                 options: ProviderOptions {
                     base_url: "https://api.deepseek.com/v1".to_string(),
                     api_key: "k3".to_string(),
+                    ..Default::default()
                 },
                 models: HashMap::new(),
+                ..Default::default()
             },
         );
         app.update_provider_keys();
@@ -2510,8 +2722,10 @@ mod tests {
                 options: ProviderOptions {
                     base_url: crate::ckey::CKEY_LLM_BASE_URL.to_string(),
                     api_key: "k1".to_string(),
+                    ..Default::default()
                 },
                 models: HashMap::new(),
+                ..Default::default()
             },
         );
         app.config.provider.insert(
@@ -2522,8 +2736,10 @@ mod tests {
                 options: ProviderOptions {
                     base_url: crate::ckey::CKEY_LLM_BASE_URL.to_string(),
                     api_key: "k2".to_string(),
+                    ..Default::default()
                 },
                 models: HashMap::new(),
+                ..Default::default()
             },
         );
         app.update_provider_keys();
@@ -2562,7 +2778,6 @@ mod tests {
 
         let _ = fs::remove_dir_all(&test_dir);
     }
-
 
     #[test]
     fn test_ckey_import_creates_provider_and_builtin_not_saved() {
@@ -2618,7 +2833,11 @@ mod tests {
         app.execute_ckey_import().unwrap();
 
         // Provider "ckey" được tạo với model đã chọn + api_key từ key active
-        let provider = app.config.provider.get(crate::ckey::CKEY_PRESET_ID).expect("provider ckey");
+        let provider = app
+            .config
+            .provider
+            .get(crate::ckey::CKEY_PRESET_ID)
+            .expect("provider ckey");
         assert!(provider.models.contains_key("provider/gpt-demo"));
         assert!(!provider.models.contains_key("provider/gpt-removed"));
         assert_eq!(provider.options.api_key, "ck-prod-xxxxxxxxxxxxxxxx");
@@ -2705,7 +2924,10 @@ mod tests {
             !provider.models.contains_key("model-a"),
             "model-a bị CKey xoá phải bị xoá khỏi config sau khi đồng bộ"
         );
-        assert!(provider.models.contains_key("provider/gpt-demo"), "model còn tồn tại phải được giữ");
+        assert!(
+            provider.models.contains_key("provider/gpt-demo"),
+            "model còn tồn tại phải được giữ"
+        );
         assert!(
             !provider.models.contains_key("provider/gpt-removed"),
             "model mới unchecked không được thêm"
@@ -2771,15 +2993,25 @@ mod tests {
         });
 
         // Danh sách quét phải chứa: model-b (checked), model-c (unchecked), model-a (stale, unchecked)
-        assert_eq!(app.scanned_models.len(), 3, "scanned_models phải gồm model-b, model-c và model-a stale");
+        assert_eq!(
+            app.scanned_models.len(),
+            3,
+            "scanned_models phải gồm model-b, model-c và model-a stale"
+        );
         let model_b = app.scanned_models.iter().find(|(id, _, _)| id == "model-b").unwrap();
-        assert!(model_b.1, "model-b còn trên provider và đã có trong config → phải checked");
+        assert!(
+            model_b.1,
+            "model-b còn trên provider và đã có trong config → phải checked"
+        );
         assert!(!model_b.2, "model-b không phải stale");
         let model_c = app.scanned_models.iter().find(|(id, _, _)| id == "model-c").unwrap();
         assert!(!model_c.1, "model-c chưa có trong config → unchecked");
         assert!(!model_c.2, "model-c không phải stale");
         let model_a = app.scanned_models.iter().find(|(id, _, _)| id == "model-a").unwrap();
-        assert!(!model_a.1, "model-a bị provider xoá → mặc định unchecked để bị xoá khi đồng bộ");
+        assert!(
+            !model_a.1,
+            "model-a bị provider xoá → mặc định unchecked để bị xoá khi đồng bộ"
+        );
         assert!(model_a.2, "model-a phải được đánh dấu stale");
 
         // Đồng bộ: model-a bị xoá khỏi config, model-b giữ nguyên, model-c không thêm (unchecked)
@@ -2797,5 +3029,115 @@ mod tests {
 
         // Clean up
         let _ = fs::remove_dir_all(&test_dir);
+    }
+}
+
+/// Test cơ chế ModelCaps — bản nháp capability của màn hình ModelCaps (case hy3).
+#[cfg(test)]
+mod caps_tests {
+    use super::*;
+
+    fn entry_with_caps() -> ModelEntry {
+        ModelEntry {
+            name: "hy3".to_string(),
+            tool_call: Some(true),
+            reasoning: Some(true),
+            interleaved: Some(Interleaved::Object {
+                field: "reasoning_content".to_string(),
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// Draft mở từ entry config phải mang đúng capability đang lưu.
+    #[test]
+    fn draft_doc_du_tu_entry() {
+        let d = ModelCapsDraft::from_entry(&entry_with_caps());
+        assert_eq!(d.tool_call, Some(true));
+        assert_eq!(d.reasoning, Some(true));
+        assert_eq!(d.interleaved_field, "reasoning_content");
+        assert_eq!(d.summary(), "tool+reason+interleaved");
+    }
+
+    /// Ghi draft vào entry: chỉ field đã đặt mới bị đè — field None giữ nguyên
+    /// giá trị cũ (round-trip an toàn).
+    #[test]
+    fn apply_khong_dong_bo_field_none() {
+        let mut entry = entry_with_caps();
+        // Draft chỉ đặt reasoning, còn lại để None và chưa chạm ô interleaved.
+        let d = ModelCapsDraft {
+            reasoning: Some(false),
+            ..Default::default()
+        };
+        d.apply_to(&mut entry);
+        assert_eq!(entry.reasoning, Some(false), "reasoning phải bị đè");
+        assert_eq!(entry.tool_call, Some(true), "tool_call giữ nguyên");
+        assert!(matches!(entry.interleaved, Some(Interleaved::Object { .. })));
+    }
+
+    /// Chưa chạm ô interleaved thì field cũ giữ nguyên; CHẠM rồi xoá trắng thì
+    /// field bị gỡ khỏi config (phải có đường gỡ capability đã đặt).
+    #[test]
+    fn apply_touched_rong_goi_interleaved() {
+        let mut entry = entry_with_caps();
+
+        // Chưa touched: giữ nguyên.
+        let d = ModelCapsDraft {
+            interleaved_field: String::new(),
+            interleaved_touched: false,
+            ..Default::default()
+        };
+        d.apply_to(&mut entry);
+        assert!(matches!(entry.interleaved, Some(Interleaved::Object { .. })));
+
+        // Touched + rỗng: gỡ field.
+        let d = ModelCapsDraft {
+            interleaved_field: String::new(),
+            interleaved_touched: true,
+            ..Default::default()
+        };
+        d.apply_to(&mut entry);
+        assert!(entry.interleaved.is_none(), "field phải bị gỡ");
+
+        // Touched + giá trị mới: đè.
+        let d = ModelCapsDraft {
+            interleaved_field: "reasoning".to_string(),
+            interleaved_touched: true,
+            ..Default::default()
+        };
+        d.apply_to(&mut entry);
+        match entry.interleaved {
+            Some(Interleaved::Object { field }) => assert_eq!(field, "reasoning"),
+            other => panic!("interleaved sai: {:?}", other),
+        }
+    }
+
+    /// Entry trống (model mới) + draft đầy đủ = config hoàn chỉnh cho hy3.
+    #[test]
+    fn apply_len_model_moi() {
+        let mut entry = ModelEntry::default();
+        let d = ModelCapsDraft {
+            tool_call: Some(true),
+            reasoning: Some(true),
+            interleaved_field: "reasoning_content".to_string(),
+            interleaved_touched: true,
+        };
+        d.apply_to(&mut entry);
+        assert_eq!(entry.tool_call, Some(true));
+        assert_eq!(entry.reasoning, Some(true));
+        match entry.interleaved {
+            Some(Interleaved::Object { field }) => assert_eq!(field, "reasoning_content"),
+            other => panic!("interleaved sai: {:?}", other),
+        }
+    }
+
+    /// Interleaved dạng chuỗi ("reasoning_content") của schema cũ cũng đọc được
+    /// vào draft (from_entry chấp nhận cả 3 dạng).
+    #[test]
+    fn draft_doc_duoc_interleaved_dang_chuoi() {
+        let mut entry = ModelEntry::default();
+        entry.interleaved = Some(Interleaved::Field("reasoning".to_string()));
+        let d = ModelCapsDraft::from_entry(&entry);
+        assert_eq!(d.interleaved_field, "reasoning");
     }
 }

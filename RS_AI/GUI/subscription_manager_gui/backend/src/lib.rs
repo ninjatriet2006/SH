@@ -5,6 +5,7 @@ pub mod user_api;
 pub mod package_api;
 pub mod subscription_api;
 pub mod transaction_api;
+pub mod payment_api;
 pub mod settings_api;
 pub mod lang_api;
 pub mod theme_api;
@@ -35,6 +36,7 @@ pub fn run() {
       user_api::update_user,
       user_api::delete_user,
       user_api::list_users,
+      user_api::adjust_user_balance,
       package_api::add_package,
       package_api::update_package,
       package_api::delete_package,
@@ -45,9 +47,15 @@ pub fn run() {
       subscription_api::list_user_subscriptions,
       subscription_api::check_subscription_status,
       subscription_api::list_all_subscriptions,
+      subscription_api::process_auto_renewals,
+      subscription_api::set_subscription_auto_renew,
       transaction_api::list_user_transactions,
       transaction_api::list_all_transactions,
       transaction_api::delete_transaction,
+      payment_api::issue_payment_ref,
+      payment_api::lookup_payment_ref,
+      payment_api::list_payment_refs,
+      payment_api::settle_payment_ref,
       settings_api::get_settings,
       settings_api::save_settings,
       lang_api::get_available_langs,

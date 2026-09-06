@@ -46,6 +46,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Screen::ModelScanResult => {
             draw_models_modal(f, size, app);
         }
+        Screen::ModelCaps => {
+            draw_model_caps_modal(f, size, app);
+        }
         Screen::ManageAuthKeys => {
             draw_auth_keys_modal(f, size, app);
         }
@@ -257,8 +260,26 @@ fn draw_detail(f: &mut Frame, area: Rect, app: &mut App) {
                     "-".to_string()
                 };
 
+                // Khả năng đã khai (case hy3) — cột riêng để nhìn thấy ngay.
+                let mut caps_parts: Vec<&str> = Vec::new();
+                if model.tool_call == Some(true) {
+                    caps_parts.push("tool");
+                }
+                if model.reasoning == Some(true) {
+                    caps_parts.push("reason");
+                }
+                if model.interleaved.is_some() {
+                    caps_parts.push("interleaved");
+                }
+                let caps_str = if caps_parts.is_empty() {
+                    "-".to_string()
+                } else {
+                    caps_parts.join("+")
+                };
+
                 Row::new(vec![
                     Cell::from(key.clone()).style(Style::default().fg(Color::Yellow)),
+                    Cell::from(caps_str).style(Style::default().fg(Color::LightMagenta)),
                     Cell::from(limit_str).style(Style::default().fg(Color::Gray)),
                     Cell::from(modalities_str).style(Style::default().fg(Color::DarkGray)),
                 ])
@@ -268,13 +289,15 @@ fn draw_detail(f: &mut Frame, area: Rect, app: &mut App) {
         let table = Table::new(
             rows,
             [
-                Constraint::Percentage(40),
-                Constraint::Percentage(30),
-                Constraint::Percentage(30),
+                Constraint::Percentage(32),
+                Constraint::Percentage(18),
+                Constraint::Percentage(24),
+                Constraint::Percentage(26),
             ],
         )
         .header(Row::new(vec![
             Cell::from("Tên Model").style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Cell::from("Khả năng").style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Cell::from("Giới hạn Token").style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Cell::from("Phương thức (Modalities)").style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
         ]))
@@ -461,7 +484,6 @@ fn draw_form_modal(f: &mut Frame, area: Rect, app: &App) {
     );
     f.render_widget(key_input, inner_chunks[3]);
 
-
     // Vẽ các nút: Test, Save, Cancel
     let btn_layout = Layout::default()
         .direction(Direction::Horizontal)
@@ -617,8 +639,35 @@ fn draw_models_modal(f: &mut Frame, area: Rect, app: &mut App) {
                 } else {
                     Span::raw("")
                 };
+                // Tag khả năng đã khai trong config (case hy3: tool/reason/interleaved)
+                let caps_tag = app
+                    .config
+                    .provider
+                    .get(&app.scanning_provider_id)
+                    .and_then(|p| p.models.get(name.as_str()))
+                    .map(|entry| {
+                        let mut parts: Vec<&str> = Vec::new();
+                        if entry.tool_call == Some(true) {
+                            parts.push("tool");
+                        }
+                        if entry.reasoning == Some(true) {
+                            parts.push("reason");
+                        }
+                        if entry.interleaved.is_some() {
+                            parts.push("interleaved");
+                        }
+                        parts
+                    })
+                    .filter(|p| !p.is_empty())
+                    .map(|p| Span::styled(format!("  ⟨{}⟩", p.join("+")), Style::default().fg(Color::LightMagenta)));
 
-                ListItem::new(Line::from(vec![span_prefix, span_name, span_suffix])).style(style)
+                let mut spans = vec![span_prefix, span_name];
+                if let Some(tag) = caps_tag {
+                    spans.push(tag);
+                }
+                spans.push(span_suffix);
+
+                ListItem::new(Line::from(spans)).style(style)
             })
             .collect();
 
@@ -635,7 +684,7 @@ fn draw_models_modal(f: &mut Frame, area: Rect, app: &mut App) {
         f.render_stateful_widget(list, inner_chunks[1], &mut app.models_list_state);
     }
 
-    let footer_text = " [Gõ chữ] Tìm kiếm | [Space] Chọn/Bỏ chọn | [Enter] Đồng bộ | [Esc] Huỷ\n [ĐỎ] Model bị provider xoá — bỏ chọn sẽ bị xoá khỏi config ";
+    let footer_text = " [Gõ chữ] Tìm kiếm | [Space] Chọn/Bỏ chọn | [Tab] Khả năng | [Enter] Đồng bộ | [Esc] Huỷ\n [ĐỎ] Model bị provider xoá — bỏ chọn sẽ bị xoá khỏi config ";
     let footer = Paragraph::new(footer_text).alignment(Alignment::Center).style(
         Style::default()
             .fg(Color::Black)
@@ -643,6 +692,141 @@ fn draw_models_modal(f: &mut Frame, area: Rect, app: &mut App) {
             .add_modifier(Modifier::BOLD),
     );
     f.render_widget(footer, inner_chunks[2]);
+}
+
+// === MODEL CAPS EDITOR (khả năng model — case hy3) ===
+fn draw_model_caps_modal(f: &mut Frame, area: Rect, app: &App) {
+    let popup_area = centered_rect(62, 52, area);
+    f.render_widget(Clear, popup_area);
+
+    // Tìm trạng thái model theo ID (snapshot) — danh sách quét có thể đã bị
+    // thay thế bởi background scan; không thấy thì vẽ theo draft.
+    let (stale, checked) = app
+        .scanned_models
+        .iter()
+        .find(|(id, _, _)| *id == app.caps_model_id)
+        .map(|(_, c, s)| (*s, *c))
+        .unwrap_or((false, false));
+    let model_id = app.caps_model_id.clone();
+    let caps = &app.caps_draft;
+
+    let block = Block::default()
+        .title(format!(" ⚙️ KHẢ NĂNG MODEL: {} ", model_id))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Double)
+        .border_style(Style::default().fg(Color::LightMagenta))
+        .bg(Color::Rgb(15, 20, 30));
+    f.render_widget(block, popup_area);
+
+    let inner = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(2)
+        .constraints([
+            Constraint::Length(3), // tool_call
+            Constraint::Length(3), // reasoning
+            Constraint::Length(3), // interleaved field
+            Constraint::Length(3), // status line
+            Constraint::Min(2),    // note + footer
+        ])
+        .split(popup_area);
+
+    let field_block = |focus: bool, editing: bool| -> Style {
+        if focus {
+            if editing {
+                Style::default().fg(Color::Green)
+            } else {
+                Style::default().fg(Color::Yellow)
+            }
+        } else {
+            Style::default().fg(Color::Gray)
+        }
+    };
+
+    // 0. tool_call
+    let tc_val = match caps.tool_call {
+        Some(true) => "[x] bật (model gọi được tool)",
+        Some(false) => "[x] tắt (buộc coi như không hỗ trợ)",
+        None => "[ ] chưa khai (theo mặc định của OpenCode)",
+    };
+    let tc_input = Paragraph::new(tc_val.to_string()).block(
+        Block::default()
+            .title(" 🛠 Tool call (Enter/Space xoay: chưa khai → bật → tắt) ")
+            .borders(Borders::ALL)
+            .border_style(field_block(app.caps_focus == 0, false)),
+    );
+    f.render_widget(tc_input, inner[0]);
+
+    // 1. reasoning
+    let rs_val = match caps.reasoning {
+        Some(true) => "[x] bật (model trả về reasoning)",
+        Some(false) => "[x] tắt (buộc coi như không hỗ trợ)",
+        None => "[ ] chưa khai (theo mặc định của OpenCode)",
+    };
+    let rs_input = Paragraph::new(rs_val.to_string()).block(
+        Block::default()
+            .title(" 💭 Reasoning (Enter/Space xoay: chưa khai → bật → tắt) ")
+            .borders(Borders::ALL)
+            .border_style(field_block(app.caps_focus == 1, false)),
+    );
+    f.render_widget(rs_input, inner[1]);
+
+    // 2. interleaved field
+    let il_val = format!(
+        "{}{}",
+        caps.interleaved_field,
+        if app.caps_focus == 2 && app.caps_field_editing {
+            "█"
+        } else {
+            ""
+        }
+    );
+    let il_input = Paragraph::new(il_val).block(
+        Block::default()
+            .title(" 🧩 Interleaved (vd: reasoning_content) — Enter gõ; xoá trắng = gỡ field ")
+            .borders(Borders::ALL)
+            .border_style(field_block(app.caps_focus == 2, app.caps_field_editing)),
+    );
+    f.render_widget(il_input, inner[2]);
+    if app.caps_focus == 2 && app.caps_field_editing {
+        let cx = (inner[2].x + 2 + caps.interleaved_field.len() as u16).min(inner[2].x + inner[2].width - 2);
+        f.set_cursor(cx, inner[2].y + 1);
+    }
+
+    // 3. Trạng thái hiện tại của model trong config (đối chiếu trước khi lưu)
+    let configured = app
+        .config
+        .provider
+        .get(&app.scanning_provider_id)
+        .and_then(|p| p.models.get(&model_id));
+    let status_line = if stale {
+        "⚠️ Model đã bị provider XOÁ — đặt caps vẫn được giữ nếu tick chọn.".to_string()
+    } else if configured.is_some() {
+        format!("Đang lưu trong config · tổng hợp: {}", caps.summary())
+    } else {
+        format!(
+            "Chưa có trong config{} · tổng hợp: {}",
+            if checked {
+                " (đã tick)"
+            } else {
+                " (chưa tick — S sẽ báo lỗi)"
+            },
+            caps.summary()
+        )
+    };
+    let status = Paragraph::new(status_line)
+        .style(Style::default().fg(Color::DarkGray))
+        .alignment(Alignment::Center);
+    f.render_widget(status, inner[3]);
+
+    // 4. Footer
+    let footer_text = " [↑/↓/Tab] Chọn ô | [Enter/Space] Đổi | [S] Lưu vào config | [Esc] Huỷ ";
+    let footer = Paragraph::new(footer_text).alignment(Alignment::Center).style(
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::LightMagenta)
+            .add_modifier(Modifier::BOLD),
+    );
+    f.render_widget(footer, inner[4]);
 }
 
 // === AUTH KEYS MANAGER MODAL ===
@@ -1165,14 +1349,12 @@ fn draw_ckey_dashboard_modal(f: &mut Frame, area: Rect, app: &mut App) {
 
     // 4. Footer (hướng dẫn phím)
     let footer_text = " [R] Tải lại | [I] Import model | [U] Lịch sử dùng | [Esc] Đóng ";
-    let footer = Paragraph::new(footer_text)
-        .alignment(Alignment::Center)
-        .style(
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        );
+    let footer = Paragraph::new(footer_text).alignment(Alignment::Center).style(
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    );
     f.render_widget(footer, inner_chunks[3]);
 }
 
@@ -1268,38 +1450,32 @@ fn draw_ckey_need_key_popup(f: &mut Frame, area: Rect, app: &mut App) {
             }
 
             let footer_text = " [↑/↓] Chọn | [Enter] Dùng key / Nhập mới | [Tab] Đổi chế độ | [Esc] Đóng ";
-            let footer = Paragraph::new(footer_text)
-                .alignment(Alignment::Center)
-                .style(
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                );
+            let footer = Paragraph::new(footer_text).alignment(Alignment::Center).style(
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            );
             f.render_widget(footer, inner[2]);
         }
         CkeyPickMode::New => {
-            let input_para = Paragraph::new(format!(" {}{}", app.ckey_new_key_input, "█"))
-                .block(
+            let input_para = Paragraph::new(format!(" {}{}", app.ckey_new_key_input, "█")).block(
                 Block::default()
                     .title(" ⌨️ Nhập account key mới (từ trang Profile ckey.vn) — Enter để lưu ")
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Green)),
             );
             f.render_widget(input_para, inner[1]);
-            let cx = (inner[1].x + 2 + app.ckey_new_key_input.len() as u16)
-                .min(inner[1].x + inner[1].width - 2);
+            let cx = (inner[1].x + 2 + app.ckey_new_key_input.len() as u16).min(inner[1].x + inner[1].width - 2);
             f.set_cursor(cx, inner[1].y + 1);
 
             let footer_text = " [Gõ] Nhập account key | [Enter] Lưu & tải dữ liệu | [Tab] Đổi chế độ | [Esc] Đóng ";
-            let footer = Paragraph::new(footer_text)
-                .alignment(Alignment::Center)
-                .style(
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                );
+            let footer = Paragraph::new(footer_text).alignment(Alignment::Center).style(
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            );
             f.render_widget(footer, inner[2]);
         }
     }
@@ -1419,14 +1595,12 @@ fn draw_bulk_add_modal(f: &mut Frame, area: Rect, app: &mut App) {
 
     // 4. Footer
     let footer_text = " [↑/↓] Chọn ô | [Enter] Sửa ô / Thực hiện | [Esc] Thoát ";
-    let footer = Paragraph::new(footer_text)
-        .alignment(Alignment::Center)
-        .style(
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::LightCyan)
-                .add_modifier(Modifier::BOLD),
-        );
+    let footer = Paragraph::new(footer_text).alignment(Alignment::Center).style(
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::LightCyan)
+            .add_modifier(Modifier::BOLD),
+    );
     f.render_widget(footer, inner_chunks[3]);
 }
 
@@ -1482,8 +1656,8 @@ fn draw_ckey_import_modal(f: &mut Frame, area: Rect, app: &mut App) {
     );
     f.render_widget(search_paragraph, inner_chunks[0]);
 
-    let cursor_x = (inner_chunks[0].x + 2 + app.ckey_import_query.len() as u16)
-        .min(inner_chunks[0].x + inner_chunks[0].width - 2);
+    let cursor_x =
+        (inner_chunks[0].x + 2 + app.ckey_import_query.len() as u16).min(inner_chunks[0].x + inner_chunks[0].width - 2);
     let cursor_y = inner_chunks[0].y + 1;
     f.set_cursor(cursor_x, cursor_y);
 
@@ -1602,8 +1776,11 @@ fn draw_ckey_usage_modal(f: &mut Frame, area: Rect, app: &mut App) {
                     Cell::from(u.created_at_text.clone()).style(Style::default().fg(Color::DarkGray)),
                     Cell::from(u.model_name.clone()).style(Style::default().fg(Color::Yellow)),
                     Cell::from(u.request_path.clone()).style(Style::default().fg(Color::Gray)),
-                    Cell::from(format!("{} ({}p/{}c)", u.total_tokens, u.prompt_tokens, u.completion_tokens))
-                        .style(Style::default().fg(Color::Gray)),
+                    Cell::from(format!(
+                        "{} ({}p/{}c)",
+                        u.total_tokens, u.prompt_tokens, u.completion_tokens
+                    ))
+                    .style(Style::default().fg(Color::Gray)),
                     Cell::from(format!("{}₫", format_vnd(u.charged_vnd))).style(Style::default().fg(Color::LightCyan)),
                     Cell::from(format!("{}ms", u.latency_ms)).style(Style::default().fg(Color::Gray)),
                     Cell::from(u.status.clone()).style(status_style),
@@ -1638,14 +1815,12 @@ fn draw_ckey_usage_modal(f: &mut Frame, area: Rect, app: &mut App) {
     }
 
     let footer_text = " [↑/↓] Cuộn | [←/→] Trang trước/sau | [R] Tải lại trang | [Esc] Đóng ";
-    let footer = Paragraph::new(footer_text)
-        .alignment(Alignment::Center)
-        .style(
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        );
+    let footer = Paragraph::new(footer_text).alignment(Alignment::Center).style(
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    );
     f.render_widget(footer, inner_chunks[1]);
 }
 

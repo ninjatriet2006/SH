@@ -6,13 +6,15 @@
 */
 
 import { create } from 'zustand';
-import type { Subscription } from '../../../bridge/types';
+import type { Subscription, AutoRenewReport } from '../../../bridge/types';
 import { 
     listUserSubscriptions, 
     addSubscriptionToUser, 
     updateSubscriptionExpiry, 
     removeSubscriptionFromUser,
-    listAllSubscriptions
+    listAllSubscriptions,
+    setSubscriptionAutoRenew,
+    processAutoRenewals
 } from '../../../bridge/subscription_bridge';
 
 interface SubscriptionState {
@@ -23,17 +25,25 @@ interface SubscriptionState {
     // User ID đang được chọn để xem
     currentUserId: string | null;
     isLoading: boolean;
+    // Báo cáo lần rà tự động gia hạn gần nhất (null = chưa rà lần nào)
+    autoRenewReport: AutoRenewReport | null;
     
     // Nạp toàn bộ
     fetchAllSubscriptions: () => Promise<void>;
     // Nạp danh sách theo user_id
     fetchUserSubscriptions: (userId: string) => Promise<void>;
     // Gán gói mới
-    addSubscription: (userId: string, packageId: string, customExpiry?: number, amount?: number) => Promise<void>;
+    addSubscription: (userId: string, packageId: string, customExpiry?: number, amount?: number, autoRenew?: boolean) => Promise<void>;
     // Cập nhật ngày hết hạn
-    updateExpiry: (subId: string, newExpiry: number, amount?: number) => Promise<void>;
+    updateExpiry: (subId: string, newExpiry: number, amount?: number, autoRenew?: boolean) => Promise<void>;
     // Thu hồi gói
     removeSubscription: (subId: string) => Promise<void>;
+    // Bật/tắt tự động gia hạn cho một gói
+    toggleAutoRenew: (subId: string, autoRenew: boolean) => Promise<void>;
+    // Chạy rà tự động gia hạn, trả về báo cáo để UI thông báo
+    runAutoRenewals: () => Promise<AutoRenewReport>;
+    // Xoá báo cáo sau khi người dùng đã đọc
+    clearAutoRenewReport: () => void;
 }
 
 export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
@@ -41,6 +51,7 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
     allSubscriptions: [],
     currentUserId: null,
     isLoading: false,
+    autoRenewReport: null,
 
     fetchAllSubscriptions: async () => {
         set({ isLoading: true });
@@ -66,10 +77,10 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
         }
     },
 
-    addSubscription: async (userId, packageId, customExpiry, amount) => {
+    addSubscription: async (userId, packageId, customExpiry, amount, autoRenew) => {
         set({ isLoading: true });
         try {
-            const newSub = await addSubscriptionToUser(userId, packageId, customExpiry, amount);
+            const newSub = await addSubscriptionToUser(userId, packageId, customExpiry, amount, autoRenew);
             // Cập nhật state nếu đang xem đúng user đó
             if (get().currentUserId === userId) {
                 set({ subscriptions: [...get().subscriptions, newSub] });
@@ -83,10 +94,10 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
         }
     },
 
-    updateExpiry: async (subId, newExpiry, amount) => {
+    updateExpiry: async (subId, newExpiry, amount, autoRenew) => {
         set({ isLoading: true });
         try {
-            const updatedSub = await updateSubscriptionExpiry(subId, newExpiry, amount);
+            const updatedSub = await updateSubscriptionExpiry(subId, newExpiry, amount, autoRenew);
             set({ subscriptions: get().subscriptions.map(s => s.id === subId ? updatedSub : s) });
             set({ allSubscriptions: get().allSubscriptions.map(s => s.id === subId ? updatedSub : s) });
         } catch (error) {
@@ -109,5 +120,39 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
         } finally {
             set({ isLoading: false });
         }
-    }
+    },
+
+    toggleAutoRenew: async (subId, autoRenew) => {
+        // Không set isLoading: checkbox cần phản hồi tức thì, bật cờ loading
+        // sẽ khiến cả bảng nhảy vào trạng thái "Đang tải".
+        try {
+            const updatedSub = await setSubscriptionAutoRenew(subId, autoRenew);
+            set({ subscriptions: get().subscriptions.map(s => s.id === subId ? updatedSub : s) });
+            set({ allSubscriptions: get().allSubscriptions.map(s => s.id === subId ? updatedSub : s) });
+        } catch (error) {
+            console.error("Lỗi bật/tắt tự động gia hạn:", error);
+            throw error;
+        }
+    },
+
+    runAutoRenewals: async () => {
+        try {
+            const report = await processAutoRenewals();
+            set({ autoRenewReport: report });
+            // Có gia hạn = số dư và hạn đã đổi → nạp lại để state khớp file.
+            if (report.renewed > 0) {
+                await get().fetchAllSubscriptions();
+                const uid = get().currentUserId;
+                if (uid) {
+                    await get().fetchUserSubscriptions(uid);
+                }
+            }
+            return report;
+        } catch (error) {
+            console.error("Lỗi chạy tự động gia hạn:", error);
+            throw error;
+        }
+    },
+
+    clearAutoRenewReport: () => set({ autoRenewReport: null })
 }));

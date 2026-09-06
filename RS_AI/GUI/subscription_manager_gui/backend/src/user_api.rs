@@ -6,7 +6,7 @@
 */
 
 // Import các Struct từ module models
-use crate::models::User;
+use crate::models::{tx_action, Transaction, User};
 // Import các hàm đọc/ghi dữ liệu từ module storage
 use crate::storage::{load_data, save_data};
 // Import thư viện quản lý thời gian của Rust để sinh ID và timestamp
@@ -35,6 +35,9 @@ pub fn add_user(username: String, email: Option<String>, phone: Option<String>, 
         phone,
         contact_url,
         created_at: current_timestamp(), // Gán thời gian tạo
+        // Khách mới chưa nạp tiền, chưa nợ. Nạp qua `adjust_user_balance`
+        // để mọi biến động số dư đều có giao dịch tương ứng.
+        balance: 0,
     };
     
     // Thêm người dùng vừa tạo vào danh sách
@@ -147,4 +150,54 @@ pub fn list_users(page: Option<u32>, limit: Option<u32>) -> Result<Vec<User>, St
     
     // Nếu không truyền tham số phân trang, trả về toàn bộ danh sách
     Ok(data.users)
+}
+
+/// Điều chỉnh số dư của khách: `delta` > 0 là nạp thêm, `delta` < 0 là trừ ra.
+///
+/// Số dư CÓ DẤU: dương = tiền khả dụng, âm = công nợ. Lệnh này cho phép kết quả
+/// âm (ghi nợ có chủ ý), nhưng tự động gia hạn thì KHÔNG bao giờ đẩy số dư xuống
+/// âm — xem `subscription_api::run_auto_renew`.
+///
+/// Mọi biến động đều ghi một giao dịch `DEPOSIT` để lịch sử khớp với số dư.
+// Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
+#[tauri::command(rename_all = "snake_case")]
+pub fn adjust_user_balance(id: String, delta: i64, note: Option<String>) -> Result<User, String> {
+    if delta == 0 {
+        return Err("Số tiền điều chỉnh phải khác 0".to_string());
+    }
+    let _store_guard = crate::storage::lock_store();
+    let mut data = load_data();
+
+    let user = data
+        .users
+        .iter_mut()
+        .find(|u| u.id == id)
+        .ok_or_else(|| format!("Không tìm thấy người dùng với ID: {}", id))?;
+
+    // `checked_add` thay vì `+`: số dư là i64 do người dùng nhập, cộng dồn có
+    // thể tràn ở bản release (wrap âm âm thầm) hoặc panic ở bản debug.
+    let new_balance = user
+        .balance
+        .checked_add(delta)
+        .ok_or_else(|| "Số dư vượt giới hạn cho phép".to_string())?;
+    user.balance = new_balance;
+    let updated = user.clone();
+
+    // `amount` là u64 nên lưu trị tuyệt đối; dấu nằm ở `action`/`note`.
+    let new_tx = Transaction {
+        id: generate_id("tx"),
+        user_id: id.clone(),
+        // Giao dịch số dư không gắn với gói nào.
+        package_id: String::new(),
+        amount: delta.unsigned_abs(),
+        action: tx_action::DEPOSIT.to_string(),
+        created_at: current_timestamp(),
+    };
+    data.transactions.push(new_tx);
+    // `note` hiện chỉ để đối chiếu khi gọi API; chưa lưu vào Transaction vì
+    // thêm field sẽ đổi schema data.json — để dành cho lần mở rộng có chủ đích.
+    let _ = note;
+
+    save_data(&data)?;
+    Ok(updated)
 }

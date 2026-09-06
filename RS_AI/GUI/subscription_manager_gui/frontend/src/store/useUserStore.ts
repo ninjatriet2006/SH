@@ -9,7 +9,7 @@
 import { create } from 'zustand';
 // Nhúng interface User và các hàm gọi API từ bridge
 import type { User } from '../../../bridge/types';
-import { listUsers, addUser, updateUser, deleteUser } from '../../../bridge/user_bridge';
+import { listUsers, addUser, updateUser, deleteUser, adjustUserBalance } from '../../../bridge/user_bridge';
 
 // Định nghĩa cấu trúc State và Actions của UserStore
 interface UserState {
@@ -25,6 +25,8 @@ interface UserState {
     editUser: (id: string, username?: string, email?: string, phone?: string, contactUrl?: string) => Promise<void>;
     // Hàm xóa người dùng
     removeUser: (id: string) => Promise<void>;
+    // Điều chỉnh số dư: delta > 0 nạp thêm, < 0 trừ ra (có thể thành công nợ)
+    changeBalance: (id: string, delta: number, note?: string) => Promise<void>;
 }
 
 // Khởi tạo Zustand store
@@ -95,6 +97,21 @@ export const useUserStore = create<UserState>((set, get) => ({
             set({ users: currentUsers.filter(u => u.id !== id) });
         } catch (error) {
             console.error("Lỗi xóa user:", error);
+            throw error;
+        } finally {
+            set({ isLoading: false });
+        }
+    },
+
+    // Điều chỉnh số dư. Backend trả về user đã cập nhật nên state luôn khớp
+    // với file dữ liệu, không tự cộng ở frontend rồi lệch khi backend từ chối.
+    changeBalance: async (id, delta, note) => {
+        set({ isLoading: true });
+        try {
+            const updatedUser = await adjustUserBalance(id, delta, note);
+            set({ users: get().users.map(u => u.id === id ? updatedUser : u) });
+        } catch (error) {
+            console.error("Lỗi điều chỉnh số dư:", error);
             throw error;
         } finally {
             set({ isLoading: false });

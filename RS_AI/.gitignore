@@ -43,6 +43,16 @@ Thumbs.db
 # Release build artifacts
 /release/
 
+# DỮ LIỆU RIÊNG TƯ — KHÔNG BAO GIỜ commit (repo này công khai).
+# `storage/` chứa data.json (thông tin khách hàng, số dư, giao dịch),
+# settings.json và các bản sao lưu tự động. Bản `release/` đã bị chặn bởi
+# `/release/` ở trên, nhưng khi chạy `cargo tauri dev` thì app ghi vào
+# `GUI/<app>/storage/` — đường dẫn đó KHÔNG nằm trong `/release/`.
+GUI/**/storage/
+/storage/
+**/data.json
+**/settings.json
+
 # Third-party repositories
 Nemo/
 rust-analyzer-src/

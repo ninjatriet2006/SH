@@ -8,14 +8,15 @@
 // Nhúng lệnh gọi API từ Tauri
 import { invoke } from '@tauri-apps/api/core';
 // Nhúng kiểu dữ liệu Subscription
-import type { Subscription } from './types';
+import type { Subscription, AutoRenewReport } from './types';
 
 // Hàm gọi API gán gói dịch vụ cho người dùng
 export async function addSubscriptionToUser(
     user_id: string, 
     package_id: string, 
     custom_expiration_date?: number,
-    amount?: number
+    amount?: number,
+    auto_renew?: boolean
 ): Promise<Subscription> {
     try {
         // Gọi lệnh "add_subscription_to_user"
@@ -23,7 +24,8 @@ export async function addSubscriptionToUser(
             user_id: user_id,
             package_id: package_id,
             custom_expiration_date: custom_expiration_date ?? null,
-            amount: amount ?? null
+            amount: amount ?? null,
+            auto_renew: auto_renew ?? null
         });
         return result;
     } catch (error) {
@@ -31,18 +33,21 @@ export async function addSubscriptionToUser(
     }
 }
 
-// Hàm gọi API cập nhật ngày hết hạn của một đăng ký
+// Hàm gọi API cập nhật ngày hết hạn của một đăng ký.
+// `auto_renew` bỏ trống = giữ nguyên lựa chọn hiện tại (quy ước như update_user).
 export async function updateSubscriptionExpiry(
     subscription_id: string, 
     new_expiration_date: number,
-    amount?: number
+    amount?: number,
+    auto_renew?: boolean
 ): Promise<Subscription> {
     try {
         // Gọi lệnh "update_subscription_expiry"
         const result = await invoke<Subscription>('update_subscription_expiry', {
             subscription_id: subscription_id,
             new_expiration_date: new_expiration_date,
-            amount: amount ?? null
+            amount: amount ?? null,
+            auto_renew: auto_renew ?? null
         });
         return result;
     } catch (error) {
@@ -93,6 +98,31 @@ export async function listAllSubscriptions(): Promise<Subscription[]> {
     try {
         const result = await invoke<Subscription[]>('list_all_subscriptions');
         return result;
+    } catch (error) {
+        throw new Error(String(error));
+    }
+}
+
+/// Bật/tắt tự động gia hạn cho một đăng ký.
+export async function setSubscriptionAutoRenew(
+    subscription_id: string,
+    auto_renew: boolean
+): Promise<Subscription> {
+    try {
+        return await invoke<Subscription>('set_subscription_auto_renew', {
+            subscription_id: subscription_id,
+            auto_renew: auto_renew
+        });
+    } catch (error) {
+        throw new Error(String(error));
+    }
+}
+
+/// Chạy rà tự động gia hạn và lấy báo cáo (đã gia hạn bao nhiêu, trừ bao nhiêu
+/// tiền, gói nào bị bỏ qua vì thiếu số dư).
+export async function processAutoRenewals(): Promise<AutoRenewReport> {
+    try {
+        return await invoke<AutoRenewReport>('process_auto_renewals');
     } catch (error) {
         throw new Error(String(error));
     }

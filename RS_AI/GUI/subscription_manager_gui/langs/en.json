@@ -4,6 +4,7 @@
     "users": "Users",
     "packages": "Packages",
     "transactions": "Transactions",
+    "payments": "Reconciliation",
     "settings": "Settings"
   },
   "common": {
@@ -61,7 +62,14 @@
     "lbl_username": "Display Name (Required)",
     "lbl_email": "Email (Optional)",
     "lbl_phone": "Phone Number (Optional)",
-    "lbl_contact": "Contact URL (Optional)"
+    "lbl_contact": "Contact URL (Optional)",
+    "balance": "Balance",
+    "balance_debt": "In debt",
+    "balance_adjust": "Deposit / Deduct",
+    "auto_renew": "Auto-renew",
+    "auto_renew_on": "Auto-renew enabled",
+    "auto_renew_off": "Auto-renew disabled",
+    "last_auto_renew": "Last auto-renewal:"
   },
   "packages": {
     "title": "Package Management",
@@ -91,7 +99,9 @@
     "amount": "Amount (VND)",
     "actions": "Actions",
     "assign": "ASSIGNED",
-    "renew": "RENEWED"
+    "renew": "RENEWED",
+    "auto_renew": "AUTO-RENEWED",
+    "deposit": "BALANCE ADJUSTED"
   },
   "settings": {
     "title": "System Settings",
@@ -113,6 +123,47 @@
     "renew_3m": "Add 3 Months (90 days)",
     "renew_6m": "Add 6 Months (180 days)",
     "renew_1y": "Add 1 Year (365 days)",
-    "lbl_amount": "Charge Amount (VND)"
+    "lbl_amount": "Charge Amount (VND)",
+    "lbl_auto_renew": "Auto-renew on expiry",
+    "auto_renew_hint": "Only renews when the balance covers the full package price. In debt or short on funds, the package is left to expire."
+  },
+  "balance_modal": {
+    "title": "Adjust Balance",
+    "current": "Current balance:",
+    "lbl_amount": "Amount (VND)",
+    "deposit": "Deposit",
+    "withdraw": "Deduct",
+    "hint": "Deposits increase the balance; deductions may create debt (negative balance).",
+    "preview": "Balance after adjustment:"
+  },
+  "auto_renew": {
+    "report_title": "Auto-renewal Result",
+    "renewed": "Renewed",
+    "charged": "Total charged",
+    "skipped": "Could not renew",
+    "run_now": "Run auto-renewal",
+    "none": "No package needed renewal."
+  },
+  "payment": {
+    "title": "Payment Reconciliation",
+    "lookup_label": "Paste the transfer note from your bank statement",
+    "lookup_placeholder": "e.g. SM7K2MX4B9 or the whole statement line",
+    "lookup_btn": "Look up",
+    "exact_match": "Exact match",
+    "no_exact": "No exact match",
+    "same_user_hint": "No exact match, but the identifier points to this customer:",
+    "not_found": "Could not identify the sender. The note contains no system code.",
+    "code": "Reference code",
+    "customer": "Customer",
+    "amount": "Amount",
+    "issued_at": "Issued at",
+    "tx_count": "Transactions",
+    "settled": "Received",
+    "not_settled": "Pending",
+    "mark_settled": "Mark as received",
+    "unmark_settled": "Unmark",
+    "history": "Issued codes",
+    "no_refs": "No code issued yet.",
+    "token": "Customer identifier"
   }
 }

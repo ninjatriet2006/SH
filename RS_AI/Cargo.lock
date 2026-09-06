@@ -4938,10 +4938,13 @@ dependencies = [
 name = "opencode_manager_gui"
 version = "0.1.0"
 dependencies = [
- "eframe",
- "egui",
+ "log",
  "opencode_manager",
+ "serde",
  "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-log",
  "tokio",
 ]
 

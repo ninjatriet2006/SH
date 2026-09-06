@@ -1,7 +1,7 @@
 use reqwest::Client;
 use serde::Deserialize;
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -60,12 +60,17 @@ pub struct CkeyProfile {
 }
 
 // Giữ đầy đủ field từ API (có thể hiển thị thêm sau); chưa dùng hết nên allow dead_code.
+// `model_name`/`provider_username` KHÔNG có trong response mẫu của docs
+// (https://ckey.vn/docs, endpoint /api/llm/models) nên PHẢI `default` —
+// khai báo bắt buộc sẽ làm fetch_models lỗi "missing field" trên API thật.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct CkeyModel {
     pub public_name: String,
     pub display_name: String,
+    #[serde(default)]
     pub model_name: String,
+    #[serde(default)]
     pub provider_username: String,
     #[serde(default)]
     pub is_provider_model: bool,
@@ -206,12 +211,13 @@ struct CkeyWrapped<T> {
 
 // Hàm parse thuần (không mạng) để unit test được từ fixture JSON.
 pub fn parse_wrapped<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, String> {
-    let wrapped: CkeyWrapped<T> =
-        serde_json::from_str(body).map_err(|e| format!("Lỗi parse JSON từ CKey: {}", e))?;
+    let wrapped: CkeyWrapped<T> = serde_json::from_str(body).map_err(|e| format!("Lỗi parse JSON từ CKey: {}", e))?;
     match wrapped.data {
         Some(data) => Ok(data),
         None => {
-            let msg = wrapped.message.unwrap_or_else(|| "CKey trả về response rỗng".to_string());
+            let msg = wrapped
+                .message
+                .unwrap_or_else(|| "CKey trả về response rỗng".to_string());
             Err(format!("CKey lỗi: {}", msg))
         }
     }
@@ -316,20 +322,15 @@ impl CkeyClient {
             .await
     }
 
-    pub async fn fetch_usage(
-        &self,
-        account_key: &str,
-        ai_key_hint: &str,
-        page: u64,
-        limit: u64,
-    ) -> Result<CkeyUsagePage, String> {
-        // API /api/llm/usage bắt buộc có param `api_key` (xác thực chỉ cần param hiện diện;
-        // dùng prefix key của user làm hint để lọc đúng AI key của tài khoản).
+    pub async fn fetch_usage(&self, account_key: &str, page: u64, limit: u64) -> Result<CkeyUsagePage, String> {
+        // Tham số theo docs (https://ckey.vn/docs): `key` (bắt buộc), `page`,
+        // `limit`, `model`, `key_id`, `ai_key`. KHÔNG gửi tham số nào khác —
+        // bản cũ gửi `api_key` (không tồn tại trong docs) kèm prefix key là
+        // tham số bịa, API có thể lọc sai hoặc bỏ qua.
         self.get_query(
             "/api/llm/usage",
             &[
                 ("key", account_key.to_string()),
-                ("api_key", ai_key_hint.to_string()),
                 ("page", page.to_string()),
                 ("limit", limit.to_string()),
             ],
@@ -373,11 +374,13 @@ mod tests {
 
     #[test]
     fn parse_models_fixture() {
+        // Response mẫu ĐÚNG KHI TƯNG docs (https://ckey.vn/docs) — KHÔNG có
+        // `model_name`/`provider_username`. Đây chính là hồi quy cho bug
+        // "CKey không hoạt động": field bắt buộc làm fetch_models lỗi parse.
         let body = r#"{
             "success": true, "status": 200, "message": "OK",
             "data": { "count": 1, "models": [ {
-                "public_name": "provider/gpt-demo", "display_name": "GPT Demo",
-                "model_name": "gpt-demo", "provider_username": "provider",
+                "public_name": "provider/GPT Demo", "display_name": "GPT Demo",
                 "is_provider_model": true,
                 "input_price_per_million_vnd": 5000, "output_price_per_million_vnd": 15000,
                 "price_per_request_vnd": 0, "min_charge_per_request_vnd": 1,
@@ -389,8 +392,25 @@ mod tests {
         }"#;
         let list: CkeyModelList = parse_wrapped(body).unwrap();
         assert_eq!(list.models.len(), 1);
-        assert_eq!(list.models[0].public_name, "provider/gpt-demo");
+        assert_eq!(list.models[0].public_name, "provider/GPT Demo");
         assert_eq!(list.models[0].input_price_per_million_vnd, 5000.0);
+        assert_eq!(list.models[0].model_name, "");
+        assert_eq!(list.models[0].provider_username, "");
+    }
+
+    #[test]
+    fn parse_models_khi_co_them_model_name() {
+        // API có thể trả thêm field (phiên bản khác) — vẫn parse được, không mất dữ liệu.
+        let body = r#"{
+            "success": true, "status": 200, "message": "OK",
+            "data": { "count": 1, "models": [ {
+                "public_name": "p/gpt-demo", "display_name": "GPT Demo",
+                "model_name": "gpt-demo", "provider_username": "p"
+            } ] }
+        }"#;
+        let list: CkeyModelList = parse_wrapped(body).unwrap();
+        assert_eq!(list.models[0].model_name, "gpt-demo");
+        assert_eq!(list.models[0].provider_username, "p");
     }
 
     #[test]

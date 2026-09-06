@@ -8,7 +8,7 @@ members = [
     "TUI/universal_converter",
     "GUI/universe_manager_gui",
     "GUI/filen_gui",
-    "GUI/opencode_manager_gui",
+    "GUI/opencode_manager_gui/backend",
     "GUI/img_splt_gui",
     "GUI/universal_converter_gui",
     "GUI/subscription_manager_gui/backend",

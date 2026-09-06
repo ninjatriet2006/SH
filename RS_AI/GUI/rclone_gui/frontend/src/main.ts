@@ -2,7 +2,7 @@
 [INTEGRITY NOTES]
 Mục đích: Điểm vào chính (entry point) cho logic giao diện rcloneGUI.
 Trách nhiệm: Khởi tạo UI, load ngôn ngữ (i18n), thiết lập sự kiện các tab, sidebar.
-Các module tương tác: /bridge/remote_api.ts, /langs/vi.json
+Các module tương tác: /bridge/remote_api.ts, /bridge/lang_api.ts
 */
 
 import { RemotesManager } from './features/remotesManager.ts';
@@ -18,46 +18,37 @@ import { Sidebar } from './components/Sidebar';
 import '../../themes/tokens.css';
 import '../../themes/style.css';
 
-// Tạm thời import trực tiếp JSON thay vì fetch để tránh lỗi đường dẫn tĩnh ngoài root
-import viLang from '../../langs/vi.json';
+// Từ điển được đọc lúc CHẠY từ thư mục `langs/` cạnh binary (qua backend), thay
+// vì `import viLang from '../../langs/vi.json'` như trước. Cách cũ nhúng cứng
+// một file vào bundle nên: thêm/sửa bản dịch phải build lại, `langs/` trong
+// release chỉ là file chết, và app không chạy được với bộ ngôn ngữ không có `vi`.
+import { resolveLanguage, applyLanguage } from './features/i18n';
+import { appState } from './store';
 
-// State lưu trữ dữ liệu từ điển hiện tại
-let currentLangData: Record<string, string> = {};
 let remotesManager: RemotesManager | null = null;
 let mountManager: MountManager | null = null;
 let debugView: DebugView | null = null;
 let recentsView: RecentsView | null = null;
 let sidebar: Sidebar | null = null;
 
+// Từ điển hiện tại; giữ ở module scope để `update_language_ui()` dùng lại khi
+// các view được tạo động sau lúc khởi tạo.
+let currentLangData: Record<string, string> = {};
+
 /**
- * Hàm đệ quy cập nhật UI text dựa trên data-lang-id.
- * Quy tắc ID Linking: quét toàn bộ DOM, tìm [data-lang-id], cập nhật textContent.
+ * Cập nhật UI text dựa trên `data-lang-id` (quy tắc ID Linking).
  */
 function update_language_ui(root: HTMLElement = document.body) {
-  const elements = root.querySelectorAll('[data-lang-id]');
-  elements.forEach(el => {
-    const id = el.getAttribute('data-lang-id');
-    if (id && currentLangData[id]) {
-      // Chỉ cập nhật textContent nếu không phải là input placeholder
-      if (el.tagName === 'INPUT' && (el as HTMLInputElement).placeholder !== undefined) {
-        (el as HTMLInputElement).placeholder = currentLangData[id];
-      } else {
-        el.textContent = currentLangData[id];
-      }
-    }
-  });
+  applyLanguage(currentLangData, root);
 }
 
 /**
- * Hàm load ngôn ngữ
+ * Hàm load ngôn ngữ. `preferred` để rỗng thì dùng file đầu tiên có thật.
  */
-async function loadLanguage(_lang: string) {
-  try {
-    currentLangData = viLang;
-    update_language_ui();
-  } catch (error) {
-    console.error(`Lỗi khi load ngôn ngữ:`, error);
-  }
+async function loadLanguage(preferred: string | null = null) {
+  const { data } = await resolveLanguage(preferred);
+  currentLangData = data;
+  update_language_ui();
 }
 
 /**
@@ -189,7 +180,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  await loadLanguage('vi');
+  // Ngôn ngữ đã lưu (rỗng = chưa chọn) → `resolveLanguage` rớt về file đầu
+  // tiên thực có trong `langs/`. Không truyền mã cứng ở đây.
+  await loadLanguage(appState.settings?.language || null);
   setupEvents();
   new TransferDrawer();
   console.log('rcloneGUI khởi tạo thành công!');

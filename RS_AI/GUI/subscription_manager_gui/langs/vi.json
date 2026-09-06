@@ -4,6 +4,7 @@
     "users": "Người dùng",
     "packages": "Gói dịch vụ",
     "transactions": "Lịch sử giao dịch",
+    "payments": "Đối soát thanh toán",
     "settings": "Cài đặt"
   },
   "common": {
@@ -61,7 +62,14 @@
     "lbl_username": "Tên hiển thị (Bắt buộc)",
     "lbl_email": "Email (Tùy chọn)",
     "lbl_phone": "Số điện thoại (Tùy chọn)",
-    "lbl_contact": "URL Liên hệ (Tùy chọn)"
+    "lbl_contact": "URL Liên hệ (Tùy chọn)",
+    "balance": "Số dư",
+    "balance_debt": "Đang nợ",
+    "balance_adjust": "Nạp / Trừ tiền",
+    "auto_renew": "Tự động gia hạn",
+    "auto_renew_on": "Đang bật tự động gia hạn",
+    "auto_renew_off": "Tắt tự động gia hạn",
+    "last_auto_renew": "Tự gia hạn lần cuối:"
   },
   "packages": {
     "title": "Quản lý Gói dịch vụ",
@@ -91,7 +99,9 @@
     "amount": "Số tiền (VNĐ)",
     "actions": "Thao tác",
     "assign": "GÁN MỚI",
-    "renew": "GIA HẠN"
+    "renew": "GIA HẠN",
+    "auto_renew": "TỰ GIA HẠN",
+    "deposit": "NẠP / TRỪ SỐ DƯ"
   },
   "settings": {
     "title": "Cài đặt hệ thống",
@@ -113,6 +123,47 @@
     "renew_3m": "Gia hạn thêm 3 Tháng (90 ngày)",
     "renew_6m": "Gia hạn thêm 6 Tháng (180 ngày)",
     "renew_1y": "Gia hạn thêm 1 Năm (365 ngày)",
-    "lbl_amount": "Số tiền thu (VNĐ)"
+    "lbl_amount": "Số tiền thu (VNĐ)",
+    "lbl_auto_renew": "Tự động gia hạn khi hết hạn",
+    "auto_renew_hint": "Chỉ gia hạn khi số dư đủ trả trọn giá gói. Đang nợ hoặc thiếu tiền thì để gói hết hạn."
+  },
+  "balance_modal": {
+    "title": "Điều chỉnh số dư",
+    "current": "Số dư hiện tại:",
+    "lbl_amount": "Số tiền (VNĐ)",
+    "deposit": "Nạp tiền",
+    "withdraw": "Trừ tiền",
+    "hint": "Nạp làm tăng số dư, trừ có thể tạo công nợ (số dư âm).",
+    "preview": "Số dư sau điều chỉnh:"
+  },
+  "auto_renew": {
+    "report_title": "Kết quả tự động gia hạn",
+    "renewed": "Đã gia hạn",
+    "charged": "Tổng tiền đã trừ",
+    "skipped": "Không gia hạn được",
+    "run_now": "Chạy gia hạn tự động",
+    "none": "Không có gói nào cần gia hạn."
+  },
+  "payment": {
+    "title": "Đối soát thanh toán",
+    "lookup_label": "Dán nội dung chuyển khoản từ sao kê",
+    "lookup_placeholder": "VD: SM7K2MX4B9 hoặc cả dòng sao kê",
+    "lookup_btn": "Tra cứu",
+    "exact_match": "Khớp chính xác",
+    "no_exact": "Không khớp mã nào",
+    "same_user_hint": "Không khớp chính xác, nhưng dấu hiệu nhận dạng cho biết đây là khách:",
+    "not_found": "Không tìm ra người chuyển. Nội dung không chứa mã của hệ thống.",
+    "code": "Mã tra cứu",
+    "customer": "Khách hàng",
+    "amount": "Số tiền",
+    "issued_at": "Phát hành lúc",
+    "tx_count": "Số giao dịch",
+    "settled": "Đã nhận tiền",
+    "not_settled": "Chưa nhận",
+    "mark_settled": "Đánh dấu đã nhận",
+    "unmark_settled": "Bỏ đánh dấu",
+    "history": "Mã đã phát hành",
+    "no_refs": "Chưa phát hành mã nào.",
+    "token": "Dấu hiệu khách"
   }
 }

@@ -11,21 +11,25 @@ import { useSubscriptionStore } from '../store/useSubscriptionStore';
 import { usePackageStore } from '../store/usePackageStore';
 import { UserModal } from '../components/UserModal';
 import { SubscriptionModal } from '../components/SubscriptionModal';
+import { BalanceModal } from '../components/BalanceModal';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { downloadCSV } from '../utils/exportUtils';
-import { Plus, Edit, Trash2, KeyRound, Download, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Edit, Trash2, KeyRound, Download, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet, RefreshCw } from 'lucide-react';
 import type { User, Subscription } from '../../../bridge/types';
-import { useTranslation, formatDateTime } from '../utils/i18n';
+import { useTranslation, formatDateTime, formatCurrency } from '../utils/i18n';
 
 export function UserManagementPage() {
     const { t } = useTranslation();
-    const { users, isLoading: userLoading, fetchUsers, addNewUser, editUser, removeUser } = useUserStore();
-    const { subscriptions, allSubscriptions, isLoading: subLoading, fetchAllSubscriptions, fetchUserSubscriptions, addSubscription, removeSubscription, updateExpiry } = useSubscriptionStore();
+    const { users, isLoading: userLoading, fetchUsers, addNewUser, editUser, removeUser, changeBalance } = useUserStore();
+    const { subscriptions, allSubscriptions, isLoading: subLoading, fetchAllSubscriptions, fetchUserSubscriptions, addSubscription, removeSubscription, updateExpiry, toggleAutoRenew, runAutoRenewals } = useSubscriptionStore();
     const { packages, fetchPackages } = usePackageStore();
     
     // State Modal User
     const [isUserModalOpen, setIsUserModalOpen] = useState(false);
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
+
+    // State Modal điều chỉnh số dư
+    const [balanceUser, setBalanceUser] = useState<User | null>(null);
 
     // State Search & Filter
     const [searchTerm, setSearchTerm] = useState('');
@@ -55,6 +59,60 @@ export function UserManagementPage() {
         fetchPackages();
         useSubscriptionStore.getState().fetchAllSubscriptions();
     }, [fetchUsers, fetchPackages]);
+
+    // App đã rà auto-renew một lần lúc khởi động (xem `App.tsx`). Ở đây chỉ
+    // ĐỌC LẠI báo cáo đó để hiển thị — không rà lần nữa, tránh trừ tiền hai
+    // lượt và tránh phụ thuộc vào việc người dùng có mở trang này hay không.
+    const [autoRenewNotice, setAutoRenewNotice] = useState<string | null>(null);
+    const { autoRenewReport, clearAutoRenewReport } = useSubscriptionStore();
+    useEffect(() => {
+        if (!autoRenewReport) return;
+        const { renewed, total_charged, skipped } = autoRenewReport;
+        if (renewed > 0) {
+            setAutoRenewNotice(
+                `${t('auto_renew.renewed')}: ${renewed} — ${t('auto_renew.charged')}: ${formatCurrency(total_charged)}`
+            );
+        } else if (skipped.length > 0) {
+            setAutoRenewNotice(`${t('auto_renew.skipped')}: ${skipped.length} (${skipped[0].reason})`);
+        }
+        // Đọc xong thì xoá để lần vào trang sau không hiện lại thông báo cũ.
+        clearAutoRenewReport();
+    }, [autoRenewReport, clearAutoRenewReport, t]);
+
+    const handleRunAutoRenew = async () => {
+        try {
+            const report = await runAutoRenewals();
+            await fetchUsers();
+            if (report.renewed === 0 && report.skipped.length === 0) {
+                setAutoRenewNotice(t('auto_renew.none'));
+            } else {
+                const parts = [
+                    `${t('auto_renew.renewed')}: ${report.renewed}`,
+                    `${t('auto_renew.charged')}: ${formatCurrency(report.total_charged)}`,
+                ];
+                if (report.skipped.length > 0) {
+                    parts.push(`${t('auto_renew.skipped')}: ${report.skipped.length} (${report.skipped[0].reason})`);
+                }
+                setAutoRenewNotice(parts.join(' — '));
+            }
+            clearAutoRenewReport();
+        } catch (err) {
+            alert(`Chạy gia hạn tự động thất bại: ${err instanceof Error ? err.message : String(err)}`);
+        }
+    };
+
+    const handleToggleAutoRenew = async (sub: Subscription) => {
+        try {
+            await toggleAutoRenew(sub.id, !sub.auto_renew);
+        } catch (err) {
+            alert(`Không đổi được tự động gia hạn: ${err instanceof Error ? err.message : String(err)}`);
+        }
+    };
+
+    const handleAdjustBalance = async (delta: number) => {
+        if (!balanceUser) return;
+        await changeBalance(balanceUser.id, delta);
+    };
 
     const handleAddUserClick = () => {
         setSelectedUser(null);
@@ -111,16 +169,16 @@ export function UserManagementPage() {
         setIsSubscriptionModalOpen(true);
     };
 
-    const handleSaveSubscription = async (packageId: string, customExpiry?: number, amount?: number) => {
+    const handleSaveSubscription = async (packageId: string, customExpiry?: number, amount?: number, autoRenew?: boolean) => {
         if (selectedSubForEdit) {
             if (customExpiry) {
-                await updateExpiry(selectedSubForEdit.id, customExpiry, amount);
+                await updateExpiry(selectedSubForEdit.id, customExpiry, amount, autoRenew);
             } else {
                 alert("Vui lòng nhập ngày hết hạn mới để gia hạn!");
                 return;
             }
         } else {
-            await addSubscription(activeUserIdForSub, packageId, customExpiry, amount);
+            await addSubscription(activeUserIdForSub, packageId, customExpiry, amount, autoRenew);
         }
         await fetchUserSubscriptions(activeUserIdForSub);
     };
@@ -217,7 +275,7 @@ export function UserManagementPage() {
             return;
         }
 
-        const header = "ID,Ngày tạo,Tên người dùng,Email,Số điện thoại,URL Liên hệ\n";
+        const header = "ID,Ngày tạo,Tên người dùng,Email,Số điện thoại,URL Liên hệ,Số dư\n";
         let csvContent = header;
 
         filteredUsers.forEach(u => {
@@ -229,7 +287,9 @@ export function UserManagementPage() {
                 `"${u.username.replace(/"/g, '""')}"`,
                 `"${u.email || ''}"`,
                 `"${u.phone || ''}"`,
-                `"${u.contact_url || ''}"`
+                `"${u.contact_url || ''}"`,
+                // Số thô (không định dạng) để mở bằng Excel còn tính toán được.
+                `"${u.balance}"`
             ].join(",");
             csvContent += row + "\n";
         });
@@ -243,6 +303,14 @@ export function UserManagementPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
                 <h1>{t('users.title')}</h1>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button
+                        className="btn"
+                        style={{ background: 'var(--bg-panel)', color: 'white', border: '1px solid var(--border)' }}
+                        onClick={handleRunAutoRenew}
+                        title={t('auto_renew.run_now')}
+                    >
+                        <RefreshCw size={18} /> {t('auto_renew.run_now')}
+                    </button>
                     <button className="btn" style={{ background: 'var(--bg-panel)', color: 'white', border: '1px solid var(--border)' }} onClick={exportToCSV}>
                         <Download size={18} /> {t('common.export_csv')}
                     </button>
@@ -251,6 +319,23 @@ export function UserManagementPage() {
                     </button>
                 </div>
             </div>
+
+            {/* Thông báo kết quả tự động gia hạn — tiền của khách bị trừ thì
+                người dùng phải thấy, không thay đổi âm thầm. */}
+            {autoRenewNotice && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', padding: '0.75rem 1rem', marginBottom: '1rem', background: 'rgba(99, 102, 241, 0.15)', borderLeft: '4px solid var(--primary)', borderRadius: '4px' }}>
+                    <span style={{ fontSize: '0.9rem' }}>
+                        <strong>{t('auto_renew.report_title')}:</strong> {autoRenewNotice}
+                    </span>
+                    <button
+                        className="btn"
+                        style={{ padding: '0.2rem 0.5rem', background: 'transparent', color: 'var(--text-secondary)' }}
+                        onClick={() => setAutoRenewNotice(null)}
+                    >
+                        ✕
+                    </button>
+                </div>
+            )}
 
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', background: 'var(--bg-panel)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border)', flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: '250px' }}>
@@ -306,6 +391,9 @@ export function UserManagementPage() {
                                     <th onClick={() => handleSort('username')} style={{ cursor: 'pointer' }}>
                                         {t('users.username')} {sortField === 'username' && (sortDirection === 'asc' ? <ChevronUp size={14} style={{display:'inline'}}/> : <ChevronDown size={14} style={{display:'inline'}}/>)}
                                     </th>
+                                    <th onClick={() => handleSort('balance')} style={{ cursor: 'pointer' }}>
+                                        {t('users.balance')} {sortField === 'balance' && (sortDirection === 'asc' ? <ChevronUp size={14} style={{display:'inline'}}/> : <ChevronDown size={14} style={{display:'inline'}}/>)}
+                                    </th>
                                     <th>{t('users.user_info')}</th>
                                     <th>{t('users.subs_info')}</th>
                                     <th>{t('users.actions')}</th>
@@ -313,7 +401,7 @@ export function UserManagementPage() {
                             </thead>
                             <tbody>
                                 {paginatedUsers.length === 0 ? (
-                                    <tr><td colSpan={5} style={{ textAlign: 'center' }}>{t('users.no_users')}</td></tr>
+                                    <tr><td colSpan={6} style={{ textAlign: 'center' }}>{t('users.no_users')}</td></tr>
                                 ) : (
                                     paginatedUsers.map(u => (
                                         <React.Fragment key={u.id}>
@@ -323,6 +411,25 @@ export function UserManagementPage() {
                                                     <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>{u.id}</span>
                                                 </td>
                                                 <td style={{ fontWeight: 600 }}>{u.username}</td>
+                                                {/* Số dư: âm = công nợ, tô đỏ để nhìn ra ngay */}
+                                                <td>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                                        <span style={{ fontWeight: 600, color: u.balance < 0 ? 'var(--danger)' : (u.balance > 0 ? 'var(--success)' : 'var(--text-secondary)') }}>
+                                                            {formatCurrency(u.balance)}
+                                                        </span>
+                                                        <button
+                                                            className="btn"
+                                                            style={{ padding: '0.2rem 0.4rem', background: 'rgba(255,255,255,0.08)' }}
+                                                            onClick={() => setBalanceUser(u)}
+                                                            title={t('users.balance_adjust')}
+                                                        >
+                                                            <Wallet size={14} />
+                                                        </button>
+                                                    </div>
+                                                    {u.balance < 0 && (
+                                                        <span style={{ fontSize: '0.7rem', color: 'var(--danger)' }}>{t('users.balance_debt')}</span>
+                                                    )}
+                                                </td>
                                                 <td>
                                                     {u.email && <div style={{ fontSize: '0.85rem' }}>📧 {u.email}</div>}
                                                     {u.phone && <div style={{ fontSize: '0.85rem' }}>📞 {u.phone}</div>}
@@ -352,7 +459,7 @@ export function UserManagementPage() {
 
                                             {expandedUserId === u.id && (
                                                 <tr style={{ background: 'rgba(0,0,0,0.2)' }}>
-                                                    <td colSpan={5} style={{ padding: '1rem 2rem' }}>
+                                                    <td colSpan={6} style={{ padding: '1rem 2rem' }}>
                                                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
                                                             <h4 style={{ margin: 0 }}>Gói Đăng Ký Của: {u.username}</h4>
                                                             <button className="btn btn-primary" style={{ padding: '0.3rem 0.75rem', fontSize: '0.85rem' }} onClick={() => handleAssignSub(u.id)}>
@@ -380,6 +487,26 @@ export function UserManagementPage() {
                                                                             <div style={{ margin: '0.5rem 0' }}>
                                                                                 <strong>{t('users.expiry')}</strong> {formatDateTime(sub.expiration_date)}
                                                                             </div>
+
+                                                                            {/* Tự động gia hạn: theo TỪNG gói đăng ký */}
+                                                                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', marginTop: '0.5rem' }}>
+                                                                                <input
+                                                                                    type="checkbox"
+                                                                                    checked={sub.auto_renew}
+                                                                                    onChange={() => handleToggleAutoRenew(sub)}
+                                                                                    style={{ width: '14px', height: '14px', cursor: 'pointer' }}
+                                                                                />
+                                                                                <RefreshCw size={12} style={{ color: sub.auto_renew ? 'var(--success)' : 'var(--text-secondary)' }} />
+                                                                                <span style={{ color: sub.auto_renew ? 'var(--success)' : 'var(--text-secondary)' }}>
+                                                                                    {t('users.auto_renew')}
+                                                                                </span>
+                                                                            </label>
+                                                                            {sub.last_auto_renew_at && (
+                                                                                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+                                                                                    {t('users.last_auto_renew')} {formatDateTime(sub.last_auto_renew_at)}
+                                                                                </div>
+                                                                            )}
+
                                                                             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
                                                                                 <button className="btn btn-primary" style={{ flex: 1, padding: '0.3rem', fontSize: '0.8rem' }} onClick={() => handleEditSub(sub)}>
                                                                                     <Edit size={14} /> {t('users.renew_edit')}
@@ -441,6 +568,12 @@ export function UserManagementPage() {
                 subscriptionData={selectedSubForEdit} 
                 onClose={() => setIsSubscriptionModalOpen(false)} 
                 onSave={handleSaveSubscription} 
+            />
+            <BalanceModal
+                isOpen={balanceUser !== null}
+                user={balanceUser}
+                onClose={() => setBalanceUser(null)}
+                onSave={handleAdjustBalance}
             />
 
             {/* Modal Xác nhận Xóa */}

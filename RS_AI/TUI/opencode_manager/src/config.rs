@@ -4,11 +4,14 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ModelLimit {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub context: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // Schema opencode còn có `limit.input`; giữ để round-trip không mất.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub input: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub output: Option<u64>,
 }
 
@@ -18,13 +21,42 @@ pub struct ModelModalities {
     pub output: Vec<String>,
 }
 
+/// `interleaved` theo schema opencode (`https://opencode.ai/config.json`,
+/// `ProviderConfig.models[].interleaved`): bool | "reasoning_content" | { field }.
+/// Model reasoning (vd `hy3` trả reasoning qua field `reasoning_content`) bắt buộc
+/// khai báo dạng này, nếu không OpenCode parse sai stream chunk reasoning.
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum Interleaved {
+    Flag(bool),
+    Field(String),
+    Object { field: String },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ModelEntry {
+    // Schema cho phép entry rỗng (`"model-id": {}`) — `default` để load được.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub id: Option<String>,
+    #[serde(default)]
     pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub limit: Option<ModelLimit>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub modalities: Option<ModelModalities>,
+    // Các trường khả năng (capability) theo schema opencode. Thiếu chúng,
+    // OpenCode coi model là thường → request sai shape (mất tool_call/reasoning).
+    // Option + skip_serializing: không set thì không ghi, file gọn như cũ.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_call: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub reasoning: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub temperature: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub attachment: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub interleaved: Option<Interleaved>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -33,11 +65,14 @@ pub struct ProviderOptions {
     pub base_url: String,
     #[serde(rename = "apiKey", default)]
     pub api_key: String,
+    // Header tuỳ biến (vd Helicone `Helicone-Cache-Enabled`) theo docs providers.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub headers: Option<HashMap<String, String>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Provider {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub npm: Option<String>,
     #[serde(default)]
     pub name: String,
@@ -45,6 +80,12 @@ pub struct Provider {
     pub options: ProviderOptions,
     #[serde(default)]
     pub models: HashMap<String, ModelEntry>,
+    // Ẩn model khỏi picker mà không cần xoá (docs: blacklist/whitelist).
+    // Trước đây struct không khai báo → load→save làm mất hai field này.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub whitelist: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub blacklist: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -270,8 +311,7 @@ impl CkeyConfig {
             return Ok(CkeyConfig::default());
         }
 
-        let content =
-            fs::read_to_string(&path).map_err(|e| format!("Không thể đọc file ckey.json: {}", e))?;
+        let content = fs::read_to_string(&path).map_err(|e| format!("Không thể đọc file ckey.json: {}", e))?;
 
         // Raw đọc được cả field cũ (account_key) lẫn field mới (accounts map).
         #[derive(Deserialize)]
@@ -303,13 +343,11 @@ impl CkeyConfig {
                 && let Some(first) = old_list.into_iter().next()
                 && !first.key.trim().is_empty()
             {
-                accounts.insert(
-                    crate::ckey::CKEY_PRESET_ID.to_string(),
-                    first.key.trim().to_string(),
-                );
+                accounts.insert(crate::ckey::CKEY_PRESET_ID.to_string(), first.key.trim().to_string());
             } else {
                 return Err(
-                    "Không nhận diện được định dạng ckey.json (field 'accounts') — không tự sửa để tránh mất dữ liệu.".to_string(),
+                    "Không nhận diện được định dạng ckey.json (field 'accounts') — không tự sửa để tránh mất dữ liệu."
+                        .to_string(),
                 );
             }
         }
@@ -339,8 +377,8 @@ impl CkeyConfig {
             let _ = fs::copy(&path, &backup_path);
         }
 
-        let content = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("Không thể serialize ckey.json: {}", e))?;
+        let content =
+            serde_json::to_string_pretty(self).map_err(|e| format!("Không thể serialize ckey.json: {}", e))?;
 
         fs::write(&path, content).map_err(|e| format!("Không thể ghi file ckey.json: {}", e))?;
 
@@ -350,6 +388,7 @@ impl CkeyConfig {
 
 #[cfg(test)]
 mod tests {
+    use super::OpencodeConfig;
     use super::normalize_base_url;
 
     #[test]
@@ -399,5 +438,71 @@ mod tests {
             normalize_base_url("  https://api.inceptionlabs.ai/v1/chat/completions/  "),
             "https://api.inceptionlabs.ai/v1"
         );
+    }
+
+    /// Hồi quy case `hy3` (case-opencode-custom4-hy3.md): load→save không được
+    /// làm mất trường khả năng model (tool_call/reasoning/interleaved/id) và
+    /// whitelist/blacklist của provider.
+    #[test]
+    fn round_trip_giu_capability_model_va_list_provider() {
+        let raw = r#"{
+            "provider": {
+                "custom_4": {
+                    "npm": "@ai-sdk/openai-compatible",
+                    "name": "TEMP",
+                    "options": { "baseURL": "https://router.nexaworks.web.id/v1", "apiKey": "sk-x" },
+                    "blacklist": ["old-model"],
+                    "models": {
+                        "hy3": {
+                            "id": "hy3",
+                            "name": "hy3",
+                            "tool_call": true,
+                            "reasoning": true,
+                            "temperature": true,
+                            "attachment": false,
+                            "interleaved": { "field": "reasoning_content" },
+                            "limit": { "context": 64000, "output": 8000 },
+                            "modalities": { "input": ["text"], "output": ["text"] }
+                        },
+                        "plain": {}
+                    }
+                }
+            }
+        }"#;
+
+        let cfg: OpencodeConfig = serde_json::from_str(raw).expect("parse config mẫu hy3");
+        let hy3 = &cfg.provider["custom_4"].models["hy3"];
+        assert_eq!(hy3.tool_call, Some(true));
+        assert_eq!(hy3.reasoning, Some(true));
+        assert_eq!(hy3.id.as_deref(), Some("hy3"));
+        // Entry rỗng `{}` theo docs phải load được (name mặc định "").
+        assert_eq!(cfg.provider["custom_4"].models["plain"].name, "");
+
+        let again: OpencodeConfig = serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+        let hy3b = &again.provider["custom_4"].models["hy3"];
+        assert_eq!(hy3b.tool_call, Some(true), "tool_call mất sau round-trip");
+        assert_eq!(hy3b.reasoning, Some(true), "reasoning mất sau round-trip");
+        // interleaved dạng object { field } phải giữ nguyên.
+        let field = match &hy3b.interleaved {
+            Some(super::Interleaved::Object { field }) => field.clone(),
+            other => panic!("interleaved sai sau round-trip: {:?}", other),
+        };
+        assert_eq!(field, "reasoning_content");
+        assert_eq!(
+            again.provider["custom_4"].blacklist.as_deref(),
+            Some(&["old-model".to_string()][..]),
+            "blacklist mất sau round-trip"
+        );
+    }
+
+    /// `interleaved` chấp nhận cả 3 dạng của schema: bool, chuỗi, object.
+    #[test]
+    fn parse_duoc_ca_3_dang_interleaved() {
+        let b: super::ModelEntry = serde_json::from_str(r#"{"name":"a","interleaved":true}"#).unwrap();
+        assert!(matches!(b.interleaved, Some(super::Interleaved::Flag(true))));
+        let s: super::ModelEntry = serde_json::from_str(r#"{"name":"a","interleaved":"reasoning_content"}"#).unwrap();
+        assert!(matches!(s.interleaved, Some(super::Interleaved::Field(_))));
+        let o: super::ModelEntry = serde_json::from_str(r#"{"name":"a","interleaved":{"field":"reasoning"}}"#).unwrap();
+        assert!(matches!(o.interleaved, Some(super::Interleaved::Object { .. })));
     }
 }

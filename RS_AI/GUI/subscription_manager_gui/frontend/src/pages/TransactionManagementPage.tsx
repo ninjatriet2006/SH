@@ -28,6 +28,9 @@ export function TransactionManagementPage() {
     const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
     const [selectedInvoiceTxs, setSelectedInvoiceTxs] = useState<Transaction[]>([]);
     const [invoiceUser, setInvoiceUser] = useState('');
+    // ID khách của hóa đơn đang mở — cần để phát hành mã thanh toán gắn đúng
+    // người chuyển (tên có thể trùng nhau giữa các khách, ID thì không).
+    const [invoiceUserId, setInvoiceUserId] = useState('');
 
     // State Confirm Delete
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
@@ -93,12 +96,22 @@ export function TransactionManagementPage() {
         }
     };
 
-    // Nhãn hành động: ASSIGN/RENEW dịch ra, action lạ trong tương lai hiện raw
-    // thay vì auto-dán nhãn "renew" sai (trước đây `!== 'ASSIGN'` → renew).
+    // Nhãn hành động. Action lạ trong tương lai hiện raw thay vì auto-dán nhãn
+    // "renew" sai (trước đây `!== 'ASSIGN'` → renew).
     const actionLabel = (action: string): string => {
         if (action === 'ASSIGN') return t('transactions.assign');
         if (action === 'RENEW') return t('transactions.renew');
+        if (action === 'AUTO_RENEW') return t('transactions.auto_renew');
+        if (action === 'DEPOSIT') return t('transactions.deposit');
         return action;
+    };
+
+    // Màu badge theo bản chất giao dịch: gán mới/nạp tiền là vào (xanh),
+    // gia hạn là tiếp diễn (xanh nhạt), tự động gia hạn cần nổi bật vì tiền bị
+    // trừ mà không có ai bấm nút.
+    const actionBadgeClass = (action: string): string => {
+        if (action === 'ASSIGN' || action === 'DEPOSIT') return 'badge-active';
+        return 'badge-inactive';
     };
 
     const requestDeleteTransaction = (id: string) => {
@@ -154,6 +167,7 @@ export function TransactionManagementPage() {
     const handleOpenInvoice = (tx: Transaction, user: User | undefined) => {
         setSelectedInvoiceTxs([tx]);
         setInvoiceUser(user ? user.username : tx.user_id);
+        setInvoiceUserId(tx.user_id);
         setIsInvoiceOpen(true);
     };
 
@@ -174,6 +188,7 @@ export function TransactionManagementPage() {
         
         setSelectedInvoiceTxs(selectedTxs);
         setInvoiceUser(user ? user.username : userId);
+        setInvoiceUserId(userId);
         setIsInvoiceOpen(true);
     };
 
@@ -262,9 +277,11 @@ export function TransactionManagementPage() {
                                                 <td style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{tx.id}</td>
                                                 <td>{formatDateTime(tx.created_at)}</td>
                                                 <td style={{ fontWeight: 600 }}>{user ? user.username : tx.user_id}</td>
-                                                <td>{pkg ? pkg.name : tx.package_id}</td>
+                                                {/* DEPOSIT không gắn gói nào (package_id rỗng) — hiện dấu gạch
+                                                    thay vì chuỗi rỗng để không nhìn như dữ liệu bị mất. */}
+                                                <td>{pkg ? pkg.name : (tx.package_id || '—')}</td>
                                                 <td>
-                                                    <span className={`badge ${tx.action === 'ASSIGN' ? 'badge-active' : 'badge-inactive'}`}>
+                                                    <span className={`badge ${actionBadgeClass(tx.action)}`}>
                                                         {actionLabel(tx.action)}
                                                     </span>
                                                 </td>
@@ -325,6 +342,7 @@ export function TransactionManagementPage() {
                 isOpen={isInvoiceOpen}
                 transactions={selectedInvoiceTxs}
                 username={invoiceUser}
+                userId={invoiceUserId}
                 packages={packages}
                 onClose={() => setIsInvoiceOpen(false)}
             />

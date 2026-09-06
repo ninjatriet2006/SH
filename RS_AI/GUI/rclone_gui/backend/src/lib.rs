@@ -90,6 +90,11 @@ pub fn run() {
             api::config::get_config_content,
             api::config::set_config_content,
             api::config::reorder_config,
+            // ==================
+            // LANG API
+            // ==================
+            api::lang::get_available_langs,
+            api::lang::get_lang_content,
         ])
         .setup(|app| {
             // Inotify watcher cho thư mục Local đang xem — phát `local-dir-changed`

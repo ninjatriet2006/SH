@@ -330,6 +330,23 @@ pub fn build_project(root: PathBuf, project: Project, tx: Sender<BuildEvent>) {
     }
 
     let dest = dest_dir.join(&project.release_name);
+    // Xoá đích trước khi copy: ghi đè trực tiếp (open O_TRUNC) lên file binary
+    // ĐANG CHẠY bị kernel chặn với ETXTBSY ("Text file busy", os error 26).
+    // Unlink thì luôn được — tiến trình đang chạy giữ inode cũ, file mới nhận
+    // inode mới. Lỗi NotFound (chưa từng xuất) thì bỏ qua.
+    match std::fs::remove_file(&dest) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            let _ = tx.send(BuildEvent::Finished {
+                ok: false,
+                message: format!(
+                    "Không xoá được binary cũ (có app đang chạy giữ file?): {e}"
+                ),
+            });
+            return;
+        }
+    }
     if let Err(e) = std::fs::copy(&src, &dest) {
         let _ = tx.send(BuildEvent::Finished {
             ok: false,

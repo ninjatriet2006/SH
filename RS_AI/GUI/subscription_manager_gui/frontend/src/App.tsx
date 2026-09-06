@@ -6,15 +6,17 @@
 */
 
 import { Routes, Route, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Users, PackageSearch, History } from 'lucide-react';
+import { LayoutDashboard, Users, PackageSearch, History, ReceiptText } from 'lucide-react';
 import { DashboardPage } from './pages/DashboardPage';
 import { UserManagementPage } from './pages/UserManagementPage';
 import { PackageManagementPage } from './pages/PackageManagementPage';
 import { TransactionManagementPage } from './pages/TransactionManagementPage';
+import { PaymentReconciliationPage } from './pages/PaymentReconciliationPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { useSettingsStore } from './store/useSettingsStore';
 import { useThemeStore } from './store/useThemeStore';
 import { useFontStore } from './store/useFontStore';
+import { useSubscriptionStore } from './store/useSubscriptionStore';
 import { useTranslation } from './utils/i18n';
 import { useEffect } from 'react';
 import { Settings as SettingsIcon } from 'lucide-react';
@@ -32,6 +34,16 @@ function App() {
       try { await initSettings(); } catch (e) { console.error("initSettings thất bại:", e); }
       await initThemes();
       await initFonts();
+
+      // Rà tự động gia hạn NGAY KHI MỞ APP. Phải đặt ở đây, không phải trong
+      // UserManagementPage: app mở ở trang Dashboard nên nếu người dùng không
+      // vào trang Người dùng thì gói hết hạn sẽ không bao giờ được gia hạn.
+      // Báo cáo lưu trong store để trang Người dùng hiển thị lại.
+      try {
+        await useSubscriptionStore.getState().runAutoRenewals();
+      } catch (e) {
+        console.error("Rà tự động gia hạn thất bại:", e);
+      }
     };
     initAll();
   }, []);
@@ -78,6 +90,13 @@ function App() {
         </NavLink>
 
         <NavLink 
+          to="/payments" 
+          className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+        >
+          <ReceiptText size={20} /> {t('sidebar.payments')}
+        </NavLink>
+
+        <NavLink 
           to="/settings" 
           className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
         >
@@ -92,6 +111,7 @@ function App() {
           <Route path="/users" element={<UserManagementPage />} />
           <Route path="/packages" element={<PackageManagementPage />} />
           <Route path="/transactions" element={<TransactionManagementPage />} />
+          <Route path="/payments" element={<PaymentReconciliationPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </main>

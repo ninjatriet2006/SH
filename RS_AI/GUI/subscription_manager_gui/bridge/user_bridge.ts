@@ -72,3 +72,16 @@ export async function listUsers(page?: number, limit?: number): Promise<User[]> 
         throw new Error(String(error));
     }
 }
+
+// Hàm điều chỉnh số dư: `delta` > 0 nạp thêm, < 0 trừ ra (có thể tạo công nợ).
+export async function adjustUserBalance(id: string, delta: number, note?: string): Promise<User> {
+    try {
+        return await invoke<User>('adjust_user_balance', {
+            id,
+            delta,
+            note: note ?? null
+        });
+    } catch (error) {
+        throw new Error(String(error));
+    }
+}

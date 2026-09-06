@@ -15,7 +15,7 @@ interface SubscriptionModalProps {
     isOpen: boolean;
     subscriptionData: Subscription | null;
     onClose: () => void;
-    onSave: (packageId: string, customExpiry?: number, amount?: number) => Promise<void>;
+    onSave: (packageId: string, customExpiry?: number, amount?: number, autoRenew?: boolean) => Promise<void>;
 }
 
 export function SubscriptionModal({ isOpen, subscriptionData, onClose, onSave }: SubscriptionModalProps) {
@@ -28,6 +28,8 @@ export function SubscriptionModal({ isOpen, subscriptionData, onClose, onSave }:
     const [timeParts, setTimeParts] = useState({ hh: '', mm: '' }); // Hiển thị 2 ô tách biệt
     // undefined = không thu tiền → backend không ghi log tx (tránh log 0đ giả).
     const [amount, setAmount] = useState<number | undefined>(undefined); // Số tiền thu thực tế
+    // Tự động gia hạn: mặc định TẮT — không tự ý trừ tiền khách khi chưa đồng ý.
+    const [autoRenew, setAutoRenew] = useState(false);
 
     // Load danh sách packages khi mở form nếu chưa có
     useEffect(() => {
@@ -54,6 +56,9 @@ export function SubscriptionModal({ isOpen, subscriptionData, onClose, onSave }:
             setTimeParts({ hh, mm: min });
             // Chế độ sửa: để trống = không thu thêm, không ghi log RENEW.
             setAmount(undefined);
+            // Giữ nguyên lựa chọn auto-renew đang lưu, không reset về false
+            // (làm vậy sẽ âm thầm tắt tính năng mỗi lần người dùng mở form).
+            setAutoRenew(subscriptionData.auto_renew);
         } else {
             setSelectedPackage('');
             setCustomDate('');
@@ -61,6 +66,7 @@ export function SubscriptionModal({ isOpen, subscriptionData, onClose, onSave }:
             setDisplayTime('');
             setTimeParts({ hh: '', mm: '' });
             setAmount(undefined);
+            setAutoRenew(false);
         }
     }, [subscriptionData, isOpen]);
 
@@ -241,12 +247,17 @@ export function SubscriptionModal({ isOpen, subscriptionData, onClose, onSave }:
         // Đợi lưu xong mới đóng — trước đây đóng ngay cả khi backend báo lỗi,
         // người dùng tưởng đã lưu thành công.
         try {
-            await onSave(selectedPackage, expiryTimestamp, amount);
+            await onSave(selectedPackage, expiryTimestamp, amount, autoRenew);
             onClose();
         } catch (err) {
             alert(`Lưu thất bại: ${err instanceof Error ? err.message : String(err)}`);
         }
     };
+
+    // Gói đang chọn — dùng để chặn bật auto-renew với gói 0 ngày ngay trên UI
+    // (backend cũng chặn, nhưng báo trước thì người dùng không phải thử rồi lỗi).
+    const currentPkg = packages.find(p => p.id === selectedPackage);
+    const autoRenewDisabled = !currentPkg || currentPkg.duration_days === 0;
 
     return (
         <div className="modal-overlay">
@@ -388,6 +399,25 @@ export function SubscriptionModal({ isOpen, subscriptionData, onClose, onSave }:
                             />
                             <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
                                 {subscriptionData ? 'Để trống nếu không thu thêm tiền (không ghi log).' : 'Mặc định là giá gốc của gói.'}
+                            </small>
+                        </div>
+
+                        {/* Tự động gia hạn — theo TỪNG gói đăng ký */}
+                        <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'rgba(255,255,255,0.04)', borderRadius: '8px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: autoRenewDisabled ? 'not-allowed' : 'pointer', opacity: autoRenewDisabled ? 0.5 : 1 }}>
+                                <input
+                                    type="checkbox"
+                                    checked={autoRenew}
+                                    disabled={autoRenewDisabled}
+                                    onChange={(e) => setAutoRenew(e.target.checked)}
+                                    style={{ width: '16px', height: '16px', cursor: 'inherit' }}
+                                />
+                                <span style={{ fontWeight: 500 }}>{t('sub_modal.lbl_auto_renew')}</span>
+                            </label>
+                            <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
+                                {autoRenewDisabled && currentPkg
+                                    ? 'Gói có thời hạn 0 ngày nên không thể tự động gia hạn.'
+                                    : t('sub_modal.auto_renew_hint')}
                             </small>
                         </div>
 

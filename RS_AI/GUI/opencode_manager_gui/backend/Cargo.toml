@@ -1,0 +1,28 @@
+[package]
+name = "opencode_manager_gui"
+version = "0.1.0"
+description = "OpenCode Manager — GUI quản lý AI Provider cho OpenCode"
+authors = ["you"]
+license = ""
+repository = ""
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "opencode_manager_gui_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.11.3", features = [] }
+tauri-plugin-log = "2"
+# Toàn bộ logic đọc/ghi config, gọi API provider và CKey đã có sẵn trong crate
+# TUI. Dùng lại thay vì viết lại: một nguồn sự thật cho định dạng
+# opencode.json / auth.json / ckey.json, TUI và GUI không thể lệch nhau.
+opencode_manager = { path = "../../../TUI/opencode_manager" }
+tokio = { version = "1", features = ["rt-multi-thread"] }
