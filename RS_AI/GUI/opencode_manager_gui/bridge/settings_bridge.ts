@@ -30,6 +30,15 @@ export async function getConfigPaths(): Promise<ConfigPaths> {
     }
 }
 
+/** Mở URL https trong trình duyệt ngoài (QR nạp tiền CKey...). */
+export async function openExternalUrl(url: string): Promise<void> {
+    try {
+        await invoke<void>('open_external_url', { url });
+    } catch (error) {
+        throw new Error(String(error));
+    }
+}
+
 export async function saveGuiSettings(language: string, themeId: string): Promise<void> {
     try {
         await invoke('save_gui_settings', { language, theme_id: themeId });

@@ -5,94 +5,154 @@
   lưu key thật trong state lâu hơn cần thiết.
 - Tương tác: UI trang CKey, backend `api/ckey.rs`.
 
-Phân biệt hai loại khoá: account key (quản lý, lưu ở ckey.json) và AI key
-(ck-..., gọi LLM). Bridge không bao giờ tự suy ra loại khoá, chỉ truyền đúng
-tham số mà backend yêu cầu.
+Mô hình: PROFILE = một tài khoản ckey.vn (account key quản lý). Nhiều profile,
+chuyển đổi qua active. IMPORT chọn provider đích + dùng AI key của profile
+đang xem. `force = true` bỏ cache TTL (nút Refresh).
 
 Tham số dùng snake_case khớp `rename_all = "snake_case"` ở backend.
 */
 
 import { invoke } from '@tauri-apps/api/core';
 import type {
-    CkeyAccountOption, CkeyDashboard, CkeyImportItem, CkeyImportResult,
-    CkeyProviderView, CkeyUsageView,
+    CkeyDashboard, CkeyDepositView, CkeyImportList, CkeyImportResult,
+    CkeyProfileView, CkeyUsageView,
 } from './types';
 
-export async function listCkeyProviders(): Promise<CkeyProviderView[]> {
+// ---------- PROFILE (tài khoản CKey) ----------
+
+export async function listCkeyProfiles(): Promise<CkeyProfileView[]> {
     try {
-        return await invoke<CkeyProviderView[]>('list_ckey_providers');
+        return await invoke<CkeyProfileView[]>('list_ckey_profiles');
     } catch (error) {
         throw new Error(String(error));
     }
 }
 
-export async function listCkeyAccounts(): Promise<CkeyAccountOption[]> {
+/** Thêm (profileId rỗng) hoặc sửa profile. Trả về id profile. */
+export async function saveCkeyProfile(args: {
+    profileId?: string | null;
+    name: string;
+    key: string;
+}): Promise<string> {
     try {
-        return await invoke<CkeyAccountOption[]>('list_ckey_accounts');
-    } catch (error) {
-        throw new Error(String(error));
-    }
-}
-
-/** Gán account key: nhập mới (`accountKey`) hoặc dùng lại (`copyFromProviderId`). */
-export async function setCkeyAccountKey(args: {
-    providerId: string;
-    accountKey?: string;
-    copyFromProviderId?: string;
-}): Promise<void> {
-    try {
-        await invoke<void>('set_ckey_account_key', {
-            provider_id: args.providerId,
-            account_key: args.accountKey ?? null,
-            copy_from_provider_id: args.copyFromProviderId ?? null,
+        return await invoke<string>('save_ckey_profile', {
+            profile_id: args.profileId ?? null,
+            name: args.name,
+            key: args.key,
         });
     } catch (error) {
         throw new Error(String(error));
     }
 }
 
-export async function deleteCkeyAccountKey(providerId: string): Promise<void> {
+/** Xoá profile (dọn binding trỏ tới nó). Trả về id active mới nếu còn. */
+export async function deleteCkeyProfile(profileId: string): Promise<string | null> {
     try {
-        await invoke<void>('delete_ckey_account_key', { provider_id: providerId });
+        return await invoke<string | null>('delete_ckey_profile', { profile_id: profileId });
     } catch (error) {
         throw new Error(String(error));
     }
 }
 
-/** Profile + stats + keys + models trong một lần gọi (backend chạy song song). */
-export async function fetchCkeyDashboard(providerId: string): Promise<CkeyDashboard> {
+/** Chuyển tài khoản đang xem sang profile khác. */
+export async function setActiveCkeyProfile(profileId: string): Promise<void> {
     try {
-        return await invoke<CkeyDashboard>('fetch_ckey_dashboard', { provider_id: providerId });
+        await invoke<void>('set_active_ckey_profile', { profile_id: profileId });
     } catch (error) {
         throw new Error(String(error));
     }
 }
 
-export async function fetchCkeyUsage(providerId: string, page: number, limit: number): Promise<CkeyUsageView> {
+// ---------- DASHBOARD / USAGE / DEPOSIT (theo profile, có cache) ----------
+
+/**
+ * Hồ sơ + thống kê + AI keys + models trong một lần gọi.
+ * `sinceDays` = chỉ tính thống kê N ngày gần nhất. `force` = bỏ cache TTL.
+ */
+export async function fetchCkeyDashboard(
+    profileId: string,
+    sinceDays?: number | null,
+    force?: boolean,
+): Promise<CkeyDashboard> {
+    try {
+        return await invoke<CkeyDashboard>('fetch_ckey_dashboard', {
+            profile_id: profileId,
+            since_days: sinceDays ?? null,
+            force: force ?? false,
+        });
+    } catch (error) {
+        throw new Error(String(error));
+    }
+}
+
+/** Lịch sử dùng AI, phân trang. `model` (tuỳ chọn) = lọc theo tên model. */
+export async function fetchCkeyUsage(
+    profileId: string,
+    page: number,
+    limit: number,
+    model?: string | null,
+    force?: boolean,
+): Promise<CkeyUsageView> {
     try {
         return await invoke<CkeyUsageView>('fetch_ckey_usage', {
-            provider_id: providerId,
+            profile_id: profileId,
             page,
             limit,
+            model: model ?? null,
+            force: force ?? false,
         });
     } catch (error) {
         throw new Error(String(error));
     }
 }
 
-export async function listCkeyImportItems(providerId: string): Promise<CkeyImportItem[]> {
+/** Thông tin nạp tiền (QR/nội dung CK theo số tiền) + lịch sử nạp, một lần gọi. */
+export async function fetchCkeyDeposit(
+    profileId: string,
+    amount: number,
+    page: number,
+    limit: number,
+    force?: boolean,
+): Promise<CkeyDepositView> {
     try {
-        return await invoke<CkeyImportItem[]>('list_ckey_import_items', { provider_id: providerId });
+        return await invoke<CkeyDepositView>('fetch_ckey_deposit', {
+            profile_id: profileId,
+            amount,
+            page,
+            limit,
+            force: force ?? false,
+        });
     } catch (error) {
         throw new Error(String(error));
     }
 }
 
-/** `selected` là danh sách CUỐI CÙNG — model không có trong đây sẽ bị xoá. */
-export async function importCkeyModels(providerId: string, selected: string[]): Promise<CkeyImportResult> {
+// ---------- IMPORT ----------
+
+/**
+ * Catalogue model + giá để import — TOÀN CỤC (giống nhau mọi tài khoản CKey).
+ * Backend tự suy provider ĐÍCH từ binding của tài khoản đang xem (mặc định id
+ * chuẩn "ckey"); kết quả kèm đích để hiển thị. Không cần chọn gì cả.
+ */
+export async function listCkeyImportItems(): Promise<CkeyImportList> {
+    try {
+        return await invoke<CkeyImportList>('list_ckey_import_items');
+    } catch (error) {
+        throw new Error(String(error));
+    }
+}
+
+/**
+ * `selected` là danh sách CUỐI CÙNG — model không có trong đây sẽ bị xoá.
+ * AI key + provider đích theo profile `profileId` (backend suy từ binding).
+ */
+export async function importCkeyModels(
+    profileId: string,
+    selected: string[],
+): Promise<CkeyImportResult> {
     try {
         return await invoke<CkeyImportResult>('import_ckey_models', {
-            provider_id: providerId,
+            profile_id: profileId,
             selected,
         });
     } catch (error) {

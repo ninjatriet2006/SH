@@ -26,6 +26,8 @@ export interface ProviderView {
     models: string[];
     /** Provider tích hợp (khoá nằm ở auth.json) hay tự thêm. */
     is_builtin: boolean;
+    /** Model đang là model chính (⭐ trong UI); null = chưa chọn. */
+    primary_model: string | null;
 }
 
 /** Mẫu provider có sẵn để chọn khi thêm. */
@@ -88,8 +90,15 @@ export interface BadProvider {
 }
 
 export interface ConfigPaths {
+    /** Thư mục cấu hình runtime do OpenCode sở hữu. */
+    opencode_config_dir: string;
+    /** Thư mục trạng thái do OpenCode Manager sở hữu. */
+    manager_config_dir: string;
     opencode_json: string;
     auth_json: string;
+    ckey_json: string;
+    arbiter_json: string;
+    settings_json: string;
 }
 
 export interface GuiSettings {
@@ -104,6 +113,114 @@ export interface Theme {
     colors: Record<string, string>;
 }
 
+/** Một dòng bảng so sánh model (backend `api/models.rs`). */
+export interface ModelMatrixRow {
+    provider_id: string;
+    provider_name: string;
+    model_id: string;
+    display_name: string;
+    /** Đang là model chính (field `model` của opencode.json). */
+    is_primary: boolean;
+    /** null = chưa khai (OpenCode dùng mặc định của model). */
+    tool_call: boolean | null;
+    reasoning: boolean | null;
+    /** Nhận ảnh. */
+    vision: boolean | null;
+    context: number | null;
+    output: number | null;
+    /** Giá USD / 1M token (từ cache models.dev). */
+    price_input: number | null;
+    price_output: number | null;
+    price_cache_read: number | null;
+    /** Có ít nhất một field lấy từ models.dev. */
+    enriched: boolean;
+    /** Giới hạn theo models.dev (đối chiếu khi lệch config). */
+    dev_context: number | null;
+    dev_output: number | null;
+    /** Ước lượng theo tên model (heuristic — nguồn yếu nhất). */
+    heur_context: number | null;
+    heur_output: number | null;
+    /** Nguồn giá trị hiển thị: 'config' | 'models.dev' | 'name' | ''. */
+    context_source: string;
+    output_source: string;
+    /** Config khai limit LỆCH models.dev (số mặc định cũ còn sót). */
+    limit_conflict: boolean;
+}
+
+/** Điểm arbiter chấm cho một model (0-100 từng hạng mục). */
+export interface ArbiterVerdict {
+    /** Khóa "pid/mid". */
+    model: string;
+    coding: number;
+    reasoning: number;
+    tool_use: number;
+    vision: number;
+    overall: number;
+    /** Số lần chạy được tính vào đồng thuận (≤ 5). */
+    runs: number;
+    /** `false` = điểm chưa hội tụ giữa các lần (cần chạy thêm). */
+    stable: boolean;
+    /** Trung vị ước lượng limit của arbiter (null = chưa chắc). */
+    context: number | null;
+    output: number | null;
+    /** Ghi chú nguyên văn của lần chạy mới nhất. */
+    note: string;
+}
+
+/** Một lựa chọn model trọng tài trong dropdown. */
+export interface ArbiterCandidate {
+    provider_id: string;
+    model_id: string;
+    /** Đang là model chính (gợi ý mặc định). */
+    is_primary: boolean;
+}
+
+/** Một điều chỉnh điểm (giải thích được) trong ranking. */
+export interface ScoreAdjustment {
+    /** 'ctx' | 'output' | 'tools' | 'coding_bonus' | 'price' */
+    kind: string;
+    delta: number;
+}
+
+/** Một model trong bảng xếp hạng theo tác vụ. */
+export interface RecommendedModel {
+    provider_id: string;
+    model_id: string;
+    display_name: string;
+    /** Điểm tổng hợp 0-100. */
+    score: number;
+    /** 'S' (top tier) | 'A' | 'B' | 'C'. */
+    tier: string;
+    /** Điểm gốc của judge cho phạm vi chính của tác vụ. */
+    base: number;
+    adjustments: ScoreAdjustment[];
+    context: number | null;
+    price_input: number | null;
+    price_output: number | null;
+}
+
+/** Kết quả recommend_models(task). */
+export interface RecommendationView {
+    task: string;
+    items: RecommendedModel[];
+    /** Model trong config chưa được judge (không xếp hạng được). */
+    unevaluated: number;
+}
+
+export interface ArbiterLastRun {
+    at: string;
+    arbiter: string;
+}
+
+/** Trạng thái arbiter cho tab Models. */
+export interface ArbiterState {
+    arbiter: string | null;
+    run_count: number;
+    last_run: ArbiterLastRun | null;
+    verdicts: ArbiterVerdict[];
+    candidates: ArbiterCandidate[];
+}
+
 /** Kết quả thêm nhanh nhiều provider (backend `api/bulk.rs`). */
 export interface BulkAddResult {
     added: number;
@@ -113,19 +230,17 @@ export interface BulkAddResult {
     normalized_endpoint: string;
 }
 
-/** Provider CKey (endpoint LLM `https://api.xah.io/v1`). */
-export interface CkeyProviderView {
-    provider_id: string;
-    name: string;
-    has_account_key: boolean;
-}
-
-export interface CkeyAccountOption {
-    provider_id: string;
-    key_masked: string;
-}
-
+/** Một tài khoản CKey đã lưu (key đã che). */
 export interface CkeyProfileView {
+    id: string;
+    name: string;
+    key_masked: string;
+    /** Tài khoản đang xem (dashboard/usage/deposit). */
+    is_active: boolean;
+}
+
+/** Hồ sơ tài khoản từ API ckey.vn. */
+export interface CkeyAccountInfoView {
     username: string;
     name: string;
     email: string;
@@ -152,18 +267,32 @@ export interface CkeyKeyView {
     key_masked: string;
 }
 
+/**
+ * Model + đầy đủ bảng giá: in/out/cache (1M token) + giá mỗi request.
+ * Catalogue TOÀN CỤC — giống nhau với mọi tài khoản CKey.
+ * `public_name` có dạng "provider/model" nên tách sẵn hai cột.
+ */
 export interface CkeyModelView {
+    /** Id đầy đủ (vd "provider/GPT Demo"). */
     public_name: string;
+    /** Phần provider của public_name; rỗng nếu không có dạng a/b. */
+    provider: string;
+    /** Phần model của public_name. */
+    model: string;
     display_name: string;
     input_price_per_million_vnd: number;
     output_price_per_million_vnd: number;
+    cache_read_price_per_million_vnd: number;
+    cache_write_price_per_million_vnd: number;
+    price_per_request_vnd: number;
+    min_charge_per_request_vnd: number;
+    cache_enabled: boolean;
     context_tokens_limit: number;
     max_output_tokens_limit: number;
-    cache_enabled: boolean;
 }
 
 export interface CkeyDashboard {
-    profile: CkeyProfileView | null;
+    profile: CkeyAccountInfoView | null;
     stats: CkeyStatsView | null;
     keys: CkeyKeyView[];
     models: CkeyModelView[];
@@ -187,15 +316,67 @@ export interface CkeyUsageView {
     total_pages: number;
 }
 
+/** Thông tin nạp tiền (docs: /api/deposit-info + /api/deposit-history). */
+export interface CkeyDepositView {
+    info: CkeyDepositInfoView | null;
+    history: CkeyDepositHistoryItemView[];
+    history_page: number;
+    history_total_pages: number;
+    errors: string[];
+}
+
+export interface CkeyDepositInfoView {
+    transfer_content: string;
+    amount_vnd: number;
+    expires_at: string;
+    qr_url: string;
+    banks: CkeyDepositBankView[];
+}
+
+export interface CkeyDepositBankView {
+    bank_name: string;
+    account_owner: string;
+    account_number: string;
+    transfer_content: string;
+    qr_url: string;
+}
+
+export interface CkeyDepositHistoryItemView {
+    id: number;
+    amount_text: string;
+    time_text: string;
+}
+
+/**
+ * Model để import — giá đầy đủ để hiển thị + SẮP XẾP.
+ * Catalogue TOÀN CỤC; `id` là public_name (dạng "provider/model") nên tách
+ * sẵn `provider`/`model` thành hai cột riêng.
+ */
 export interface CkeyImportItem {
+    /** Id đầy đủ (khóa cấu hình khi import). */
     id: string;
+    provider: string;
+    model: string;
     display_name: string;
     input_price: number;
     output_price: number;
+    cache_read_price: number;
+    cache_write_price: number;
+    price_per_request: number;
+    min_charge_per_request: number;
+    cache_enabled: boolean;
     context_limit: number;
     output_limit: number;
     in_config: boolean;
+    /** Còn trong config nhưng CKey không còn cung cấp. */
     stale: boolean;
+}
+
+/** Kết quả listCkeyImportItems: đích import đã suy + danh sách model. */
+export interface CkeyImportList {
+    /** Provider sẽ nhận model khi import (suy từ binding tài khoản active). */
+    target_provider: string;
+    items: CkeyImportItem[];
 }
 
 export interface CkeyImportResult {

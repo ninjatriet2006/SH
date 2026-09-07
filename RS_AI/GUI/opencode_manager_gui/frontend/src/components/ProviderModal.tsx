@@ -19,6 +19,7 @@ import type { ProviderView, PresetView, StatusView } from '../../../bridge/types
 import { getProviderSecret, testConnection } from '../../../bridge/provider_bridge';
 import { useTranslation } from '../utils/i18n';
 import { StatusBadge } from './StatusBadge';
+import { SearchableSelect } from './SearchableSelect';
 
 interface ProviderModalProps {
     isOpen: boolean;
@@ -196,17 +197,16 @@ export function ProviderModal({ isOpen, provider, presets, onClose, onSave }: Pr
                 <form onSubmit={handleSubmit}>
                     <div className="form-group">
                         <label className="form-label">{t('provider_modal.lbl_preset')}</label>
-                        <select
-                            className="input-field"
+                        <SearchableSelect
+                            options={presets.map(p => ({
+                                value: p.id,
+                                label: p.id === 'custom' ? t('provider_modal.custom_preset') : p.name,
+                                hint: p.id,
+                            }))}
                             value={presetId}
-                            onChange={e => handlePresetChange(e.target.value)}
-                        >
-                            {presets.map(p => (
-                                <option key={p.id} value={p.id}>
-                                    {p.id === 'custom' ? t('provider_modal.custom_preset') : p.name}
-                                </option>
-                            ))}
-                        </select>
+                            onChange={handlePresetChange}
+                            searchable
+                        />
                     </div>
 
                     <div className="form-group">
@@ -280,14 +280,14 @@ export function ProviderModal({ isOpen, provider, presets, onClose, onSave }: Pr
 
                     <div className="form-group">
                         <label className="form-label">{t('provider_modal.lbl_npm')}</label>
-                        <select
-                            className="input-field"
+                        <SearchableSelect
+                            options={NPM_OPTIONS.map(n => ({
+                                value: n,
+                                label: `${n} (${n === '@ai-sdk/openai-compatible' ? t('provider_modal.npm_chat') : t('provider_modal.npm_responses')})`,
+                            }))}
                             value={NPM_OPTIONS.includes(npm as typeof NPM_OPTIONS[number]) ? npm : NPM_OPTIONS[0]}
-                            onChange={e => setNpm(e.target.value)}
-                        >
-                            <option value="@ai-sdk/openai-compatible">@ai-sdk/openai-compatible ({t('provider_modal.npm_chat')})</option>
-                            <option value="@ai-sdk/openai">@ai-sdk/openai ({t('provider_modal.npm_responses')})</option>
-                        </select>
+                            onChange={setNpm}
+                        />
                         <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
                             {t('provider_modal.npm_hint')}
                         </small>

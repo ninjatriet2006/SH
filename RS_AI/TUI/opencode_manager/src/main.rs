@@ -2,6 +2,7 @@ mod api;
 mod app;
 mod ckey;
 mod config;
+mod storage;
 mod ui;
 
 use app::{App, AppMessage, ConfirmAction, Screen};
@@ -693,8 +694,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     KeyCode::Enter => {
                                         let options = app.ckey_account_options.clone();
                                         if app.ckey_pick_selected_idx < options.len() {
-                                            let pid = options[app.ckey_pick_selected_idx].0.clone();
-                                            app.ckey_pick_account_key(&pid);
+                                            // Gắn provider vào profile đã chọn (binding).
+                                            let profile_id = options[app.ckey_pick_selected_idx].0.clone();
+                                            app.ckey_pick_account_key(&profile_id);
                                         } else {
                                             // Mục cuối: chuyển sang nhập key mới
                                             app.ckey_pick_mode = app::CkeyPickMode::New;
@@ -735,7 +737,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 },
                             }
                         } else {
-                            // Màn hình dashboard thường: R/I/U/Esc
+                            // Màn hình dashboard: R/I/U/D/P/Esc
                             match key.code {
                                 KeyCode::Esc => {
                                     app.current_screen = Screen::Main;
@@ -751,6 +753,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                                 KeyCode::Char('u') | KeyCode::Char('U') => {
                                     app.open_ckey_usage();
+                                    draw_needed = true;
+                                }
+                                // Nạp tiền: D lấy thông tin, +/- đổi số tiền.
+                                KeyCode::Char('d') | KeyCode::Char('D') => {
+                                    app.ckey_fetch_deposit();
+                                    draw_needed = true;
+                                }
+                                // Chuyển tài khoản đang xem (dashboard/usage/
+                                // deposit theo tài khoản này).
+                                KeyCode::Char('p') | KeyCode::Char('P') => {
+                                    app.open_ckey_profile_picker();
+                                    draw_needed = true;
+                                }
+                                KeyCode::Char('+') | KeyCode::Char('=') => {
+                                    app.ckey_deposit_amount_step(true);
+                                    draw_needed = true;
+                                }
+                                KeyCode::Char('-') => {
+                                    app.ckey_deposit_amount_step(false);
                                     draw_needed = true;
                                 }
                                 _ => {}

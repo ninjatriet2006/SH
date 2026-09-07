@@ -39,8 +39,10 @@ pub struct ProviderView {
     pub model_count: usize,
     /// Danh sách id model đã lưu trong config, đã sắp xếp.
     pub models: Vec<String>,
-    /// `true` nếu provider này là built-in (key nằm ở `auth.json`).
+    /// Model chính của provider (field `model` = "pid/mid" trùng provider).
     pub is_builtin: bool,
+    /// Model đang là model chính (⭐ trong UI) — None = chưa chọn.
+    pub primary_model: Option<String>,
 }
 
 /// Che API key: giữ 4 ký tự đầu và 4 cuối để người dùng đối chiếu được mà không
@@ -60,10 +62,19 @@ pub fn mask_key(key: &str) -> String {
 }
 
 /// Provider có phải built-in không (id khớp preset và base_url khớp preset).
+/// Provider "built-in" (chỉ khoá, nằm ở auth.json)?
+///
+/// QUAN TRỌNG: provider khớp preset nhưng CÓ `models` khai báo rõ trong
+/// opencode.json thì KHÔNG còn là built-in thuần — opencode đọc file này và
+/// dùng đúng danh sách đó thay vì tự quét cả catalogue. Đó là cơ chế "cung
+/// cấp danh sách rõ ràng" cho provider built-in; xoá entry khi save sẽ làm
+/// mất lựa chọn của người dùng (bug cũ: builtin không thêm được model như
+/// custom, và merge bán provider với 0 model).
 pub fn is_builtin(id: &str, provider: &Provider, presets: &[DynamicPreset]) -> bool {
-    presets.iter().any(|preset| {
-        preset.id == id && normalize_base_url(&provider.options.base_url) == normalize_base_url(&preset.base_url)
-    })
+    provider.models.is_empty()
+        && presets.iter().any(|preset| {
+            preset.id == id && normalize_base_url(&provider.options.base_url) == normalize_base_url(&preset.base_url)
+        })
 }
 
 /// Bù provider dựng từ `auth.json` vào config đã nạp từ `opencode.json`.
@@ -129,9 +140,15 @@ pub fn load_merged(presets: &[DynamicPreset]) -> Result<(OpencodeConfig, AuthCon
 /// provider tương ứng (nếu giữ lại, provider đã xoá sẽ "sống lại" ở lần nạp sau
 /// nhờ `merge_auth_into_providers`).
 pub fn save_split(config: &OpencodeConfig, auth: &mut AuthConfig, presets: &[DynamicPreset]) -> Result<(), String> {
-    // 1. Built-in → auth.json.
+    // 1. Khoá của MỌI provider khớp preset → auth.json (kể cả builtin CÓ
+    //    danh sách model — entry opencode.json của nó không chứa khoá, auth
+    //    là nơi duy nhất giữ khoá). Không sync thì đổi khoá builtin có model
+    //    sẽ mất khoá mới (auth giữ khoá cũ).
     for (id, provider) in &config.provider {
-        if is_builtin(id, provider, presets) {
+        let preset_match = presets.iter().any(|preset| {
+            preset.id == *id && normalize_base_url(&provider.options.base_url) == normalize_base_url(&preset.base_url)
+        });
+        if preset_match && !provider.options.api_key.trim().is_empty() {
             auth.insert(
                 id.clone(),
                 AuthEntry {
@@ -143,15 +160,16 @@ pub fn save_split(config: &OpencodeConfig, auth: &mut AuthConfig, presets: &[Dyn
     }
     // 2. Dọn entry không còn đúng vai trò.
     //
-    // Hai dạng phải xoá, đều là entry mà `merge_auth_into_providers` HỢP LỆ
-    // dùng (khớp preset + type "api" + key không rỗng):
+    // Entry khớp preset (type "api" + key không rỗng) bị xoá khi:
     //   - Mồ côi: provider tương ứng đã bị xoá — giữ lại thì provider đó
     //     "sống lại" ở lần nạp sau.
-    //   - Treo: provider còn nhưng KHÔNG còn là built-in (người dùng trỏ URL
-    //     đi chỗ khác hoặc đổi id) — entry auth giữ khoá cũ, để lại là dữ liệu
-    //     lệch; khoá thật đã nằm trong opencode.json của provider custom.
+    //   - Treo: provider còn nhưng KHÔNG còn gắn preset (người dùng trỏ URL
+    //     đi chỗ khác hoặc đổi id) — khoá thật đã nằm trong opencode.json.
+    // Còn provider builtin CÓ DANH SÁCH MODEL (không còn "is_builtin" thuần)
+    // vẫn giữ entry: khoá của nó vẫn sống ở auth.json (opencode.json chỉ mô
+    // tả danh sách model, không chứa khoá).
     // Entry OAuth hoặc id ngoài preset (app khác ghi) KHÔNG thuộc phạm vi quản
-    // lý của merge → phải giữ nguyên: xoá bừa là mất dữ liệu người dùng.
+    // lý → giữ nguyên: xoá bừa là mất dữ liệu người dùng.
     let orphans: Vec<String> = auth
         .iter()
         .filter(|(k, e)| {
@@ -159,21 +177,38 @@ pub fn save_split(config: &OpencodeConfig, auth: &mut AuthConfig, presets: &[Dyn
             if !would_merge {
                 return false;
             }
-            match config.provider.get(*k) {
-                None => true,
-                Some(p) => !is_builtin(k, p, presets),
-            }
+            let Some(p) = config.provider.get(*k) else {
+                return true; // mồ côi
+            };
+            // Treo = provider còn nhưng rời preset (URL/id đổi).
+            presets.iter().all(|preset| {
+                preset.id != **k || normalize_base_url(&p.options.base_url) != normalize_base_url(&preset.base_url)
+            })
         })
         .map(|(k, _)| k.clone())
         .collect();
     for k in orphans {
         auth.remove(&k);
     }
-    // 3. opencode.json chỉ chứa provider custom.
+    // 3. opencode.json chứa: provider custom + builtin CÓ danh sách model
+    //    khai báo rõ (người dùng đã chọn — opencode dùng đúng danh sách thay
+    //    vì quét toàn bộ catalogue). Builtin key-only thuần không ghi.
+    //    Builtin giữ lại thì KHOÁ phải bị XOÁ khỏi opencode.json — khoá của
+    //    builtin sống ở auth.json (điểm duy nhất của khoá), entry file chỉ mô
+    //    tả danh sách model.
     let mut file_config = config.clone();
-    file_config
-        .provider
-        .retain(|id, provider| !is_builtin(id, provider, presets));
+    file_config.provider.retain(|id, provider| {
+        let builtin_key_only = is_builtin(id, provider, presets);
+        if !builtin_key_only
+            && presets.iter().any(|preset| {
+                preset.id == *id
+                    && normalize_base_url(&provider.options.base_url) == normalize_base_url(&preset.base_url)
+            })
+        {
+            provider.options.api_key.clear();
+        }
+        !builtin_key_only
+    });
 
     file_config.save()?;
     AuthEntry::save_config(auth)?;
@@ -182,6 +217,14 @@ pub fn save_split(config: &OpencodeConfig, auth: &mut AuthConfig, presets: &[Dyn
 
 /// Dựng danh sách provider để hiển thị, đã sắp theo id.
 pub fn build_views(config: &OpencodeConfig, presets: &[DynamicPreset]) -> Vec<ProviderView> {
+    // Field `model` = "provider_id/model_id" (tách ở "/" ĐẦU vì model id có
+    // thể chứa "/" tiếp theo — vd model CKey dạng "vendor/tên model").
+    let primary_pid = config
+        .model
+        .as_deref()
+        .and_then(|s| s.split_once('/'))
+        .map(|(pid, _)| pid);
+
     let mut views: Vec<ProviderView> = config
         .provider
         .iter()
@@ -198,6 +241,13 @@ pub fn build_views(config: &OpencodeConfig, presets: &[DynamicPreset]) -> Vec<Pr
                 model_count: models.len(),
                 models,
                 is_builtin: is_builtin(id, p, presets),
+                primary_model: primary_pid.filter(|pid| *pid == id.as_str()).and_then(|_| {
+                    config
+                        .model
+                        .as_deref()
+                        .and_then(|s| s.split_once('/'))
+                        .map(|(_, m)| m.to_string())
+                }),
             }
         })
         .collect();
@@ -593,5 +643,104 @@ mod tests {
         let views = build_views(&config, &presets);
         assert_eq!(views[0].model_count, 3);
         assert_eq!(views[0].models, vec!["alpha", "mid", "zeta"]);
+    }
+
+    /// HỒI QUY BUG BÁO CỦA NGƯỜI DÙNG: builtin (auth.json key-only) không thêm
+    /// model được như provider custom — vì save_split coi mọi provider khớp
+    /// preset là builtin và XOÁ khỏi opencode.json, nên danh sách model chọn
+    /// bị vứt; opencode vì thế quét TOÀN BỘ catalogue. Provider builtin có
+    /// `models` khai báo rõ phải được GIỮ trong opencode.json (đó chính là cơ
+    /// chế "cung cấp danh sách rõ ràng" cho opencode), khoá vẫn lưu auth.json.
+    #[test]
+    fn save_split_giu_builtin_co_danh_sach_model_ro() {
+        let _guard = crate::test_support::TEST_ENV_LOCK.lock().unwrap();
+        let test_dir = crate::test_support::isolate_home("store_builtin_models");
+
+        let presets = vec![preset("zenmux", "https://zenmux.example.com/v1")];
+        let mut config = empty_config();
+
+        // Provider builtin CHỌN 2 model → entry có models không rỗng.
+        let mut models = HashMap::new();
+        models.insert(
+            "zenmux/gpt-4o".to_string(),
+            opencode_manager::config::ModelEntry {
+                name: "GPT-4o (Zenmux)".to_string(),
+                ..Default::default()
+            },
+        );
+        models.insert(
+            "zenmux/cheap".to_string(),
+            opencode_manager::config::ModelEntry::default(),
+        );
+        config.provider.insert(
+            "zenmux".to_string(),
+            Provider {
+                npm: None,
+                name: "Zenmux".to_string(),
+                options: ProviderOptions {
+                    base_url: "https://zenmux.example.com/v1".to_string(),
+                    api_key: "zk-live".to_string(),
+                    ..Default::default()
+                },
+                models,
+                ..Default::default()
+            },
+        );
+
+        let mut auth = AuthConfig::new();
+        auth.insert(
+            "zenmux".into(),
+            AuthEntry {
+                auth_type: "api".into(),
+                key: "zk-live".into(),
+            },
+        );
+        save_split(&config, &mut auth, &presets).unwrap();
+
+        // 1. opencode.json PHẢI giữ provider + danh sách model (bug cũ: bị
+        //    xoá trắng → opencode quét toàn bộ catalogue).
+        let saved = OpencodeConfig::load().unwrap();
+        let p = saved
+            .provider
+            .get("zenmux")
+            .expect("provider builtin chọn model phải nằm trong opencode.json");
+        assert_eq!(p.models.len(), 2, "danh sách model chọn phải được giữ");
+        assert!(p.models.contains_key("zenmux/gpt-4o"));
+        // Khoá KHÔNG nằm trong opencode.json (builtin vẫn giữ khoá ở auth.json).
+        assert!(
+            p.options.api_key.is_empty(),
+            "khoá builtin phải ở auth.json, không phải opencode.json"
+        );
+
+        // 2. auth.json vẫn giữ entry (khoá để gọi API).
+        let on_disk = AuthEntry::load_config().unwrap();
+        assert_eq!(on_disk.get("zenmux").map(|e| e.key.as_str()), Some("zk-live"));
+
+        // 3. Nạp lại: merge bù key từ auth.json, models còn nguyên vẹn.
+        let (merged, _) = load_merged(&presets).unwrap();
+        let mp = &merged.provider["zenmux"];
+        assert_eq!(mp.models.len(), 2, "round-trip không được mất model");
+        assert_eq!(mp.options.api_key, "zk-live", "key merge lại từ auth.json");
+
+        // 4. Builtin KHÔNG chọn model nào → vẫn ẩn khỏi opencode.json
+        //    (trạng thái cũ của bug: đếm 0 model).
+        let mut bare = config.clone();
+        bare.provider.get_mut("zenmux").unwrap().models.clear();
+        let mut auth2 = AuthConfig::new();
+        auth2.insert(
+            "zenmux".into(),
+            AuthEntry {
+                auth_type: "api".into(),
+                key: "zk-live".into(),
+            },
+        );
+        save_split(&bare, &mut auth2, &presets).unwrap();
+        let saved2 = OpencodeConfig::load().unwrap();
+        assert!(
+            !saved2.provider.contains_key("zenmux"),
+            "builtin key-only (chưa chọn model) không ghi vào opencode.json"
+        );
+
+        let _ = std::fs::remove_dir_all(&test_dir);
     }
 }

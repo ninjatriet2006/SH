@@ -81,20 +81,35 @@ pub fn run() {
             // ==================
             // CKEY (ckey.vn)
             // ==================
-            api::ckey::list_ckey_providers,
-            api::ckey::list_ckey_accounts,
-            api::ckey::set_ckey_account_key,
-            api::ckey::delete_ckey_account_key,
+            api::ckey::list_ckey_profiles,
+            api::ckey::save_ckey_profile,
+            api::ckey::delete_ckey_profile,
+            api::ckey::set_active_ckey_profile,
             api::ckey::fetch_ckey_dashboard,
             api::ckey::fetch_ckey_usage,
+            api::ckey::fetch_ckey_deposit,
             api::ckey::list_ckey_import_items,
             api::ckey::import_ckey_models,
+            // ==================
+            // MODELS (ma trận so sánh + model chính)
+            // ==================
+            api::models::list_model_matrix,
+            api::models::set_primary_model,
+            api::models::sync_limits_from_dev,
+            // ==================
+            // ARBITER (trọng tài chấm điểm model)
+            // ==================
+            api::arbiter::get_arbiter_state,
+            api::arbiter::run_arbiter_evaluation,
+            api::arbiter::clear_arbiter_history,
+            api::arbiter::recommend_models,
             // ==================
             // SETTINGS / LANG / THEME
             // ==================
             api::settings::get_gui_settings,
             api::settings::save_gui_settings,
             api::settings::get_config_paths,
+            api::settings::open_external_url,
             api::lang::get_available_langs,
             api::lang::get_lang_content,
             api::theme::get_available_themes,

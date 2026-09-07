@@ -1,5 +1,5 @@
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -14,6 +14,44 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 pub const CKEY_LLM_BASE_URL: &str = "https://api.xah.io/v1";
 pub const CKEY_MANAGE_API_BASE: &str = "https://ckey.vn";
 pub const CKEY_PRESET_ID: &str = "ckey";
+
+/// Tách `public_name` của CKey thành (provider, model).
+///
+/// Danh sách model của CKey là catalogue TOÀN CỦA (giống nhau với mọi tài
+/// khoản) và tên là dạng "provider/model" (vd "provider/GPT Demo") — tức kết
+/// hợp NHÀ CUNG CẤP và MODEL, không phải thuần model. Không có "/" → provider
+/// rỗng (model riêng của CKey), giữ nguyên toàn bộ làm tên model.
+pub fn split_public_name(public_name: &str) -> (String, String) {
+    match public_name.split_once('/') {
+        Some((provider, model)) if !provider.is_empty() && !model.is_empty() => {
+            (provider.to_string(), model.to_string())
+        }
+        _ => (String::new(), public_name.to_string()),
+    }
+}
+
+/// Provider ĐÍCH IMPORT cho một profile: provider đang được gắn (binding) vào
+/// profile đó. Nhiều provider cùng gắn → ưu tiên id chuẩn `ckey`, rồi đến thứ
+/// tự tên. Chưa gắn gì → id chuẩn `ckey` (import sẽ tự tạo provider này).
+///
+/// Catalogue model + giá là TOÀN CỤC nên không cần người dùng chọn đích để
+/// XEM; đích chỉ cần suy ra từ binding khi IMPORT.
+pub fn resolve_import_target(cfg: &crate::config::CkeyConfig, profile_id: &str) -> String {
+    let mut bound: Vec<&String> = cfg
+        .bindings
+        .iter()
+        .filter(|(_, pid)| pid.as_str() == profile_id)
+        .map(|(provider_id, _)| provider_id)
+        .collect();
+    if bound.is_empty() {
+        return CKEY_PRESET_ID.to_string();
+    }
+    bound.sort();
+    if let Some(std) = bound.iter().find(|p| p.as_str() == CKEY_PRESET_ID) {
+        return (*std).clone();
+    }
+    bound[0].clone()
+}
 
 /// Tạo tên provider ngẫu nhiên 6 ký tự alnum (vd X7K2P9), unique so với `existing`.
 /// Không dùng crate rand: hash DefaultHasher + SystemTime nanos + bộ đếm thử lại để
@@ -64,7 +102,7 @@ pub struct CkeyProfile {
 // (https://ckey.vn/docs, endpoint /api/llm/models) nên PHẢI `default` —
 // khai báo bắt buộc sẽ làm fetch_models lỗi "missing field" trên API thật.
 #[allow(dead_code)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CkeyModel {
     pub public_name: String,
     pub display_name: String,
@@ -100,7 +138,7 @@ pub struct CkeyModel {
 
 // Giữ đầy đủ field từ API; chỉ api_key/is_active được dùng cho import, số còn lại giữ để parse.
 #[allow(dead_code)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CkeyAiKey {
     pub id: u64,
     #[serde(default)]
@@ -178,6 +216,66 @@ pub struct CkeyPagination {
     pub page: u64,
     #[serde(default)]
     pub total_pages: u64,
+}
+
+// ---------- Deposit (nạp tiền) — docs: /api/deposit-info, /api/deposit-history ----------
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct CkeyDepositBank {
+    #[serde(default)]
+    pub bank_name: String,
+    #[serde(default)]
+    pub account_owner: String,
+    #[serde(default)]
+    pub account_number: String,
+    #[serde(default)]
+    pub transfer_content: String,
+    #[serde(default)]
+    pub qr_url: String,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct CkeyDepositInfo {
+    #[serde(default)]
+    pub requires_amount: bool,
+    #[serde(default)]
+    pub transfer_content: String,
+    #[serde(default)]
+    pub amount_vnd: u64,
+    #[serde(default)]
+    pub expires_at: String,
+    #[serde(default)]
+    pub qr_url: String,
+    #[serde(default)]
+    pub banks: Vec<CkeyDepositBank>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct CkeyDepositHistoryItem {
+    #[serde(default)]
+    pub id: u64,
+    #[serde(default)]
+    pub amount: u64,
+    #[serde(default)]
+    pub amount_text: String,
+    #[serde(default)]
+    pub time: u64,
+    #[serde(default)]
+    pub time_text: String,
+}
+
+/// Lịch sử nạp tiền (phân trang). Chỉ crate GUI (`opencode_manager_gui`)
+/// gọi — TUI hiện thông tin nạp nhưng chưa có bảng lịch sử.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct CkeyDepositHistoryPage {
+    #[serde(default)]
+    pub items: Vec<CkeyDepositHistoryItem>,
+    #[serde(default)]
+    pub pagination: Option<CkeyPagination>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -317,18 +415,55 @@ impl CkeyClient {
         Ok(list.items)
     }
 
-    pub async fn fetch_usage_stats(&self, account_key: &str) -> Result<CkeyUsageStats, String> {
-        self.get_query("/api/llm/usage-stats", &[("key", account_key.to_string())])
-            .await
+    pub async fn fetch_usage_stats(&self, account_key: &str, since: Option<u64>) -> Result<CkeyUsageStats, String> {
+        // `since` (Unix timestamp) theo docs — lọc thống kê từ mốc thời gian.
+        let mut params = vec![("key", account_key.to_string())];
+        if let Some(s) = since.filter(|s| *s > 0) {
+            params.push(("since", s.to_string()));
+        }
+        self.get_query("/api/llm/usage-stats", &params).await
     }
 
-    pub async fn fetch_usage(&self, account_key: &str, page: u64, limit: u64) -> Result<CkeyUsagePage, String> {
+    pub async fn fetch_usage(
+        &self,
+        account_key: &str,
+        model: Option<&str>,
+        page: u64,
+        limit: u64,
+    ) -> Result<CkeyUsagePage, String> {
         // Tham số theo docs (https://ckey.vn/docs): `key` (bắt buộc), `page`,
-        // `limit`, `model`, `key_id`, `ai_key`. KHÔNG gửi tham số nào khác —
-        // bản cũ gửi `api_key` (không tồn tại trong docs) kèm prefix key là
-        // tham số bịa, API có thể lọc sai hoặc bỏ qua.
+        // `limit`, `model`, `key_id`, `ai_key`. Chỉ gửi filter `model` khi
+        // người dùng nhập — không gửi tham số rỗng.
+        let mut params = vec![
+            ("key", account_key.to_string()),
+            ("page", page.to_string()),
+            ("limit", limit.to_string()),
+        ];
+        if let Some(m) = model.map(str::trim).filter(|m| !m.is_empty()) {
+            params.push(("model", m.to_string()));
+        }
+        self.get_query("/api/llm/usage", &params).await
+    }
+
+    /// Thông tin nạp tiền theo số tiền — docs yêu cầu `amount` (int, bắt buộc).
+    pub async fn fetch_deposit_info(&self, account_key: &str, amount: u64) -> Result<CkeyDepositInfo, String> {
         self.get_query(
-            "/api/llm/usage",
+            "/api/deposit-info",
+            &[("key", account_key.to_string()), ("amount", amount.to_string())],
+        )
+        .await
+    }
+
+    /// Lịch sử nạp tiền, phân trang. Chỉ crate GUI gọi (xem CkeyDepositHistoryPage).
+    #[allow(dead_code)]
+    pub async fn fetch_deposit_history(
+        &self,
+        account_key: &str,
+        page: u64,
+        limit: u64,
+    ) -> Result<CkeyDepositHistoryPage, String> {
+        self.get_query(
+            "/api/deposit-history",
             &[
                 ("key", account_key.to_string()),
                 ("page", page.to_string()),
@@ -476,5 +611,98 @@ mod tests {
         assert!(friendly_error(402, "").contains("hết tiền"));
         let body = r#"{"success":false,"message":"Rate limit"}"#;
         assert!(friendly_error(429, body).contains("Rate limit"));
+    }
+}
+
+#[cfg(test)]
+mod deposit_tests {
+    use super::*;
+
+    /// Response mẫu ĐÚNG KHI TƯNG docs cho /api/deposit-info.
+    #[test]
+    fn parse_deposit_info_fixture() {
+        let body = r#"{
+            "success": true, "status": 200, "message": "OK",
+            "data": {
+                "requires_amount": false,
+                "transfer_content": "CKEY7F3K9QZ2M4X",
+                "amount_vnd": 50000,
+                "expires_at": "2026-08-06T02:00:00+07:00",
+                "qr_url": "https://ckey.vn/qr/CKEY7F3K9QZ2M4X",
+                "banks": [ {
+                    "bank_name": "Vietcombank",
+                    "account_owner": "HO KINH DOANH CKEY",
+                    "account_number": "1070190507",
+                    "transfer_content": "CKEY7F3K9QZ2M4X",
+                    "qr_url": "https://ckey.vn/qr/CKEY7F3K9QZ2M4X"
+                } ]
+            }
+        }"#;
+        let info: CkeyDepositInfo = parse_wrapped(body).unwrap();
+        assert_eq!(info.transfer_content, "CKEY7F3K9QZ2M4X");
+        assert_eq!(info.amount_vnd, 50000);
+        assert_eq!(info.banks.len(), 1);
+        assert_eq!(info.banks[0].bank_name, "Vietcombank");
+        assert_eq!(info.banks[0].account_number, "1070190507");
+    }
+
+    /// Response thiếu field (phiên bản khác) vẫn parse được nhờ default.
+    #[test]
+    fn parse_deposit_info_thieu_field() {
+        let body = r#"{ "success": true, "data": { "transfer_content": "CKEY123" } }"#;
+        let info: CkeyDepositInfo = parse_wrapped(body).unwrap();
+        assert_eq!(info.transfer_content, "CKEY123");
+        assert_eq!(info.amount_vnd, 0);
+        assert!(info.banks.is_empty());
+    }
+
+    /// Response mẫu docs cho /api/deposit-history (kèm pagination).
+    #[test]
+    fn parse_deposit_history_fixture() {
+        let body = r#"{
+            "success": true, "status": 200, "message": "OK",
+            "data": { "items": [ {
+                "id": 101, "amount": 50000, "amount_text": "50,000đ",
+                "time": 1778032800, "time_text": "06/05/2026 - 09:00:00"
+            } ],
+            "pagination": { "page": 1, "limit": 20, "total": 1, "total_pages": 1 } }
+        }"#;
+        let page: CkeyDepositHistoryPage = parse_wrapped(body).unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].amount_text, "50,000đ");
+        assert_eq!(page.pagination.as_ref().unwrap().total_pages, 1);
+    }
+}
+
+#[cfg(test)]
+mod split_name_tests {
+    use super::split_public_name;
+
+    /// Tên có dạng provider/model → tách đúng (docs: "provider/GPT Demo").
+    #[test]
+    fn tach_dung_dang_provider_model() {
+        assert_eq!(
+            split_public_name("provider/GPT Demo"),
+            ("provider".to_string(), "GPT Demo".to_string())
+        );
+        assert_eq!(
+            split_public_name("openai/gpt-4o"),
+            ("openai".to_string(), "gpt-4o".to_string())
+        );
+        // Chỉ cắt ở "/" ĐẦU — model có thể chứa "/" tiếp theo.
+        assert_eq!(
+            split_public_name("mistral/mistral-large/fp8"),
+            ("mistral".to_string(), "mistral-large/fp8".to_string())
+        );
+    }
+
+    /// Không có "/" hoặc có "/" nhưng lệch (trống một bên) → provider rỗng,
+    /// giữ nguyên toàn bộ làm tên model.
+    #[test]
+    fn khong_co_dang_nay_giu_nguyen() {
+        assert_eq!(split_public_name("hy3"), (String::new(), "hy3".to_string()));
+        assert_eq!(split_public_name("/model"), (String::new(), "/model".to_string()));
+        assert_eq!(split_public_name("provider/"), (String::new(), "provider/".to_string()));
+        assert_eq!(split_public_name(""), (String::new(), String::new()));
     }
 }

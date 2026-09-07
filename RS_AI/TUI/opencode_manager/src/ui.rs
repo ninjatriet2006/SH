@@ -684,7 +684,7 @@ fn draw_models_modal(f: &mut Frame, area: Rect, app: &mut App) {
         f.render_stateful_widget(list, inner_chunks[1], &mut app.models_list_state);
     }
 
-    let footer_text = " [Gõ chữ] Tìm kiếm | [Space] Chọn/Bỏ chọn | [Tab] Khả năng | [Enter] Đồng bộ | [Esc] Huỷ\n [ĐỎ] Model bị provider xoá — bỏ chọn sẽ bị xoá khỏi config ";
+    let footer_text = " [Gõ chữ] Tìm kiếm | [Space] Chọn/Bỏ chọn | [Tab] Khả năng | [Enter] Đồng bộ | [Esc] Huỷ\n [ĐỎ] Model provider đã xoá — MẶC ĐỊNH BỎ TICK, đồng bộ sẽ XOÁ khỏi config (tick lại để giữ) ";
     let footer = Paragraph::new(footer_text).alignment(Alignment::Center).style(
         Style::default()
             .fg(Color::Black)
@@ -1222,14 +1222,21 @@ fn draw_ckey_dashboard_modal(f: &mut Frame, area: Rect, app: &mut App) {
         ])
         .split(popup_area);
 
-    // 1. Account key đang dùng (masked) + phím tắt
-    let current_key = app
-        .selected_provider_id()
-        .and_then(|pid| app.ckey_account_key(pid))
-        .unwrap_or_default();
+    // 1. Tài khoản đang xem (profile active, masked) + phím tắt
+    let active_profile = app.ckey_config.active_profile();
+    let current_key = active_profile.map(|p| p.key.clone()).unwrap_or_default();
+    let account_name = active_profile
+        .map(|p| {
+            if p.name.trim().is_empty() {
+                p.id.clone()
+            } else {
+                p.name.clone()
+            }
+        })
+        .unwrap_or_else(|| "(chưa có)".to_string());
     let key_line = Paragraph::new(Line::from(vec![
         Span::styled(
-            "Account key đang dùng: ",
+            format!("Tài khoản đang xem: {account_name} — key "),
             Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
         ),
         Span::styled(mask_ckey_key(&current_key), Style::default().fg(Color::White)),
@@ -1293,6 +1300,49 @@ fn draw_ckey_dashboard_modal(f: &mut Frame, area: Rect, app: &mut App) {
             Style::default().fg(Color::Red),
         )));
     }
+    // Thông tin nạp tiền (docs: /api/deposit-info) — lấy bằng phím D.
+    if let Some(dep) = &app.ckey_deposit {
+        let amount_line = if dep.amount_vnd > 0 {
+            format!("{}₫", format_vnd(dep.amount_vnd as f64))
+        } else {
+            format!("{}₫", format_vnd(app.ckey_deposit_amount as f64))
+        };
+        lines.push(Line::from(Span::styled(
+            format!(
+                "💰 Nạp {} · nội dung CK: {}{}",
+                amount_line,
+                dep.transfer_content,
+                if dep.expires_at.is_empty() {
+                    String::new()
+                } else {
+                    format!(" · hết hạn {}", dep.expires_at)
+                }
+            ),
+            Style::default().fg(Color::LightGreen),
+        )));
+        if let Some(bank) = dep.banks.first() {
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "🏦 {} — {} · STK {}{}",
+                    bank.bank_name,
+                    bank.account_owner,
+                    bank.account_number,
+                    if bank.qr_url.is_empty() {
+                        String::new()
+                    } else {
+                        " · có QR".to_string()
+                    }
+                ),
+                Style::default().fg(Color::Cyan),
+            )));
+        }
+        if dep.banks.len() > 1 {
+            lines.push(Line::from(Span::styled(
+                format!("🏦 (+{} ngân hàng khác)", dep.banks.len() - 1),
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+    }
 
     let info_paragraph = Paragraph::new(lines).block(
         Block::default()
@@ -1302,9 +1352,10 @@ fn draw_ckey_dashboard_modal(f: &mut Frame, area: Rect, app: &mut App) {
     );
     f.render_widget(info_paragraph, inner_chunks[1]);
 
-    // 3. Danh sách model (tên + giá VND)
+    // 3. Danh sách model (public_name dạng "provider/model" → tách 2 cột;
+    //    catalogue toàn cục, giá VND / 1M token)
     let models_block = Block::default()
-        .title(" 🤖 MODELS (giá VND / 1M token) ")
+        .title(" 🤖 PROVIDER / MODEL (giá VND / 1M token) ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray));
 
@@ -1319,8 +1370,10 @@ fn draw_ckey_dashboard_modal(f: &mut Frame, area: Rect, app: &mut App) {
             .iter()
             .take(inner_chunks[2].height.saturating_sub(3) as usize)
             .map(|m| {
+                let (provider, model) = crate::ckey::split_public_name(&m.public_name);
                 Row::new(vec![
-                    Cell::from(m.public_name.clone()).style(Style::default().fg(Color::Yellow)),
+                    Cell::from(provider).style(Style::default().fg(Color::Cyan)),
+                    Cell::from(model).style(Style::default().fg(Color::Yellow)),
                     Cell::from(format!("{}₫", format_vnd(m.input_price_per_million_vnd)))
                         .style(Style::default().fg(Color::Gray)),
                     Cell::from(format!("{}₫", format_vnd(m.output_price_per_million_vnd)))
@@ -1332,12 +1385,14 @@ fn draw_ckey_dashboard_modal(f: &mut Frame, area: Rect, app: &mut App) {
         let table = Table::new(
             rows,
             [
-                Constraint::Percentage(55),
                 Constraint::Percentage(22),
-                Constraint::Percentage(23),
+                Constraint::Percentage(36),
+                Constraint::Percentage(21),
+                Constraint::Percentage(21),
             ],
         )
         .header(Row::new(vec![
+            Cell::from("Provider").style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Cell::from("Model").style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Cell::from("Input").style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Cell::from("Output").style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
@@ -1348,7 +1403,8 @@ fn draw_ckey_dashboard_modal(f: &mut Frame, area: Rect, app: &mut App) {
     }
 
     // 4. Footer (hướng dẫn phím)
-    let footer_text = " [R] Tải lại | [I] Import model | [U] Lịch sử dùng | [Esc] Đóng ";
+    let footer_text =
+        " [R] Tải lại | [I] Import model | [U] Lịch sử | [D] Nạp tiền (+/-) | [P] Đổi tài khoản | [Esc] Đóng ";
     let footer = Paragraph::new(footer_text).alignment(Alignment::Center).style(
         Style::default()
             .fg(Color::Black)
@@ -1394,28 +1450,31 @@ fn draw_ckey_need_key_popup(f: &mut Frame, area: Rect, app: &mut App) {
     match app.ckey_pick_mode {
         CkeyPickMode::Choose => {
             let list_block = Block::default()
-                .title(" 📇 Account key đã lưu (mục cuối: nhập key mới) ")
+                .title(" 📇 Tài khoản CKey đã lưu (mục cuối: nhập key mới) ")
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::DarkGray));
 
             if app.ckey_account_options.is_empty() {
                 let empty = Paragraph::new(
-                    "Chưa có account key nào được lưu cho provider khác.\nNhấn Tab để chuyển sang nhập account key mới.",
+                    "Chưa có tài khoản CKey nào được lưu.\nNhấn Tab để chuyển sang nhập account key mới.",
                 )
                 .block(list_block)
                 .style(Style::default().fg(Color::DarkGray));
                 f.render_widget(empty, inner[1]);
             } else {
+                // Profile đang xem (active) hiện dấu "đang xem".
+                let active_id = app.ckey_config.active_profile().map(|p| p.id.clone());
                 let mut items: Vec<ListItem> = app
                     .ckey_account_options
                     .iter()
                     .enumerate()
-                    .map(|(i, (pid, key))| {
+                    .map(|(_i, (pid, name, key))| {
+                        let display = if name.trim().is_empty() { pid } else { name };
                         let line = Line::from(vec![
-                            Span::styled(format!("{:<18}", pid), Style::default().fg(Color::White)),
+                            Span::styled(format!("{:<20}", display), Style::default().fg(Color::White)),
                             Span::styled(mask_ckey_key(key), Style::default().fg(Color::DarkGray)),
-                            if app.ckey_pick_selected_idx == i {
-                                Span::styled("  (đang dùng cho provider này)", Style::default().fg(Color::Green))
+                            if active_id.as_deref() == Some(pid.as_str()) {
+                                Span::styled("  (đang xem)", Style::default().fg(Color::Green))
                             } else {
                                 Span::raw("")
                             },
@@ -1716,7 +1775,7 @@ fn draw_ckey_import_modal(f: &mut Frame, area: Rect, app: &mut App) {
         f.render_stateful_widget(list, inner_chunks[1], &mut app.ckey_import_list_state);
     }
 
-    let footer_text = " [Gõ chữ] Tìm kiếm | [Space] Chọn/Bỏ chọn | [Enter] Đồng bộ | [Esc] Huỷ\n [ĐỎ] Model bị CKey xoá — bỏ chọn sẽ bị xoá khỏi config ";
+    let footer_text = " [Gõ chữ] Tìm kiếm | [Space] Chọn/Bỏ chọn | [Enter] Đồng bộ | [Esc] Huỷ\n [ĐỎ] Model CKey đã xoá — MẶC ĐỊNH BỎ TICK, đồng bộ sẽ XOÁ khỏi config (tick lại để giữ) ";
     let footer = Paragraph::new(footer_text).alignment(Alignment::Center).style(
         Style::default()
             .fg(Color::Black)

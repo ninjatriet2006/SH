@@ -1,18 +1,18 @@
 /*
 [INTEGRITY NOTES]
-- Mục đích: Cài đặt của GUI (ngôn ngữ, theme) — lưu tại
-  `~/.config/opencode/manager_gui.json`.
+ - Mục đích: Cài đặt của GUI (ngôn ngữ, theme) — lưu tại
+   `~/.config/opencode-manager/settings.json`.
 - Trách nhiệm: Đọc/ghi cài đặt, TỰ CHỮA khi mã ngôn ngữ đã lưu không còn file
   tương ứng. Không hardcode "vi" — chọn file đầu tiên thực có trong `langs/`.
 - Tương tác: frontend `store/useSettingsStore.ts`, api::lang.
 
-Vì sao đặt cạnh config của opencode: app này quản lý chính `~/.config/opencode/`
-nên cài đặt GUI nằm cùng chỗ là hợp lý, và KHÔNG ghi vào thư mục cài đặt app
-(có thể chỉ đọc, hoặc bị ghi đè khi cập nhật).
+ Tách quyền sở hữu: OpenCode giữ cấu hình chạy của nó trong
+ `~/.config/opencode/`; Manager giữ trạng thái UI riêng trong
+ `~/.config/opencode-manager/`. Migration chỉ đọc vị trí cũ một lần, không
+ di chuyển bất kỳ file nào thuộc OpenCode.
 */
 
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,25 +38,33 @@ impl Default for GuiSettings {
     }
 }
 
+/// Vị trí MỚI: `~/.config/opencode-manager/settings.json` (dữ liệu riêng của
+/// manager, tách khỏi thư mục của opencode; đổi tên manager_gui.json →
+/// settings.json cho thống nhất với vai trò của nó).
 fn settings_path() -> PathBuf {
+    opencode_manager::storage::manager_data_path("settings.json")
+}
+
+/// Vị trí CŨ — chỉ dùng cho migration.
+fn legacy_settings_path() -> PathBuf {
     let home = opencode_manager::config::get_home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
     home.join(".config").join("opencode").join("manager_gui.json")
 }
 
+/// Migration sang vị trí mới (không xoá dữ liệu: bản cũ thành .legacy).
+fn migrate_settings_file() {
+    opencode_manager::storage::migrate_legacy(&legacy_settings_path(), &settings_path());
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub fn get_gui_settings() -> Result<GuiSettings, String> {
+    migrate_settings_file();
     let path = settings_path();
-    let mut settings = if path.is_file() {
-        match fs::read_to_string(&path) {
-            Ok(text) => serde_json::from_str::<GuiSettings>(&text).unwrap_or_else(|e| {
-                eprintln!("[settings] manager_gui.json hỏng, dùng mặc định: {e}");
-                GuiSettings::default()
-            }),
-            Err(e) => {
-                eprintln!("[settings] không đọc được manager_gui.json: {e}");
-                GuiSettings::default()
-            }
-        }
+    let mut settings = if let Some(text) = opencode_manager::storage::read_if_exists(&path) {
+        serde_json::from_str::<GuiSettings>(&text).unwrap_or_else(|e| {
+            eprintln!("[settings] settings.json hỏng, dùng mặc định: {e}");
+            GuiSettings::default()
+        })
     } else {
         GuiSettings::default()
     };
@@ -103,11 +111,10 @@ pub fn save_gui_settings(language: String, theme_id: String) -> Result<(), Strin
 
     let settings = GuiSettings { language, theme_id };
     let path = settings_path();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("Không tạo được thư mục cài đặt: {e}"))?;
-    }
+    // Backup xoay vòng + ghi atomic (xem opencode_manager::storage).
+    opencode_manager::storage::backup_rotate(&path, opencode_manager::storage::BACKUP_KEEP);
     let text = serde_json::to_string_pretty(&settings).map_err(|e| format!("Lỗi chuyển đổi cài đặt: {e}"))?;
-    fs::write(&path, text).map_err(|e| format!("Lỗi ghi file cài đặt: {e}"))?;
+    opencode_manager::storage::atomic_write(&path, &text).map_err(|e| format!("Lỗi ghi file cài đặt: {e}"))?;
     Ok(())
 }
 
@@ -115,18 +122,60 @@ pub fn save_gui_settings(language: String, theme_id: String) -> Result<(), Strin
 /// app đang đọc/ghi vào đâu (khi họ sửa file tay hoặc chạy song song TUI).
 #[derive(Debug, Clone, Serialize)]
 pub struct ConfigPaths {
+    /// Thư mục OpenCode sở hữu: config runtime, không bị Manager di chuyển.
+    pub opencode_config_dir: String,
+    /// Thư mục Manager sở hữu: settings, CKey profiles và arbiter history.
+    pub manager_config_dir: String,
     pub opencode_json: String,
     pub auth_json: String,
+    pub ckey_json: String,
+    pub arbiter_json: String,
+    pub settings_json: String,
 }
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn get_config_paths() -> Result<ConfigPaths, String> {
     Ok(ConfigPaths {
+        opencode_config_dir: opencode_manager::config::OpencodeConfig::file_path()
+            .parent()
+            .map(|path| path.display().to_string())
+            .unwrap_or_default(),
+        manager_config_dir: opencode_manager::storage::manager_config_dir().display().to_string(),
         opencode_json: opencode_manager::config::OpencodeConfig::file_path()
             .display()
             .to_string(),
         auth_json: opencode_manager::config::AuthEntry::file_path().display().to_string(),
+        ckey_json: opencode_manager::config::CkeyConfig::file_path().display().to_string(),
+        arbiter_json: opencode_manager::arbiter::ArbiterConfig::file_path()
+            .display()
+            .to_string(),
+        settings_json: settings_path().display().to_string(),
     })
+}
+
+/// Mở một URL https trong trình duyệt/người xem ngoài của hệ điều hành.
+///
+/// `window.open` của webview bị Tauri v2 chặn mặc định (đi hướng trang). Tự làm
+/// command thay vì thêm plugin-opener: chỉ chấp nhận `https://` để không thể
+/// dùng URL lạ chạy chương trình tuỳ ý; `spawn` truyền arg trực tiếp (không
+/// qua shell) nên không tiêm lệnh được.
+#[tauri::command(rename_all = "snake_case")]
+pub fn open_external_url(url: String) -> Result<(), String> {
+    let url = url.trim();
+    if !url.starts_with("https://") || url.contains(|c: char| c.is_whitespace()) {
+        return Err("Chỉ mở được đường dẫn https:// hợp lệ.".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    let spawn = || std::process::Command::new("cmd").args(["/c", "start", "", url]).spawn();
+    #[cfg(target_os = "macos")]
+    let spawn = || std::process::Command::new("open").arg(url).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let spawn = || std::process::Command::new("xdg-open").arg(url).spawn();
+
+    spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Không mở được trình duyệt: {e}"))
 }
 
 #[cfg(test)]
@@ -149,5 +198,53 @@ mod tests {
         let err = save_gui_settings("khong_ton_tai_9999".into(), "default".into())
             .expect_err("phải từ chối mã không có file");
         assert!(err.contains("không có trong langs/"), "lỗi: {err}");
+    }
+
+    /// Migration vị trí: manager_gui.json cũ → settings.json mới (không xoá
+    /// dữ liệu — bản cũ thành .legacy); cài đặt đọc đúng từ vị trí mới.
+    #[test]
+    fn migration_vi_tri_settings_khong_xoa_du_lieu() {
+        let _guard = crate::test_support::TEST_ENV_LOCK.lock().unwrap();
+        let home = crate::test_support::isolate_home("settings_migration");
+
+        // File cũ (vị trí legacy) với cài đặt thật.
+        let old = legacy_settings_path();
+        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+        std::fs::write(&old, r#"{"language":"vi","theme_id":"red_blood"}"#).unwrap();
+
+        // Đọc cài đặt → migration tự chạy, dữ liệu còn nguyên vẹn.
+        let settings = get_gui_settings().unwrap();
+        assert_eq!(settings.language, "vi", "ngôn ngữ phải sống sót qua migration");
+        assert_eq!(settings.theme_id, "red_blood");
+        assert!(settings_path().exists(), "file phải ở vị trí mới");
+        assert!(
+            old.with_extension("json.legacy").exists(),
+            "dữ liệu cũ phải còn (đổi tên .legacy, không xoá)"
+        );
+
+        // Lưu lại → atomic + backup xoay vòng xuất hiện ở vị trí MỚI.
+        save_gui_settings("vi".into(), "red_blood".into()).unwrap();
+        assert!(settings_path().exists());
+        let baks = std::fs::read_dir(settings_path().parent().unwrap())
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_str().map(|n| n.contains(".bak_")).unwrap_or(false))
+            .count();
+        assert_eq!(baks, 1, "một backup sau lần lưu đầu (có file cũ)");
+
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn config_paths_phan_tach_opencode_va_manager() {
+        let paths = get_config_paths().unwrap();
+
+        assert!(paths.opencode_config_dir.ends_with(".config/opencode"));
+        assert!(paths.manager_config_dir.ends_with(".config/opencode-manager"));
+        assert_ne!(paths.opencode_config_dir, paths.manager_config_dir);
+        assert!(paths.opencode_json.starts_with(&paths.opencode_config_dir));
+        assert!(paths.ckey_json.starts_with(&paths.manager_config_dir));
+        assert!(paths.arbiter_json.starts_with(&paths.manager_config_dir));
+        assert!(paths.settings_json.starts_with(&paths.manager_config_dir));
     }
 }

@@ -195,6 +195,11 @@ export function ProvidersPage() {
                                             </td>
                                             <td style={{ fontSize: '0.85rem' }}>
                                                 {p.model_count} {t('providers.model_count')}
+                                                {p.primary_model && (
+                                                    <div style={{ fontSize: '0.7rem', color: 'var(--primary)', marginTop: '2px' }}>
+                                                        ⭐ <span style={{ fontFamily: 'monospace' }}>{p.primary_model}</span>
+                                                    </div>
+                                                )}
                                             </td>
                                             <td>
                                                 <StatusBadge
@@ -258,10 +263,13 @@ export function ProvidersPage() {
 
             <ModelsModal
                 isOpen={modelsTarget !== null}
-                provider={modelsTarget}
+                /* Lấy ProviderView MỚI NHẤT từ store (modelsTarget chỉ là snapshot
+                   cũ — model chính/đếm model đổi ở chỗ khác sẽ không phản ánh). */
+                provider={modelsTarget ? (providers.find(p => p.id === modelsTarget.id) ?? modelsTarget) : null}
                 onClose={() => setModelsTarget(null)}
                 onScan={scanModels}
                 onApply={applyModels}
+                onPrimaryChanged={() => fetchProviders().catch(() => {})}
             />
 
             <ConfirmModal

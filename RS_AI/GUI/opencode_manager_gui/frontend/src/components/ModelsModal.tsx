@@ -9,15 +9,18 @@
 
 Điểm quan trọng:
   - Model "stale" (còn trong config nhưng provider không còn hỗ trợ) được tách
-    thành khối riêng có cảnh báo — bỏ tick là xoá khỏi config.
+    thành khối riêng có cảnh báo và MẶC ĐỊNH BỎ TICK — đồng bộ sẽ xoá nó khỏi
+    config; muốn giữ thì tick lại. Model chết không được tích luỹ âm thầm
+    (lỗi bản cũ) nhưng cũng không bắt người dùng tự bỏ tick từng cái.
   - Capability chỉ được gửi cho model người dùng đã CHỈNH (dirty); model chưa
     đụng thì backend giữ nguyên entry cũ → round-trip không mất trường
     (case `hy3` cần `tool_call`/`reasoning`/`interleaved.reasoning_content`).
 */
 
 import { useEffect, useMemo, useState } from 'react';
-import { X, AlertTriangle, Search, Settings2 } from 'lucide-react';
+import { X, AlertTriangle, Search, Settings2, Star } from 'lucide-react';
 import type { ProviderView, ScannedModel, ModelCaps } from '../../../bridge/types';
+import { setPrimaryModel } from '../../../bridge/models_bridge';
 import { useTranslation } from '../utils/i18n';
 
 interface ModelsModalProps {
@@ -26,6 +29,8 @@ interface ModelsModalProps {
     onClose: () => void;
     onScan: (providerId: string) => Promise<ScannedModel[]>;
     onApply: (providerId: string, selected: string[], caps?: Record<string, ModelCaps>) => Promise<void>;
+    /** Gọi sau khi đặt/bỏ model chính để trang nạp lại badge ⭐. */
+    onPrimaryChanged?: () => Promise<void> | void;
 }
 
 /** Trạng thái capability trên UI cho một model. */
@@ -37,7 +42,7 @@ interface CapsState {
     dirty: boolean;
 }
 
-export function ModelsModal({ isOpen, provider, onClose, onScan, onApply }: ModelsModalProps) {
+export function ModelsModal({ isOpen, provider, onClose, onScan, onApply, onPrimaryChanged }: ModelsModalProps) {
     const { t } = useTranslation();
     const [models, setModels] = useState<ScannedModel[]>([]);
     const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -48,6 +53,12 @@ export function ModelsModal({ isOpen, provider, onClose, onScan, onApply }: Mode
     const [isScanning, setIsScanning] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // Model chính hiển thị theo provider prop (làm mới qua onPrimaryChanged).
+    const [primaryId, setPrimaryId] = useState<string | null>(null);
+
+    useEffect(() => {
+        setPrimaryId(provider?.primary_model ?? null);
+    }, [provider]);
 
     useEffect(() => {
         if (!isOpen || !provider) return;
@@ -63,10 +74,11 @@ export function ModelsModal({ isOpen, provider, onClose, onScan, onApply }: Mode
                 const list = await onScan(provider.id);
                 if (cancelled) return;
                 setModels(list);
-                // Mặc định giữ đúng những gì đang có trong config: model mới chưa
-                // tick (người dùng chủ động thêm), model stale vẫn tick để không
-                // xoá ngoài ý muốn — họ phải tự bỏ tick.
-                setChecked(new Set(list.filter(m => m.in_config).map(m => m.id)));
+                // Mặc định: model đang có trong config → tick giữ lại; model
+                // STALE (provider đã xoá) → BỎ TICK — đồng bộ sẽ dọn nó khỏi
+                // config, muốn giữ thì tick lại chủ động (cùng mặc định với
+                // bản TUI; model chết không nên bắt người dùng tự tay bỏ từng cái).
+                setChecked(new Set(list.filter(m => m.in_config && !m.stale).map(m => m.id)));
                 // Prefill capability từ config hiện có (chưa dirty).
                 const next: Record<string, CapsState> = {};
                 for (const m of list) {
@@ -100,6 +112,17 @@ export function ModelsModal({ isOpen, provider, onClose, onScan, onApply }: Mode
 
     if (!isOpen || !provider) return null;
 
+    const handleSetPrimary = async (id: string) => {
+        if (!provider) return;
+        try {
+            await setPrimaryModel(provider.id, id);
+            setPrimaryId(id);
+            await onPrimaryChanged?.();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+        }
+    };
+
     const toggle = (id: string) => {
         const next = new Set(checked);
         if (next.has(id)) next.delete(id); else next.add(id);
@@ -128,6 +151,12 @@ export function ModelsModal({ isOpen, provider, onClose, onScan, onApply }: Mode
     };
 
     const handleApply = async () => {
+        // `selected` là danh sách CUỐI CÙNG — bỏ tick hết rồi Apply = xoá sạch
+        // model của provider (dọn stale cũng đi đường này) → hỏi lại một lần.
+        if (checked.size === 0 && models.some(m => m.in_config)
+            && !window.confirm(t('models.apply_none_selected_confirm'))) {
+            return;
+        }
         setIsSaving(true);
         try {
             // Chỉ gửi capability của model người dùng đã chỉnh — model còn lại
@@ -218,6 +247,20 @@ export function ModelsModal({ isOpen, provider, onClose, onScan, onApply }: Mode
                             {t('models.cap_badge')}
                         </span>
                     )}
+                    {/* Đặt model chính — model phải đã có trong config (đã lưu). */}
+                    <button
+                        type="button"
+                        className="btn"
+                        style={{
+                            padding: '0.1rem 0.25rem', background: 'transparent',
+                            color: primaryId === m.id ? 'var(--primary)' : 'var(--text-secondary)',
+                        }}
+                        disabled={!m.in_config}
+                        onClick={() => handleSetPrimary(m.id)}
+                        title={m.in_config ? t('models.set_primary') : t('models.primary_need_sync')}
+                    >
+                        <Star size={13} fill={primaryId === m.id ? 'currentColor' : 'none'} />
+                    </button>
                     {m.stale && (
                         <span className="badge badge-inactive" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }}>
                             {t('models.stale_badge')}

@@ -11,6 +11,7 @@ import { Settings as SettingsIcon, Globe, Palette, Save, FolderOpen } from 'luci
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useThemeStore } from '../store/useThemeStore';
 import { useTranslation, langLabel } from '../utils/i18n';
+import { SearchableSelect } from '../components/SearchableSelect';
 
 export function SettingsPage() {
     const { t } = useTranslation();
@@ -66,36 +67,27 @@ export function SettingsPage() {
                     <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <Globe size={16} /> {t('settings.lbl_lang')}
                     </label>
-                    <select
-                        className="input-field"
+                    <SearchableSelect
+                        options={availableLangs.map(l => ({ value: l, label: langLabel(l), hint: l }))}
                         value={localLang}
-                        onChange={e => setLocalLang(e.target.value)}
-                    >
-                        {availableLangs.length === 0 && (
-                            <option value="">{t('settings.no_lang_file')}</option>
-                        )}
-                        {availableLangs.map(l => (
-                            <option key={l} value={l}>{langLabel(l)}</option>
-                        ))}
-                    </select>
+                        onChange={setLocalLang}
+                        placeholder={availableLangs.length === 0 ? t('settings.no_lang_file') : undefined}
+                        searchable={availableLangs.length > 6}
+                    />
                 </div>
 
                 <div className="form-group" style={{ marginBottom: '1.5rem' }}>
                     <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <Palette size={16} /> {t('settings.lbl_theme')}
                     </label>
-                    <select
-                        className="input-field"
+                    <SearchableSelect
+                        options={themes.map(th => ({ value: th.id, label: th.name, hint: th.type }))}
                         value={localTheme}
-                        onChange={e => {
-                            setLocalTheme(e.target.value);
-                            setActiveTheme(e.target.value); // preview ngay
+                        onChange={v => {
+                            setLocalTheme(v);
+                            setActiveTheme(v); // preview ngay
                         }}
-                    >
-                        {themes.map(th => (
-                            <option key={th.id} value={th.id}>{th.name} ({th.type})</option>
-                        ))}
-                    </select>
+                    />
                 </div>
 
                 <button type="submit" className="btn btn-primary" disabled={isSaving} style={{ width: '100%', justifyContent: 'center' }}>
@@ -107,9 +99,21 @@ export function SettingsPage() {
                 <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <FolderOpen size={18} /> {t('settings.paths_title')}
                 </h3>
-                {/* Cho người dùng biết app đang đọc/ghi vào đâu — thiết yếu khi họ
-                    sửa file bằng tay hoặc dùng song song với bản TUI. */}
+                {/* Phân biệt rõ file OpenCode sở hữu với trạng thái riêng của Manager,
+                    để sửa tay hoặc dùng đồng thời với TUI không nhầm thư mục. */}
                 <div style={{ fontSize: '0.85rem' }}>
+                    <div style={{ marginBottom: '0.5rem' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>{t('settings.dir_opencode')}: </span>
+                        <code style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                            {paths?.opencode_config_dir ?? '—'}
+                        </code>
+                    </div>
+                    <div style={{ marginBottom: '0.5rem' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>{t('settings.dir_manager')}: </span>
+                        <code style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                            {paths?.manager_config_dir ?? '—'}
+                        </code>
+                    </div>
                     <div style={{ marginBottom: '0.5rem' }}>
                         <span style={{ color: 'var(--text-secondary)' }}>{t('settings.path_opencode')}: </span>
                         <code style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
@@ -120,6 +124,24 @@ export function SettingsPage() {
                         <span style={{ color: 'var(--text-secondary)' }}>{t('settings.path_auth')}: </span>
                         <code style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
                             {paths?.auth_json ?? '—'}
+                        </code>
+                    </div>
+                    <div style={{ marginTop: '0.5rem', marginBottom: '0.5rem' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>{t('settings.path_ckey')}: </span>
+                        <code style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                            {paths?.ckey_json ?? '—'}
+                        </code>
+                    </div>
+                    <div style={{ marginBottom: '0.5rem' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>{t('settings.path_arbiter')}: </span>
+                        <code style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                            {paths?.arbiter_json ?? '—'}
+                        </code>
+                    </div>
+                    <div>
+                        <span style={{ color: 'var(--text-secondary)' }}>{t('settings.path_manager_settings')}: </span>
+                        <code style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                            {paths?.settings_json ?? '—'}
                         </code>
                     </div>
                 </div>

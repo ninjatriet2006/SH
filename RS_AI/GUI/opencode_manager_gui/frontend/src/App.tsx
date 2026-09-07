@@ -7,10 +7,11 @@
 
 import { Routes, Route, NavLink } from 'react-router-dom';
 import { useEffect } from 'react';
-import { Server, ShieldAlert, Settings as SettingsIcon, Layers, Cloud } from 'lucide-react';
+import { Server, ShieldAlert, Settings as SettingsIcon, Layers, Cloud, BarChart3 } from 'lucide-react';
 import { ProvidersPage } from './pages/ProvidersPage';
 import { BulkAddPage } from './pages/BulkAddPage';
 import { CkeyPage } from './pages/CkeyPage';
+import { ModelsPage } from './pages/ModelsPage';
 import { CleanupPage } from './pages/CleanupPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { useSettingsStore } from './store/useSettingsStore';
@@ -59,6 +60,9 @@ function App() {
                 <NavLink to="/ckey" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                     <Cloud size={20} /> {t('sidebar.ckey')}
                 </NavLink>
+                <NavLink to="/models" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                    <BarChart3 size={20} /> {t('sidebar.models')}
+                </NavLink>
                 <NavLink to="/settings" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                     <SettingsIcon size={20} /> {t('sidebar.settings')}
                 </NavLink>
@@ -70,6 +74,7 @@ function App() {
                     <Route path="/cleanup" element={<CleanupPage />} />
                     <Route path="/bulk" element={<BulkAddPage />} />
                     <Route path="/ckey" element={<CkeyPage />} />
+                    <Route path="/models" element={<ModelsPage />} />
                     <Route path="/settings" element={<SettingsPage />} />
                 </Routes>
             </main>

@@ -416,8 +416,28 @@ pub fn scan_provider_models(provider_id: String) -> Result<Vec<ScannedModel>, St
         .get(&provider_id)
         .ok_or_else(|| format!("Không tìm thấy provider: {provider_id}"))?;
 
+    // Ưu tiên quét API thật (cặp URL/key của provider). Lỗi mạng/key → dùng
+    // catalogue models.dev của provider này (opencode cũng quét từ đó cho
+    // provider built-in) thay vì trơ ra: người dùng vẫn chọn được model,
+    // đặc biệt cho provider BUILT-IN key-only vốn không có model trong
+    // opencode.json của manager.
     let client = ApiClient::new();
-    let fetched = block_on(client.fetch_models(&p.options.base_url, &p.options.api_key))?;
+    let fetched: Vec<String> = match block_on(client.fetch_models(&p.options.base_url, &p.options.api_key)) {
+        Ok(list) => list,
+        Err(api_err) => {
+            // Danh sách ĐẦY ĐỦ của provider (không lọc declared): lọc sẽ biến
+            // model đã chọn thành "stale" và đồng bộ sau đó XOÁ nó khỏi config.
+            let catalog = opencode_manager::model_knowledge::catalog_models_by_provider()
+                .get(provider_id.as_str())
+                .cloned()
+                .unwrap_or_default();
+            if catalog.is_empty() {
+                // Catalogue không có provider này → lỗi API là lỗi thật.
+                return Err(api_err);
+            }
+            catalog.into_iter().map(|(mid, _)| mid).collect()
+        }
+    };
 
     let mut out: Vec<ScannedModel> = fetched
         .iter()
@@ -433,8 +453,8 @@ pub fn scan_provider_models(provider_id: String) -> Result<Vec<ScannedModel>, St
         .collect();
     out.sort_by(|a, b| a.id.cmp(&b.id));
 
-    // Model có trong config nhưng provider không còn → đưa xuống cuối, đánh dấu
-    // stale để UI cảnh báo và người dùng quyết định giữ hay xoá.
+    // Model có trong config nhưng provider/catalogue không còn → đưa xuống
+    // cuối, đánh dấu stale để UI cảnh báo và người dùng quyết định giữ hay xoá.
     let mut stale: Vec<ScannedModel> = p
         .models
         .iter()
