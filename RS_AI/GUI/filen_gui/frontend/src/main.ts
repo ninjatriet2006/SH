@@ -1,8 +1,9 @@
 // filen_gui frontend — Phase 1 scaffold.
 // Placeholder bootstrap: wires up nav tabs, sidebar, and the transfer drawer.
 // Real state management (store.ts) and Tauri command bindings land in later phases.
-import { ThemeManager } from "./themes/ThemeManager";
-import { t, setLanguage, applyLanguage } from "./i18n";
+import { t, setLanguage, applyLanguage, getLanguage } from "./i18n";
+import { applyFont, applyTheme, discoverAppearance } from "./appearance";
+import { appState, saveSettings } from "./store";
 import { transferManager } from "./features/transferManager";
 import { TransferDrawer } from "./components/TransferDrawer";
 
@@ -10,8 +11,10 @@ import { TransferDrawer } from "./components/TransferDrawer";
 // Phase 1: dùng `lang` từ <html> (vi), hot-switch `setLanguage()` + `applyLanguage()`
 // qua `[data-lang-id]`. Phase 2+: lưu `current_language` trong settings.json.
 function initI18n(): void {
-  const htmlLang = document.documentElement.lang || "en";
+  const htmlLang = appState.settings!.language;
   setLanguage(htmlLang);
+  appState.settings!.language = getLanguage();
+  document.documentElement.lang = appState.settings!.language;
   applyLanguage();
   console.log(`[i18n] lang → ${htmlLang}`);
 }
@@ -29,20 +32,17 @@ window.t = t;
 // ── Runtime theming (docs/themes-runtime.md §2) ────────────────────────────
 // Phase 1: apply default Neon theme. Phase 2+: đọc `active_theme` từ
 // settings.json + hot-reload qua Rust watcher (`themes:changed` event).
-function initTheming(): void {
-  const tm = new ThemeManager();
-  tm.onHotReload((entry) => {
-    console.log(`[themes] hot-reload → ${entry?.slug ?? "default"}`);
-  });
-  tm.loadAll()
-    .then((entries) => {
-      console.log(`[themes] loaded ${entries.length} theme(s)`);
-      tm.apply(null); // default Neon theme
-    })
-    .catch((err) => {
-      console.warn("[themes] loadAll fail, dùng default", err);
-      tm.apply(null);
-    });
+async function initAppearance(): Promise<void> {
+  await discoverAppearance();
+  appState.settings!.theme = applyTheme(appState.settings!.theme);
+  try {
+    appState.settings!.font = await applyFont(appState.settings!.font);
+  } catch (error) {
+    console.warn("[fonts] failed to apply selected font", error);
+    appState.settings!.font = "default";
+    await applyFont("default");
+  }
+  saveSettings();
 }
 
 let currentView = "explorer";
@@ -376,13 +376,12 @@ function bindSidebarResizer(): void {
   });
 }
 
-import { appState } from "./store";
 import { MenuBar } from './components/MenuBar';
 import { NeonButton, NeonInput, NeonTable, NeonModal, NeonProgressBar } from "./components";
 
 async function main(): Promise<void> {
   initI18n();
-  initTheming();
+  await initAppearance();
   bindNavTabs();
   bindSidebar();
   bindSidebarResizer();

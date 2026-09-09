@@ -140,8 +140,7 @@ fn run_auto_renew(data: &mut crate::storage::DataStore, now: i64) -> (AutoRenewR
         let mut new_txs: Vec<Transaction> = Vec::new();
 
         // Bù từng chu kỳ cho tới khi hạn vượt `now` hoặc hết tiền.
-        while data.subscriptions[idx].expiration_date <= now && cycles_done < MAX_AUTO_RENEW_CYCLES
-        {
+        while data.subscriptions[idx].expiration_date <= now && cycles_done < MAX_AUTO_RENEW_CYCLES {
             let balance = data.users[user_idx].balance;
             // Số dư âm (đang nợ) hoặc không đủ → dừng, KHÔNG cho nợ thêm.
             // So sánh trên i64 nên nợ tự động fail phép kiểm tra này.
@@ -220,12 +219,12 @@ pub fn add_subscription_to_user(
     let _store_guard = crate::storage::lock_store();
     // Tải toàn bộ cơ sở dữ liệu
     let mut data = load_data();
-    
+
     // Kiểm tra xem user có tồn tại không
     if !data.users.iter().any(|u| u.id == *user_id) {
         return Err(format!("Người dùng không tồn tại: {}", user_id));
     }
-    
+
     // Tìm gói dịch vụ theo ID
     let package = match data.packages.iter().find(|p| p.id == *package_id) {
         Some(pkg) => pkg.clone(), // Copy dữ liệu gói
@@ -238,7 +237,7 @@ pub fn add_subscription_to_user(
     if auto_renew && package.duration_days == 0 {
         return Err("Không thể bật tự động gia hạn cho gói có thời hạn 0 ngày".to_string());
     }
-    
+
     // Tính toán ngày hết hạn (expiration_date), đơn vị mili-giây epoch.
     let now = current_timestamp();
     let expiration_date = match custom_expiration_date {
@@ -254,18 +253,18 @@ pub fn add_subscription_to_user(
 
     // Tính trạng thái is_active
     let is_active = expiration_date > now;
-    
+
     // Khởi tạo đối tượng Subscription
     let new_subscription = Subscription {
-        id: generate_id("sub"), // ID ngẫu nhiên tự tạo
-        user_id: user_id.clone(),               // ID người dùng
-        package_id: package_id.clone(),            // ID gói dịch vụ
-        expiration_date,       // Ngày hết hạn đã tính toán
-        is_active,             // Bật/tắt tùy theo thời hạn
-        auto_renew,            // Tự động gia hạn (mặc định tắt)
+        id: generate_id("sub"),         // ID ngẫu nhiên tự tạo
+        user_id: user_id.clone(),       // ID người dùng
+        package_id: package_id.clone(), // ID gói dịch vụ
+        expiration_date,                // Ngày hết hạn đã tính toán
+        is_active,                      // Bật/tắt tùy theo thời hạn
+        auto_renew,                     // Tự động gia hạn (mặc định tắt)
         last_auto_renew_at: None,
     };
-    
+
     // Thêm vào danh sách subscriptions
     data.subscriptions.push(new_subscription.clone());
 
@@ -282,10 +281,10 @@ pub fn add_subscription_to_user(
         };
         data.transactions.push(new_tx);
     }
-    
+
     // Ghi dữ liệu
     save_data(&data)?;
-    
+
     // Trả về gói đăng ký vừa tạo
     Ok(new_subscription)
 }
@@ -314,14 +313,10 @@ pub fn update_subscription_expiry(
         if let Some(pkg_id) = pkg_id {
             match data.packages.iter().find(|p| p.id == pkg_id) {
                 Some(p) if p.duration_days == 0 => {
-                    return Err(
-                        "Không thể bật tự động gia hạn cho gói có thời hạn 0 ngày".to_string()
-                    );
+                    return Err("Không thể bật tự động gia hạn cho gói có thời hạn 0 ngày".to_string());
                 }
                 None => {
-                    return Err(
-                        "Không thể bật tự động gia hạn: gói dịch vụ không còn tồn tại".to_string()
-                    );
+                    return Err("Không thể bật tự động gia hạn: gói dịch vụ không còn tồn tại".to_string());
                 }
                 _ => {}
             }
@@ -332,7 +327,7 @@ pub fn update_subscription_expiry(
     if let Some(sub) = data.subscriptions.iter_mut().find(|s| s.id == subscription_id) {
         // Đặt lại ngày hết hạn
         sub.expiration_date = new_expiration_date;
-        
+
         // Nếu hạn sử dụng mới lớn hơn thời điểm hiện tại, có thể kích hoạt lại gói
         if new_expiration_date > current_timestamp() {
             sub.is_active = true;
@@ -345,7 +340,7 @@ pub fn update_subscription_expiry(
         if let Some(flag) = auto_renew {
             sub.auto_renew = flag;
         }
-        
+
         // Ghi log giao dịch gia hạn — chỉ khi có thu tiền thật.
         if let Some(paid) = amount {
             let new_tx = Transaction {
@@ -358,17 +353,17 @@ pub fn update_subscription_expiry(
             };
             data.transactions.push(new_tx);
         }
-        
+
         // Tạo bản copy để trả về
         let updated_sub = sub.clone();
-        
+
         // Lưu dữ liệu
         save_data(&data)?;
-        
+
         // Trả về thành công
         return Ok(updated_sub);
     }
-    
+
     // Báo lỗi nếu không tìm thấy ID
     Err(format!("Không tìm thấy gói đăng ký: {}", subscription_id))
 }
@@ -383,12 +378,12 @@ pub fn remove_subscription_from_user(subscription_id: String) -> Result<(), Stri
     // Lọc mảng, bỏ qua ID cần xóa
     let initial_len = data.subscriptions.len();
     data.subscriptions.retain(|s| s.id != subscription_id);
-    
+
     // Kiểm tra số lượng
     if data.subscriptions.len() == initial_len {
         return Err(format!("Không tìm thấy gói đăng ký để xóa: {}", subscription_id));
     }
-    
+
     // Lưu lại
     save_data(&data)?;
     // Thành công
@@ -413,8 +408,12 @@ pub fn list_user_subscriptions(user_id: String) -> Result<Vec<Subscription>, Str
     }
 
     // Lọc ra các subscription mà trường user_id trùng khớp
-    let user_subs: Vec<Subscription> = data.subscriptions.into_iter().filter(|s| s.user_id == user_id).collect();
-    
+    let user_subs: Vec<Subscription> = data
+        .subscriptions
+        .into_iter()
+        .filter(|s| s.user_id == user_id)
+        .collect();
+
     // Trả về danh sách
     Ok(user_subs)
 }
@@ -425,23 +424,23 @@ pub fn list_user_subscriptions(user_id: String) -> Result<Vec<Subscription>, Str
 pub fn check_subscription_status(subscription_id: String) -> Result<bool, String> {
     // Tải dữ liệu
     let mut data = load_data();
-    
+
     // Tìm kiếm đăng ký
     if let Some(sub) = data.subscriptions.iter_mut().find(|s| s.id == subscription_id) {
         let now = current_timestamp();
         // Gán trực tiếp thay cho if/else bool (clippy::needless_bool_assign).
         sub.is_active = sub.expiration_date > now;
-        
+
         // Trạng thái (để trả về hàm)
         let active_status = sub.is_active;
-        
+
         // Lưu lại trạng thái kích hoạt nếu có thay đổi
         save_data(&data)?;
-        
+
         // Trả về boolean true/false
         return Ok(active_status);
     }
-    
+
     Err(format!("Không tìm thấy đăng ký: {}", subscription_id))
 }
 
@@ -487,10 +486,7 @@ pub fn process_auto_renewals() -> Result<AutoRenewReport, String> {
 /// Bật/tắt tự động gia hạn cho một đăng ký cụ thể (dùng cho checkbox trong UI).
 // Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
 #[tauri::command(rename_all = "snake_case")]
-pub fn set_subscription_auto_renew(
-    subscription_id: String,
-    auto_renew: bool,
-) -> Result<Subscription, String> {
+pub fn set_subscription_auto_renew(subscription_id: String, auto_renew: bool) -> Result<Subscription, String> {
     let _store_guard = crate::storage::lock_store();
     let mut data = load_data();
 
@@ -508,9 +504,7 @@ pub fn set_subscription_auto_renew(
                 return Err("Không thể bật tự động gia hạn cho gói có thời hạn 0 ngày".to_string());
             }
             None => {
-                return Err(
-                    "Không thể bật tự động gia hạn: gói dịch vụ không còn tồn tại".to_string()
-                );
+                return Err("Không thể bật tự động gia hạn: gói dịch vụ không còn tồn tại".to_string());
             }
             _ => {}
         }

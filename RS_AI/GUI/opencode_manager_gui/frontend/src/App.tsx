@@ -1,6 +1,6 @@
 /*
 [INTEGRITY NOTES]
-- Mục đích: Root component — layout, điều hướng và khởi tạo cài đặt/theme.
+ - Mục đích: Root component — layout, điều hướng và khởi tạo cài đặt/theme/font.
 - Trách nhiệm: Nạp cài đặt + theme trước khi render nội dung; hiển thị sidebar.
 - Tương tác: các store và trang trong `pages/`.
 */
@@ -16,11 +16,13 @@ import { CleanupPage } from './pages/CleanupPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { useSettingsStore } from './store/useSettingsStore';
 import { useThemeStore } from './store/useThemeStore';
+import { useFontStore } from './store/useFontStore';
 import { useTranslation } from './utils/i18n';
 
 function App() {
     const { initSettings, isLoading } = useSettingsStore();
     const { initThemes, isLoading: isThemeLoading } = useThemeStore();
+    const { initFonts, isLoading: isFontLoading } = useFontStore();
     const { t } = useTranslation();
 
     useEffect(() => {
@@ -29,11 +31,12 @@ function App() {
             // backend sập hẳn — bắt ở đây để app vẫn lên thay vì treo màn tải.
             try { await initSettings(); } catch (e) { console.error('initSettings thất bại:', e); }
             await initThemes();
+            await initFonts();
         };
         initAll();
     }, []);
 
-    if (isLoading || isThemeLoading) {
+    if (isLoading || isThemeLoading || isFontLoading) {
         return (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', color: 'var(--text-primary)' }}>
                 Loading…

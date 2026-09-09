@@ -27,7 +27,7 @@ export class BatchRenameModal {
         <p>Đổi tên <strong>${items.length}</strong> mục được chọn.</p>
         
         <div>
-          <label style="display: block; margin-bottom: 4px;">Chế độ:</label>
+          <label for="rename-mode" style="display: block; margin-bottom: 4px;">Chế độ:</label>
           <select id="rename-mode" class="neon-input" style="width: 100%;">
             <option value="numbering">Đánh số thứ tự</option>
             <option value="replace">Tìm & Thay thế</option>

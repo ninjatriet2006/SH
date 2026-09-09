@@ -315,7 +315,7 @@ pub fn fs_open(path: String) -> Result<(), String> {
             .args(["/C", "start", "", &path])
             .spawn()
             .map_err(|e| e.to_string())?;
-        return Ok(());
+        Ok(())
     }
     #[cfg(target_os = "macos")]
     {
@@ -331,7 +331,7 @@ pub fn fs_open(path: String) -> Result<(), String> {
             .arg(&path)
             .spawn()
             .map_err(|e| e.to_string())?;
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
@@ -358,7 +358,7 @@ pub struct StatInfo {
 pub fn fs_stat_advanced(path: String) -> Result<StatInfo, String> {
     use std::path::Path;
     let p = Path::new(&path);
-    let meta = std::fs::metadata(&p).map_err(|e| e.to_string())?;
+    let meta = std::fs::metadata(p).map_err(|e| e.to_string())?;
     
     let mut size = meta.len();
     let mut file_count = 0;
@@ -366,7 +366,7 @@ pub fn fs_stat_advanced(path: String) -> Result<StatInfo, String> {
 
     // Nếu là thư mục, đi sâu vào đếm (recursive)
     if meta.is_dir() {
-        let walker = walkdir::WalkDir::new(&p).into_iter();
+        let walker = walkdir::WalkDir::new(p).into_iter();
         for entry in walker.filter_map(|e| e.ok()) {
             if entry.path() != p {
                 if entry.file_type().is_file() {
@@ -432,7 +432,6 @@ pub fn fs_chown(path: String, uid: u32, gid: u32) -> Result<(), String> {
 pub fn fs_get_free_space(path: String) -> Result<u64, String> {
     #[cfg(unix)]
     {
-        use std::os::unix::ffi::OsStrExt;
         let c_path = std::ffi::CString::new(path.as_bytes()).map_err(|e| e.to_string())?;
         let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
         if unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) } == 0 {
@@ -533,7 +532,7 @@ pub async fn fs_search_local(path: String, query: String, options: Option<Search
         
         // Lọc theo từ khóa bên trong nội dung văn bản
         if let Some(ref cq) = opts.content_query {
-            if cq.trim().len() > 0 {
+            if !cq.trim().is_empty() {
                 if meta.is_dir() { continue; } // Không đọc thư mục
                 if size > 10 * 1024 * 1024 { continue; } // Bỏ qua file > 10MB để tránh treo ứng dụng
                 
@@ -560,7 +559,7 @@ pub async fn fs_search_local(path: String, query: String, options: Option<Search
             item: filen_gui::models::FileItem {
                 name: file_name,
                 is_dir: meta.is_dir(),
-                size: size,
+                size,
                 mod_time: mod_time_str,
                 ..Default::default()
             },
@@ -618,7 +617,7 @@ pub async fn fs_sudo_exec(action: String, args: Vec<String>) -> Result<(), Strin
             }
             return Err(err);
         }
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(target_os = "linux"))]

@@ -47,14 +47,25 @@ pub fn run() {
         std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
     }
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(debug_assertions)]
+    let builder = builder.setup(|app| {
+        app.handle().plugin(
+            tauri_plugin_log::Builder::default()
+                .level(log::LevelFilter::Info)
+                .build(),
+        )?;
+        Ok(())
+    });
+
+    builder
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
+            use tauri::Manager;
+
+            if let Ok(resource_dir) = app.path().resource_dir() {
+                // Resources của Tauri installer không luôn nằm cạnh binary.
+                // Truyền root thực qua cùng resolver mà bản portable đang dùng.
+                std::env::set_var("OPENCODE_MANAGER_RESOURCE_DIR", resource_dir);
             }
             Ok(())
         })
@@ -104,7 +115,7 @@ pub fn run() {
             api::arbiter::clear_arbiter_history,
             api::arbiter::recommend_models,
             // ==================
-            // SETTINGS / LANG / THEME
+            // SETTINGS / LANG / THEME / FONT
             // ==================
             api::settings::get_gui_settings,
             api::settings::save_gui_settings,
@@ -113,6 +124,7 @@ pub fn run() {
             api::lang::get_available_langs,
             api::lang::get_lang_content,
             api::theme::get_available_themes,
+            api::font::get_available_fonts,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

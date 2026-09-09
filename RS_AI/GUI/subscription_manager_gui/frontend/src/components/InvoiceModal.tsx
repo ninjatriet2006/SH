@@ -117,8 +117,9 @@ export function InvoiceModal({ isOpen, transactions, username, userId, packages,
                     <h2>Cấu hình Hóa Đơn & Mã QR</h2>
                     
                     <div style={{ marginBottom: '1rem' }}>
-                        <label className="form-label">Ngân Hàng (Bank):</label>
+                        <label className="form-label" htmlFor="invoice-bank">Ngân Hàng (Bank):</label>
                         <select 
+                            id="invoice-bank"
                             className="input-field"
                             value={bankBin}
                             onChange={(e) => setBankBin(e.target.value)}

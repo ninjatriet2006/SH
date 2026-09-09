@@ -1,5 +1,7 @@
 import { appState, saveSettings } from '../store';
 import { setLanguage, applyLanguage } from '../i18n';
+import { t, supportedLanguages } from '../i18n';
+import { applyFont, applyTheme, availableFonts, availableThemes } from '../appearance';
 
 export class SettingsModal {
   private element: HTMLDivElement;
@@ -10,26 +12,38 @@ export class SettingsModal {
     this.element.style.width = '400px';
     
     const title = document.createElement('h2');
-    title.textContent = 'Settings';
+    title.textContent = t('settings_title');
     
     const s = appState.settings!;
     
     const langLabel = document.createElement('label');
-    langLabel.textContent = 'Language';
+    langLabel.textContent = t('settings_language');
+    langLabel.htmlFor = 'settings-language';
     const langSelect = document.createElement('select');
-    langSelect.innerHTML = `
-      <option value="vi" ${s.language === 'vi' ? 'selected' : ''}>Tiếng Việt</option>
-      <option value="en" ${s.language === 'en' ? 'selected' : ''}>English</option>
-    `;
+    langSelect.id = 'settings-language';
+    for (const language of supportedLanguages()) {
+      langSelect.add(new Option(language === 'vi' ? 'Tiếng Việt' : 'English', language, false, s.language === language));
+    }
     
     const themeLabel = document.createElement('label');
-    themeLabel.textContent = 'Theme';
+    themeLabel.textContent = t('settings_theme');
+    themeLabel.htmlFor = 'settings-theme';
     const themeSelect = document.createElement('select');
-    themeSelect.innerHTML = `
-      <option value="light" ${s.theme === 'light' ? 'selected' : ''}>Light</option>
-      <option value="dark" ${s.theme === 'dark' ? 'selected' : ''}>Dark</option>
-      <option value="system" ${s.theme === 'system' ? 'selected' : ''}>System</option>
-    `;
+    themeSelect.id = 'settings-theme';
+    themeSelect.add(new Option(t('settings_default'), 'default', false, s.theme === 'default'));
+    for (const theme of availableThemes()) {
+      themeSelect.add(new Option(theme.name, theme.slug, false, s.theme === theme.slug));
+    }
+
+    const fontLabel = document.createElement('label');
+    fontLabel.textContent = t('settings_font');
+    fontLabel.htmlFor = 'settings-font';
+    const fontSelect = document.createElement('select');
+    fontSelect.id = 'settings-font';
+    fontSelect.add(new Option(t('settings_default'), 'default', false, s.font === 'default'));
+    for (const font of availableFonts()) {
+      fontSelect.add(new Option(font.name, font.id, false, s.font === font.id));
+    }
     
     const hiddenLabel = document.createElement('label');
     hiddenLabel.style.display = 'flex';
@@ -39,7 +53,7 @@ export class SettingsModal {
     hiddenInput.type = 'checkbox';
     hiddenInput.checked = s.showHiddenFiles;
     hiddenLabel.appendChild(hiddenInput);
-    hiddenLabel.appendChild(document.createTextNode('Show hidden files'));
+    hiddenLabel.appendChild(document.createTextNode(t('settings_hidden')));
     
     const actions = document.createElement('div');
     actions.style.display = 'flex';
@@ -48,15 +62,16 @@ export class SettingsModal {
     actions.style.marginTop = '20px';
     
     const cancelBtn = document.createElement('button');
-    cancelBtn.textContent = 'Cancel';
+    cancelBtn.textContent = t('settings_cancel');
     cancelBtn.onclick = () => this.close();
     
     const saveBtn = document.createElement('button');
-    saveBtn.textContent = 'Save';
-    saveBtn.onclick = () => {
+    saveBtn.textContent = t('settings_save');
+    saveBtn.onclick = async () => {
       const lang = langSelect.value;
       const theme = themeSelect.value;
       const showHidden = hiddenInput.checked;
+      const font = fontSelect.value;
 
       const oldLang = appState.settings!.language;
       const oldTheme = appState.settings!.theme;
@@ -65,17 +80,25 @@ export class SettingsModal {
       appState.settings!.language = lang;
       appState.settings!.theme = theme;
       appState.settings!.showHiddenFiles = showHidden;
-      saveSettings();
+      appState.settings!.font = font;
 
       if (oldLang !== lang) {
-        document.body.dataset.langId = lang;
+        document.documentElement.lang = lang;
         setLanguage(lang);
         applyLanguage();
       }
       
       if (oldTheme !== theme) {
-        document.documentElement.setAttribute('data-theme', theme);
+        appState.settings!.theme = applyTheme(theme);
       }
+
+      try {
+        appState.settings!.font = await applyFont(font);
+      } catch (error) {
+        console.warn('[fonts] failed to apply font', error);
+        appState.settings!.font = await applyFont('default');
+      }
+      saveSettings();
 
       if (oldHidden !== showHidden) {
         window.dispatchEvent(new CustomEvent('filen-settings-changed'));
@@ -92,6 +115,8 @@ export class SettingsModal {
     this.element.appendChild(langSelect);
     this.element.appendChild(themeLabel);
     this.element.appendChild(themeSelect);
+    this.element.appendChild(fontLabel);
+    this.element.appendChild(fontSelect);
     this.element.appendChild(hiddenLabel);
     this.element.appendChild(actions);
   }

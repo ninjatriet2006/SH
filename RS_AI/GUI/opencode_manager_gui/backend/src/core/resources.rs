@@ -1,6 +1,6 @@
 /*
 [INTEGRITY NOTES]
-- Mục đích: Tìm thư mục tài nguyên chạy kèm binary (`langs/`, `themes/`).
+ - Mục đích: Tìm thư mục tài nguyên chạy kèm binary (`langs/`, `themes/`, `fonts/`).
 - Trách nhiệm: Dò MỘT LẦN gốc tài nguyên rồi cache, để mọi module dùng chung
   một đường dẫn thay vì mỗi nơi tự đoán.
 - Tương tác: `api::lang`, `api::theme`.
@@ -23,6 +23,18 @@ pub const RESOURCE_ANCHOR: &str = "langs";
 fn detect_resource_base() -> PathBuf {
     let has_anchor = |p: &std::path::Path| p.join(RESOURCE_ANCHOR).is_dir();
 
+    // Bản debug/test trong workspace dùng chung `target/`; nếu dò từ binary
+    // trước, một `langs/` ở workspace root có thể bị nhận nhầm là của app này.
+    #[cfg(debug_assertions)]
+    {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        if let Some(app_root) = manifest.parent() {
+            if has_anchor(app_root) {
+                return app_root.to_path_buf();
+            }
+        }
+    }
+
     // 1. CWD — user chạy binary từ thư mục app.
     if let Ok(cwd) = std::env::current_dir() {
         if has_anchor(&cwd) {
@@ -41,24 +53,18 @@ fn detect_resource_base() -> PathBuf {
         }
     }
 
-    // 3. Chỉ bản debug: neo theo source để `cargo tauri dev` chạy được ngay
-    //    (CWD là backend/, tài nguyên ở GUI/<app>/langs).
-    #[cfg(debug_assertions)]
-    {
-        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        if let Some(app_root) = manifest.parent() {
-            if has_anchor(app_root) {
-                return app_root.to_path_buf();
-            }
-        }
-    }
-
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+fn configured_resource_base() -> Option<PathBuf> {
+    std::env::var_os("OPENCODE_MANAGER_RESOURCE_DIR")
+        .map(PathBuf::from)
+        .filter(|path| path.join(RESOURCE_ANCHOR).is_dir())
 }
 
 /// Gốc tài nguyên (đã cache).
 pub fn resource_base() -> &'static PathBuf {
-    RESOURCE_BASE.get_or_init(detect_resource_base)
+    RESOURCE_BASE.get_or_init(|| configured_resource_base().unwrap_or_else(detect_resource_base))
 }
 
 /// Đường dẫn tới một thư mục tài nguyên cụ thể (`langs`, `themes`…).
@@ -84,7 +90,7 @@ mod tests {
     #[test]
     fn resource_dir_dung_chung_goc() {
         let base = resource_base();
-        for name in ["langs", "themes"] {
+        for name in ["langs", "themes", "fonts"] {
             assert_eq!(resource_dir(name), base.join(name));
         }
     }

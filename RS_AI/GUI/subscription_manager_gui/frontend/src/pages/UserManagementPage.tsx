@@ -348,8 +348,9 @@ export function UserManagementPage() {
                     />
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{t('users.status')}</span>
+                    <label htmlFor="user-status-filter" style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{t('users.status')}</label>
                     <select 
+                        id="user-status-filter"
                         className="input-field"
                         style={{ width: '150px' }}
                         value={statusFilter}
@@ -362,8 +363,9 @@ export function UserManagementPage() {
                     </select>
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{t('common.show')}</span>
+                    <label htmlFor="users-per-page" style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{t('common.show')}</label>
                     <select 
+                        id="users-per-page"
                         className="input-field"
                         style={{ width: '80px' }}
                         value={itemsPerPage}

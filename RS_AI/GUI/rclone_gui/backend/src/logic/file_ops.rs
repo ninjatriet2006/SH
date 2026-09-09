@@ -85,7 +85,7 @@ where
                         }
                         return Err(err);
                     }
-                    return Ok(());
+                    Ok(())
                 }
                 #[cfg(not(target_os = "linux"))]
                 {

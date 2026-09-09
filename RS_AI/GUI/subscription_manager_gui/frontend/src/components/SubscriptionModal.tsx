@@ -283,8 +283,9 @@ export function SubscriptionModal({ isOpen, subscriptionData, onClose, onSave }:
                         </div>
                     ) : (
                         <div className="form-group">
-                            <label className="form-label">{t('sub_modal.lbl_pkg')}</label>
+                            <label className="form-label" htmlFor="subscription-package">{t('sub_modal.lbl_pkg')}</label>
                             <select 
+                                id="subscription-package"
                                 className="input-field" 
                                 value={selectedPackage} 
                                 onChange={(e) => setSelectedPackage(e.target.value)}

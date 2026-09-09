@@ -1,6 +1,6 @@
 /*
 [INTEGRITY NOTES]
-- Mục đích: Trạng thái cài đặt toàn cục (ngôn ngữ, theme, từ điển UI).
+ - Mục đích: Trạng thái cài đặt toàn cục (ngôn ngữ, theme, font, từ điển UI).
 - Trách nhiệm: Nạp cài đặt từ backend, chọn ngôn ngữ theo file THỰC CÓ trong
   `langs/`. Không hardcode 'vi': app phải chạy với bộ ngôn ngữ bất kỳ, và khi
   không nạp được file nào thì để từ điển rỗng để `t()` trả raw key (lộ lỗi).
@@ -19,6 +19,7 @@ const DEFAULT_THEME_ID = 'default';
 interface SettingsState {
     language: string;
     theme_id: string;
+    font_id: string;
     availableLangs: string[];
     dictionary: Record<string, unknown>;
     /** Đường dẫn file cấu hình (hiện ở trang Cài đặt). */
@@ -26,13 +27,14 @@ interface SettingsState {
     isLoading: boolean;
 
     initSettings: () => Promise<void>;
-    updateSettings: (lang: string, themeId: string) => Promise<void>;
+    updateSettings: (lang: string, themeId: string, fontId: string) => Promise<void>;
     fetchPaths: () => Promise<void>;
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
     language: '',
     theme_id: DEFAULT_THEME_ID,
+    font_id: 'default',
     availableLangs: [],
     dictionary: {},
     paths: null,
@@ -63,7 +65,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
             // Chữa lại settings nếu ngôn ngữ đang lưu không dùng được.
             if (lang && lang !== settings.language) {
                 try {
-                    await saveGuiSettings(lang, settings.theme_id || DEFAULT_THEME_ID);
+                    await saveGuiSettings(lang, settings.theme_id || DEFAULT_THEME_ID, settings.font_id || 'default');
                 } catch { /* giữ state trong bộ nhớ, bỏ qua lỗi ghi file */ }
             }
 
@@ -77,6 +79,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
             set({
                 language: lang,
                 theme_id: settings.theme_id || DEFAULT_THEME_ID,
+                font_id: settings.font_id || 'default',
                 availableLangs: langs,
                 dictionary: dict,
             });
@@ -88,7 +91,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         }
     },
 
-    updateSettings: async (lang, themeId) => {
+    updateSettings: async (lang, themeId, fontId) => {
         set({ isLoading: true });
         try {
             // Nạp từ điển TRƯỚC khi lưu: file mất thì báo lỗi ngay thay vì lưu
@@ -97,8 +100,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
             if (Object.keys(dict).length === 0) {
                 throw new Error(`Không tải được ngôn ngữ "${lang}" (thiếu file langs/${lang}.json)`);
             }
-            await saveGuiSettings(lang, themeId);
-            set({ language: lang, theme_id: themeId, dictionary: dict });
+            await saveGuiSettings(lang, themeId, fontId);
+            set({ language: lang, theme_id: themeId, font_id: fontId, dictionary: dict });
         } catch (error) {
             console.error('Lỗi cập nhật cài đặt:', error);
             throw error;

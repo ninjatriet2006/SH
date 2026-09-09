@@ -9,6 +9,7 @@ pub mod auth_cmds;
 pub mod fs_cmds;
 pub mod transfer_cmds;
 pub mod sys_cmds;
+pub mod appearance_cmds;
 
 use state::{AppState, WhoAmIPayload};
 use tauri::{Emitter, Manager};
@@ -20,7 +21,6 @@ pub fn run() {
     tauri::Builder::default()
         // Kích hoạt plugin hỗ trợ kéo thả
         .plugin(tauri_plugin_drag::init())
-        .plugin(tauri_plugin_shell::init())
         // Nạp trạng thái toàn cục (AppState) vào bộ nhớ quản lý của Tauri
         .manage(AppState::default())
         // Đăng ký toàn bộ các command để Frontend có thể gọi thông qua `invoke()`
@@ -93,9 +93,14 @@ pub fn run() {
             sys_cmds::sys_get_custom_actions,
             sys_cmds::sys_execute_custom_action,
             sys_cmds::sys_open_with,
-            sys_cmds::open_in_terminal
+            sys_cmds::open_in_terminal,
+            appearance_cmds::appearance_list_themes,
+            appearance_cmds::appearance_list_fonts
         ])
         .setup(|app| {
+            if let Ok(resource_dir) = app.path().resource_dir() {
+                std::env::set_var("FILEN_GUI_RESOURCE_DIR", resource_dir);
+            }
             // Cài đặt Inotify Watcher để theo dõi biến động thư mục nội bộ (Local Pane)
             let (tx, rx) = std::sync::mpsc::channel();
             let app_handle_for_watch = app.handle().clone();

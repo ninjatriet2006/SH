@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Permission to save a user-selected backup file",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "dialog:allow-save"
+  ]
+}

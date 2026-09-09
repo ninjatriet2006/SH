@@ -13,10 +13,12 @@ pub mod api;
 pub mod core;
 pub mod logic;
 
+use tauri::Manager;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_drag::init())
         .manage(logic::app_state::AppState::new())
         .invoke_handler(tauri::generate_handler![
             // ==================
@@ -95,8 +97,13 @@ pub fn run() {
             // ==================
             api::lang::get_available_langs,
             api::lang::get_lang_content,
+            api::appearance::get_available_themes,
+            api::appearance::get_available_fonts,
         ])
         .setup(|app| {
+            if let Ok(path) = app.path().resource_dir() {
+                core::resources::init_resource_base(path);
+            }
             // Inotify watcher cho thư mục Local đang xem — phát `local-dir-changed`
             // để Frontend tự nạp lại khi file đổi ngoài ứng dụng.
             logic::watcher::init(app.handle());

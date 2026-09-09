@@ -8,10 +8,13 @@
 - Tương tác: Được dùng trong remotesManager.ts, mountManager.ts, v.v.
 */
 
+let customDropdownId = 0;
+
 export function upgradeSelectToCustomDropdown(selectEl: HTMLSelectElement, searchable: boolean = false) {
     if ((selectEl as any)._hasCustomDropdown) return;
     (selectEl as any)._hasCustomDropdown = true;
 
+    const originalDisplay = selectEl.style.display;
     selectEl.style.display = 'none';
 
     const wrapper = document.createElement('div');
@@ -34,11 +37,24 @@ export function upgradeSelectToCustomDropdown(selectEl: HTMLSelectElement, searc
     input.style.color = 'var(--colors-text-primary, #fff)';
     input.style.colorScheme = 'dark';
     input.autocomplete = 'off';
+    input.setAttribute('role', 'combobox');
+    input.setAttribute('aria-haspopup', 'listbox');
+    input.setAttribute('aria-expanded', 'false');
+    input.setAttribute('aria-autocomplete', searchable ? 'list' : 'none');
+    ['aria-label', 'aria-labelledby', 'aria-describedby'].forEach(attribute => {
+        const value = selectEl.getAttribute(attribute);
+        if (value) input.setAttribute(attribute, value);
+    });
+    if (!input.hasAttribute('aria-label') && !input.hasAttribute('aria-labelledby')) {
+        const label = selectEl.labels?.[0]?.textContent?.trim();
+        if (label) input.setAttribute('aria-label', label);
+    }
     
     // Vô hiệu hóa bàn phím ảo trên mobile hoặc chỉ cho phép click nếu không bật tính năng tìm kiếm (searchable)
     if (!searchable) {
         input.readOnly = true;
         input.style.cursor = 'pointer';
+        input.setAttribute('aria-readonly', 'true');
     }
     
     // Sao chép placeholder mặc định
@@ -52,6 +68,10 @@ export function upgradeSelectToCustomDropdown(selectEl: HTMLSelectElement, searc
     // Khởi tạo container chứa danh sách xổ xuống
     const list = document.createElement('div');
     list.className = 'custom-dropdown-list';
+    list.id = `custom-dropdown-list-${++customDropdownId}`;
+    list.setAttribute('role', 'listbox');
+    list.hidden = true;
+    input.setAttribute('aria-controls', list.id);
     list.style.display = 'none';
     list.style.position = 'absolute';
     list.style.top = '100%';
@@ -66,11 +86,10 @@ export function upgradeSelectToCustomDropdown(selectEl: HTMLSelectElement, searc
     list.style.borderRadius = '0 0 4px 4px';
     list.style.boxShadow = '0 8px 16px rgba(0,0,0,0.7)';
 
-    // Xây dựng danh sách lựa chọn
-    const updateOptions = () => {
-        list.innerHTML = '';
-        
-        // Cập nhật lại giá trị input và placeholder
+    let isOpen = false;
+    let highlightedItem: HTMLElement | null = null;
+
+    const syncValue = () => {
         if (selectEl.selectedIndex >= 0) {
             const opt = selectEl.options[selectEl.selectedIndex];
             if (opt && opt.value !== "") {
@@ -79,94 +98,250 @@ export function upgradeSelectToCustomDropdown(selectEl: HTMLSelectElement, searc
                 input.value = '';
                 if (opt) input.placeholder = opt.text;
             }
+        } else {
+            input.value = '';
         }
-        
-        Array.from(selectEl.options).forEach(opt => {
+    };
+
+    const paintItems = () => {
+        Array.from(list.children).forEach(child => {
+            const item = child as HTMLElement;
+            const option = selectEl.options[Number(item.dataset.index)];
+            const isSelected = Boolean(option?.selected);
+            const isHighlighted = item === highlightedItem;
+            item.classList.toggle('is-selected', isSelected);
+            item.classList.toggle('is-highlighted', isHighlighted);
+            item.setAttribute('aria-selected', String(isSelected));
+            item.style.backgroundColor = isHighlighted
+                ? 'var(--colors-primary, #3b82f6)'
+                : isSelected ? 'var(--colors-surface-selected, #24324a)' : 'transparent';
+            item.style.fontWeight = isSelected ? '600' : 'normal';
+        });
+    };
+
+    const setHighlightedItem = (item: HTMLElement | null) => {
+        highlightedItem = item;
+        if (item) {
+            input.setAttribute('aria-activedescendant', item.id);
+            item.scrollIntoView?.({ block: 'nearest' });
+        } else {
+            input.removeAttribute('aria-activedescendant');
+        }
+        paintItems();
+    };
+
+    const getNavigableItems = () => Array.from(list.children).filter(child => {
+        const item = child as HTMLElement;
+        return item.style.display !== 'none' && item.getAttribute('aria-disabled') !== 'true';
+    }) as HTMLElement[];
+
+    const closeDropdown = (restoreValue = true) => {
+        isOpen = false;
+        list.hidden = true;
+        list.style.display = 'none';
+        input.setAttribute('aria-expanded', 'false');
+        setHighlightedItem(null);
+        if (restoreValue) syncValue();
+    };
+
+    const openDropdown = (clearSearch = false) => {
+        if (selectEl.disabled) return;
+        document.dispatchEvent(new CustomEvent('custom-dropdown-open', { detail: wrapper }));
+        isOpen = true;
+        list.hidden = false;
+        list.style.display = 'block';
+        input.setAttribute('aria-expanded', 'true');
+        if (searchable && clearSearch) {
+            input.value = '';
+            Array.from(list.children).forEach(child => {
+                (child as HTMLElement).style.display = 'block';
+            });
+        }
+        const items = getNavigableItems();
+        const selected = items.find(item => selectEl.options[Number(item.dataset.index)]?.selected);
+        setHighlightedItem(selected || items[0] || null);
+    };
+
+    const selectItem = (item: HTMLElement) => {
+        if (item.getAttribute('aria-disabled') === 'true') return;
+        const option = selectEl.options[Number(item.dataset.index)];
+        if (!option) return;
+        selectEl.value = option.value;
+        syncValue();
+        paintItems();
+        closeDropdown(false);
+        selectEl.dispatchEvent(new Event('input', { bubbles: true }));
+        selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
+    const filterOptions = (query: string) => {
+        const normalizedQuery = query.toLowerCase();
+        Array.from(list.children).forEach(child => {
+            const item = child as HTMLElement;
+            const text = item.dataset.text?.toLowerCase() || '';
+            item.style.display = text.includes(normalizedQuery) ? 'block' : 'none';
+        });
+        if (!highlightedItem || highlightedItem.style.display === 'none') {
+            setHighlightedItem(getNavigableItems()[0] || null);
+        }
+    };
+
+    // Xây dựng danh sách lựa chọn
+    const updateOptions = () => {
+        list.replaceChildren();
+        highlightedItem = null;
+        syncValue();
+
+        Array.from(selectEl.options).forEach((opt, index) => {
             if (opt.value === "") return; // Bỏ qua lựa chọn rỗng (placeholder)
             const item = document.createElement('div');
             item.className = 'custom-dropdown-item';
+            item.id = `${list.id}-option-${index}`;
+            item.setAttribute('role', 'option');
             item.style.padding = '8px 10px';
-            item.style.cursor = 'pointer';
             item.style.borderBottom = '1px solid var(--colors-border-muted, #333)';
             item.style.color = 'var(--colors-text-primary, #fff)';
             item.style.transition = 'background 0.2s';
-            
-            item.innerHTML = opt.innerHTML; // Giữ nguyên HTML nếu có (vd: provider có thẻ span)
+
+            const isDisabled = opt.disabled || (opt.parentElement instanceof HTMLOptGroupElement && opt.parentElement.disabled);
+            item.textContent = opt.text;
             item.dataset.value = opt.value;
             item.dataset.text = opt.text;
-            
+            item.dataset.index = String(index);
+            item.setAttribute('aria-disabled', String(isDisabled));
+            item.style.cursor = isDisabled ? 'not-allowed' : 'pointer';
+            item.style.opacity = isDisabled ? '0.55' : '1';
+
             item.addEventListener('mouseenter', () => {
-                item.style.backgroundColor = 'var(--colors-primary, #3b82f6)';
+                if (!isDisabled) setHighlightedItem(item);
             });
-            item.addEventListener('mouseleave', () => {
-                item.style.backgroundColor = 'transparent';
-            });
-            
-            item.addEventListener('click', (e) => {
+
+            item.addEventListener('mousedown', (e) => {
+                e.preventDefault();
                 e.stopPropagation();
-                selectEl.value = opt.value;
-                input.value = opt.text;
-                list.style.display = 'none';
-                selectEl.dispatchEvent(new Event('change'));
+                selectItem(item);
             });
-            
+
             list.appendChild(item);
         });
+        paintItems();
     };
-    
+
     updateOptions();
 
     // Gắn sự kiện (Event listeners)
-    input.addEventListener('click', () => {
-        const isOpening = list.style.display === 'none';
-        
-        // Đóng các dropdown khác trước khi mở
-        document.querySelectorAll('.custom-dropdown-list').forEach(el => {
-            (el as HTMLElement).style.display = 'none';
-        });
-        
-        if (isOpening) {
-            list.style.display = 'block';
-            if (searchable) {
-                input.value = ''; // Xóa trắng để hiển thị toàn bộ list cho tìm kiếm
-                Array.from(list.children).forEach(child => {
-                    (child as HTMLElement).style.display = 'block';
-                });
-            }
-        }
-    });
+    const handleInputClick = () => {
+        if (searchable) {
+            if (!isOpen) openDropdown(true);
+        } else if (isOpen) closeDropdown();
+        else openDropdown(false);
+    };
+    input.addEventListener('click', handleInputClick);
 
     if (searchable) {
         input.addEventListener('input', () => {
-            list.style.display = 'block';
-            const query = input.value.toLowerCase();
-            Array.from(list.children).forEach(child => {
-                const text = (child as HTMLElement).dataset.text?.toLowerCase() || '';
-                (child as HTMLElement).style.display = text.includes(query) ? 'block' : 'none';
-            });
-        });
-        
-        // Khôi phục giá trị nếu người dùng không chọn gì (blur out)
-        input.addEventListener('blur', () => {
-            setTimeout(() => {
-                if (selectEl.selectedIndex >= 0) {
-                    const opt = selectEl.options[selectEl.selectedIndex];
-                    if (opt && opt.value !== "") {
-                        input.value = opt.text;
-                    } else {
-                        input.value = '';
-                        if (opt) input.placeholder = opt.text;
-                    }
-                }
-            }, 200);
+            if (!isOpen) openDropdown(false);
+            filterOptions(input.value);
         });
     }
 
-    document.addEventListener('click', (e) => {
-        if (!wrapper.contains(e.target as Node)) {
-            list.style.display = 'none';
+    input.addEventListener('keydown', event => {
+        const items = getNavigableItems();
+        const currentIndex = highlightedItem ? items.indexOf(highlightedItem) : -1;
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            if (!isOpen) {
+                openDropdown(searchable);
+                const openItems = getNavigableItems();
+                const selected = openItems.find(item => selectEl.options[Number(item.dataset.index)]?.selected);
+                setHighlightedItem(selected || (event.key === 'ArrowDown' ? openItems[0] : openItems[openItems.length - 1]) || null);
+            } else if (items.length) {
+                const offset = event.key === 'ArrowDown' ? 1 : -1;
+                const nextIndex = currentIndex < 0
+                    ? (offset > 0 ? 0 : items.length - 1)
+                    : Math.max(0, Math.min(items.length - 1, currentIndex + offset));
+                setHighlightedItem(items[nextIndex]);
+            }
+        } else if (event.key === 'Home' || event.key === 'End') {
+            event.preventDefault();
+            if (!isOpen) openDropdown(searchable);
+            const openItems = getNavigableItems();
+            setHighlightedItem(event.key === 'Home' ? openItems[0] || null : openItems[openItems.length - 1] || null);
+        } else if (event.key === 'Enter' || (event.key === ' ' && !searchable)) {
+            event.preventDefault();
+            if (isOpen && highlightedItem) selectItem(highlightedItem);
+            else openDropdown(searchable);
+        } else if (event.key === 'Escape' && isOpen) {
+            event.preventDefault();
+            closeDropdown();
+        } else if (event.key === 'Tab' && isOpen) {
+            closeDropdown();
         }
     });
+
+    const handleBlur = () => {
+        setTimeout(() => {
+            if (!wrapper.contains(document.activeElement)) closeDropdown();
+        }, 0);
+    };
+    input.addEventListener('blur', handleBlur);
+
+    const handleDocumentClick = (event: Event) => {
+        const target = event.target;
+        if (target instanceof Node && !wrapper.contains(target)) closeDropdown();
+    };
+    document.addEventListener('click', handleDocumentClick);
+
+    const handleOtherDropdownOpen = (event: Event) => {
+        if ((event as CustomEvent).detail !== wrapper) closeDropdown();
+    };
+    document.addEventListener('custom-dropdown-open', handleOtherDropdownOpen);
+
+    const syncDisabled = () => {
+        input.disabled = selectEl.disabled;
+        input.setAttribute('aria-disabled', String(selectEl.disabled));
+        if (selectEl.disabled) closeDropdown();
+    };
+    syncDisabled();
+
+    const handleSelectValueChange = () => {
+        syncValue();
+        paintItems();
+    };
+    selectEl.addEventListener('input', handleSelectValueChange);
+    selectEl.addEventListener('change', handleSelectValueChange);
+
+    const observer = new MutationObserver(records => {
+        if (records.some(record => record.type === 'childList' || record.target !== selectEl || record.attributeName !== 'disabled')) {
+            updateOptions();
+        }
+        syncDisabled();
+    });
+    observer.observe(selectEl, {
+        attributes: true,
+        attributeFilter: ['disabled', 'selected', 'label', 'value'],
+        characterData: true,
+        childList: true,
+        subtree: true,
+    });
+
+    const destroy = () => {
+        closeDropdown();
+        observer.disconnect();
+        document.removeEventListener('click', handleDocumentClick);
+        document.removeEventListener('custom-dropdown-open', handleOtherDropdownOpen);
+        selectEl.removeEventListener('input', handleSelectValueChange);
+        selectEl.removeEventListener('change', handleSelectValueChange);
+        if (wrapper.parentNode) wrapper.parentNode.insertBefore(selectEl, wrapper);
+        wrapper.remove();
+        selectEl.style.display = originalDisplay;
+        delete (selectEl as any)._hasCustomDropdown;
+        delete (selectEl as any)._updateCustomDropdown;
+        delete (selectEl as any)._syncCustomDropdown;
+        delete (selectEl as any)._destroyCustomDropdown;
+    };
+
+    (selectEl as any)._destroyCustomDropdown = destroy;
     
     // Cho phép xây dựng lại danh sách khi thẻ select bị thay đổi từ bên ngoài (dynamically)
     (selectEl as any)._updateCustomDropdown = () => {
@@ -175,15 +350,9 @@ export function upgradeSelectToCustomDropdown(selectEl: HTMLSelectElement, searc
     
     // Hàm đồng bộ nội bộ (Sync) khi giá trị thẻ select thay đổi bằng Javascript
     (selectEl as any)._syncCustomDropdown = () => {
-        if (selectEl.selectedIndex >= 0) {
-            const opt = selectEl.options[selectEl.selectedIndex];
-            if (opt && opt.value !== "") {
-                input.value = opt.text;
-            } else {
-                input.value = '';
-                if (opt) input.placeholder = opt.text;
-            }
-        }
+        syncValue();
+        paintItems();
+        syncDisabled();
     };
 
     wrapper.appendChild(input);

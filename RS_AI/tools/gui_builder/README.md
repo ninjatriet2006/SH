@@ -30,8 +30,10 @@ là tự xuất hiện, không cần sửa code. Chỉ nhận package có target
 Phân loại tự động:
 
 - **[Tauri]** — có build-dependency `tauri-build` *và* `tauri.conf.json`.
-  Build bằng `cargo tauri build --no-bundle` để `beforeBuildCommand` dựng frontend
-  và nhúng `dist/` vào binary.
+   Build bằng `cargo tauri build --no-bundle` để `beforeBuildCommand` dựng frontend
+   và nhúng `dist/` vào binary. Trước khi build, builder kiểm tra local `tsc`;
+   nếu thiếu, tự chạy `npm ci` (có `package-lock.json`) hoặc `npm install` (chưa
+   có lockfile), rồi stream log cài dependency vào UI.
 - **[Cargo]** — `cargo build --release -p <package>`.
 
 Phân biệt này là bắt buộc: build app Tauri bằng `cargo build` tạo binary rơi về

@@ -13,6 +13,14 @@ use std::sync::OnceLock;
 /// xảy ra trạng thái nửa vời (thư mục này thấy, thư mục kia không).
 static RESOURCE_BASE: OnceLock<PathBuf> = OnceLock::new();
 
+/// Tauri biết chính xác resource directory của app đã đóng gói. Gọi hàm này
+/// trong setup trước command đầu tiên để không phụ thuộc layout từng nền tảng.
+pub fn init_resource_base(path: PathBuf) {
+    if path.join(RESOURCE_ANCHOR).is_dir() {
+        let _ = RESOURCE_BASE.set(path);
+    }
+}
+
 /// `langs/` làm mốc neo để nhận ra thư mục gốc app: đây là tài nguyên bắt buộc
 /// (thiếu là UI hiện raw ID) và luôn được builder copy kèm binary.
 pub const RESOURCE_ANCHOR: &str = "langs";
@@ -34,12 +42,8 @@ fn detect_resource_base() -> PathBuf {
     }
 
     if let Ok(exe) = std::env::current_exe() {
-        let mut cur = exe.parent();
-        while let Some(dir) = cur {
-            if has_anchor(dir) {
-                return dir.to_path_buf();
-            }
-            cur = dir.parent();
+        if let Some(dir) = exe.parent().filter(|dir| has_anchor(dir)) {
+            return dir.to_path_buf();
         }
     }
 

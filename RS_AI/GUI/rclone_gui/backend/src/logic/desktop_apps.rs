@@ -102,11 +102,7 @@ fn parse_desktop_entry(content: &str) -> Option<Entry> {
                     hidden = true;
                 }
             }
-            "Terminal" => {
-                if value.eq_ignore_ascii_case("true") {
-                    needs_terminal = true;
-                }
-            }
+            "Terminal" if value.eq_ignore_ascii_case("true") => needs_terminal = true,
             _ => {}
         }
     }
@@ -165,7 +161,7 @@ pub fn list() -> Vec<DesktopApp> {
         })
         .collect();
 
-    apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    apps.sort_by_key(|a| a.name.to_lowercase());
 
     // Lựa chọn mặc định luôn đứng đầu.
     apps.insert(

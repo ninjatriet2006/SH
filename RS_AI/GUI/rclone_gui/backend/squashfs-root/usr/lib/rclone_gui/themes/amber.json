@@ -1,0 +1,14 @@
+{
+  "id": "amber",
+  "name": "Amber Signal",
+  "variables": {
+    "colors-neon-cyan": "#ffb800",
+    "colors-surface-canvas": "#0d0b08",
+    "colors-surface-card": "#19150e",
+    "colors-surface-header": "#241d10",
+    "colors-surface-input": "#151108",
+    "colors-text-primary": "#fff7df",
+    "colors-text-secondary": "#c7ad78",
+    "colors-border-muted": "#49391d"
+  }
+}

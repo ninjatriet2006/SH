@@ -1,3 +1,6 @@
+import { DEFAULT_SETTINGS, normalizeSettings, type AppSettings } from './settings';
+export { DEFAULT_SETTINGS, normalizeSettings, type AppSettings } from './settings';
+
 // Application state definition
 export interface FileItem {
   name: string;
@@ -23,12 +26,6 @@ export interface BookmarkItem {
   path: string;
 }
 
-export interface AppSettings {
-  showHiddenFiles: boolean;
-  language: string;
-  theme: string;
-}
-
 export interface AppState {
   auth?: {
     user?: string;
@@ -46,11 +43,20 @@ export interface AppState {
 }
 
 // Global mutable state (simple for now)
+// Global mutable state (simple for now)
 export const appState: AppState = {};
+
+try {
+  const storedSettings = typeof localStorage === 'undefined' ? null : localStorage.getItem('filen_settings');
+  appState.settings = normalizeSettings(JSON.parse(storedSettings ?? 'null'));
+} catch (e) {
+  console.warn('Failed to parse settings', e);
+  appState.settings = { ...DEFAULT_SETTINGS };
+}
 
 // Khôi phục log từ localStorage
 try {
-  const savedLog = localStorage.getItem('filen_activity_log');
+  const savedLog = typeof localStorage === 'undefined' ? null : localStorage.getItem('filen_activity_log');
   if (savedLog) {
     appState.activityLog = JSON.parse(savedLog);
   }
@@ -63,7 +69,7 @@ if (!appState.activityLog) {
 }
 
 try {
-  const savedBookmarks = localStorage.getItem('filen_bookmarks');
+  const savedBookmarks = typeof localStorage === 'undefined' ? null : localStorage.getItem('filen_bookmarks');
   if (savedBookmarks) {
     appState.bookmarks = JSON.parse(savedBookmarks);
   }
@@ -131,4 +137,3 @@ export function saveSettings() {
     }
   }
 }
-

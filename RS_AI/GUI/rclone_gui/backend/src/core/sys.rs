@@ -238,7 +238,7 @@ pub async fn sys_get_valid_actions(files: Vec<SimpleFileItem>) -> Result<Vec<Cus
                 if f.is_dir && a.extensions.iter().any(|ext| ext == "dir") {
                     return true;
                 }
-                let ext = f.name.split('.').last().unwrap_or("").to_lowercase();
+                let ext = f.name.split('.').next_back().unwrap_or("").to_lowercase();
                 a.extensions.iter().any(|e| e.to_lowercase() == ext)
             })
         })

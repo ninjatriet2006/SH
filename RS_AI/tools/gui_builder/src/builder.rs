@@ -26,11 +26,7 @@ pub enum BuildEvent {
     /// Dòng log thô từ cargo/npm.
     Log(String),
     /// Đang biên dịch crate `name`; `done`/`total` để vẽ thanh tiến trình.
-    Progress {
-        done: usize,
-        total: usize,
-        name: String,
-    },
+    Progress { done: usize, total: usize, name: String },
     /// Cảnh báo (không dừng build).
     Warn(String),
     /// Build xong một project.
@@ -81,6 +77,90 @@ fn check_node_for_tauri(tx: &Sender<BuildEvent>) -> Result<(), String> {
     }
 }
 
+/// Trả về thư mục frontend mà `beforeBuildCommand` sẽ dùng. Tauri config cho
+/// phép đặt CWD tương đối với backend; fallback giữ tương thích template chuẩn.
+fn frontend_dir(config_dir: &Path) -> PathBuf {
+    let configured = std::fs::read_to_string(config_dir.join("tauri.conf.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|config| {
+            config
+                .pointer("/build/beforeBuildCommand/cwd")
+                .and_then(|cwd| cwd.as_str())
+                .map(PathBuf::from)
+        });
+
+    match configured {
+        Some(path) if path.is_absolute() => path,
+        Some(path) => normalize_path(config_dir.join(path)),
+        None => config_dir
+            .parent()
+            .map(|parent| parent.join("frontend"))
+            .unwrap_or_else(|| config_dir.join("frontend")),
+    }
+}
+
+/// Chuẩn hóa `..` mà không yêu cầu đường dẫn đã tồn tại, để `cwd: "../frontend"`
+/// trong Tauri config luôn hiện và chạy theo đúng thư mục mong muốn.
+fn normalize_path(path: PathBuf) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
+}
+
+/// `npm run build` tìm local binary qua `node_modules/.bin`; thiếu `tsc` nghĩa
+/// là dependencies chưa được cài hoặc node_modules không còn đồng bộ với lock.
+fn frontend_dependencies_ready(frontend: &Path) -> bool {
+    let bin_dir = frontend.join("node_modules/.bin");
+    bin_dir.join("tsc").is_file() || bin_dir.join("tsc.cmd").is_file()
+}
+
+/// Cài dependencies chỉ khi frontend có package.json nhưng local TypeScript
+/// binary đang thiếu. `npm ci` tái lập đúng package-lock; project chưa có lock
+/// mới dùng `npm install` để tạo dependency tree lần đầu.
+fn ensure_frontend_dependencies(config_dir: &Path, tx: &Sender<BuildEvent>, counter: &mut usize) -> Result<(), String> {
+    let frontend = frontend_dir(config_dir);
+    if !frontend.join("package.json").is_file() || frontend_dependencies_ready(&frontend) {
+        return Ok(());
+    }
+
+    let use_ci = frontend.join("package-lock.json").is_file();
+    let command = if use_ci { "npm ci" } else { "npm install" };
+    let _ = tx.send(BuildEvent::Stage(format!(
+        "Cài frontend dependencies: {} ({command})",
+        frontend.display()
+    )));
+    let _ = tx.send(BuildEvent::Log(
+        "Không tìm thấy node_modules/.bin/tsc; đang cài dependencies frontend.".to_string(),
+    ));
+
+    let mut npm = Command::new("npm");
+    npm.arg(if use_ci { "ci" } else { "install" }).current_dir(&frontend);
+    run_streaming(npm, tx, 0, counter).map_err(|error| {
+        format!(
+            "Không thể cài frontend dependencies trong {} bằng `{command}`: {error}",
+            frontend.display()
+        )
+    })?;
+
+    if frontend_dependencies_ready(&frontend) {
+        Ok(())
+    } else {
+        Err(format!(
+            "`{command}` đã xong nhưng vẫn không tìm thấy {}. Kiểm tra package.json có devDependency `typescript`.",
+            frontend.join("node_modules/.bin/tsc").display()
+        ))
+    }
+}
+
 /// Đếm tổng số crate cần biên dịch cho RIÊNG package đang build.
 ///
 /// Trước đây đếm `packages.len()` của cả workspace (909) trong khi build một
@@ -112,8 +192,7 @@ fn total_units(dir: &Path, package: &str) -> usize {
         .and_then(|pkgs| {
             pkgs.iter().find(|p| {
                 p.get("name").and_then(|n| n.as_str()) == Some(package)
-                    && p
-                        .get("id")
+                    && p.get("id")
                         .and_then(|id| id.as_str())
                         .is_some_and(|id| members.contains(&id))
             })
@@ -155,12 +234,7 @@ fn total_units(dir: &Path, package: &str) -> usize {
 
 /// Chạy một lệnh, chuyển từng dòng stdout/stderr thành `BuildEvent`.
 /// Trả về `Ok(())` nếu exit code 0.
-fn run_streaming(
-    mut cmd: Command,
-    tx: &Sender<BuildEvent>,
-    total: usize,
-    counter: &mut usize,
-) -> Result<(), String> {
+fn run_streaming(mut cmd: Command, tx: &Sender<BuildEvent>, total: usize, counter: &mut usize) -> Result<(), String> {
     let mut child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -224,9 +298,7 @@ fn run_streaming(
         }
     }
 
-    let status = child
-        .wait()
-        .map_err(|e| format!("Lỗi khi đợi tiến trình: {e}"))?;
+    let status = child.wait().map_err(|e| format!("Lỗi khi đợi tiến trình: {e}"))?;
 
     if status.success() {
         Ok(())
@@ -261,6 +333,13 @@ pub fn build_project(root: PathBuf, project: Project, tx: Sender<BuildEvent>) {
                 });
                 return;
             }
+            if let Err(e) = ensure_frontend_dependencies(config_dir, &tx, &mut counter) {
+                let _ = tx.send(BuildEvent::Finished {
+                    ok: false,
+                    message: format!("{} — build thất bại: {}", project.release_name, e),
+                });
+                return;
+            }
             // `cargo tauri build` chạy beforeBuildCommand (dựng frontend) rồi
             // nhúng dist vào binary. Dùng `cargo build` trực tiếp sẽ tạo binary
             // rơi về devUrl → app báo "connection refused".
@@ -276,10 +355,7 @@ pub fn build_project(root: PathBuf, project: Project, tx: Sender<BuildEvent>) {
             run_streaming(cmd, &tx, total, &mut counter)
         }
         BuildKind::Cargo => {
-            let _ = tx.send(BuildEvent::Stage(format!(
-                "Build Cargo: {}",
-                project.package
-            )));
+            let _ = tx.send(BuildEvent::Stage(format!("Build Cargo: {}", project.package)));
             let mut cmd = Command::new("cargo");
             cmd.args([
                 "build",
@@ -302,10 +378,7 @@ pub fn build_project(root: PathBuf, project: Project, tx: Sender<BuildEvent>) {
     }
 
     // ── Xuất vào release/ ────────────────────────────────────────────────────
-    let _ = tx.send(BuildEvent::Stage(format!(
-        "Xuất vào release/{}/",
-        project.release_name
-    )));
+    let _ = tx.send(BuildEvent::Stage(format!("Xuất vào release/{}/", project.release_name)));
 
     // Binary mang tên crate; thư mục + file xuất ra mang tên sản phẩm.
     let src = project.target_dir.join("release").join(&project.bin_name);
@@ -340,9 +413,7 @@ pub fn build_project(root: PathBuf, project: Project, tx: Sender<BuildEvent>) {
         Err(e) => {
             let _ = tx.send(BuildEvent::Finished {
                 ok: false,
-                message: format!(
-                    "Không xoá được binary cũ (có app đang chạy giữ file?): {e}"
-                ),
+                message: format!("Không xoá được binary cũ (có app đang chạy giữ file?): {e}"),
             });
             return;
         }
@@ -382,12 +453,7 @@ pub fn build_project(root: PathBuf, project: Project, tx: Sender<BuildEvent>) {
 
 /// Copy tài nguyên chạy kèm của app Tauri: `frontend/dist`, các thư mục runtime
 /// và icons. Thiếu chúng thì app vẫn chạy nhưng mất theme/ngôn ngữ.
-fn copy_app_resources(
-    app_root: &Path,
-    config_dir: &Path,
-    dest_dir: &Path,
-    tx: &Sender<BuildEvent>,
-) {
+fn copy_app_resources(app_root: &Path, config_dir: &Path, dest_dir: &Path, tx: &Sender<BuildEvent>) {
     // frontend/dist — build output thuần (tên file có hash), KHÔNG chứa dữ liệu
     // người dùng nên thay trọn bộ để asset cũ không dồn lại. Nhưng thay qua
     // staging rồi mới đổi tên: copy lỗi giữa đường không làm mất bản đang chạy.
@@ -430,11 +496,7 @@ fn copy_app_resources(
         if let Ok(entries) = std::fs::read_dir(&icons) {
             for entry in entries.flatten() {
                 let p = entry.path();
-                let ext = p
-                    .extension()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("")
-                    .to_lowercase();
+                let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
                 // Chỉ lấy định dạng icon dùng khi chạy/đóng gói.
                 if matches!(ext.as_str(), "png" | "ico" | "icns") {
                     if std::fs::copy(&p, to.join(entry.file_name())).is_ok() {
@@ -591,6 +653,31 @@ mod tests {
     }
 
     #[test]
+    fn frontend_dir_dung_cwd_trong_tauri_config() {
+        let base = std::env::temp_dir().join(format!("gui-builder-frontend-dir-{}", std::process::id()));
+        let backend = base.join("app/backend");
+        std::fs::create_dir_all(&backend).unwrap();
+        std::fs::write(
+            backend.join("tauri.conf.json"),
+            r#"{"build":{"beforeBuildCommand":{"cwd":"../web"}}}"#,
+        )
+        .unwrap();
+
+        assert_eq!(frontend_dir(&backend), base.join("app/web"));
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn frontend_dependencies_can_be_detected_from_local_tsc() {
+        let base = std::env::temp_dir().join(format!("gui-builder-tsc-{}", std::process::id()));
+        assert!(!frontend_dependencies_ready(&base));
+        std::fs::create_dir_all(base.join("node_modules/.bin")).unwrap();
+        std::fs::write(base.join("node_modules/.bin/tsc"), b"").unwrap();
+        assert!(frontend_dependencies_ready(&base));
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
     fn total_units_returns_positive() {
         // Kể cả khi cargo lỗi, hàm phải trả về mốc dự phòng > 0 để không chia cho 0.
         let n = total_units(Path::new("/definitely/not/a/workspace"), "nope");
@@ -608,11 +695,7 @@ mod tests {
         // Cây nguồn giả lập: app_root có dist + langs + themes + fonts.
         let app_root = base.join("app");
         std::fs::create_dir_all(app_root.join("frontend/dist/assets")).unwrap();
-        std::fs::write(
-            app_root.join("frontend/dist/assets/index-new.js"),
-            b"bundle moi",
-        )
-        .unwrap();
+        std::fs::write(app_root.join("frontend/dist/assets/index-new.js"), b"bundle moi").unwrap();
         for (dir, file, content) in [
             ("langs", "vi.json", "{}"),
             ("themes", "default.json", "moi"),
@@ -682,10 +765,7 @@ mod tests {
 
         let dst = base.join("dst");
         copy_dir(&base.join("src"), &dst).unwrap();
-        assert_eq!(
-            std::fs::read_to_string(dst.join("sub/a.txt")).unwrap(),
-            "hello"
-        );
+        assert_eq!(std::fs::read_to_string(dst.join("sub/a.txt")).unwrap(), "hello");
         let _ = std::fs::remove_dir_all(&base);
     }
 
@@ -715,14 +795,8 @@ mod tests {
         // File của repo được ghi đè.
         assert_eq!(std::fs::read_to_string(to.join("default.json")).unwrap(), "moi");
         // File riêng của người dùng còn nguyên — đây chính là hồi quy cần chặn.
-        assert_eq!(
-            std::fs::read_to_string(to.join("my_theme.json")).unwrap(),
-            "cua toi"
-        );
-        assert_eq!(
-            std::fs::read_to_string(to.join("local/Inter.ttf")).unwrap(),
-            "font"
-        );
+        assert_eq!(std::fs::read_to_string(to.join("my_theme.json")).unwrap(), "cua toi");
+        assert_eq!(std::fs::read_to_string(to.join("local/Inter.ttf")).unwrap(), "font");
         assert_eq!(copied, 1, "chỉ ghi file từ nguồn");
         assert_eq!(extra, 2, "phải nhận ra 2 file riêng của người dùng");
 

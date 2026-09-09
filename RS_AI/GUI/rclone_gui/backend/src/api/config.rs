@@ -33,8 +33,7 @@ fn get_rclone_config_path() -> Result<String, String> {
     let path = stdout
         .lines()
         .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .last()
+        .rfind(|line| !line.is_empty())
         .unwrap_or("");
 
     if path.is_empty() {

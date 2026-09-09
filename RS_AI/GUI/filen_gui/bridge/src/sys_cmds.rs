@@ -9,12 +9,10 @@ use crate::state::OSClipboardData;
 #[cfg(target_os = "linux")]
 #[tauri::command]
 pub fn os_clipboard_get(app: tauri::AppHandle) -> Result<Option<OSClipboardData>, String> {
-    use tauri::Manager;
     let (tx, rx) = std::sync::mpsc::channel();
     
     // Yêu cầu chạy trên main thread của UI (bắt buộc đối với GTK)
     app.run_on_main_thread(move || {
-        use gtk::prelude::*;
         let clipboard = gtk::Clipboard::get(&gdk::SELECTION_CLIPBOARD);
         let mut result = None;
         
@@ -79,7 +77,6 @@ pub fn os_clipboard_get() -> Result<Option<OSClipboardData>, String> {
 #[cfg(target_os = "linux")]
 #[tauri::command]
 pub fn os_clipboard_set(app: tauri::AppHandle, paths: Vec<String>, is_cut: bool) -> Result<(), String> {
-    use tauri::Manager;
     let action = if is_cut { "cut" } else { "copy" };
     // Dựng nội dung payload chuẩn của GNOME clipboard
     let mut payload = format!("{}\n", action);
@@ -89,7 +86,6 @@ pub fn os_clipboard_set(app: tauri::AppHandle, paths: Vec<String>, is_cut: bool)
     let payload = payload.trim_end().to_string(); // Loại bỏ ký tự xuống dòng dư thừa ở cuối
 
     app.run_on_main_thread(move || {
-        use gtk::prelude::*;
         let clipboard = gtk::Clipboard::get(&gdk::SELECTION_CLIPBOARD);
         let targets = vec![
             gtk::TargetEntry::new("x-special/gnome-copied-files", gtk::TargetFlags::empty(), 0),
@@ -208,7 +204,7 @@ pub async fn open_in_terminal(path: String) -> Result<(), String> {
         let terms = ["gnome-terminal", "konsole", "xfce4-terminal", "xterm", "alacritty", "kitty"];
         let mut success = false;
         for term in terms {
-            if let Ok(_) = Command::new(term).current_dir(&path).spawn() {
+            if Command::new(term).current_dir(&path).spawn().is_ok() {
                 success = true;
                 break;
             }

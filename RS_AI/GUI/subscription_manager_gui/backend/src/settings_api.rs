@@ -35,43 +35,59 @@ impl Default for Settings {
     }
 }
 
-// Lấy đường dẫn tới file settings: dùng chung rule resolve với `storage`
-// (CWD trước để tương thích cũ, rồi tới thư mục chứa binary).
-fn get_settings_path() -> PathBuf {
-    let path = crate::storage::storage_file_path("settings.json");
+fn canonical_settings_path() -> PathBuf {
+    crate::storage::config_file_path("settings.json")
+}
 
-    // Đảm bảo tạo mục storage
-    if let Some(parent) = path.parent() {
-        if !parent.exists() {
-            let _ = fs::create_dir_all(parent);
-        }
+fn mirror_settings_path() -> PathBuf {
+    crate::storage::storage_file_path("settings.json")
+}
+
+/// Ghi qua file tạm và rename nguyên tử, cùng mức an toàn crash/mất điện như
+/// `data.json`. Settings không quan trọng bằng giao dịch nhưng vẫn không nên
+/// bị truncate nếu máy tắt đúng lúc lưu.
+fn write_settings_file(path: &std::path::Path, content: &str) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("Đường dẫn settings không hợp lệ: {}", path.display()))?;
+    fs::create_dir_all(parent).map_err(|e| format!("Lỗi tạo thư mục settings {}: {e}", parent.display()))?;
+    let temp = path.with_extension("json.tmp");
+    fs::write(&temp, content).map_err(|e| format!("Lỗi ghi settings tạm: {e}"))?;
+    fs::rename(&temp, path).map_err(|e| {
+        let _ = fs::remove_file(&temp);
+        format!("Lỗi thay thế settings: {e}")
+    })
+}
+
+/// Canonical nằm trong `~/.config`; một file settings cũ cạnh app được migrate
+/// khi đọc lần đầu. Không merge từng field vì canonical là bản người dùng chọn
+/// gần nhất và mirror chỉ là bản sao khôi phục/di động.
+fn load_settings_text() -> Option<String> {
+    let canonical = canonical_settings_path();
+    if let Ok(text) = fs::read_to_string(&canonical) {
+        return Some(text);
     }
-
-    path
+    let mirror = mirror_settings_path();
+    let text = fs::read_to_string(&mirror).ok()?;
+    if let Err(error) = write_settings_file(&canonical, &text) {
+        eprintln!("[settings] không migrate được {}: {error}", canonical.display());
+    }
+    Some(text)
 }
 
 // Đọc cài đặt
 // Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
 #[tauri::command(rename_all = "snake_case")]
 pub fn get_settings() -> Result<Settings, String> {
-    let path = get_settings_path();
-
-    let mut settings = if path.exists() {
-        match fs::read_to_string(&path) {
-            Ok(content) => match serde_json::from_str::<Settings>(&content) {
-                Ok(settings) => settings,
-                Err(e) => {
-                    eprintln!("[settings] settings.json hỏng, dùng mặc định: {e}");
-                    Settings::default()
-                }
-            },
+    let mut settings = match load_settings_text() {
+        Some(content) => match serde_json::from_str::<Settings>(&content) {
+            Ok(settings) => settings,
             Err(e) => {
-                eprintln!("[settings] không đọc được settings.json: {e}");
+                eprintln!("[settings] settings.json hỏng, dùng mặc định: {e}");
                 Settings::default()
             }
-        }
-    } else {
-        Settings::default()
+        },
+        None => Settings::default(),
     };
 
     // Tự chữa mã ngôn ngữ không còn file tương ứng (đổi tên/xoá file, hoặc mã
@@ -126,16 +142,28 @@ pub fn save_settings(language: String, timezone: String, theme_id: String, font_
     }
     // Settings ghi file riêng nhưng vẫn serialize chung để tránh nghẽn IO dồn dập.
     let _store_guard = crate::storage::lock_store();
-    let settings = Settings { language, timezone, theme_id, font_id };
-    let path = get_settings_path();
-    
+    let settings = Settings {
+        language,
+        timezone,
+        theme_id,
+        font_id,
+    };
+    let canonical = canonical_settings_path();
+    let mirror = mirror_settings_path();
+
     match serde_json::to_string_pretty(&settings) {
         Ok(json_str) => {
-            match fs::write(path, json_str) {
-                Ok(_) => Ok(()),
-                Err(e) => Err(format!("Lỗi ghi file settings: {}", e)),
+            write_settings_file(&canonical, &json_str)?;
+            if mirror != canonical {
+                if let Err(error) = write_settings_file(&mirror, &json_str) {
+                    eprintln!(
+                        "[settings] canonical đã lưu nhưng không mirror được {}: {error}",
+                        mirror.display()
+                    );
+                }
             }
-        },
+            Ok(())
+        }
         Err(e) => Err(format!("Lỗi chuyển đổi settings: {}", e)),
     }
 }
@@ -159,11 +187,7 @@ mod tests {
                 d.language,
                 available
             );
-            assert_eq!(
-                d.language,
-                available[0],
-                "phải lấy file đầu tiên theo thứ tự đã sắp"
-            );
+            assert_eq!(d.language, available[0], "phải lấy file đầu tiên theo thứ tự đã sắp");
         }
     }
 

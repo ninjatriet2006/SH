@@ -105,11 +105,15 @@ fn cache_put<T: Serialize>(key: &str, value: &T) {
 }
 
 fn block_on<F: std::future::Future>(fut: F) -> F::Output {
-    tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(4)
-        .enable_all()
-        .build()
-        .expect("không tạo được tokio runtime")
+    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RUNTIME
+        .get_or_init(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(4)
+                .enable_all()
+                .build()
+                .expect("không tạo được tokio runtime")
+        })
         .block_on(fut)
 }
 
@@ -285,7 +289,7 @@ fn models_catalog(force: bool) -> Result<Vec<CkeyModel>, String> {
 
 /// Toàn bộ thông tin tài khoản trong MỘT lần gọi.
 ///
-/// Gộp 4 phần (profile/stats/keys/models) vào một command; từng phần đi qua
+/// Gộp 3 phần (profile/stats/keys) vào một command; từng phần đi qua
 /// cache TTL riêng nên refresh định kỳ gần như không đụng mạng.
 ///
 /// `since_days` != None → thống kê chỉ tính từ mốc đó (docs: param `since`).
@@ -295,7 +299,6 @@ pub struct CkeyDashboard {
     pub profile: Option<CkeyAccountInfoView>,
     pub stats: Option<CkeyStatsView>,
     pub keys: Vec<CkeyKeyView>,
-    pub models: Vec<CkeyModelView>,
     /// Lỗi của từng phần — một phần lỗi không được làm mất dữ liệu phần khác.
     pub errors: Vec<String>,
 }
@@ -357,54 +360,18 @@ pub struct CkeyKeyView {
     pub key_masked: String,
 }
 
-/// Model + đầy đủ giá theo docs `/api/llm/models`.
-///
-/// `public_name` của CKey là dạng "provider/model" (vd "provider/GPT Demo") —
-/// danh sách là kết hợp NHÀ CUNG CẤP + MODEL, nên tách sẵn `provider`/`model`
-/// cho UI hiển thị hai cột riêng. Catalogue này GIỐNG NHAU với mọi tài khoản.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CkeyModelView {
-    /// Id đầy đủ (khóa cấu hình khi import) — nguyên văn public_name.
-    pub public_name: String,
-    /// Phần "provider" của public_name; rỗng nếu tên không có dạng a/b.
-    pub provider: String,
-    /// Phần "model" của public_name.
-    pub model: String,
-    pub display_name: String,
-    pub input_price_per_million_vnd: f64,
-    pub output_price_per_million_vnd: f64,
-    pub cache_read_price_per_million_vnd: f64,
-    pub cache_write_price_per_million_vnd: f64,
-    pub price_per_request_vnd: f64,
-    pub min_charge_per_request_vnd: f64,
-    pub cache_enabled: bool,
-    pub context_tokens_limit: u64,
-    pub max_output_tokens_limit: u64,
-}
-
-impl From<CkeyModel> for CkeyModelView {
-    fn from(m: CkeyModel) -> Self {
-        let (provider, model) = opencode_manager::ckey::split_public_name(&m.public_name);
-        Self {
-            public_name: m.public_name,
-            provider,
-            model,
-            display_name: m.display_name,
-            input_price_per_million_vnd: m.input_price_per_million_vnd,
-            output_price_per_million_vnd: m.output_price_per_million_vnd,
-            cache_read_price_per_million_vnd: m.cache_read_price_per_million_vnd,
-            cache_write_price_per_million_vnd: m.cache_write_price_per_million_vnd,
-            price_per_request_vnd: m.price_per_request_vnd,
-            min_charge_per_request_vnd: m.min_charge_per_request_vnd,
-            cache_enabled: m.cache_enabled,
-            context_tokens_limit: m.context_tokens_limit,
-            max_output_tokens_limit: m.max_output_tokens_limit,
-        }
-    }
-}
-
 #[tauri::command(rename_all = "snake_case")]
-pub fn fetch_ckey_dashboard(
+pub async fn fetch_ckey_dashboard(
+    profile_id: String,
+    since_days: Option<u64>,
+    force: Option<bool>,
+) -> Result<CkeyDashboard, String> {
+    tauri::async_runtime::spawn_blocking(move || fetch_ckey_dashboard_blocking(profile_id, since_days, force))
+        .await
+        .map_err(|e| format!("Task dashboard CKey sụp: {e}"))?
+}
+
+fn fetch_ckey_dashboard_blocking(
     profile_id: String,
     since_days: Option<u64>,
     force: Option<bool>,
@@ -505,24 +472,10 @@ pub fn fetch_ckey_dashboard(
         }
     };
 
-    // Catalogue model + giá là TOÀN CỤC (giống nhau mọi tài khoản) → cache
-    // dùng chung, đổi tài khoản không phải tải lại bảng giá. LUÔN dùng cache
-    // (TTL 5 phút tự làm mới): `force` của dashboard dành cho dữ liệu TÀI
-    // KHOẢN (số dư/thống kê/keys) — ép tải lại bảng giá mỗi lần refresh là
-    // gọi mạng vô ích và dễ bị rate-limit.
-    let models: Vec<CkeyModelView> = match models_catalog(false) {
-        Ok(list) => list.into_iter().map(CkeyModelView::from).collect(),
-        Err(e) => {
-            errors.push(format!("Danh sách model: {e}"));
-            Vec::new()
-        }
-    };
-
     Ok(CkeyDashboard {
         profile,
         stats,
         keys,
-        models,
         errors,
     })
 }
@@ -551,7 +504,19 @@ pub struct CkeyUsageItemView {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn fetch_ckey_usage(
+pub async fn fetch_ckey_usage(
+    profile_id: String,
+    page: u64,
+    limit: u64,
+    model: Option<String>,
+    force: Option<bool>,
+) -> Result<CkeyUsageView, String> {
+    tauri::async_runtime::spawn_blocking(move || fetch_ckey_usage_blocking(profile_id, page, limit, model, force))
+        .await
+        .map_err(|e| format!("Task lịch sử CKey sụp: {e}"))?
+}
+
+fn fetch_ckey_usage_blocking(
     profile_id: String,
     page: u64,
     limit: u64,
@@ -652,7 +617,19 @@ pub struct CkeyDepositHistoryItemView {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn fetch_ckey_deposit(
+pub async fn fetch_ckey_deposit(
+    profile_id: String,
+    amount: u64,
+    page: u64,
+    limit: u64,
+    force: Option<bool>,
+) -> Result<CkeyDepositView, String> {
+    tauri::async_runtime::spawn_blocking(move || fetch_ckey_deposit_blocking(profile_id, amount, page, limit, force))
+        .await
+        .map_err(|e| format!("Task nạp tiền CKey sụp: {e}"))?
+}
+
+fn fetch_ckey_deposit_blocking(
     profile_id: String,
     amount: u64,
     page: u64,
@@ -836,7 +813,13 @@ impl CkeyImportItem {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn list_ckey_import_items() -> Result<CkeyImportList, String> {
+pub async fn list_ckey_import_items() -> Result<CkeyImportList, String> {
+    tauri::async_runtime::spawn_blocking(list_ckey_import_items_blocking)
+        .await
+        .map_err(|e| format!("Task catalogue CKey sụp: {e}"))?
+}
+
+fn list_ckey_import_items_blocking() -> Result<CkeyImportList, String> {
     // Catalogue toàn cục — KHÔNG phụ thuộc tài khoản (chỉ cần một tài khoản
     // bất kỳ để tải lần đầu). Đích import suy từ binding của tài khoản ĐANG
     // XEM (mặc định id chuẩn "ckey") — không cần người dùng chọn.
@@ -925,7 +908,13 @@ pub struct CkeyImportResult {
 /// Import là lúc DUY NHẤT binding đổi: provider "thuộc" tài khoản nào thì trả
 /// tiền tài khoản đó, nên khoá luôn được đồng bộ theo AI key active của profile.
 #[tauri::command(rename_all = "snake_case")]
-pub fn import_ckey_models(profile_id: String, selected: Vec<String>) -> Result<CkeyImportResult, String> {
+pub async fn import_ckey_models(profile_id: String, selected: Vec<String>) -> Result<CkeyImportResult, String> {
+    tauri::async_runtime::spawn_blocking(move || import_ckey_models_blocking(profile_id, selected))
+        .await
+        .map_err(|e| format!("Task import CKey sụp: {e}"))?
+}
+
+fn import_ckey_models_blocking(profile_id: String, selected: Vec<String>) -> Result<CkeyImportResult, String> {
     let account_key = account_key_of(&profile_id)?;
     // Đích import: provider đang gắn tài khoản này (id chuẩn nếu chưa gắn gì).
     let ckey_cfg = CkeyConfig::load()?;
@@ -938,11 +927,12 @@ pub fn import_ckey_models(profile_id: String, selected: Vec<String>) -> Result<C
     let models = models_catalog(false)?;
     // AI key active của profile để điền cho provider (keys là dữ liệu TÀI
     // KHOẢN — lấy theo đúng profile import).
-    let ai_keys: Vec<CkeyAiKey> = match cache_get::<Vec<CkeyAiKey>>(&cache_key(&account_key, "keys", ""), TTL_KEYS) {
+    let raw_keys_cache = cache_key(&account_key, "keys_raw", "");
+    let ai_keys: Vec<CkeyAiKey> = match cache_get::<Vec<CkeyAiKey>>(&raw_keys_cache, TTL_KEYS) {
         Some(k) => k,
         None => {
             let list = block_on(async { CkeyClient::new(CKEY_MANAGE_API_BASE).fetch_keys(&account_key).await })?;
-            cache_put(&cache_key(&account_key, "keys", ""), &list);
+            cache_put(&raw_keys_cache, &list);
             list
         }
     };

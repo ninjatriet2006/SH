@@ -140,6 +140,7 @@ impl ArbiterConfig {
     /// - Lần 1 → chính kết quả đó.
     /// - Lần N (≤5) → trung vị từng hạng mục của N lần; spread lớn → `stable=false`
     ///   (điểm chưa hội tụ, cần chạy thêm để kết luận).
+    ///
     /// Model có mặt ở một số lần (danh sách model đổi giữa các lần) → chỉ tính
     /// các lần có chấm nó, ghi rõ `runs`.
     pub fn definitive(&self) -> Vec<ArbiterVerdict> {
@@ -457,21 +458,19 @@ pub fn parse_arbiter_reply(content: &str) -> Result<HashMap<String, ArbiterScore
     let body = strip_code_fence(content);
 
     // 1. Mảng (đúng hợp đồng) — gồm cả mảng quấn trong text thừa.
-    if let Some(arr) = slice_between(body, '[', ']') {
-        if let Ok(list) = serde_json::from_str::<Vec<RawScore>>(arr) {
-            if let Some(m) = collect(list) {
-                return Ok(m);
-            }
-        }
+    if let Some(arr) = slice_between(body, '[', ']')
+        && let Ok(list) = serde_json::from_str::<Vec<RawScore>>(arr)
+        && let Some(m) = collect(list)
+    {
+        return Ok(m);
     }
 
     // 2. Một object đơn lẻ (kể cả pretty-print nhiều dòng).
-    if let Some(obj) = slice_between(body, '{', '}') {
-        if let Ok(one) = serde_json::from_str::<RawScore>(obj) {
-            if let Some(m) = collect(vec![one]) {
-                return Ok(m);
-            }
-        }
+    if let Some(obj) = slice_between(body, '{', '}')
+        && let Ok(one) = serde_json::from_str::<RawScore>(obj)
+        && let Some(m) = collect(vec![one])
+    {
+        return Ok(m);
     }
 
     // 3. JSONL — mỗi dòng một object (bỏ dấu phẩy cuối dòng).

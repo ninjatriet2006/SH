@@ -1,5 +1,3 @@
-use gtk::prelude::*;
-
 fn main() {
     gtk::init().unwrap();
     let clipboard = gtk::Clipboard::get(&gdk::SELECTION_CLIPBOARD);

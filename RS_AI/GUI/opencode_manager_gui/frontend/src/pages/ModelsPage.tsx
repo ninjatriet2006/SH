@@ -39,7 +39,7 @@ type TaskKey = 'coding' | 'agentic' | 'reasoning' | 'vision' | 'long_context' | 
 
 export function ModelsPage() {
     const { t } = useTranslation();
-    const { fetchProviders } = useProviderStore();
+    const fetchProviders = useProviderStore(state => state.fetchProviders);
 
     const [rows, setRows] = useState<ModelMatrixRow[]>([]);
     const [query, setQuery] = useState('');
@@ -55,6 +55,7 @@ export function ModelsPage() {
     // ===== ARBITER (trọng tài chấm điểm) =====
     const [view, setView] = useState<ViewMode>('meta');
     const [arbiterState, setArbiterState] = useState<ArbiterState | null>(null);
+    const [arbiterLoaded, setArbiterLoaded] = useState(false);
     const [arbiterChoice, setArbiterChoice] = useState('');
     const [isEvaluating, setIsEvaluating] = useState(false);
     const [arbiterSort, setArbiterSort] = useState<ArbiterSortKey>('overall');
@@ -105,11 +106,14 @@ export function ModelsPage() {
             });
         } catch (err) {
             setNotice(err instanceof Error ? err.message : String(err));
+        } finally {
+            setArbiterLoaded(true);
         }
     }, []);
 
     useEffect(() => {
         reload();
+        // Panel arbiter luôn hiển thị nên trạng thái của nó phải được nạp nền.
         reloadArbiter();
     }, [reload, reloadArbiter]);
 
@@ -273,8 +277,8 @@ export function ModelsPage() {
     }, []);
 
     useEffect(() => {
-        reloadRecommend(recTask);
-    }, [recTask, reloadRecommend, arbiterState]);
+        if (view === 'recommend' && arbiterLoaded) reloadRecommend(recTask);
+    }, [view, recTask, reloadRecommend, arbiterLoaded, arbiterState]);
 
     const handleClearArbiter = async () => {
         try {
@@ -472,6 +476,8 @@ export function ModelsPage() {
                         value={providerFilter}
                         onChange={setProviderFilter}
                         placeholder={t('models.filter_all')}
+                        ariaLabel={t('models.filter_provider')}
+                        clearable
                         style={{ width: 'auto', minWidth: '160px' }}
                     />
                 </label>
@@ -513,7 +519,7 @@ export function ModelsPage() {
                             value={arbiterChoice}
                             onChange={setArbiterChoice}
                             placeholder={`${t('models.arbiter_pick_placeholder')} (${arbiterCandidates.length})`}
-                            searchable
+                            ariaLabel={t('models.arbiter_pick_placeholder')}
                             style={{ minWidth: '280px', fontSize: '0.85rem' }}
                         />
                         <button className="btn btn-primary" onClick={handleEvaluate} disabled={isEvaluating || !arbiterChoice}>

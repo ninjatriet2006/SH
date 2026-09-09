@@ -65,11 +65,9 @@ pub fn get_lang_content(lang_code: String) -> Result<serde_json::Value, String> 
 
     if path.exists() {
         match fs::read_to_string(&path) {
-            Ok(content) => {
-                match serde_json::from_str(&content) {
-                    Ok(json) => Ok(json),
-                    Err(e) => Err(format!("Lỗi parse JSON ngôn ngữ {}: {}", lang_code, e)),
-                }
+            Ok(content) => match serde_json::from_str(&content) {
+                Ok(json) => Ok(json),
+                Err(e) => Err(format!("Lỗi parse JSON ngôn ngữ {}: {}", lang_code, e)),
             },
             Err(e) => Err(format!("Lỗi đọc file ngôn ngữ {}: {}", lang_code, e)),
         }
@@ -118,10 +116,7 @@ mod tests {
     #[test]
     fn chan_ma_ngon_ngu_doc_hai() {
         for bad in ["../../etc/passwd", "..", "vi/../en", "vi.json", ""] {
-            assert!(
-                get_lang_content(bad.to_string()).is_err(),
-                "mã '{bad}' phải bị từ chối"
-            );
+            assert!(get_lang_content(bad.to_string()).is_err(), "mã '{bad}' phải bị từ chối");
         }
     }
 }

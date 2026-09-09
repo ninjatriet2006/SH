@@ -389,7 +389,7 @@ button.disabled {
   color: var(--colors-neon-cyan);
 }
 
-.operation-modal input, .auth-modal input {
+.operation-modal input, .operation-modal select, .auth-modal input, .auth-modal select {
   background: var(--colors-surface-input);
   border: 1px solid var(--colors-border-muted);
   color: var(--colors-text-primary);
@@ -399,7 +399,7 @@ button.disabled {
   font-size: 14px;
 }
 
-.operation-modal input:focus, .auth-modal input:focus {
+.operation-modal input:focus, .operation-modal select:focus, .auth-modal input:focus, .auth-modal select:focus {
   outline: none;
   border-color: var(--colors-neon-cyan);
 }

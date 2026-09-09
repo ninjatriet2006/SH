@@ -1,6 +1,6 @@
 /*
 [INTEGRITY NOTES]
-- Mục đích: Bridge cho cài đặt GUI, ngôn ngữ và theme.
+ - Mục đích: Bridge cho cài đặt GUI, ngôn ngữ, theme và font.
 - Trách nhiệm: Trả về giá trị "rỗng/an toàn" khi lỗi ĐỌC (để store tự chọn
   phương án dự phòng), nhưng NÉM lỗi khi GHI (người dùng phải biết lưu thất bại).
   Không đoán mã ngôn ngữ cụ thể ở đây — đoán sai sẽ che mất lỗi thật.
@@ -16,7 +16,7 @@ export async function getGuiSettings(): Promise<GuiSettings> {
     } catch (error) {
         console.error('Lỗi lấy cài đặt:', error);
         // `language` rỗng = "để store tự chọn theo file có thật trong langs/".
-        return { language: '', theme_id: 'default' };
+        return { language: '', theme_id: 'default', font_id: 'default' };
     }
 }
 
@@ -39,9 +39,9 @@ export async function openExternalUrl(url: string): Promise<void> {
     }
 }
 
-export async function saveGuiSettings(language: string, themeId: string): Promise<void> {
+export async function saveGuiSettings(language: string, themeId: string, fontId: string): Promise<void> {
     try {
-        await invoke('save_gui_settings', { language, theme_id: themeId });
+        await invoke('save_gui_settings', { language, theme_id: themeId, font_id: fontId });
     } catch (error) {
         throw new Error(String(error));
     }

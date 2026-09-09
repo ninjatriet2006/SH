@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-  subscription_manager_gui_lib::run();
+    subscription_manager_gui_lib::run();
 }

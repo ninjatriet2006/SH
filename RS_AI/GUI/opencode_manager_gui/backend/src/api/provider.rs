@@ -15,6 +15,7 @@ use opencode_manager::app::{App, DynamicPreset};
 use opencode_manager::config::{normalize_base_url, Interleaved, ModelEntry};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 /// Chạy một future tới khi xong trên runtime đa luồng.
 ///
@@ -22,11 +23,15 @@ use std::collections::HashMap;
 /// còn `ApiClient` là async → cần runtime cục bộ. Đa luồng để
 /// `test_all_providers` chạy song song được.
 fn block_on<F: std::future::Future>(fut: F) -> F::Output {
-    tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(4)
-        .enable_all()
-        .build()
-        .expect("không tạo được tokio runtime")
+    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RUNTIME
+        .get_or_init(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(4)
+                .enable_all()
+                .build()
+                .expect("không tạo được tokio runtime")
+        })
         .block_on(fut)
 }
 
@@ -111,6 +116,8 @@ pub struct SaveResult {
     pub duplicate_of: Option<DuplicateInfo>,
     /// Base URL sau khi tự sửa (nếu khác bản người dùng nhập).
     pub normalized_base_url: Option<String>,
+    /// Adapter Auto đã probe và chọn trước khi lưu.
+    pub detected_npm: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -155,7 +162,33 @@ pub fn validate_custom_id(id: &str) -> Result<(), String> {
 /// đúng URL preset thì provider thành built-in (key lưu ở auth.json) — cùng
 /// cơ chế tự động như id sinh từ preset.
 #[tauri::command(rename_all = "snake_case")]
-pub fn save_provider(
+pub async fn save_provider(
+    provider_id: String,
+    preset_id: String,
+    name: String,
+    base_url: String,
+    api_key: String,
+    force_overwrite_id: Option<String>,
+    npm: Option<String>,
+    custom_id: Option<String>,
+) -> Result<SaveResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        save_provider_blocking(
+            provider_id,
+            preset_id,
+            name,
+            base_url,
+            api_key,
+            force_overwrite_id,
+            npm,
+            custom_id,
+        )
+    })
+    .await
+    .map_err(|e| format!("Task lưu provider sụp: {e}"))?
+}
+
+fn save_provider_blocking(
     provider_id: String,
     preset_id: String,
     name: String,
@@ -193,6 +226,7 @@ pub fn save_provider(
                     name: dup_name,
                 }),
                 normalized_base_url: normalized,
+                detected_npm: None,
             });
         }
     }
@@ -246,7 +280,16 @@ pub fn save_provider(
         }
     };
 
-    let npm = npm
+    let requested_npm = npm.filter(|s| !s.trim().is_empty());
+    let detected_npm = if requested_npm.as_deref() == Some("auto") {
+        let client = ApiClient::new();
+        Some(block_on(client.detect_protocol(&base_url, &api_key))?.npm().to_string())
+    } else {
+        None
+    };
+    let npm = detected_npm
+        .clone()
+        .or(requested_npm)
         .filter(|s| !s.trim().is_empty())
         .or_else(|| presets.iter().find(|p| p.id == preset_id).and_then(|p| p.npm.clone()))
         .or_else(|| Some("@ai-sdk/openai-compatible".to_string()));
@@ -285,6 +328,7 @@ pub fn save_provider(
         saved_id: Some(target_id),
         duplicate_of: None,
         normalized_base_url: normalized,
+        detected_npm,
     })
 }
 
@@ -642,7 +686,7 @@ mod integration_tests {
     use std::collections::HashMap;
 
     fn save(editing: &str, custom_id: Option<&str>, name: &str, url: &str, key: &str) -> Result<SaveResult, String> {
-        save_provider(
+        save_provider_blocking(
             editing.to_string(),
             "custom".to_string(),
             name.to_string(),

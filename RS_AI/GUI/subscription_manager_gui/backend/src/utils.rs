@@ -1,6 +1,6 @@
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 static TIME_OFFSET: OnceLock<i64> = OnceLock::new();
 /// Bộ đếm đơn điệu để `generate_id` không trùng khi gọi nhiều lần trong cùng mili-giây.
@@ -17,7 +17,7 @@ fn system_millis() -> i64 {
 pub fn init_time_sync() {
     let _ = std::thread::spawn(|| {
         let local_now = system_millis();
-        
+
         // Dùng HTTPS để tránh lộ nội dung/lỗi mạng giữa đường.
         if let Ok(resp) = ureq::get("https://worldtimeapi.org/api/timezone/Etc/UTC").call() {
             // Read body as string
@@ -30,10 +30,7 @@ pub fn init_time_sync() {
                         // áp nguyên sẽ làm mọi timestamp trong session nhảy vọt.
                         const DAY_MS: i64 = 24 * 60 * 60 * 1000;
                         if offset.abs() > DAY_MS {
-                            eprintln!(
-                                "[time] offset bất thường ({}ms), bỏ qua, dùng giờ local",
-                                offset
-                            );
+                            eprintln!("[time] offset bất thường ({}ms), bỏ qua, dùng giờ local", offset);
                             let _ = TIME_OFFSET.set(0);
                         } else {
                             let _ = TIME_OFFSET.set(offset);
@@ -44,7 +41,7 @@ pub fn init_time_sync() {
                 }
             }
         }
-        
+
         let _ = TIME_OFFSET.set(0);
         println!("Failed to sync time, using local time (offset = 0)");
     });

@@ -44,8 +44,14 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
         const theme = get().themes.find(t => t.id === themeId) ?? get().themes[0] ?? null;
         if (!theme) return;
 
+        const previous = get().activeTheme;
         set({ activeTheme: theme });
         const root = document.documentElement;
+        if (previous) {
+            for (const key of Object.keys(previous.colors)) {
+                root.style.removeProperty(`--${key.replace(/_/g, '-')}`);
+            }
+        }
         for (const [key, value] of Object.entries(theme.colors)) {
             // bg_panel → --bg-panel
             root.style.setProperty(`--${key.replace(/_/g, '-')}`, value);

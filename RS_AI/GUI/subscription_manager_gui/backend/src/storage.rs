@@ -6,12 +6,12 @@
 */
 
 // Import thư viện File và xử lý đường dẫn
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 // Import Serialize/Deserialize và các Models đã tạo
-use serde::{Deserialize, Serialize};
 use crate::models::{Package, PaymentRef, Subscription, Transaction, User};
+use serde::{Deserialize, Serialize};
 
 /// Thư mục gốc chứa tài nguyên app (`langs/`, `themes/`, `fonts/`).
 /// Dò MỘT LẦN rồi cache: mọi resource phải cùng một base, nếu không sẽ xảy ra
@@ -68,7 +68,12 @@ fn detect_resource_base() -> PathBuf {
 
 /// Thư mục gốc tài nguyên đã cache.
 pub fn resource_base() -> &'static PathBuf {
-    RESOURCE_BASE.get_or_init(detect_resource_base)
+    RESOURCE_BASE.get_or_init(|| {
+        std::env::var_os("SUBSCRIPTION_MANAGER_RESOURCE_DIR")
+            .map(PathBuf::from)
+            .filter(|path| path.join(RESOURCE_ANCHOR).is_dir())
+            .unwrap_or_else(detect_resource_base)
+    })
 }
 
 // Tìm file `<name>` trong thư mục storage theo thứ tự ưu tiên:
@@ -92,7 +97,47 @@ pub fn storage_file_path(name: &str) -> PathBuf {
     cwd_path
 }
 
-fn data_file_path() -> PathBuf {
+/// Thư mục cấu hình riêng của người dùng. Có thể đổi gốc chuẩn bằng
+/// `XDG_CONFIG_HOME`; nếu không có, Linux dùng `~/.config`.
+///
+/// Đây là nguồn dữ liệu chính, tách khỏi thư mục cài đặt/bản build để thay app,
+/// xoá checkout repository hoặc mở binary từ CWD khác không làm mất dữ liệu.
+pub fn config_dir() -> PathBuf {
+    config_dir_from_env(
+        std::env::var_os("XDG_CONFIG_HOME"),
+        std::env::var_os("HOME"),
+        resource_base().join("storage"),
+    )
+}
+
+/// Đường dẫn canonical cho một file cấu hình do app sở hữu.
+pub fn config_file_path(name: &str) -> PathBuf {
+    config_dir().join(name)
+}
+
+fn config_dir_from_env(
+    xdg_config_home: Option<std::ffi::OsString>,
+    home: Option<std::ffi::OsString>,
+    fallback: PathBuf,
+) -> PathBuf {
+    if let Some(path) = xdg_config_home {
+        return PathBuf::from(path).join("subscription_manager_gui");
+    }
+    if let Some(home) = home {
+        return PathBuf::from(home).join(".config").join("subscription_manager_gui");
+    }
+    // Fallback hiếm (môi trường không có HOME): vẫn ưu tiên thư mục app, không
+    // tạo file ở CWD ngẫu nhiên.
+    fallback
+}
+
+fn canonical_data_file_path() -> PathBuf {
+    config_dir().join("data.json")
+}
+
+/// Bản sao có thể mang theo cùng app. Giữ rule resolve cũ để một `storage/`
+/// hiện hữu được dùng làm nguồn migration thay vì bị bỏ quên.
+fn mirror_data_file_path() -> PathBuf {
     storage_file_path("data.json")
 }
 
@@ -134,46 +179,92 @@ pub struct DataStore {
     pub payment_refs: Vec<PaymentRef>,
 }
 
+/// Định dạng export có version riêng để sau này có thể import an toàn khi mô
+/// hình dữ liệu của app thay đổi.
+#[derive(Serialize)]
+struct ExportBackup<'a> {
+    format_version: u8,
+    exported_at: u128,
+    data: &'a DataStore,
+    settings: crate::settings_api::Settings,
+}
+
 // Dùng `DataStore::default()` từ derive ở trên để khởi tạo rỗng.
 
 // Hàm đọc dữ liệu từ file JSON
-pub fn load_data() -> DataStore {
-    let data_file = data_file_path();
-    // Kiểm tra xem file dữ liệu đã tồn tại hay chưa
-    if data_file.exists() {
-        // Mở file với quyền đọc
-        let mut file = match File::open(&data_file) {
-            Ok(f) => f,
-            Err(_) => return DataStore::default(), // Trả về mặc định nếu lỗi mở file
-        };
-        // Khởi tạo chuỗi để chứa nội dung file
-        let mut contents = String::new();
-        // Đọc toàn bộ nội dung file vào chuỗi
-        if file.read_to_string(&mut contents).is_ok() {
-            // Cố gắng chuyển đổi chuỗi JSON thành đối tượng DataStore
-            match serde_json::from_str(&contents) {
-                Ok(data) => return data,
-                // Báo rõ lý do thay vì im lặng trả rỗng (trước đây file hỏng
-                // làm mất toàn bộ dữ liệu mà không để lại dấu vết nào).
-                Err(e) => eprintln!("[storage] data.json hỏng: {e}"),
+fn read_data_file(path: &std::path::Path) -> Option<DataStore> {
+    let mut contents = String::new();
+    match File::open(path).and_then(|mut file| file.read_to_string(&mut contents)) {
+        Ok(_) => match serde_json::from_str(&contents) {
+            Ok(data) => Some(data),
+            Err(error) => {
+                eprintln!("[storage] {} hỏng: {error}", path.display());
+                None
             }
+        },
+        Err(error) => {
+            eprintln!("[storage] không đọc được {}: {error}", path.display());
+            None
         }
+    }
+}
 
-        // File tồn tại nhưng không đọc/parse được → thử bản sao lưu gần nhất.
-        // Nếu KHÔNG làm việc này, `save_data` tiếp theo sẽ ghi DataStore rỗng
-        // lên data.json, biến một file hỏng tạm thời thành mất dữ liệu vĩnh viễn.
-        if let Some((path, data)) = load_newest_backup(&data_file) {
-            eprintln!(
-                "[storage] đã phục hồi từ bản sao lưu {} ({} user, {} đăng ký)",
-                path.display(),
-                data.users.len(),
-                data.subscriptions.len()
-            );
+fn load_from_backups(data_file: &std::path::Path) -> Option<DataStore> {
+    let (path, data) = load_newest_backup(data_file)?;
+    eprintln!(
+        "[storage] đã phục hồi từ {} ({} user, {} đăng ký)",
+        path.display(),
+        data.users.len(),
+        data.subscriptions.len()
+    );
+    Some(data)
+}
+
+/// Nạp theo thứ tự canonical -> mirror -> backup hai nơi. Khi dữ liệu chỉ còn
+/// ở mirror (bản app cũ), ghi ngay một bản canonical để lần sau không phụ thuộc
+/// vị trí binary. Không tự merge: giao dịch/số dư cần toàn vẹn hơn là đoán.
+pub fn load_data() -> DataStore {
+    let canonical = canonical_data_file_path();
+    let mirror = mirror_data_file_path();
+    load_data_from_paths(&canonical, &mirror)
+}
+
+fn sync_mirror_data(mirror: &std::path::Path, data: &DataStore) {
+    let expected = match serde_json::to_string_pretty(data) {
+        Ok(json) => json,
+        Err(error) => {
+            eprintln!("[storage] không serialize được dữ liệu mirror: {error}");
+            return;
+        }
+    };
+    if fs::read_to_string(mirror).ok().as_deref() == Some(expected.as_str()) {
+        return;
+    }
+    if let Err(error) = write_data_file(mirror, data) {
+        eprintln!("[storage] không đồng bộ được mirror {}: {error}", mirror.display());
+    }
+}
+
+fn load_data_from_paths(canonical: &std::path::Path, mirror: &std::path::Path) -> DataStore {
+    if canonical.is_file() {
+        if let Some(data) = read_data_file(canonical).or_else(|| load_from_backups(canonical)) {
+            if mirror != canonical {
+                sync_mirror_data(mirror, &data);
+            }
             return data;
         }
-        eprintln!("[storage] không có bản sao lưu dùng được, dùng dữ liệu trống");
     }
-    // Trả về dữ liệu trống nếu file không tồn tại hoặc lỗi đọc/parse JSON
+
+    if mirror.is_file() {
+        if let Some(data) = read_data_file(mirror).or_else(|| load_from_backups(mirror)) {
+            eprintln!("[storage] migrate {} -> {}", mirror.display(), canonical.display());
+            if let Err(error) = write_data_file(canonical, &data) {
+                eprintln!("[storage] không tạo được canonical data: {error}");
+            }
+            return data;
+        }
+    }
+
     DataStore::default()
 }
 
@@ -228,7 +319,7 @@ fn backup_data_file(data_file: &std::path::Path) {
 
     let Some(dir) = data_file.parent() else { return };
     let backup_dir = dir.join("backups");
-    if std::fs::create_dir_all(&backup_dir).is_err() {
+    if fs::create_dir_all(&backup_dir).is_err() {
         return;
     }
 
@@ -239,7 +330,7 @@ fn backup_data_file(data_file: &std::path::Path) {
         .map(|d| d.as_millis())
         .unwrap_or(0);
     let dest = backup_dir.join(format!("data-{stamp}.json"));
-    if std::fs::copy(data_file, &dest).is_err() {
+    if fs::copy(data_file, &dest).is_err() {
         return;
     }
 
@@ -248,7 +339,7 @@ fn backup_data_file(data_file: &std::path::Path) {
 
 /// Xoá bản sao lưu cũ, chỉ giữ `BACKUP_KEEP` bản mới nhất.
 fn prune_backups(backup_dir: &std::path::Path) {
-    let Ok(entries) = std::fs::read_dir(backup_dir) else {
+    let Ok(entries) = fs::read_dir(backup_dir) else {
         return;
     };
     let mut files: Vec<PathBuf> = entries
@@ -268,13 +359,12 @@ fn prune_backups(backup_dir: &std::path::Path) {
     files.sort();
     let excess = files.len() - BACKUP_KEEP;
     for old in files.into_iter().take(excess) {
-        let _ = std::fs::remove_file(old);
+        let _ = fs::remove_file(old);
     }
 }
 
 // Hàm ghi dữ liệu xuống file JSON
-pub fn save_data(data: &DataStore) -> Result<(), String> {
-    let data_file = data_file_path();
+fn write_data_file(data_file: &std::path::Path, data: &DataStore) -> Result<(), String> {
     // Chuyển đối tượng DataStore thành chuỗi JSON với định dạng dễ đọc (pretty)
     let json = match serde_json::to_string_pretty(data) {
         Ok(j) => j,
@@ -283,11 +373,11 @@ pub fn save_data(data: &DataStore) -> Result<(), String> {
 
     // Đảm bảo thư mục cha tồn tại
     if let Some(parent) = data_file.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        fs::create_dir_all(parent).map_err(|e| format!("Lỗi tạo thư mục lưu trữ {}: {e}", parent.display()))?;
     }
 
     // Sao lưu bản hiện tại TRƯỚC khi ghi đè.
-    backup_data_file(&data_file);
+    backup_data_file(data_file);
 
     // Ghi qua file tạm rồi `rename`: `File::create` truncate ngay lập tức, nên
     // nếu tiến trình chết giữa lúc ghi (hoặc hết đĩa) thì data.json còn lại là
@@ -300,22 +390,91 @@ pub fn save_data(data: &DataStore) -> Result<(), String> {
             Err(e) => return Err(format!("Lỗi tạo file lưu trữ tạm: {}", e)),
         };
         if let Err(e) = file.write_all(json.as_bytes()) {
-            let _ = std::fs::remove_file(&tmp_file);
+            let _ = fs::remove_file(&tmp_file);
             return Err(format!("Lỗi ghi dữ liệu vào file: {}", e));
         }
         // `sync_all` để dữ liệu thực sự xuống đĩa trước khi rename — mất điện
         // ngay sau rename vẫn còn nội dung, không phải file rỗng.
         if let Err(e) = file.sync_all() {
-            let _ = std::fs::remove_file(&tmp_file);
+            let _ = fs::remove_file(&tmp_file);
             return Err(format!("Lỗi đồng bộ dữ liệu xuống đĩa: {}", e));
         }
     }
 
-    if let Err(e) = std::fs::rename(&tmp_file, &data_file) {
-        let _ = std::fs::remove_file(&tmp_file);
+    if let Err(e) = fs::rename(&tmp_file, data_file) {
+        let _ = fs::remove_file(&tmp_file);
         return Err(format!("Lỗi thay thế file lưu trữ: {}", e));
     }
 
+    Ok(())
+}
+
+/// Ghi canonical trước, sau đó mirror vào `storage/`. Mỗi đích tự backup trước
+/// khi thay file, nên dữ liệu vẫn an toàn khi máy tắt đột ngột giữa hai lượt ghi.
+/// Lỗi mirror được log nhưng không báo thao tác nghiệp vụ thất bại sau khi bản
+/// canonical đã ghi bền vững: retry cùng thao tác có thể tạo giao dịch trùng.
+pub fn save_data(data: &DataStore) -> Result<(), String> {
+    let canonical = canonical_data_file_path();
+    let mirror = mirror_data_file_path();
+    save_data_to_paths(&canonical, &mirror, data)
+}
+
+/// Xuất snapshot dữ liệu và cài đặt tại đường dẫn người dùng đã chọn.
+/// Không thay đổi data ứng dụng hoặc tạo backup xoay vòng nội bộ.
+#[tauri::command(rename_all = "snake_case")]
+pub fn export_backup(destination: String) -> Result<(), String> {
+    let destination = PathBuf::from(destination);
+    if destination.as_os_str().is_empty() || destination.is_dir() {
+        return Err("Vui lòng chọn một file backup hợp lệ".to_string());
+    }
+
+    let _guard = lock_store();
+    let data = load_data();
+    let backup = ExportBackup {
+        format_version: 1,
+        exported_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or(0),
+        data: &data,
+        settings: crate::settings_api::get_settings()?,
+    };
+    let json =
+        serde_json::to_string_pretty(&backup).map_err(|error| format!("Không thể tạo nội dung backup: {error}"))?;
+    write_export_file(&destination, &json)
+}
+
+fn write_export_file(path: &std::path::Path, content: &str) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("Đường dẫn backup không hợp lệ: {}", path.display()))?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("Không thể tạo thư mục backup {}: {error}", parent.display()))?;
+
+    let temporary = path.with_extension("backup.tmp");
+    {
+        let mut file = File::create(&temporary).map_err(|error| format!("Không thể tạo file backup tạm: {error}"))?;
+        file.write_all(content.as_bytes())
+            .map_err(|error| format!("Không thể ghi backup: {error}"))?;
+        file.sync_all()
+            .map_err(|error| format!("Không thể đồng bộ backup xuống đĩa: {error}"))?;
+    }
+    fs::rename(&temporary, path).map_err(|error| {
+        let _ = fs::remove_file(&temporary);
+        format!("Không thể hoàn tất backup: {error}")
+    })
+}
+
+fn save_data_to_paths(canonical: &std::path::Path, mirror: &std::path::Path, data: &DataStore) -> Result<(), String> {
+    write_data_file(canonical, data)?;
+    if mirror != canonical {
+        if let Err(error) = write_data_file(mirror, data) {
+            eprintln!(
+                "[storage] canonical đã lưu nhưng không mirror được {}: {error}",
+                mirror.display()
+            );
+        }
+    }
     Ok(())
 }
 
@@ -356,8 +515,7 @@ mod tests {
             .unwrap_or_else(|| panic!("không có file .json nào trong {}", langs.display()));
 
         let content = std::fs::read_to_string(first).expect("đọc file ngôn ngữ");
-        let json: serde_json::Value =
-            serde_json::from_str(&content).expect("file ngôn ngữ phải là JSON hợp lệ");
+        let json: serde_json::Value = serde_json::from_str(&content).expect("file ngôn ngữ phải là JSON hợp lệ");
         assert!(
             json.is_object() && json.as_object().is_some_and(|m| !m.is_empty()),
             "{} phải là object không rỗng",
@@ -391,6 +549,74 @@ mod tests {
             p.display(),
             base.display()
         );
+    }
+
+    #[test]
+    fn config_dir_uu_tien_xdg_roi_den_home() {
+        let fallback = PathBuf::from("/app/storage");
+        assert_eq!(
+            config_dir_from_env(Some("/xdg".into()), Some("/home/user".into()), fallback.clone()),
+            PathBuf::from("/xdg/subscription_manager_gui")
+        );
+        assert_eq!(
+            config_dir_from_env(None, Some("/home/user".into()), fallback.clone()),
+            PathBuf::from("/home/user/.config/subscription_manager_gui")
+        );
+        assert_eq!(config_dir_from_env(None, None, fallback.clone()), fallback);
+    }
+
+    #[test]
+    fn mirror_cu_duoc_migrate_sang_canonical() {
+        let root = std::env::temp_dir().join(format!("subscription-manager-storage-migrate-{}", std::process::id()));
+        let canonical = root.join("config/data.json");
+        let mirror = root.join("app/storage/data.json");
+        let expected = DataStore {
+            users: vec![User {
+                id: "usr_1".into(),
+                username: "Khach".into(),
+                email: None,
+                phone: None,
+                contact_url: None,
+                created_at: 1,
+                balance: 50_000,
+            }],
+            ..Default::default()
+        };
+        write_data_file(&mirror, &expected).unwrap();
+
+        let loaded = load_data_from_paths(&canonical, &mirror);
+        assert_eq!(loaded.users[0].balance, 50_000);
+        let canonical_data = read_data_file(&canonical).expect("canonical phải được tạo");
+        assert_eq!(canonical_data.users[0].username, "Khach");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn canonical_luon_thang_va_dong_bo_lai_mirror() {
+        let root = std::env::temp_dir().join(format!("subscription-manager-storage-sync-{}", std::process::id()));
+        let canonical = root.join("config/data.json");
+        let mirror = root.join("app/storage/data.json");
+        let canonical_data = DataStore {
+            users: vec![User {
+                id: "usr_primary".into(),
+                username: "Nguon chinh".into(),
+                email: None,
+                phone: None,
+                contact_url: None,
+                created_at: 2,
+                balance: 10,
+            }],
+            ..Default::default()
+        };
+        let stale_mirror = DataStore::default();
+        write_data_file(&canonical, &canonical_data).unwrap();
+        write_data_file(&mirror, &stale_mirror).unwrap();
+
+        let loaded = load_data_from_paths(&canonical, &mirror);
+        assert_eq!(loaded.users[0].id, "usr_primary");
+        let mirrored = read_data_file(&mirror).expect("mirror phải được đồng bộ lại");
+        assert_eq!(mirrored.users[0].id, "usr_primary");
+        let _ = fs::remove_dir_all(root);
     }
 
     /// Tương thích ngược: `data.json` của bản CŨ không có `balance`,
@@ -432,8 +658,7 @@ mod tests {
             "transactions": []
         }"#;
 
-        let data: DataStore =
-            serde_json::from_str(json_cu).expect("data.json bản cũ phải đọc được");
+        let data: DataStore = serde_json::from_str(json_cu).expect("data.json bản cũ phải đọc được");
 
         assert_eq!(data.users.len(), 1, "không được mất user");
         assert_eq!(data.users[0].balance, 0, "số dư mặc định phải là 0");

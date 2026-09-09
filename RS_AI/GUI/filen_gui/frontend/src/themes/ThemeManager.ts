@@ -153,24 +153,17 @@ export class ThemeManager {
     return this.parse(text, file);
   }
 
-  /**
-   * Load mọi theme từ thư mục (dev: fetch `public/themes/*.json`).
-   * Production thay bằng command Rust `themes_list` (themes-runtime.md §2.3).
-   */
-  async loadAll(baseUrl = `${import.meta.env.BASE_URL ?? "/"}themes/`): Promise<ThemeEntry[]> {
+  /** Load mọi theme được backend phát hiện trong resource directory. */
+  async loadAll(): Promise<ThemeEntry[]> {
     const entries: ThemeEntry[] = [];
     try {
-      const res = await fetch(baseUrl);
-      if (!res.ok) return entries;
-      const files = (await res.json()) as string[];
+      const { invoke } = await import("@tauri-apps/api/core");
+      const files = await invoke<Array<{ id: string; content: string }>>("appearance_list_themes");
       for (const file of files) {
-        if (!file.endsWith(".json")) continue;
-        const textRes = await fetch(`${baseUrl}${file}`);
-        if (!textRes.ok) continue;
-        entries.push(this.loadOne(`${baseUrl}${file}`, await textRes.text()));
+        entries.push(this.loadOne(`${file.id}.json`, file.content));
       }
     } catch {
-      // không có thư mục themes → trả về rỗng, dùng default
+      // Browser preview or unavailable resource directory: retain the built-in theme.
     }
     return entries;
   }
@@ -189,6 +182,11 @@ export class ThemeManager {
 
   clearRuntimeTweaks(): void {
     this.runtimeTweaks = {};
+    this.reapply();
+  }
+
+  removeRuntimeTweak(token: string): void {
+    delete this.runtimeTweaks[token];
     this.reapply();
   }
 

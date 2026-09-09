@@ -1,12 +1,11 @@
 {
   "$schema": "../gen/schemas/capabilities.json",
-  "identifier": "main-capability",
+  "identifier": "main",
   "description": "Capability for the main window",
-  "windows": ["*"],
+  "windows": ["main"],
   "permissions": [
-    "core:default",
-    "core:event:default",
-    "core:window:allow-close",
-    "shell:allow-open"
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "drag:allow-start-drag"
   ]
 }

@@ -22,12 +22,26 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: http://asset.localhost; font-src 'self' data: asset: http://asset.localhost; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; frame-src 'none'",
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$RESOURCE/langs/**",
+          "$RESOURCE/themes/**",
+          "$RESOURCE/fonts/**"
+        ]
+      }
     }
   },
   "bundle": {
-    "active": false,
+    "active": true,
+    "createUpdaterArtifacts": false,
     "targets": ["deb", "appimage", "msi", "dmg"],
+    "resources": {
+      "../langs/": "langs/",
+      "../themes/": "themes/",
+      "../fonts/": "fonts/"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

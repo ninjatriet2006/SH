@@ -42,6 +42,17 @@ export function ProvidersPage() {
         args: { presetId: string; name: string; baseUrl: string; apiKey: string; npm: string; customId?: string | null };
     } | null>(null);
 
+    const showSaveNotice = (result: SaveResult) => {
+        const notices = [];
+        if (result.normalized_base_url) {
+            notices.push(`${t('provider_modal.url_fixed')} ${result.normalized_base_url}`);
+        }
+        if (result.detected_npm) {
+            notices.push(`${t('provider_modal.auto_selected')} ${result.detected_npm}`);
+        }
+        if (notices.length > 0) setNotice(notices.join(' · '));
+    };
+
     useEffect(() => {
         fetchProviders().catch(err => setNotice(String(err)));
         fetchPresets();
@@ -71,9 +82,7 @@ export function ProvidersPage() {
             ...args,
         });
 
-        if (result.normalized_base_url) {
-            setNotice(`${t('provider_modal.url_fixed')} ${result.normalized_base_url}`);
-        }
+        showSaveNotice(result);
 
         // Backend phát hiện trùng và CHƯA lưu → hỏi người dùng.
         if (!result.saved_id && result.duplicate_of) {
@@ -86,11 +95,12 @@ export function ProvidersPage() {
     const confirmMerge = async () => {
         if (!pendingDup) return;
         try {
-            await save({
+            const result = await save({
                 providerId: editing?.id,
                 ...pendingDup.args,
                 forceOverwriteId: pendingDup.info.id,
             });
+            showSaveNotice(result);
             setPendingDup(null);
             setProviderModalOpen(false);
             setEditing(null);

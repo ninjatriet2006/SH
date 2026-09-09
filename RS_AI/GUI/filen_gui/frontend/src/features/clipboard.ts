@@ -106,22 +106,13 @@ export async function pasteTo(
   if (!hasClipboard()) return;
   const { mode, items } = getClipboard();
   const srcs = items.map((i) => i.path);
-  
-  const actionText = mode === 'copy' ? 'Sao chép' : 'Di chuyển';
-  const modal = new OperationModal(
-    'Xác nhận Paste',
-    `<p>Bạn có chắc muốn ${actionText} ${items.length} mục vào <br><strong>${destPath}</strong>?</p>`
-  );
-  modal.open();
-
-  modal.getElement().querySelector('.confirm')?.addEventListener('click', async () => {
-    modal.close();
+  const runPaste = async (): Promise<void> => {
     try {
       const destFiles = destPane === 'left' ? appState.explorer?.leftFiles || [] : appState.explorer?.rightFiles || [];
       const destNames = destFiles.map(f => f.name);
-      
+
       let applyToAllRes: ConflictResult | null = null;
-      let finalSrcsToProcess: { src: string, dest: string, action: 'replace' | 'skip' | 'keep_both' }[] = [];
+      const finalSrcsToProcess: { src: string, dest: string, action: 'replace' | 'skip' | 'keep_both' }[] = [];
 
       for (const src of srcs) {
         const name = baseName(src);
@@ -139,13 +130,13 @@ export async function pasteTo(
             if (res.applyToAll) applyToAllRes = res;
           }
         }
-        
+
         if (action === 'skip') continue;
 
         let targetName = name;
         if (action === 'keep_both') {
-           targetName = generateUniqueName(name, destNames);
-           destNames.push(targetName); // Update local memory for subsequent conflicts
+          targetName = generateUniqueName(name, destNames);
+          destNames.push(targetName);
         }
 
         finalSrcsToProcess.push({ src, dest: joinPath(destPath, targetName), action });
@@ -158,30 +149,41 @@ export async function pasteTo(
 
       if (destPane === 'left') {
         if (mode === 'copy') {
-          // Instead of batch copying blindly, we need to process individually because names might have changed
-          // or we might skip some. Or we can just use the finalSrcsToProcess with moveLocal/cpBatch
-          for (const item of finalSrcsToProcess) {
-             await fileOps.cpLocal(item.src, item.dest, true);
+          if (finalSrcsToProcess.every((item) => item.action === 'replace')) {
+            await fileOps.cpBatch(finalSrcsToProcess.map((item) => item.src), destPath, true);
+          } else {
+            for (const item of finalSrcsToProcess) await fileOps.cpLocal(item.src, item.dest, true);
           }
         } else {
-          for (const item of finalSrcsToProcess) {
-            await fileOps.moveLocal(item.src, item.dest);
-          }
+          for (const item of finalSrcsToProcess) await fileOps.moveLocal(item.src, item.dest);
         }
       } else {
-        for (const item of finalSrcsToProcess) {
-          await fileOps.upload(item.src, item.dest);
-        }
+        for (const item of finalSrcsToProcess) await fileOps.upload(item.src, item.dest);
       }
-      
-      logActivity(actionText, `${finalSrcsToProcess.length} mục tới ${destPath}`);
-      
-      // Cut xong → xoá clipboard (copy giữ lại để paste nhiều lần như Nemo).
+
+      logActivity(mode === 'copy' ? 'Sao chép' : 'Di chuyển', `${finalSrcsToProcess.length} mục tới ${destPath}`);
       if (mode === 'cut') clearClipboard();
       await onRefresh(destPane, destPath);
     } catch (e) {
       console.warn('paste fail:', e);
-      logActivity(`Lỗi ${actionText}`, `Chi tiết: ${e}`);
+      logActivity(`Lỗi ${mode === 'copy' ? 'Sao chép' : 'Di chuyển'}`, `Chi tiết: ${e}`);
     }
+  };
+
+  if (typeof document === 'undefined') {
+    await runPaste();
+    return;
+  }
+
+  const actionText = mode === 'copy' ? 'Sao chép' : 'Di chuyển';
+  const modal = new OperationModal(
+    'Xác nhận Paste',
+    `<p>Bạn có chắc muốn ${actionText} ${items.length} mục vào <br><strong>${destPath}</strong>?</p>`
+  );
+  modal.open();
+
+  modal.getElement().querySelector('.confirm')?.addEventListener('click', async () => {
+    modal.close();
+    await runPaste();
   });
 }

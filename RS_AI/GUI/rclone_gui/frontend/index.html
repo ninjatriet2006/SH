@@ -31,6 +31,7 @@ Các module tương tác: /src/main.ts, /themes/tokens.css, /themes/style.css
           <button class="nav-tab" data-view="mounts" data-lang-id="nav_mounts">🖥️ Mounts</button>
           <button class="nav-tab" data-view="activity" data-lang-id="nav_activity">🕘 Nhật ký</button>
           <button class="nav-tab" data-view="debug" data-lang-id="nav_debug">🐞 Debug</button>
+          <button class="nav-tab" data-view="settings" data-lang-id="nav_settings">⚙ Settings</button>
         </nav>
       </header>
 
@@ -119,6 +120,18 @@ Các module tương tác: /src/main.ts, /themes/tokens.css, /themes/style.css
 
           <main id="view-debug" class="app-view" style="display: none; padding: 10px; flex-direction: column;">
             <!-- Render DebugView here -->
+          </main>
+          <main id="view-settings" class="app-view settings-view" style="display: none;">
+            <section class="settings-card">
+              <h2 data-lang-id="settings_title">Appearance</h2>
+              <label for="settings-language" data-lang-id="settings_language">Language</label>
+              <select id="settings-language"></select>
+              <label for="settings-theme" data-lang-id="settings_theme">Theme</label>
+              <select id="settings-theme"></select>
+              <label for="settings-font" data-lang-id="settings_font">Font</label>
+              <select id="settings-font"></select>
+              <p data-lang-id="settings_resource_hint">Add local resources to langs/, themes/, or fonts/ and restart to refresh the lists.</p>
+            </section>
           </main>
         </div>
       </div>

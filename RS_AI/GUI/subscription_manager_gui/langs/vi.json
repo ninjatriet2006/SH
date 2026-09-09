@@ -109,7 +109,12 @@
     "timezone": "Múi giờ hiển thị",
     "save_success": "Đã lưu cài đặt thành công!",
     "lbl_lang": "Chọn ngôn ngữ",
-    "lbl_tz": "Chọn múi giờ"
+    "lbl_tz": "Chọn múi giờ",
+    "backup_title": "Sao lưu dữ liệu",
+    "backup_hint": "Xuất dữ liệu và cài đặt hiện tại ra file JSON tại vị trí bạn chọn.",
+    "backup_action": "Xuất bản sao lưu...",
+    "backup_success": "Đã xuất bản sao lưu thành công!",
+    "backup_error": "Không thể xuất bản sao lưu"
   },
   "sub_modal": {
     "add_title": "Gán Gói Dịch Vụ",

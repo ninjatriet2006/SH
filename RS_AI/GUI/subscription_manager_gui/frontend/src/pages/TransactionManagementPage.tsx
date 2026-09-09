@@ -211,8 +211,9 @@ export function TransactionManagementPage() {
 
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', background: 'var(--bg-panel)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border)', justifyContent: 'flex-end' }}>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{t('common.show')}</span>
+                    <label htmlFor="transactions-per-page" style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{t('common.show')}</label>
                     <select 
+                        id="transactions-per-page"
                         className="input-field"
                         style={{ width: '80px' }}
                         value={itemsPerPage}

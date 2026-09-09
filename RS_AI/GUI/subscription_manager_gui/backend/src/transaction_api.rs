@@ -36,13 +36,13 @@ pub fn delete_transaction(id: String) -> Result<(), String> {
     let _store_guard = crate::storage::lock_store();
     let mut data = load_data();
     let initial_len = data.transactions.len();
-    
+
     data.transactions.retain(|t| t.id != id);
-    
+
     if data.transactions.len() == initial_len {
         return Err(format!("Không tìm thấy giao dịch với ID: {}", id));
     }
-    
+
     save_data(&data)?;
     Ok(())
 }

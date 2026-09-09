@@ -28,12 +28,12 @@ fn api_sources() -> Vec<(String, String)> {
             .and_then(|n| n.to_str())
             .unwrap_or_default()
             .to_string();
-        if name.ends_with("_api.rs") {
+        if name.ends_with("_api.rs") || name == "storage.rs" {
             let content = std::fs::read_to_string(&path).expect("đọc file api");
             out.push((name, content));
         }
     }
-    assert!(!out.is_empty(), "không tìm thấy file *_api.rs nào");
+    assert!(!out.is_empty(), "không tìm thấy file chứa Tauri command nào");
     out
 }
 
@@ -143,10 +143,7 @@ fn rust_commands() -> HashMap<String, HashSet<String>> {
 
 /// Đọc các key mà bridge TS gửi kèm mỗi `invoke('cmd', { ... })`.
 fn bridge_calls() -> Vec<(String, String, Vec<String>)> {
-    let bridge = crate_dir()
-        .parent()
-        .expect("thư mục app")
-        .join("bridge");
+    let bridge = crate_dir().parent().expect("thư mục app").join("bridge");
     let mut calls = Vec::new();
     for entry in std::fs::read_dir(&bridge).expect("đọc bridge/") {
         let path = entry.expect("entry").path();
@@ -178,7 +175,9 @@ fn collect_invokes(file: &str, src: &str, out: &mut Vec<(String, String, Vec<Str
             continue;
         }
         let name_start = start + quote_rel + 1;
-        let Some(name_len) = src[name_start..].find('\'') else { break };
+        let Some(name_len) = src[name_start..].find('\'') else {
+            break;
+        };
         let cmd = src[name_start..name_start + name_len].to_string();
         // Tên command hợp lệ: snake_case ascii.
         if cmd.is_empty() || !cmd.chars().all(|c| c.is_ascii_lowercase() || c == '_') {
@@ -272,7 +271,7 @@ fn moi_command_khai_bao_snake_case() {
     // người sửa nhìn lại xem command mới đã đăng ký và đúng quy ước chưa.
     assert_eq!(
         cmds.len(),
-        30,
+        31,
         "số command thay đổi ({}) — cập nhật test nếu thêm/bớt command có chủ đích",
         cmds.len()
     );
@@ -285,9 +284,7 @@ fn key_bridge_gui_khop_tham_so_rust() {
 
     for (file, cmd, keys) in bridge_calls() {
         let Some(params) = cmds.get(&cmd) else {
-            loi.push(format!(
-                "{file}: gọi `{cmd}` nhưng không có command Rust nào tên vậy"
-            ));
+            loi.push(format!("{file}: gọi `{cmd}` nhưng không có command Rust nào tên vậy"));
             continue;
         };
         for key in keys {
@@ -341,9 +338,9 @@ fn command_dang_ky_day_du_trong_handler() {
         .lines()
         .filter_map(|l| {
             let l = l.trim().trim_end_matches(',');
-            l.rsplit("::").next().filter(|s| {
-                !s.is_empty() && s.chars().all(|c| c.is_ascii_lowercase() || c == '_')
-            })
+            l.rsplit("::")
+                .next()
+                .filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_lowercase() || c == '_'))
         })
         .map(str::to_string)
         .collect();

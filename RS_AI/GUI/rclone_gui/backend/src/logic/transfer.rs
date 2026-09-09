@@ -48,23 +48,21 @@ pub async fn run_transfer_task(
         let mut error_msgs = Vec::new();
         if let Some(stderr) = child.stderr.take() {
             let reader = BufReader::new(stderr);
-            for line in reader.lines() {
-                if let Ok(line_str) = line {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line_str) {
-                        if let Some(stats) = json.get("stats") {
-                            if let Some(id) = task_id {
-                                let payload = serde_json::json!({
-                                    "id": id,
-                                    "stats": stats
-                                });
-                                let _ = app_handle.emit("transfer_progress", payload);
-                            }
+            for line_str in reader.lines().map_while(Result::ok) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line_str) {
+                    if let Some(stats) = json.get("stats") {
+                        if let Some(id) = task_id {
+                            let payload = serde_json::json!({
+                                "id": id,
+                                "stats": stats
+                            });
+                            let _ = app_handle.emit("transfer_progress", payload);
                         }
-                        if let Some(level) = json.get("level").and_then(|v| v.as_str()) {
-                            if level == "error" {
-                                if let Some(msg) = json.get("msg").and_then(|v| v.as_str()) {
-                                    error_msgs.push(msg.to_string());
-                                }
+                    }
+                    if let Some(level) = json.get("level").and_then(|v| v.as_str()) {
+                        if level == "error" {
+                            if let Some(msg) = json.get("msg").and_then(|v| v.as_str()) {
+                                error_msgs.push(msg.to_string());
                             }
                         }
                     }

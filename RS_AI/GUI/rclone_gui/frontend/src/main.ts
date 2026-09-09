@@ -22,8 +22,11 @@ import '../../themes/style.css';
 // vì `import viLang from '../../langs/vi.json'` như trước. Cách cũ nhúng cứng
 // một file vào bundle nên: thêm/sửa bản dịch phải build lại, `langs/` trong
 // release chỉ là file chết, và app không chạy được với bộ ngôn ngữ không có `vi`.
-import { resolveLanguage, applyLanguage } from './features/i18n';
-import { appState } from './store';
+import { resolveLanguage, applyLanguage, observeLanguage } from './features/i18n';
+import { appState, normalizeSettings, saveSettings } from './store';
+import { getAvailableFonts, getAvailableThemes, type FontInfo, type ThemeInfo } from '../../bridge/appearance_api';
+import { getAvailableLangs } from '../../bridge/lang_api';
+import { applyFont, applyTheme } from './features/appearance';
 
 let remotesManager: RemotesManager | null = null;
 let mountManager: MountManager | null = null;
@@ -46,9 +49,57 @@ function update_language_ui(root: HTMLElement = document.body) {
  * Hàm load ngôn ngữ. `preferred` để rỗng thì dùng file đầu tiên có thật.
  */
 async function loadLanguage(preferred: string | null = null) {
-  const { data } = await resolveLanguage(preferred);
+  const { code, data } = await resolveLanguage(preferred);
   currentLangData = data;
+  if (code) document.documentElement.lang = code;
   update_language_ui();
+}
+
+async function initSettings() {
+  const [languages, themes, fonts] = await Promise.all([
+    getAvailableLangs(),
+    getAvailableThemes(),
+    getAvailableFonts(),
+  ]);
+  const settings = appState.settings!;
+  const normalized = normalizeSettings(
+    settings,
+    languages,
+    themes.map((item) => item.id),
+    fonts.map((item) => item.id),
+  );
+  const theme = themes.find((item) => item.id === settings.theme) ?? themes[0];
+  const font = fonts.find((item) => item.id === settings.font) ?? fonts[0];
+  if (theme) applyTheme(theme);
+  if (font) applyFont(font);
+  if (normalized) saveSettings();
+
+  const fill = (id: string, values: Array<{ id: string; name: string }>, selected: string) => {
+    const select = document.getElementById(id) as HTMLSelectElement | null;
+    if (!select) return;
+    select.replaceChildren(...values.map(({ id, name }) => new Option(name, id)));
+    select.value = values.some((item) => item.id === selected) ? selected : values[0]?.id ?? '';
+  };
+  fill('settings-language', languages.map((id) => ({ id, name: id })), settings.language);
+  fill('settings-theme', themes, theme?.id ?? '');
+  fill('settings-font', fonts, font?.id ?? '');
+
+  const bind = <T extends ThemeInfo | FontInfo>(id: string, values: T[], apply: (value: T) => void, key: 'theme' | 'font') => {
+    document.getElementById(id)?.addEventListener('change', (event) => {
+      const value = values.find((item) => item.id === (event.target as HTMLSelectElement).value);
+      if (!value) return;
+      settings[key] = value.id;
+      apply(value);
+      saveSettings();
+    });
+  };
+  bind('settings-theme', themes, applyTheme, 'theme');
+  bind('settings-font', fonts, applyFont, 'font');
+  document.getElementById('settings-language')?.addEventListener('change', async (event) => {
+    settings.language = (event.target as HTMLSelectElement).value;
+    saveSettings();
+    await loadLanguage(settings.language);
+  });
 }
 
 /**
@@ -183,6 +234,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Ngôn ngữ đã lưu (rỗng = chưa chọn) → `resolveLanguage` rớt về file đầu
   // tiên thực có trong `langs/`. Không truyền mã cứng ở đây.
   await loadLanguage(appState.settings?.language || null);
+  observeLanguage(() => currentLangData);
+  await initSettings();
   setupEvents();
   new TransferDrawer();
   console.log('rcloneGUI khởi tạo thành công!');

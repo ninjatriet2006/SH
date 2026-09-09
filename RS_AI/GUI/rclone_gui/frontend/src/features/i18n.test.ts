@@ -9,7 +9,7 @@ Trách nhiệm: Kiểm tra thứ tự ưu tiên khi chọn ngôn ngữ, và hàn
 */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { resolveLanguage, applyLanguage, type LangSource } from './i18n';
+import { resolveLanguage, applyLanguage, observeLanguage, type LangSource } from './i18n';
 
 /** Giả lập thư mục `langs/`: khoá là mã ngôn ngữ, giá trị là nội dung file. */
 function fakeLangs(files: Record<string, Record<string, string>>): LangSource {
@@ -124,5 +124,16 @@ describe('applyLanguage', () => {
   it('từ điển rỗng thì không xoá trắng UI', () => {
     applyLanguage({});
     expect(document.querySelector('[data-lang-id="app_title"]')?.textContent).toBe('RAW_TITLE');
+  });
+});
+
+describe('observeLanguage', () => {
+  it('dịch DOM được tạo sau khi khởi tạo', async () => {
+    document.body.innerHTML = '<div id="host"></div>';
+    const observer = observeLanguage(() => ({ late_label: 'Đã dịch' }));
+    document.getElementById('host')!.innerHTML = '<span data-lang-id="late_label">RAW</span>';
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.querySelector('[data-lang-id="late_label"]')?.textContent).toBe('Đã dịch');
+    observer.disconnect();
   });
 });

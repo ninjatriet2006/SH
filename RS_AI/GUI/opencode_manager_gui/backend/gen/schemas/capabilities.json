@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"enables the default permissions","local":true,"windows":["main"],"permissions":["core:default"]}}
+{"main":{"identifier":"main","description":"OpenCode Manager main window event permissions","local":true,"windows":["main"],"permissions":["core:event:allow-listen","core:event:allow-unlisten"]}}

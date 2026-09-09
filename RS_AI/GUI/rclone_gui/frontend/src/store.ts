@@ -35,6 +35,7 @@ export interface AppSettings {
   showHiddenFiles: boolean;
   language: string;
   theme: string;
+  font: string;
 }
 
 export interface AppState {
@@ -96,13 +97,34 @@ if (!appState.bookmarks) {
 }
 
 /** Giá trị mặc định cho cài đặt — dùng khi localStorage chưa có gì. */
-const DEFAULT_SETTINGS: AppSettings = {
+export const DEFAULT_SETTINGS: AppSettings = {
   showHiddenFiles: false,
   // Rỗng = "chưa chọn": để `resolveLanguage()` lấy file đầu tiên thực có trong
   // `langs/`. Không hardcode 'vi' vì bộ ngôn ngữ có thể không chứa vi.
   language: '',
-  theme: 'dark',
+  theme: 'default',
+  font: 'default',
 };
+
+/** Chuẩn hóa các ID đã lưu theo đúng tài nguyên hiện có, dùng phần tử đầu làm fallback ổn định. */
+export function normalizeSettings(
+  settings: AppSettings,
+  languages: string[],
+  themes: string[],
+  fonts: string[],
+): boolean {
+  let changed = false;
+  const normalize = (key: 'language' | 'theme' | 'font', available: string[]) => {
+    if (available.length > 0 && !available.includes(settings[key])) {
+      settings[key] = available[0];
+      changed = true;
+    }
+  };
+  normalize('language', languages);
+  normalize('theme', themes);
+  normalize('font', fonts);
+  return changed;
+}
 
 // Khôi phục cài đặt. Trước đây `settings` không bao giờ được nạp lại nên
 // `showHiddenFiles` luôn rơi về giá trị mặc định ở nơi sử dụng.
@@ -174,4 +196,3 @@ export function saveSettings() {
   // Báo cho các pane biết để nạp lại danh sách file theo cài đặt mới.
   window.dispatchEvent(new Event('rclonegui-settings-changed'));
 }
-

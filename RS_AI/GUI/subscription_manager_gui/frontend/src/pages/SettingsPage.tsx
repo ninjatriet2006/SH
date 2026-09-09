@@ -8,9 +8,11 @@
 import React, { useState, useEffect } from 'react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTranslation } from '../utils/i18n';
-import { Settings as SettingsIcon, Globe, Clock, Save, Palette, Type } from 'lucide-react';
+import { Settings as SettingsIcon, Globe, Clock, Save, Palette, Type, Archive } from 'lucide-react';
 import { useThemeStore } from '../store/useThemeStore';
 import { useFontStore } from '../store/useFontStore';
+import { save } from '@tauri-apps/plugin-dialog';
+import { exportBackup } from '../../../bridge/settings_bridge';
 
 /// Nhãn ngôn ngữ trong dropdown. Dùng `Intl.DisplayNames` để mọi mã ngôn ngữ
 /// thả vào `langs/` đều có tên đọc được, thay vì bảng if/else chỉ biết vi/en.
@@ -36,6 +38,7 @@ export const SettingsPage: React.FC = () => {
     const [localFont, setLocalFont] = useState(font_id);
     const [message, setMessage] = useState('');
     const [isSaving, setIsSaving] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
 
     // Đồng bộ form theo store khi `initSettings()` async hoàn tất — trước đây
     // local state chỉ init một lần nên luôn hiển thị giá trị mặc định cũ.
@@ -73,6 +76,24 @@ export const SettingsPage: React.FC = () => {
         return () => clearTimeout(timer);
     };
 
+    const handleExportBackup = async () => {
+        const destination = await save({
+            defaultPath: `subscription-manager-backup-${new Date().toISOString().slice(0, 10)}.json`,
+            filters: [{ name: 'JSON backup', extensions: ['json'] }],
+        });
+        if (!destination) return;
+
+        setIsExporting(true);
+        try {
+            await exportBackup(destination);
+            setMessage(t('settings.backup_success'));
+        } catch (err) {
+            alert(`${t('settings.backup_error')}: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     return (
         <div className="animate-fade-in" style={{ maxWidth: '600px', margin: '0 auto' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '2rem' }}>
@@ -89,11 +110,12 @@ export const SettingsPage: React.FC = () => {
             <div style={{ background: 'var(--bg-panel)', padding: '2rem', borderRadius: '12px', border: '1px solid var(--border)' }}>
                 {/* Chọn Ngôn ngữ */}
                 <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <label htmlFor="settings-language" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <Globe size={18} /> {t('settings.lbl_lang')}
                     </label>
                     <select 
-                        className="form-control" 
+                        id="settings-language"
+                        className="input-field"
                         value={localLang}
                         onChange={(e) => setLocalLang(e.target.value)}
                     >
@@ -108,11 +130,12 @@ export const SettingsPage: React.FC = () => {
 
                 {/* Chọn Múi giờ */}
                 <div className="form-group" style={{ marginBottom: '2rem' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <label htmlFor="settings-timezone" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <Clock size={18} /> {t('settings.lbl_tz')}
                     </label>
                     <select 
-                        className="form-control" 
+                        id="settings-timezone"
+                        className="input-field"
                         value={localTz}
                         onChange={(e) => setLocalTz(e.target.value)}
                     >
@@ -124,11 +147,12 @@ export const SettingsPage: React.FC = () => {
 
                 {/* Chọn Theme */}
                 <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <label htmlFor="settings-theme" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <Palette size={18} /> Giao diện (Theme)
                     </label>
                     <select 
-                        className="form-control" 
+                        id="settings-theme"
+                        className="input-field"
                         value={localTheme}
                         onChange={(e) => {
                             setLocalTheme(e.target.value);
@@ -145,11 +169,12 @@ export const SettingsPage: React.FC = () => {
 
                 {/* Chọn Font */}
                 <div className="form-group" style={{ marginBottom: '2rem' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <label htmlFor="settings-font" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <Type size={18} /> Kiểu chữ (Typography)
                     </label>
                     <select 
-                        className="form-control" 
+                        id="settings-font"
+                        className="input-field"
                         value={localFont}
                         onChange={(e) => {
                             setLocalFont(e.target.value);
@@ -176,6 +201,17 @@ export const SettingsPage: React.FC = () => {
                     <Save size={20} />
                     {isSaving ? t('common.loading') : t('common.save')}
                 </button>
+                <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border)' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                        <Archive size={18} /> {t('settings.backup_title')}
+                    </label>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: '0 0 1rem' }}>
+                        {t('settings.backup_hint')}
+                    </p>
+                    <button className="btn" onClick={handleExportBackup} disabled={isExporting}>
+                        <Archive size={18} /> {isExporting ? t('common.loading') : t('settings.backup_action')}
+                    </button>
+                </div>
             </div>
         </div>
     );

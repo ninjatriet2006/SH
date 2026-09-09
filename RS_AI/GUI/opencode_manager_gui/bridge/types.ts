@@ -52,6 +52,8 @@ export interface SaveResult {
     saved_id: string | null;
     duplicate_of: DuplicateInfo | null;
     normalized_base_url: string | null;
+    /** Adapter Auto đã probe và lưu; null nếu người dùng tự chọn. */
+    detected_npm: string | null;
 }
 
 /** Một model sau khi quét từ provider. */
@@ -104,6 +106,14 @@ export interface ConfigPaths {
 export interface GuiSettings {
     language: string;
     theme_id: string;
+    font_id: string;
+}
+
+export interface FontInfo {
+    id: string;
+    name: string;
+    family: string;
+    src_path: string | null;
 }
 
 export interface Theme {
@@ -267,35 +277,10 @@ export interface CkeyKeyView {
     key_masked: string;
 }
 
-/**
- * Model + đầy đủ bảng giá: in/out/cache (1M token) + giá mỗi request.
- * Catalogue TOÀN CỤC — giống nhau với mọi tài khoản CKey.
- * `public_name` có dạng "provider/model" nên tách sẵn hai cột.
- */
-export interface CkeyModelView {
-    /** Id đầy đủ (vd "provider/GPT Demo"). */
-    public_name: string;
-    /** Phần provider của public_name; rỗng nếu không có dạng a/b. */
-    provider: string;
-    /** Phần model của public_name. */
-    model: string;
-    display_name: string;
-    input_price_per_million_vnd: number;
-    output_price_per_million_vnd: number;
-    cache_read_price_per_million_vnd: number;
-    cache_write_price_per_million_vnd: number;
-    price_per_request_vnd: number;
-    min_charge_per_request_vnd: number;
-    cache_enabled: boolean;
-    context_tokens_limit: number;
-    max_output_tokens_limit: number;
-}
-
 export interface CkeyDashboard {
     profile: CkeyAccountInfoView | null;
     stats: CkeyStatsView | null;
     keys: CkeyKeyView[];
-    models: CkeyModelView[];
     errors: string[];
 }
 

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Categories=
+Comment=A Tauri App for rclone
+Exec=rclone_gui
+StartupWMClass=rclone_gui
+Icon=rclone_gui
+Name=rclone_gui
+Terminal=false
+Type=Application

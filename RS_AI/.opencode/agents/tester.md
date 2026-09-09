@@ -1,7 +1,7 @@
 ---
 description: Tester - Chạy test, viết test mới, verify build và báo cáo lỗi chi tiết.
 mode: subagent
-model: opencode/deepseek-v4-flash-free
+model: cBAjYv/gpt-5.6-sol
 temperature: 0.1
 permission:
   edit: allow

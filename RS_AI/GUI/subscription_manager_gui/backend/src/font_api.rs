@@ -5,10 +5,9 @@
 - Tương tác: Gọi bởi Frontend qua Tauri Invoke.
 */
 
+use crate::models::FontInfo;
 use std::fs;
 use std::path::PathBuf;
-use crate::models::FontInfo;
-
 
 // Lấy đường dẫn tới thư mục fonts (chung rule resource_dir).
 fn get_fonts_path() -> PathBuf {
@@ -19,14 +18,12 @@ fn get_fonts_path() -> PathBuf {
     base_dir
 }
 
-
-
 // Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
 #[tauri::command(rename_all = "snake_case")]
 pub fn get_available_fonts() -> Result<Vec<FontInfo>, String> {
     let mut fonts = Vec::new();
     let fonts_dir = get_fonts_path();
-    
+
     // Luôn luôn có một font Hệ thống mặc định đứng đầu danh sách
     fonts.push(FontInfo {
         id: "default".to_string(),
@@ -36,9 +33,9 @@ pub fn get_available_fonts() -> Result<Vec<FontInfo>, String> {
         is_local: false,
         src_url: None,
     });
-    
+
     // 1. Loại bỏ Web Fonts theo yêu cầu của user, chỉ dùng Local Fonts.
-    
+
     // 2. Đọc Local Fonts trực tiếp từ thư mục `fonts`
     if let Ok(entries) = fs::read_dir(&fonts_dir) {
         for entry in entries.flatten() {
@@ -49,15 +46,19 @@ pub fn get_available_fonts() -> Result<Vec<FontInfo>, String> {
                         let ext = ext.to_lowercase();
                         if ext == "ttf" || ext == "otf" || ext == "woff" || ext == "woff2" {
                             let file_name = file_path.file_stem().and_then(|n| n.to_str()).unwrap_or("Unknown");
-                            let font_id = format!("local_{}", file_name.replace(" ", "_").to_lowercase());
-                            
+                            let font_id = if file_name == "DejaVuSans" {
+                                "dejavusans".to_string()
+                            } else {
+                                format!("local_{}", file_name.replace(" ", "_").to_lowercase())
+                            };
+
                             // Trả về URI nội bộ để Frontend dùng @font-face.
                             // Path tuyệt đối là CỐ Ý: frontend dùng convertFileSrc
                             // để webview đọc font local; app desktop chạy local nên
                             // không phải leak qua mạng. Đừng đổi thành tương đối
                             // (webview không resolve được).
                             let src_path = file_path.to_string_lossy().to_string();
-                            
+
                             fonts.push(FontInfo {
                                 id: font_id,
                                 name: format!("{} (Local)", file_name),
@@ -72,6 +73,8 @@ pub fn get_available_fonts() -> Result<Vec<FontInfo>, String> {
             }
         }
     }
-    
+
+    fonts[1..].sort_by(|a, b| a.id.cmp(&b.id));
+
     Ok(fonts)
 }

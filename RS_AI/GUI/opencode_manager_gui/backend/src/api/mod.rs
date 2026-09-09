@@ -1,6 +1,7 @@
 pub mod arbiter;
 pub mod bulk;
 pub mod ckey;
+pub mod font;
 pub mod lang;
 pub mod models;
 pub mod provider;

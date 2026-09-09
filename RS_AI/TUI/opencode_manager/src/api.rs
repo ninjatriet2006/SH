@@ -2,6 +2,35 @@ use reqwest::Client;
 use serde::Deserialize;
 use std::time::Duration;
 
+/// AI SDK adapters OpenCode dùng cho custom provider. `Auto` ưu tiên Responses,
+/// rồi Chat Completions, cuối cùng Anthropic để chọn endpoint mới nhất nhận POST.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderProtocol {
+    Responses,
+    ChatCompletions,
+    Anthropic,
+}
+
+impl ProviderProtocol {
+    pub const AUTO_ORDER: [Self; 3] = [Self::Responses, Self::ChatCompletions, Self::Anthropic];
+
+    pub const fn npm(self) -> &'static str {
+        match self {
+            Self::Responses => "@ai-sdk/openai",
+            Self::ChatCompletions => "@ai-sdk/openai-compatible",
+            Self::Anthropic => "@ai-sdk/anthropic",
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Responses => "OpenAI Responses",
+            Self::ChatCompletions => "OpenAI Chat Completions",
+            Self::Anthropic => "Anthropic Messages",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum ApiStatus {
     Alive,
@@ -48,6 +77,12 @@ pub struct ApiClient {
     client: Client,
 }
 
+impl Default for ApiClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ApiClient {
     pub fn new() -> Self {
         ApiClient {
@@ -67,6 +102,136 @@ impl ApiClient {
         } else {
             format!("{}/models", clean_base)
         }
+    }
+
+    fn endpoint_url(base_url: &str, path: &str) -> String {
+        let clean_base = crate::config::normalize_base_url(base_url);
+        let clean_base = clean_base.trim_end_matches('/');
+        if clean_base.contains("opengateway.gitlawb.com") {
+            format!("{clean_base}/openai/{path}")
+        } else {
+            format!("{clean_base}/{path}")
+        }
+    }
+
+    fn probe_status_accepted(status: reqwest::StatusCode, body: &str) -> bool {
+        // Lỗi 4xx không đủ chứng minh protocol: proxy/WAF cũng có thể trả JSON
+        // cho path không tồn tại. Một số proxy còn bọc lỗi trong HTTP 200.
+        if !status.is_success() {
+            return false;
+        }
+        serde_json::from_str::<serde_json::Value>(body)
+            .ok()
+            .is_none_or(|value| value.get("error").is_none())
+    }
+
+    fn probe_model(models: &[String]) -> Option<&str> {
+        const NON_CHAT_MARKERS: [&str; 8] = [
+            "embed",
+            "rerank",
+            "image",
+            "whisper",
+            "audio",
+            "speech",
+            "tts",
+            "moderation",
+        ];
+        models
+            .iter()
+            .find(|model| {
+                let lower = model.to_ascii_lowercase();
+                !NON_CHAT_MARKERS.iter().any(|marker| lower.contains(marker))
+            })
+            .or_else(|| models.first())
+            .map(String::as_str)
+    }
+
+    async fn probe_protocol(
+        &self,
+        base_url: &str,
+        api_key: &str,
+        model: &str,
+        protocol: ProviderProtocol,
+    ) -> Result<(), String> {
+        let (url, body, anthropic) = match protocol {
+            ProviderProtocol::Responses => (
+                Self::endpoint_url(base_url, "responses"),
+                serde_json::json!({"model": model, "input": "ping", "max_output_tokens": 1}),
+                false,
+            ),
+            ProviderProtocol::ChatCompletions => (
+                Self::endpoint_url(base_url, "chat/completions"),
+                serde_json::json!({"model": model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1}),
+                false,
+            ),
+            ProviderProtocol::Anthropic => (
+                Self::endpoint_url(base_url, "messages"),
+                serde_json::json!({"model": model, "max_tokens": 1, "messages": [{"role": "user", "content": "ping"}]}),
+                true,
+            ),
+        };
+
+        let mut request = self.client.post(url).json(&body);
+        if anthropic {
+            request = request
+                .header("x-api-key", api_key)
+                .header("anthropic-version", "2023-06-01");
+        } else {
+            request = request.header("Authorization", format!("Bearer {api_key}"));
+        }
+        let response = request.send().await.map_err(|e| {
+            if e.is_timeout() {
+                "Kết nối quá hạn (Timeout)".to_string()
+            } else {
+                format!("Lỗi kết nối: {e}")
+            }
+        })?;
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+
+        // Chỉ lưu adapter khi probe thành công; mọi lỗi đều được đưa vào thông
+        // báo để người dùng chọn protocol thủ công thay vì đoán nhầm.
+        if Self::probe_status_accepted(status, &body) {
+            return Ok(());
+        }
+        let detail = body.lines().next().unwrap_or_default().trim();
+        Err(if detail.is_empty() {
+            format!("HTTP {status}")
+        } else {
+            format!("HTTP {status}: {detail}")
+        })
+    }
+
+    /// Thử endpoint POST thật, không chỉ `GET /models`: WAF có thể chặn riêng
+    /// `/chat/completions` như case JustWoker dù catalog vẫn trả 200.
+    pub async fn detect_protocol(&self, base_url: &str, api_key: &str) -> Result<ProviderProtocol, String> {
+        // Probe bằng model thật: không coi 404 là tương thích vì nó thường là
+        // path không tồn tại. GET /models từng sống ở case JustWoker, trong khi
+        // POST Chat bị Cloudflare 403, nên danh sách này phân biệt được hai lỗi.
+        let models = match self.fetch_models(base_url, api_key).await {
+            Ok(models) => models,
+            Err(bearer_error) => self
+                .fetch_models_with_header(base_url, "x-api-key", api_key)
+                .await
+                .map_err(|anthropic_error| {
+                    format!(
+                        "Không lấy được danh sách model bằng Bearer ({bearer_error}) hoặc x-api-key ({anthropic_error})"
+                    )
+                })?,
+        };
+        let model = Self::probe_model(&models)
+            .ok_or_else(|| "Provider không trả model nào để kiểm tra endpoint".to_string())?;
+        let mut errors = Vec::new();
+        for protocol in ProviderProtocol::AUTO_ORDER {
+            match self.probe_protocol(base_url, api_key, model, protocol).await {
+                Ok(()) => return Ok(protocol),
+                Err(error) => errors.push(format!("{} ({model}): {error}", protocol.label())),
+            }
+        }
+        Err(format!(
+            "Không tìm thấy endpoint POST tương thích. {}",
+            errors.join(" | ")
+        ))
     }
 
     pub async fn test_api(&self, base_url: &str, api_key: &str) -> ApiStatus {
@@ -160,12 +325,22 @@ impl ApiClient {
     }
 
     pub async fn fetch_models(&self, base_url: &str, api_key: &str) -> Result<Vec<String>, String> {
+        self.fetch_models_with_header(base_url, "Authorization", &format!("Bearer {api_key}"))
+            .await
+    }
+
+    async fn fetch_models_with_header(
+        &self,
+        base_url: &str,
+        header_name: &str,
+        header_value: &str,
+    ) -> Result<Vec<String>, String> {
         let url = Self::get_models_url(base_url);
 
         let response = self
             .client
             .get(&url)
-            .header("Authorization", format!("Bearer {}", api_key))
+            .header(header_name, header_value)
             .send()
             .await
             .map_err(|e| format!("Lỗi gọi API quét models: {}", e))?;
@@ -187,7 +362,7 @@ impl ApiClient {
                 let retry_response = self
                     .client
                     .get(&retry_url)
-                    .header("Authorization", format!("Bearer {}", api_key))
+                    .header(header_name, header_value)
                     .send()
                     .await
                     .map_err(|e| format!("Lỗi gọi API fallback quét models: {}", e))?;
@@ -219,5 +394,49 @@ impl ApiClient {
             serde_json::from_str(&body_text).map_err(|e| format!("Lỗi parse JSON: {}", e))?;
 
         Ok(res.data.into_iter().map(|m| m.id).collect())
+    }
+}
+
+#[cfg(test)]
+mod protocol_tests {
+    use super::ApiClient;
+    use reqwest::StatusCode;
+
+    #[test]
+    fn endpoint_url_ho_tro_gitlawb() {
+        assert_eq!(
+            ApiClient::endpoint_url("https://opengateway.gitlawb.com/v1", "responses"),
+            "https://opengateway.gitlawb.com/v1/openai/responses"
+        );
+        assert_eq!(
+            ApiClient::endpoint_url("https://example.com/v1/chat/completions", "responses"),
+            "https://example.com/v1/responses"
+        );
+    }
+
+    #[test]
+    fn probe_chi_nhan_response_thanh_cong() {
+        assert!(ApiClient::probe_status_accepted(
+            StatusCode::OK,
+            r#"{"id":"response_1"}"#
+        ));
+        assert!(!ApiClient::probe_status_accepted(
+            StatusCode::OK,
+            r#"{"error":{"message":"blocked"}}"#
+        ));
+        assert!(!ApiClient::probe_status_accepted(StatusCode::BAD_REQUEST, ""));
+        assert!(!ApiClient::probe_status_accepted(StatusCode::UNPROCESSABLE_ENTITY, ""));
+        assert!(!ApiClient::probe_status_accepted(StatusCode::UNAUTHORIZED, ""));
+        assert!(!ApiClient::probe_status_accepted(StatusCode::NOT_FOUND, ""));
+    }
+
+    #[test]
+    fn probe_bo_qua_model_khong_phai_chat() {
+        let models = vec!["text-embedding-3-small".to_string(), "gpt-4.1-mini".to_string()];
+        assert_eq!(ApiClient::probe_model(&models), Some("gpt-4.1-mini"));
+
+        let only_embedding = vec!["embedding-v1".to_string()];
+        assert_eq!(ApiClient::probe_model(&only_embedding), Some("embedding-v1"));
+        assert_eq!(ApiClient::probe_model(&[]), None);
     }
 }

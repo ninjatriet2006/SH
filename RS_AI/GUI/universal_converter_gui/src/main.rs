@@ -1,6 +1,45 @@
 use eframe::egui;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
+
+const PREFS_KEY: &str = "preferences";
+
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+enum Language {
+    English,
+    Vietnamese,
+}
+
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+enum AppTheme {
+    System,
+    Light,
+    Dark,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct Preferences {
+    language: Language,
+    theme: AppTheme,
+    font: String,
+}
+
+impl Default for Preferences {
+    fn default() -> Self {
+        Self {
+            language: Language::Vietnamese,
+            theme: AppTheme::System,
+            font: "Default".into(),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct AvailableFont {
+    name: String,
+    path: PathBuf,
+}
 
 // ---------------------------------------------------------------------------
 // App state
@@ -9,6 +48,8 @@ use std::sync::mpsc;
 struct UniversalConverterApp {
     // navigation
     selected_tab: Tab,
+    preferences: Preferences,
+    available_fonts: Vec<AvailableFont>,
 
     // dependencies panel
     deps_status: String,
@@ -41,6 +82,7 @@ enum Tab {
     Dependencies,
     ClassifyFile,
     ScanDirectory,
+    Settings,
 }
 
 enum AsyncResult {
@@ -51,12 +93,19 @@ enum AsyncResult {
 }
 
 impl UniversalConverterApp {
-    fn new() -> Self {
+    fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let (tx, rx) = mpsc::channel();
-        UniversalConverterApp {
+        let preferences = cc
+            .storage
+            .and_then(|storage| eframe::get_value(storage, PREFS_KEY))
+            .unwrap_or_default();
+        let available_fonts = available_fonts();
+        let mut app = UniversalConverterApp {
             tx,
             rx,
             selected_tab: Tab::default(),
+            preferences,
+            available_fonts,
             deps_status: String::new(),
             deps_result: String::new(),
             deps_is_ok: None,
@@ -68,7 +117,14 @@ impl UniversalConverterApp {
             scan_result: String::new(),
             scan_count: String::new(),
             log: Vec::new(),
+        };
+        if app.preferences.font != "Default"
+            && !app.available_fonts.iter().any(|font| font.name == app.preferences.font)
+        {
+            app.preferences.font = "Default".into();
         }
+        app.apply_preferences(&cc.egui_ctx);
+        app
     }
 }
 
@@ -77,12 +133,7 @@ impl UniversalConverterApp {
 // (egui mặc định thiếu glyph Latin Extended + một số emoji/symbol)
 // ---------------------------------------------------------------------------
 
-fn load_font(
-    fonts: &mut egui::FontDefinitions,
-    name: &str,
-    candidates: &[&str],
-    family: egui::FontFamily,
-) {
+fn load_font(fonts: &mut egui::FontDefinitions, name: &str, candidates: &[&str], family: egui::FontFamily) {
     // Load ALL existing fonts (fallback chain tích lũy: font sau bù glyph font trước)
     for (i, path) in candidates.iter().enumerate() {
         if std::path::Path::new(path).exists() {
@@ -100,18 +151,57 @@ fn load_font(
     }
 }
 
-fn setup_fonts(ctx: &egui::Context) {
+fn font_candidates() -> &'static [(&'static str, &'static str)] {
+    &[
+        ("Noto Sans", "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"),
+        ("DejaVu Sans", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        (
+            "Liberation Sans",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        ),
+        ("Arial Unicode", "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"),
+        ("Helvetica", "/System/Library/Fonts/Helvetica.ttc"),
+        ("Segoe UI", "C:\\Windows\\Fonts\\segoeui.ttf"),
+        ("Arial", "C:\\Windows\\Fonts\\arial.ttf"),
+    ]
+}
+
+fn available_fonts() -> Vec<AvailableFont> {
+    font_candidates()
+        .iter()
+        .filter(|(_, path)| Path::new(path).is_file())
+        .map(|(name, path)| AvailableFont {
+            name: (*name).into(),
+            path: PathBuf::from(path),
+        })
+        .collect()
+}
+
+fn setup_fonts(ctx: &egui::Context, selected: Option<&AvailableFont>) {
     let mut fonts = egui::FontDefinitions::default();
 
+    if let Some(font) = selected {
+        if let Ok(bytes) = std::fs::read(&font.path) {
+            let name = "selected_font".to_owned();
+            fonts
+                .font_data
+                .insert(name.clone(), std::sync::Arc::new(egui::FontData::from_owned(bytes)));
+            fonts
+                .families
+                .get_mut(&egui::FontFamily::Proportional)
+                .unwrap()
+                .insert(0, name);
+        }
+    }
     load_font(
         &mut fonts,
         "sans_fallback",
         &[
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",                 // Linux
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", // Linux
             "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", // Linux alt
-            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",            // macOS
-            "C:\\Windows\\Fonts\\segoeui.ttf",                                 // Windows
-            "C:\\Windows\\Fonts\\arial.ttf",                                   // Windows alt
+            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf", // macOS
+            "C:\\Windows\\Fonts\\segoeui.ttf",                 // Windows
+            "C:\\Windows\\Fonts\\arial.ttf",                   // Windows alt
         ],
         egui::FontFamily::Proportional,
     );
@@ -119,11 +209,11 @@ fn setup_fonts(ctx: &egui::Context) {
         &mut fonts,
         "mono_fallback",
         &[
-            "/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf",         // Linux (đủ tiếng Việt)
-            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",             // Linux alt
+            "/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf", // Linux (đủ tiếng Việt)
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",     // Linux alt
             "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf", // Linux alt 2
-            "/System/Library/Fonts/Menlo.ttc",                                 // macOS
-            "C:\\Windows\\Fonts\\consola.ttf",                                 // Windows
+            "/System/Library/Fonts/Menlo.ttc",                         // macOS
+            "C:\\Windows\\Fonts\\consola.ttf",                         // Windows
         ],
         egui::FontFamily::Monospace,
     );
@@ -158,10 +248,7 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "universal_converter_gui",
         options,
-        Box::new(|cc| {
-            setup_fonts(&cc.egui_ctx);
-            Ok(Box::new(UniversalConverterApp::new()))
-        }),
+        Box::new(|cc| Ok(Box::new(UniversalConverterApp::new(cc)))),
     )
 }
 
@@ -179,7 +266,10 @@ impl eframe::App for UniversalConverterApp {
             ui.horizontal(|ui| {
                 ui.heading("Universal Converter");
                 ui.separator();
-                ui.label("Chuyển đổi media, tài liệu và archive định dạng phổ biến");
+                ui.label(self.tr(
+                    "Convert popular media, document, and archive formats",
+                    "Chuyển đổi media, tài liệu và archive định dạng phổ biến",
+                ));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label("v0.1.0");
                 });
@@ -191,26 +281,29 @@ impl eframe::App for UniversalConverterApp {
             .resizable(false)
             .default_width(170.0)
             .show(ctx, |ui| {
+                let classify_label = self.tr("📄 Classify File", "📄 Phân loại file");
+                let scan_label = self.tr("📁 Scan Directory", "📁 Quét thư mục");
+                let settings_label = self.tr("⚙ Settings", "⚙ Cài đặt");
                 ui.vertical_centered(|ui| {
-                    ui.heading("Chức năng");
+                    ui.heading(self.tr("Features", "Chức năng"));
                 });
                 ui.separator();
                 ui.add_space(4.0);
 
                 ui.selectable_value(&mut self.selected_tab, Tab::Dashboard, "🏠 Dashboard");
                 ui.selectable_value(&mut self.selected_tab, Tab::Dependencies, "🔧 Dependencies");
-                ui.selectable_value(&mut self.selected_tab, Tab::ClassifyFile, "📄 Classify File");
-                ui.selectable_value(&mut self.selected_tab, Tab::ScanDirectory, "📁 Scan Directory");
+                ui.selectable_value(&mut self.selected_tab, Tab::ClassifyFile, classify_label);
+                ui.selectable_value(&mut self.selected_tab, Tab::ScanDirectory, scan_label);
+                ui.selectable_value(&mut self.selected_tab, Tab::Settings, settings_label);
             });
 
         // ── Central panel ──────────────────────────────────────────────────
-        egui::CentralPanel::default().show(ctx, |ui| {
-            match self.selected_tab {
-                Tab::Dashboard => self.ui_dashboard(ui),
-                Tab::Dependencies => self.ui_dependencies(ui),
-                Tab::ClassifyFile => self.ui_classify_file(ui),
-                Tab::ScanDirectory => self.ui_scan_directory(ui),
-            }
+        egui::CentralPanel::default().show(ctx, |ui| match self.selected_tab {
+            Tab::Dashboard => self.ui_dashboard(ui),
+            Tab::Dependencies => self.ui_dependencies(ui),
+            Tab::ClassifyFile => self.ui_classify_file(ui),
+            Tab::ScanDirectory => self.ui_scan_directory(ui),
+            Tab::Settings => self.ui_settings(ui),
         });
 
         // ── Bottom log ─────────────────────────────────────────────────────
@@ -219,19 +312,21 @@ impl eframe::App for UniversalConverterApp {
             .default_height(80.0)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label("Log:");
-                    if ui.button("Clear").clicked() {
+                    ui.label(self.tr("Log:", "Nhật ký:"));
+                    if ui.button(self.tr("Clear", "Xóa")).clicked() {
                         self.log.clear();
                     }
                 });
-                egui::ScrollArea::vertical()
-                    .stick_to_bottom(true)
-                    .show(ui, |ui| {
-                        for line in &self.log {
-                            ui.monospace(line);
-                        }
-                    });
+                egui::ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
+                    for line in &self.log {
+                        ui.monospace(line);
+                    }
+                });
             });
+    }
+
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, PREFS_KEY, &self.preferences);
     }
 }
 
@@ -240,6 +335,26 @@ impl eframe::App for UniversalConverterApp {
 // ---------------------------------------------------------------------------
 
 impl UniversalConverterApp {
+    fn tr<'a>(&self, en: &'a str, vi: &'a str) -> &'a str {
+        match self.preferences.language {
+            Language::English => en,
+            Language::Vietnamese => vi,
+        }
+    }
+
+    fn apply_preferences(&self, ctx: &egui::Context) {
+        ctx.set_theme(match self.preferences.theme {
+            AppTheme::System => egui::ThemePreference::System,
+            AppTheme::Light => egui::ThemePreference::Light,
+            AppTheme::Dark => egui::ThemePreference::Dark,
+        });
+        let selected = self
+            .available_fonts
+            .iter()
+            .find(|font| font.name == self.preferences.font);
+        setup_fonts(ctx, selected);
+    }
+
     fn drain_async_results(&mut self) {
         while let Ok(result) = self.rx.try_recv() {
             match result {
@@ -280,7 +395,10 @@ impl UniversalConverterApp {
         ui.separator();
         ui.add_space(4.0);
 
-        ui.label("Công cụ chuyển đổi media (video/audio/image), tài liệu và archive.");
+        ui.label(self.tr(
+            "Convert media (video/audio/image), documents, and archives.",
+            "Công cụ chuyển đổi media (video/audio/image), tài liệu và archive.",
+        ));
         ui.add_space(12.0);
 
         egui::Grid::new("dashboard_grid")
@@ -303,7 +421,10 @@ impl UniversalConverterApp {
         ui.add_space(12.0);
         ui.separator();
         ui.add_space(4.0);
-        ui.label("👉 Chọn tab bên trái để thao tác.");
+        ui.label(self.tr(
+            "👉 Select a tab on the left to begin.",
+            "👉 Chọn tab bên trái để thao tác.",
+        ));
     }
 
     // -----------------------------------------------------------------------
@@ -316,39 +437,40 @@ impl UniversalConverterApp {
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {
-            if ui.button("🔧 Check Dependencies").clicked() {
+            if ui
+                .button(self.tr("🔧 Check Dependencies", "🔧 Kiểm tra dependencies"))
+                .clicked()
+            {
                 self.check_dependencies(ui.ctx().clone());
             }
             ui.label(&self.deps_status);
         });
 
         ui.add_space(8.0);
-        egui::ScrollArea::vertical()
-            .max_height(400.0)
-            .show(ui, |ui| {
-                egui::Frame::default()
-                    .fill(egui::Color32::from_rgb(20, 22, 30))
-                    .corner_radius(4.0)
-                    .show(ui, |ui| {
-                        match self.deps_is_ok {
-                            Some(true) => {
-                                ui.colored_label(
-                                    egui::Color32::from_rgb(100, 200, 100),
-                                    "✓ OK — đủ dependencies",
-                                );
-                            }
-                            Some(false) => {
-                                ui.colored_label(
-                                    egui::Color32::from_rgb(220, 80, 80),
-                                    "✗ Thiếu dependencies",
-                                );
-                            }
-                            None => {}
+        egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
+            egui::Frame::default()
+                .fill(egui::Color32::from_rgb(20, 22, 30))
+                .corner_radius(4.0)
+                .show(ui, |ui| {
+                    match self.deps_is_ok {
+                        Some(true) => {
+                            ui.colored_label(
+                                egui::Color32::from_rgb(100, 200, 100),
+                                self.tr("✓ OK - all dependencies found", "✓ OK - đủ dependencies"),
+                            );
                         }
-                        ui.add_space(4.0);
-                        ui.monospace(&self.deps_result);
-                    });
-            });
+                        Some(false) => {
+                            ui.colored_label(
+                                egui::Color32::from_rgb(220, 80, 80),
+                                self.tr("✗ Missing dependencies", "✗ Thiếu dependencies"),
+                            );
+                        }
+                        None => {}
+                    }
+                    ui.add_space(4.0);
+                    ui.monospace(&self.deps_result);
+                });
+        });
     }
 
     fn check_dependencies(&mut self, ctx: egui::Context) {
@@ -358,14 +480,12 @@ impl UniversalConverterApp {
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            let result = rt.block_on(async {
-                universal_converter::system::dependencies::check_all().await
-            });
+            let result = rt.block_on(async { universal_converter::system::dependencies::check_all().await });
             drop(rt);
             match result {
                 Ok(deps) => {
-                    let text = serde_json::to_string_pretty(&deps)
-                        .unwrap_or_else(|e| format!("Serialize error: {}", e));
+                    let text =
+                        serde_json::to_string_pretty(&deps).unwrap_or_else(|e| format!("Serialize error: {}", e));
                     let _ = tx.send(AsyncResult::DependenciesChecked(text));
                 }
                 Err(e) => {
@@ -381,36 +501,32 @@ impl UniversalConverterApp {
     // -----------------------------------------------------------------------
 
     fn ui_classify_file(&mut self, ui: &mut egui::Ui) {
-        ui.heading("📄 Classify File");
+        ui.heading(self.tr("📄 Classify File", "📄 Phân loại file"));
         ui.separator();
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {
-            ui.label("Path:");
-            ui.add(
-                egui::TextEdit::singleline(&mut self.classify_path).desired_width(400.0),
-            );
+            ui.label(self.tr("Path:", "Đường dẫn:"));
+            ui.add(egui::TextEdit::singleline(&mut self.classify_path).desired_width(400.0));
         });
 
         ui.add_space(4.0);
         ui.horizontal(|ui| {
-            if ui.button("📄 Classify").clicked() {
+            if ui.button(self.tr("📄 Classify", "📄 Phân loại")).clicked() {
                 self.classify_file(ui.ctx().clone());
             }
             ui.label(&self.classify_status);
         });
 
         ui.add_space(8.0);
-        egui::ScrollArea::vertical()
-            .max_height(400.0)
-            .show(ui, |ui| {
-                egui::Frame::default()
-                    .fill(egui::Color32::from_rgb(20, 22, 30))
-                    .corner_radius(4.0)
-                    .show(ui, |ui| {
-                        ui.monospace(&self.classify_result);
-                    });
-            });
+        egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
+            egui::Frame::default()
+                .fill(egui::Color32::from_rgb(20, 22, 30))
+                .corner_radius(4.0)
+                .show(ui, |ui| {
+                    ui.monospace(&self.classify_result);
+                });
+        });
     }
 
     fn classify_file(&mut self, ctx: egui::Context) {
@@ -424,8 +540,7 @@ impl UniversalConverterApp {
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let sc = universal_converter::core::scanner::classify_file(PathBuf::from(path));
-            let text = serde_json::to_string_pretty(&sc)
-                .unwrap_or_else(|e| format!("Serialize error: {}", e));
+            let text = serde_json::to_string_pretty(&sc).unwrap_or_else(|e| format!("Serialize error: {}", e));
             let _ = tx.send(AsyncResult::FileClassified(text));
             ctx.request_repaint();
         });
@@ -436,18 +551,18 @@ impl UniversalConverterApp {
     // -----------------------------------------------------------------------
 
     fn ui_scan_directory(&mut self, ui: &mut egui::Ui) {
-        ui.heading("📁 Scan Directory");
+        ui.heading(self.tr("📁 Scan Directory", "📁 Quét thư mục"));
         ui.separator();
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {
-            ui.label("Path:");
+            ui.label(self.tr("Path:", "Đường dẫn:"));
             ui.add(egui::TextEdit::singleline(&mut self.scan_path).desired_width(400.0));
         });
 
         ui.add_space(4.0);
         ui.horizontal(|ui| {
-            if ui.button("📁 Scan").clicked() {
+            if ui.button(self.tr("📁 Scan", "📁 Quét")).clicked() {
                 self.scan_directory(ui.ctx().clone());
             }
             ui.label(&self.scan_status);
@@ -458,16 +573,14 @@ impl UniversalConverterApp {
         });
 
         ui.add_space(8.0);
-        egui::ScrollArea::vertical()
-            .max_height(400.0)
-            .show(ui, |ui| {
-                egui::Frame::default()
-                    .fill(egui::Color32::from_rgb(20, 22, 30))
-                    .corner_radius(4.0)
-                    .show(ui, |ui| {
-                        ui.monospace(&self.scan_result);
-                    });
-            });
+        egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
+            egui::Frame::default()
+                .fill(egui::Color32::from_rgb(20, 22, 30))
+                .corner_radius(4.0)
+                .show(ui, |ui| {
+                    ui.monospace(&self.scan_result);
+                });
+        });
     }
 
     fn scan_directory(&mut self, ctx: egui::Context) {
@@ -483,14 +596,11 @@ impl UniversalConverterApp {
         std::thread::spawn(move || {
             // Video, Audio, Image, Document, Archive được bật; Directory, Unknown tắt
             let allowed_types = vec![true, true, true, true, true, false, false];
-            match universal_converter::core::scanner::scan_directory(
-                Path::new(&path),
-                &allowed_types,
-            ) {
+            match universal_converter::core::scanner::scan_directory(Path::new(&path), &allowed_types) {
                 Ok(files) => {
                     let count = files.len();
-                    let text = serde_json::to_string_pretty(&files)
-                        .unwrap_or_else(|e| format!("Serialize error: {}", e));
+                    let text =
+                        serde_json::to_string_pretty(&files).unwrap_or_else(|e| format!("Serialize error: {}", e));
                     let _ = tx.send(AsyncResult::DirectoryScanned(text, count));
                 }
                 Err(e) => {
@@ -499,5 +609,77 @@ impl UniversalConverterApp {
             }
             ctx.request_repaint();
         });
+    }
+
+    fn ui_settings(&mut self, ui: &mut egui::Ui) {
+        ui.heading(self.tr("⚙ Settings", "⚙ Cài đặt"));
+        ui.separator();
+        ui.add_space(4.0);
+
+        let old_preferences = self.preferences.clone();
+        let system_label = self.tr("System", "Hệ thống");
+        let light_label = self.tr("Light", "Sáng");
+        let dark_label = self.tr("Dark", "Tối");
+        let default_font_label = self.tr("Default", "Mặc định");
+        egui::Grid::new("settings_grid")
+            .num_columns(2)
+            .spacing([20.0, 12.0])
+            .show(ui, |ui| {
+                ui.label(self.tr("Language", "Ngôn ngữ"));
+                egui::ComboBox::from_id_salt("language")
+                    .selected_text(match self.preferences.language {
+                        Language::English => "English",
+                        Language::Vietnamese => "Tiếng Việt",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.preferences.language, Language::English, "English");
+                        ui.selectable_value(&mut self.preferences.language, Language::Vietnamese, "Tiếng Việt");
+                    });
+                ui.end_row();
+
+                ui.label(self.tr("Theme", "Giao diện"));
+                let theme_label = match self.preferences.theme {
+                    AppTheme::System => self.tr("System", "Hệ thống"),
+                    AppTheme::Light => self.tr("Light", "Sáng"),
+                    AppTheme::Dark => self.tr("Dark", "Tối"),
+                };
+                egui::ComboBox::from_id_salt("theme")
+                    .selected_text(theme_label)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.preferences.theme, AppTheme::System, system_label);
+                        ui.selectable_value(&mut self.preferences.theme, AppTheme::Light, light_label);
+                        ui.selectable_value(&mut self.preferences.theme, AppTheme::Dark, dark_label);
+                    });
+                ui.end_row();
+
+                ui.label(self.tr("Font", "Phông chữ"));
+                egui::ComboBox::from_id_salt("font")
+                    .selected_text(&self.preferences.font)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.preferences.font, "Default".into(), default_font_label);
+                        for font in &self.available_fonts {
+                            ui.selectable_value(&mut self.preferences.font, font.name.clone(), &font.name);
+                        }
+                    });
+                ui.end_row();
+            });
+
+        if old_preferences.language != self.preferences.language
+            || old_preferences.theme != self.preferences.theme
+            || old_preferences.font != self.preferences.font
+        {
+            self.apply_preferences(ui.ctx());
+        }
+        ui.add_space(12.0);
+        ui.label(self.tr(
+            "Changes apply immediately and are saved automatically.",
+            "Thay đổi được áp dụng ngay và tự động lưu.",
+        ));
+        if self.available_fonts.is_empty() {
+            ui.weak(self.tr(
+                "No supported system fonts found; using the default font.",
+                "Không tìm thấy font hệ thống được hỗ trợ; đang dùng font mặc định.",
+            ));
+        }
     }
 }

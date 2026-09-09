@@ -5,9 +5,9 @@
 - Tương tác: Gọi bởi Frontend qua Tauri Invoke.
 */
 
+use crate::models::Theme;
 use std::fs;
 use std::path::PathBuf;
-use crate::models::Theme;
 
 // Lấy đường dẫn tới thư mục lưu trữ themes (chung rule resource_dir).
 // KHÔNG tự ghi ra `default.json`: trước đây hàm này sinh file theme cứng, nên
@@ -39,15 +39,9 @@ pub fn get_available_themes() -> Result<Vec<Theme>, String> {
                                 Ok(theme) => themes.push(theme),
                                 // Báo rõ file nào hỏng thay vì im lặng bỏ qua
                                 // (trước đây theme lỗi biến mất khỏi list không dấu vết).
-                                Err(e) => eprintln!(
-                                    "[theme] bỏ qua file hỏng {}: {e}",
-                                    file_path.display()
-                                ),
+                                Err(e) => eprintln!("[theme] bỏ qua file hỏng {}: {e}", file_path.display()),
                             },
-                            Err(e) => eprintln!(
-                                "[theme] không đọc được {}: {e}",
-                                file_path.display()
-                            ),
+                            Err(e) => eprintln!("[theme] không đọc được {}: {e}", file_path.display()),
                         }
                     }
                 }

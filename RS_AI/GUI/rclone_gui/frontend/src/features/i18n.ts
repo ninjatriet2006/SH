@@ -62,7 +62,10 @@ export function applyLanguage(
   data: Record<string, string>,
   root: HTMLElement | Document = document.body
 ) {
-  const elements = root.querySelectorAll('[data-lang-id]');
+  const elements = [
+    ...(root instanceof HTMLElement && root.matches('[data-lang-id]') ? [root] : []),
+    ...root.querySelectorAll('[data-lang-id]'),
+  ];
   elements.forEach((el) => {
     const id = el.getAttribute('data-lang-id');
     if (!id) return;
@@ -74,4 +77,18 @@ export function applyLanguage(
       el.textContent = text;
     }
   });
+}
+
+/** Tự dịch các component/modal được gắn vào DOM sau lần tải ngôn ngữ đầu tiên. */
+export function observeLanguage(data: () => Record<string, string>, root: HTMLElement = document.body) {
+  const observer = new MutationObserver((records) => {
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (!(node instanceof HTMLElement)) continue;
+        applyLanguage(data(), node);
+      }
+    }
+  });
+  observer.observe(root, { childList: true, subtree: true });
+  return observer;
 }

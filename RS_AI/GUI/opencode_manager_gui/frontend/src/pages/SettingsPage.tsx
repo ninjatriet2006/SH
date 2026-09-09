@@ -1,25 +1,27 @@
 /*
 [INTEGRITY NOTES]
-- Mục đích: Trang cài đặt — ngôn ngữ, theme, và đường dẫn file cấu hình.
-- Trách nhiệm: Cho chọn ngôn ngữ/theme (preview theme ngay), lưu xuống backend,
+ - Mục đích: Trang cài đặt — ngôn ngữ, theme, font và đường dẫn file cấu hình.
+ - Trách nhiệm: Cho chọn ngôn ngữ/theme/font (preview ngay), lưu xuống backend,
   và hiển thị app đang đọc/ghi vào file nào.
 - Tương tác: `store/useSettingsStore.ts`, `store/useThemeStore.ts`.
 */
 
 import React, { useEffect, useState } from 'react';
-import { Settings as SettingsIcon, Globe, Palette, Save, FolderOpen } from 'lucide-react';
+import { Settings as SettingsIcon, Globe, Palette, Save, FolderOpen, Type } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useThemeStore } from '../store/useThemeStore';
+import { useFontStore } from '../store/useFontStore';
 import { useTranslation, langLabel } from '../utils/i18n';
-import { SearchableSelect } from '../components/SearchableSelect';
 
 export function SettingsPage() {
     const { t } = useTranslation();
-    const { language, theme_id, availableLangs, updateSettings, paths, fetchPaths } = useSettingsStore();
+    const { language, theme_id, font_id, availableLangs, updateSettings, paths, fetchPaths } = useSettingsStore();
     const { themes, setActiveTheme } = useThemeStore();
+    const { fonts, setActiveFont } = useFontStore();
 
     const [localLang, setLocalLang] = useState(language);
     const [localTheme, setLocalTheme] = useState(theme_id);
+    const [localFont, setLocalFont] = useState(font_id);
     const [message, setMessage] = useState('');
     const [isSaving, setIsSaving] = useState(false);
 
@@ -27,6 +29,7 @@ export function SettingsPage() {
     // tạo state một lần, form sẽ mãi hiện giá trị mặc định cũ.
     useEffect(() => { setLocalLang(language); }, [language]);
     useEffect(() => { setLocalTheme(theme_id); }, [theme_id]);
+    useEffect(() => { setLocalFont(font_id); }, [font_id]);
     useEffect(() => { fetchPaths(); }, [fetchPaths]);
 
     // Dọn timer khi unmount để không setState trên component đã tháo.
@@ -40,7 +43,7 @@ export function SettingsPage() {
         e.preventDefault();
         setIsSaving(true);
         try {
-            await updateSettings(localLang, localTheme);
+            await updateSettings(localLang, localTheme, localFont);
             setActiveTheme(localTheme);
             setMessage(t('settings.save_success'));
         } catch (err) {
@@ -64,30 +67,58 @@ export function SettingsPage() {
 
             <form onSubmit={handleSave} className="glass-panel" style={{ marginTop: '1.5rem' }}>
                 <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-                    <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <label htmlFor="settings-language" className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <Globe size={16} /> {t('settings.lbl_lang')}
                     </label>
-                    <SearchableSelect
-                        options={availableLangs.map(l => ({ value: l, label: langLabel(l), hint: l }))}
+                    <select
+                        id="settings-language"
+                        className="input-field"
                         value={localLang}
-                        onChange={setLocalLang}
-                        placeholder={availableLangs.length === 0 ? t('settings.no_lang_file') : undefined}
-                        searchable={availableLangs.length > 6}
-                    />
+                        onChange={event => setLocalLang(event.target.value)}
+                        disabled={availableLangs.length === 0}
+                    >
+                        {availableLangs.length === 0 && <option value="">{t('settings.no_lang_file')}</option>}
+                        {availableLangs.map(lang => <option key={lang} value={lang}>{langLabel(lang)}</option>)}
+                    </select>
                 </div>
 
                 <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-                    <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <label htmlFor="settings-theme" className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <Palette size={16} /> {t('settings.lbl_theme')}
                     </label>
-                    <SearchableSelect
-                        options={themes.map(th => ({ value: th.id, label: th.name, hint: th.type }))}
+                    <select
+                        id="settings-theme"
+                        className="input-field"
                         value={localTheme}
-                        onChange={v => {
+                        onChange={event => {
+                            const v = event.target.value;
                             setLocalTheme(v);
                             setActiveTheme(v); // preview ngay
                         }}
-                    />
+                    >
+                        {themes.map(theme => <option key={theme.id} value={theme.id}>{theme.name} ({theme.type})</option>)}
+                    </select>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                    <label htmlFor="settings-font" className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <Type size={16} /> {t('settings.lbl_font')}
+                    </label>
+                    <select
+                        id="settings-font"
+                        className="input-field"
+                        value={localFont}
+                        onChange={event => {
+                            const value = event.target.value;
+                            setLocalFont(value);
+                            setActiveFont(value);
+                        }}
+                    >
+                        {fonts.map(font => <option key={font.id} value={font.id}>{font.name}</option>)}
+                    </select>
+                    <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '0.5rem' }}>
+                        {t('settings.font_hint')}
+                    </small>
                 </div>
 
                 <button type="submit" className="btn btn-primary" disabled={isSaving} style={{ width: '100%', justifyContent: 'center' }}>

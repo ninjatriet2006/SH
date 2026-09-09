@@ -39,8 +39,8 @@ interface ProviderModalProps {
     }) => Promise<boolean>;
 }
 
-/** Hai package AI SDK mà docs opencode khuyên dùng cho custom provider. */
-export const NPM_OPTIONS = ['@ai-sdk/openai-compatible', '@ai-sdk/openai'] as const;
+/** Auto probe POST thực tế để tránh chọn endpoint bị WAF chặn. */
+export const NPM_OPTIONS = ['auto', '@ai-sdk/openai', '@ai-sdk/openai-compatible', '@ai-sdk/anthropic'] as const;
 
 /** Bộ ký tự an toàn cho ID provider — phải khớp `validate_custom_id` backend. */
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -48,7 +48,7 @@ const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 export function ProviderModal({ isOpen, provider, presets, onClose, onSave }: ProviderModalProps) {
     const { t } = useTranslation();
     const [presetId, setPresetId] = useState('custom');
-    const [npm, setNpm] = useState<string>(NPM_OPTIONS[0]);
+    const [npm, setNpm] = useState<string>('auto');
     const [name, setName] = useState('');
     const [baseUrl, setBaseUrl] = useState('');
     const [apiKey, setApiKey] = useState('');
@@ -68,14 +68,16 @@ export function ProviderModal({ isOpen, provider, presets, onClose, onSave }: Pr
         setIsSaving(false);
         if (provider) {
             setPresetId(provider.is_builtin ? provider.id : 'custom');
-            setNpm(provider.npm ?? NPM_OPTIONS[0]);
+            // Provider cũ không có npm vẫn dùng default cũ, tránh biến thao tác
+            // sửa tên thành một probe mạng bắt buộc khi provider đang offline.
+            setNpm(provider.npm ?? '@ai-sdk/openai-compatible');
             setName(provider.name);
             setBaseUrl(provider.base_url);
             setApiKey('');
             setCustomId(provider.id);
         } else {
             setPresetId('custom');
-            setNpm(NPM_OPTIONS[0]);
+            setNpm('auto');
             setName('');
             setBaseUrl('');
             setApiKey('');
@@ -205,7 +207,7 @@ export function ProviderModal({ isOpen, provider, presets, onClose, onSave }: Pr
                             }))}
                             value={presetId}
                             onChange={handlePresetChange}
-                            searchable
+                            ariaLabel={t('provider_modal.lbl_preset')}
                         />
                     </div>
 
@@ -280,14 +282,26 @@ export function ProviderModal({ isOpen, provider, presets, onClose, onSave }: Pr
 
                     <div className="form-group">
                         <label className="form-label">{t('provider_modal.lbl_npm')}</label>
-                        <SearchableSelect
-                            options={NPM_OPTIONS.map(n => ({
-                                value: n,
-                                label: `${n} (${n === '@ai-sdk/openai-compatible' ? t('provider_modal.npm_chat') : t('provider_modal.npm_responses')})`,
-                            }))}
-                            value={NPM_OPTIONS.includes(npm as typeof NPM_OPTIONS[number]) ? npm : NPM_OPTIONS[0]}
-                            onChange={setNpm}
-                        />
+                        <select
+                            className="input-field"
+                            value={npm}
+                            onChange={event => setNpm(event.target.value)}
+                        >
+                            {!NPM_OPTIONS.includes(npm as typeof NPM_OPTIONS[number]) && (
+                                <option value={npm}>{npm}</option>
+                            )}
+                            {NPM_OPTIONS.map(n => (
+                                <option key={n} value={n}>
+                                    {n === 'auto'
+                                        ? t('provider_modal.npm_auto')
+                                        : `${n} (${n === '@ai-sdk/openai-compatible'
+                                            ? t('provider_modal.npm_chat')
+                                            : n === '@ai-sdk/openai'
+                                                ? t('provider_modal.npm_responses')
+                                                : t('provider_modal.npm_anthropic')})`}
+                                </option>
+                            ))}
+                        </select>
                         <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
                             {t('provider_modal.npm_hint')}
                         </small>

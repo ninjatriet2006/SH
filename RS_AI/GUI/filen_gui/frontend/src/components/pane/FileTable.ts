@@ -308,8 +308,8 @@ export class FileTable {
           // Mở file (File Execution)
           if (opts.pane === 'left' && !rec.path.startsWith('trash://')) {
             try {
-              const { open } = await import('@tauri-apps/plugin-shell');
-              await open(rec.path);
+              const { invoke } = await import('@tauri-apps/api/core');
+              await invoke('fs_open', { path: rec.path });
             } catch (err) {
               console.error("Lỗi khi mở file Local:", err);
             }
@@ -390,8 +390,8 @@ export class FileTable {
           // Mở file (File Execution)
           if (this.opts.pane === 'left' && !rec.path.startsWith('trash://')) {
             try {
-              const { open } = await import('@tauri-apps/plugin-shell');
-              await open(rec.path);
+              const { invoke } = await import('@tauri-apps/api/core');
+              await invoke('fs_open', { path: rec.path });
             } catch (err) {
               console.error("Lỗi khi mở file Local:", err);
             }

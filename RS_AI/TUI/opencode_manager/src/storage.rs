@@ -117,10 +117,10 @@ pub fn migrate_legacy(old: &Path, new: &Path) -> bool {
     if new.exists() || !old.exists() {
         return false;
     }
-    if let Some(parent) = new.parent() {
-        if fs::create_dir_all(parent).is_err() {
-            return false;
-        }
+    if let Some(parent) = new.parent()
+        && fs::create_dir_all(parent).is_err()
+    {
+        return false;
     }
     if fs::copy(old, new).is_err() {
         return false; // old còn nguyên.

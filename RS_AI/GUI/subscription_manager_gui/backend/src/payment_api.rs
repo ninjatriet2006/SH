@@ -129,10 +129,7 @@ fn issue_into(
             .find(|t| &t.id == tx_id)
             .ok_or_else(|| format!("Không tìm thấy giao dịch: {}", tx_id))?;
         if tx.user_id != user_id {
-            return Err(format!(
-                "Giao dịch {} không thuộc người dùng {}",
-                tx_id, user_id
-            ));
+            return Err(format!("Giao dịch {} không thuộc người dùng {}", tx_id, user_id));
         }
         amount = amount.saturating_add(tx.amount);
     }
@@ -214,10 +211,7 @@ fn lookup_in(data: &crate::storage::DataStore, input: &str) -> PaymentLookup {
 /// đưa cho khách đều có bản ghi để đối soát về sau.
 // Giữ tên tham số snake_case khớp bridge (xem chú thích ở lang_api.rs).
 #[tauri::command(rename_all = "snake_case")]
-pub fn issue_payment_ref(
-    user_id: String,
-    transaction_ids: Vec<String>,
-) -> Result<PaymentRef, String> {
+pub fn issue_payment_ref(user_id: String, transaction_ids: Vec<String>) -> Result<PaymentRef, String> {
     let _store_guard = crate::storage::lock_store();
     let mut data = load_data();
     let payment_ref = issue_into(&mut data, &user_id, &transaction_ids, current_timestamp())?;
@@ -255,11 +249,7 @@ pub fn lookup_payment_ref(input: String) -> Result<PaymentLookup, String> {
 pub fn list_payment_refs(user_id: Option<String>) -> Result<Vec<PaymentRef>, String> {
     let data = load_data();
     let mut refs: Vec<PaymentRef> = match user_id.as_deref() {
-        Some(uid) if !uid.is_empty() => data
-            .payment_refs
-            .into_iter()
-            .filter(|r| r.user_id == uid)
-            .collect(),
+        Some(uid) if !uid.is_empty() => data.payment_refs.into_iter().filter(|r| r.user_id == uid).collect(),
         _ => data.payment_refs,
     };
     refs.sort_by_key(|r| std::cmp::Reverse(r.created_at));
@@ -280,11 +270,7 @@ pub fn settle_payment_ref(code: String, settled: bool) -> Result<PaymentRef, Str
         .find(|r| r.code == cleaned)
         .ok_or_else(|| format!("Không tìm thấy mã thanh toán: {}", cleaned))?;
 
-    entry.settled_at = if settled {
-        Some(current_timestamp())
-    } else {
-        None
-    };
+    entry.settled_at = if settled { Some(current_timestamp()) } else { None };
     let updated = entry.clone();
 
     save_data(&data)?;
@@ -300,10 +286,7 @@ mod tests {
         // O, I, L, U bị loại để không lẫn với 0, 1, V khi khách đọc hóa đơn giấy.
         let token = user_token("usr_1757000000000_0");
         for c in token.chars() {
-            assert!(
-                ALPHABET.contains(&(c as u8)),
-                "ký tự '{c}' không thuộc bộ an toàn"
-            );
+            assert!(ALPHABET.contains(&(c as u8)), "ký tự '{c}' không thuộc bộ an toàn");
             assert!(!"ILOU".contains(c), "ký tự '{c}' dễ gây nhầm lẫn");
         }
     }
@@ -450,8 +433,7 @@ mod tests {
     fn tu_choi_gop_giao_dich_cua_khach_khac() {
         // Gộp lẫn chủ sẽ làm đối soát quy sai người chuyển.
         let mut data = fixture();
-        let err = issue_into(&mut data, "usr_1", &["tx_1".into(), "tx_3".into()], NOW)
-            .expect_err("phải từ chối");
+        let err = issue_into(&mut data, "usr_1", &["tx_1".into(), "tx_3".into()], NOW).expect_err("phải từ chối");
         assert!(err.contains("không thuộc người dùng"), "lỗi: {err}");
         assert!(data.payment_refs.is_empty(), "không được lưu gì khi lỗi");
     }

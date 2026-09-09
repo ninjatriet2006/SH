@@ -24,6 +24,10 @@ export async function saveSettings(language: string, timezone: string, theme_id:
     await invoke('save_settings', { language, timezone, theme_id: theme_id, font_id: font_id });
 }
 
+export async function exportBackup(destination: string): Promise<void> {
+    await invoke('export_backup', { destination });
+}
+
 // Gọi API lấy danh sách ngôn ngữ
 export async function getAvailableLangs(): Promise<string[]> {
     try {

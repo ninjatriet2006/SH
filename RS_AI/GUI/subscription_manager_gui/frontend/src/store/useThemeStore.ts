@@ -45,9 +45,15 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
         const themeToSet = get().themes.find(t => t.id === themeId) || get().themes[0] || null;
         
         if (themeToSet) {
+            const previousTheme = get().activeTheme;
             set({ activeTheme: themeToSet });
             // Inject CSS variables vào DOM (:root)
             const root = document.documentElement;
+            if (previousTheme) {
+                Object.keys(previousTheme.colors).forEach(key => {
+                    root.style.removeProperty(`--${key.replace(/_/g, '-')}`);
+                });
+            }
             Object.entries(themeToSet.colors).forEach(([key, value]) => {
                 // Đảm bảo key có dạng css, ví dụ bg_primary -> --bg-primary
                 const cssVar = `--${key.replace(/_/g, '-')}`;

@@ -16,7 +16,7 @@ cache TTL (models 5 phút, stats/keys 2 phút, profile 10 phút) nên chu kỳ g
 mạng thật dài, tránh bị ckey.vn rate-limit/ban. Nút Refresh dùng force = true.
 */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw, Download, KeyRound, History, Trash2, Wallet, Plus, Pencil } from 'lucide-react';
 import type {
     CkeyDashboard, CkeyDepositView, CkeyImportItem, CkeyProfileView, CkeyUsageView,
@@ -30,7 +30,6 @@ import { useProviderStore } from '../store/useProviderStore';
 import { useTranslation } from '../utils/i18n';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { openExternalUrl } from '../../../bridge/settings_bridge';
-import { SearchableSelect } from '../components/SearchableSelect';
 
 const USAGE_LIMIT = 20;
 const DEPOSIT_LIMIT = 10;
@@ -42,7 +41,7 @@ type SortKey = 'provider' | 'model' | 'in' | 'out' | 'cache' | 'perreq' | 'ctx';
 
 export function CkeyPage() {
     const { t } = useTranslation();
-    const { fetchProviders } = useProviderStore();
+    const fetchProviders = useProviderStore(state => state.fetchProviders);
 
     // ===== Tài khoản (profile) =====
     const [profiles, setProfiles] = useState<CkeyProfileView[]>([]);
@@ -75,6 +74,12 @@ export function CkeyPage() {
 
     const [isLoading, setIsLoading] = useState(false);
     const [notice, setNotice] = useState<string | null>(null);
+    const accountRequestRef = useRef(0);
+    const foregroundRequestRef = useRef(0);
+    const foregroundPendingRef = useRef(false);
+    const usageRequestRef = useRef(0);
+    const depositRequestRef = useRef(0);
+    const importRequestRef = useRef(0);
 
     const reloadProfiles = useCallback(async () => {
         const list = await listCkeyProfiles();
@@ -91,15 +96,37 @@ export function CkeyPage() {
     // KHÔNG đụng catalogue import ở đây: bảng giá là TOÀN CỤC (giống nhau mọi
     // tài khoản) và có effect riêng theo [importTarget] — gộp vào đây sẽ khiến
     // chọn provider đích nạp lại cả dashboard (force) và fetch items hai lần.
-    const loadAccountData = useCallback(async (profileId: string, sinceDays: number, force: boolean) => {
+    const loadAccountData = useCallback(async (
+        profileId: string,
+        sinceDays: number,
+        force: boolean,
+        foreground = false,
+    ) => {
         if (!profileId) return;
-        setIsLoading(!force); // auto-refresh nền không nhấp nháy loading
+        if (!foreground && foregroundPendingRef.current) return;
+        const request = ++accountRequestRef.current;
+        const usageRequest = ++usageRequestRef.current;
+        const foregroundRequest = foreground ? ++foregroundRequestRef.current : 0;
+        if (foreground) {
+            foregroundPendingRef.current = true;
+            setIsLoading(true);
+        }
         if (force) setNotice(null);
         try {
-            setDashboard(await fetchCkeyDashboard(profileId, sinceDays || null, force));
-            setUsagePage(1);
-            setUsage(await fetchCkeyUsage(profileId, 1, USAGE_LIMIT, null, force));
+            const [nextDashboard, nextUsage] = await Promise.all([
+                fetchCkeyDashboard(profileId, sinceDays || null, force),
+                fetchCkeyUsage(profileId, 1, USAGE_LIMIT, null, force),
+            ]);
+            if (request !== accountRequestRef.current) return;
+            startTransition(() => {
+                setDashboard(nextDashboard);
+                if (usageRequest === usageRequestRef.current) {
+                    setUsagePage(1);
+                    setUsage(nextUsage);
+                }
+            });
         } catch (err) {
+            if (request !== accountRequestRef.current) return;
             // Lỗi tải (vd sai key) → xoá dashboard cũ để UI không hiện dữ liệu
             // của tài khoản trước như thể còn hợp lệ.
             setDashboard(null);
@@ -107,14 +134,24 @@ export function CkeyPage() {
             if (force) setNotice(err instanceof Error ? err.message : String(err));
             else console.error('Tự refresh CKey lỗi:', err);
         } finally {
-            setIsLoading(false);
+            if (foreground && foregroundRequest === foregroundRequestRef.current) {
+                foregroundPendingRef.current = false;
+                setIsLoading(false);
+            }
         }
     }, []);
 
     useEffect(() => {
         if (activeId) {
-            loadAccountData(activeId, statsPeriod, true).catch(err => setNotice(String(err)));
+            // Vào trang/đổi kỳ dùng cache trước; chỉ nút Refresh mới bỏ TTL.
+            loadAccountData(activeId, statsPeriod, false, true).catch(err => setNotice(String(err)));
         } else {
+            accountRequestRef.current += 1;
+            usageRequestRef.current += 1;
+            depositRequestRef.current += 1;
+            foregroundRequestRef.current += 1;
+            foregroundPendingRef.current = false;
+            setIsLoading(false);
             setDashboard(null);
             setUsage(null);
             setImportItems([]);
@@ -194,16 +231,20 @@ export function CkeyPage() {
     // ===== Usage / deposit =====
     const loadUsage = useCallback(async (page: number, model: string, force = false) => {
         if (!activeId) return;
+        const request = ++usageRequestRef.current;
         try {
-            setUsage(await fetchCkeyUsage(activeId, page, USAGE_LIMIT, model.trim() || null, force));
+            const nextUsage = await fetchCkeyUsage(activeId, page, USAGE_LIMIT, model.trim() || null, force);
+            if (request !== usageRequestRef.current) return;
+            setUsage(nextUsage);
             setUsagePage(page);
         } catch (err) {
-            setNotice(err instanceof Error ? err.message : String(err));
+            if (request === usageRequestRef.current) setNotice(err instanceof Error ? err.message : String(err));
         }
     }, [activeId]);
 
     const loadDeposit = useCallback(async (page: number, force = false) => {
         if (!activeId) return;
+        const request = ++depositRequestRef.current;
         const amount = parseInt(depositAmount.replace(/\D/g, ''), 10);
         // Backend ép tối thiểu 1.000₫ — báo ở đây để không tưởng đang nạp số nhỏ hơn.
         if (!Number.isFinite(amount) || amount < 1_000) {
@@ -211,10 +252,12 @@ export function CkeyPage() {
             return;
         }
         try {
-            setDeposit(await fetchCkeyDeposit(activeId, amount, page, DEPOSIT_LIMIT, force));
+            const nextDeposit = await fetchCkeyDeposit(activeId, amount, page, DEPOSIT_LIMIT, force);
+            if (request !== depositRequestRef.current) return;
+            setDeposit(nextDeposit);
             setDepositPage(page);
         } catch (err) {
-            setNotice(err instanceof Error ? err.message : String(err));
+            if (request === depositRequestRef.current) setNotice(err instanceof Error ? err.message : String(err));
         }
     }, [activeId, depositAmount, t]);
 
@@ -224,14 +267,21 @@ export function CkeyPage() {
     // nên đổi tài khoản là nạp lại danh sách (catalogue lấy từ cache, rẻ).
     useEffect(() => {
         if (activeId) {
+            const request = ++importRequestRef.current;
             listCkeyImportItems()
                 .then(list => {
-                    setImportTarget(list.target_provider);
-                    setImportItems(list.items);
-                    setChecked(new Set(list.items.filter(i => i.in_config && !i.stale).map(i => i.id)));
+                    if (request !== importRequestRef.current) return;
+                    startTransition(() => {
+                        setImportTarget(list.target_provider);
+                        setImportItems(list.items);
+                        setChecked(new Set(list.items.filter(i => i.in_config && !i.stale).map(i => i.id)));
+                    });
                 })
-                .catch(err => setNotice(String(err)));
+                .catch(err => {
+                    if (request === importRequestRef.current) setNotice(String(err));
+                });
         } else {
+            importRequestRef.current += 1;
             setImportTarget('');
             setImportItems([]);
             setChecked(new Set());
@@ -288,16 +338,20 @@ export function CkeyPage() {
         if (checked.size === 0 && !window.confirm(t('ckey.import_none_selected_confirm'))) {
             return;
         }
+        const request = ++importRequestRef.current;
         try {
             const r = await importCkeyModels(activeId, [...checked]);
             setNotice(`${t('ckey.import_done')}: +${r.added} / -${r.removed}`);
             await fetchProviders();
             const list = await listCkeyImportItems();
-            setImportTarget(list.target_provider);
-            setImportItems(list.items);
-            setChecked(new Set(list.items.filter(i => i.in_config && !i.stale).map(i => i.id)));
+            if (request !== importRequestRef.current) return;
+            startTransition(() => {
+                setImportTarget(list.target_provider);
+                setImportItems(list.items);
+                setChecked(new Set(list.items.filter(i => i.in_config && !i.stale).map(i => i.id)));
+            });
         } catch (err) {
-            setNotice(err instanceof Error ? err.message : String(err));
+            if (request === importRequestRef.current) setNotice(err instanceof Error ? err.message : String(err));
         }
     };
 
@@ -325,7 +379,7 @@ export function CkeyPage() {
                 <button
                     className="btn"
                     style={{ background: 'var(--bg-panel)', color: 'white', border: '1px solid var(--border)' }}
-                    onClick={() => activeId && loadAccountData(activeId, statsPeriod, true)}
+                    onClick={() => activeId && loadAccountData(activeId, statsPeriod, true, true)}
                     disabled={!activeId || isLoading}
                     title={t('ckey.force_refresh_hint')}
                 >
@@ -447,16 +501,17 @@ export function CkeyPage() {
                         <div className="glass-panel" style={{ marginBottom: '1rem', fontSize: '0.9rem' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
                                 <strong>{t('ckey.stats_title')}</strong>
-                                <SearchableSelect
-                                    options={[
-                                        { value: '0', label: t('ckey.period_all') },
-                                        { value: '7', label: t('ckey.period_7d') },
-                                        { value: '30', label: t('ckey.period_30d') },
-                                    ]}
+                                <select
+                                    className="input-field"
+                                    aria-label={t('ckey.stats_title')}
                                     value={String(statsPeriod)}
-                                    onChange={v => setStatsPeriod(Number(v) as StatsPeriod)}
+                                    onChange={event => setStatsPeriod(Number(event.target.value) as StatsPeriod)}
                                     style={{ width: 'auto' }}
-                                />
+                                >
+                                    <option value="0">{t('ckey.period_all')}</option>
+                                    <option value="7">{t('ckey.period_7d')}</option>
+                                    <option value="30">{t('ckey.period_30d')}</option>
+                                </select>
                             </div>
                             <div>{t('ckey.requests')}: {dashboard.stats.requests} ({t('ckey.success')}: {dashboard.stats.success_requests})</div>
                             <div>{t('ckey.tokens')}: {dashboard.stats.total_tokens} (in {dashboard.stats.prompt_tokens} / out {dashboard.stats.completion_tokens})</div>
@@ -635,7 +690,7 @@ export function CkeyPage() {
                 <div className="glass-panel" style={{ marginBottom: '1rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.5rem' }}>
                         <h3 style={{ marginBottom: 0 }}>
-                            {t('ckey.import_title')} ({checked.size}/{importItems.length})
+                            {t('ckey.import_title')} ({checked.size}/{sortedItems.length})
                             {importTarget && (
                                 <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-secondary)' }}>
                                     → <code style={{ fontFamily: 'monospace' }}>{importTarget}</code>
@@ -645,14 +700,14 @@ export function CkeyPage() {
                         <button
                             className="btn btn-primary"
                             onClick={handleImport}
-                            disabled={importItems.length === 0}
+                            disabled={sortedItems.length === 0}
                             title={checked.size === 0 ? t('ckey.import_none_selected_confirm') : undefined}
                         >
                             <Download size={16} /> {t('ckey.apply_import')}
                         </button>
                     </div>
 
-                    {importItems.length > 0 && (
+                    {sortedItems.length > 0 && (
                         <div className="table-container">
                             <table>
                                 <thead>
@@ -660,7 +715,7 @@ export function CkeyPage() {
                                         <th style={{ width: '34px' }}>
                                             <input
                                                 type="checkbox"
-                                                checked={checked.size === importItems.length}
+                                                checked={checked.size === sortedItems.length}
                                                 onChange={toggleAllImport}
                                                 style={{ width: '13px', height: '13px', cursor: 'pointer' }}
                                                 title={t('common.select_all')}

@@ -145,7 +145,7 @@ pub async fn fs_mkdir(path: String) -> Result<(), String> {
         let (remote, real_path) = file_ops::parse_remote_path(&path);
         let target = rclone::build_target(&remote, &real_path);
 
-        file_ops::run_with_sudo_fallback(&remote, "mkdir", &[real_path.clone()], || {
+        file_ops::run_with_sudo_fallback(&remote, "mkdir", std::slice::from_ref(&real_path), || {
             let output = rclone::run_cmd(&["mkdir", &target])?;
             if !output.status.success() {
                 Err(String::from_utf8_lossy(&output.stderr).into_owned())
@@ -168,7 +168,7 @@ pub async fn fs_delete(path: String) -> Result<(), String> {
         // hoặc chạy dưới locale khác.
         let is_dir = rclone::is_dir(&target).unwrap_or(true);
 
-        file_ops::run_with_sudo_fallback(&remote, "rm", &[real_path.clone()], || {
+        file_ops::run_with_sudo_fallback(&remote, "rm", std::slice::from_ref(&real_path), || {
             // `purge` xoá đệ quy thư mục; `deletefile` xoá đúng một file.
             let cmd = if is_dir { "purge" } else { "deletefile" };
             let output = rclone::run_cmd(&[cmd, &target])?;
@@ -507,7 +507,7 @@ pub async fn open_in_terminal(path: String) -> Result<(), String> {
             ];
             let mut success = false;
             for term in terms {
-                if let Ok(_) = Command::new(term).current_dir(&path).spawn() {
+                if Command::new(term).current_dir(&path).spawn().is_ok() {
                     success = true;
                     break;
                 }
@@ -642,7 +642,7 @@ pub async fn fs_write_text(path: String, content: String) -> Result<(), String> 
         let (remote, real_path) = file_ops::parse_remote_path(&path);
         let target = rclone::build_target(&remote, &real_path);
 
-        file_ops::run_with_sudo_fallback(&remote, "write", &[real_path.clone()], || {
+        file_ops::run_with_sudo_fallback(&remote, "write", std::slice::from_ref(&real_path), || {
             let output = rclone::run_cmd_with_stdin(&["rcat", &target], content.as_bytes())?;
             if !output.status.success() {
                 let err = String::from_utf8_lossy(&output.stderr).trim().to_string();

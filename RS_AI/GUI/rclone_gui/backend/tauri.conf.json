@@ -18,6 +18,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Rclone GUI",
         "width": 1024,
         "height": 768,
@@ -26,12 +27,26 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: http://asset.localhost; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; frame-src 'none'"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: http://asset.localhost; font-src 'self' data: asset: http://asset.localhost; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; frame-src 'none'",
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$RESOURCE/langs/**",
+          "$RESOURCE/themes/**",
+          "$RESOURCE/fonts/**"
+        ]
+      }
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["deb", "appimage", "msi", "dmg"],
+    "createUpdaterArtifacts": false,
+    "resources": {
+      "../langs/": "langs/",
+      "../themes/": "themes/",
+      "../fonts/": "fonts/"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

@@ -272,7 +272,7 @@ fn moi_command_khai_bao_snake_case() {
     // người sửa nhìn lại xem command mới đã đăng ký và đúng quy ước chưa.
     assert_eq!(
         cmds.len(),
-        36,
+        37,
         "số command thay đổi ({}) — cập nhật test nếu thêm/bớt command có chủ đích",
         cmds.len()
     );

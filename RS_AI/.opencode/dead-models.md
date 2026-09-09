@@ -13,6 +13,7 @@ Registry ghi nhận các model bị coi là "chết" (không phản hồi / lỗ
 
 | model | trạng thái | fail_count | phát hiện lúc | triệu chứng | ghi chú |
 |-------|-----------|------------|---------------|-------------|---------|
+| cBAjYv/gpt-5.6-terra | DEAD | 2 | 2026-09-08 | Docs rồi Explorer lỗi protocol `message_start` khi message trước còn mở; hai Explorer khác bị hủy cùng batch | Không giao agent Terra; chuyển mọi task sang vai dùng Sol cho tới khi probe hồi phục |
 | opencode/x-preview-f-free | RETIRED | - | 2026-09-04 | Biến mất khỏi catalog live Zen (`/zen/v1/models` còn 66 models, không có x-preview) | Đã thay: lead/splitter→mimo-v2.5, rust-dev→laguna-s-2.1, teamwork/review/test→model theo vai |
 | opencode/hy3-free | RETIRED | - | 2026-09-04 | Biến mất khỏi catalog live Zen | Cross-checker chuyển sang muse-spark-1.3-contributor-free (xa họ model nhất) |
 | opencode/deepseek-v4-flash-free | DEAD | probe | 2026-08-26 | HTTP 400 "Model is unavailable" từ upstream Zen | Đã thay bằng x-preview-f-free toàn team |

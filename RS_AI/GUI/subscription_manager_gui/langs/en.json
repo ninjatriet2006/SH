@@ -109,7 +109,12 @@
     "timezone": "Display Timezone",
     "save_success": "Settings saved successfully!",
     "lbl_lang": "Select Language",
-    "lbl_tz": "Select Timezone"
+    "lbl_tz": "Select Timezone",
+    "backup_title": "Backup",
+    "backup_hint": "Export the current data and settings to a JSON file at a location you choose.",
+    "backup_action": "Export backup...",
+    "backup_success": "Backup exported successfully!",
+    "backup_error": "Could not export backup"
   },
   "sub_modal": {
     "add_title": "Assign Package",

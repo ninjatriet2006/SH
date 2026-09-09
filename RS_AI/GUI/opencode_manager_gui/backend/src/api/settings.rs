@@ -1,6 +1,6 @@
 /*
 [INTEGRITY NOTES]
- - Mục đích: Cài đặt của GUI (ngôn ngữ, theme) — lưu tại
+ - Mục đích: Cài đặt của GUI (ngôn ngữ, theme, font) — lưu tại
    `~/.config/opencode-manager/settings.json`.
 - Trách nhiệm: Đọc/ghi cài đặt, TỰ CHỮA khi mã ngôn ngữ đã lưu không còn file
   tương ứng. Không hardcode "vi" — chọn file đầu tiên thực có trong `langs/`.
@@ -22,10 +22,16 @@ pub struct GuiSettings {
     pub language: String,
     #[serde(default = "default_theme")]
     pub theme_id: String,
+    #[serde(default = "default_font")]
+    pub font_id: String,
 }
 
 fn default_theme() -> String {
     "default".to_string()
+}
+
+fn default_font() -> String {
+    crate::api::font::DEFAULT_FONT_ID.to_string()
 }
 
 impl Default for GuiSettings {
@@ -34,15 +40,25 @@ impl Default for GuiSettings {
             // Không hardcode "vi": lấy file ngôn ngữ đầu tiên thực có.
             language: crate::api::lang::first_available_lang().unwrap_or_default(),
             theme_id: default_theme(),
+            font_id: default_font(),
         }
     }
 }
 
-/// Vị trí MỚI: `~/.config/opencode-manager/settings.json` (dữ liệu riêng của
+/// Vị trí MỚI: `${XDG_CONFIG_HOME:-$HOME/.config}/opencode-manager/settings.json` (dữ liệu riêng của
 /// manager, tách khỏi thư mục của opencode; đổi tên manager_gui.json →
 /// settings.json cho thống nhất với vai trò của nó).
 fn settings_path() -> PathBuf {
-    opencode_manager::storage::manager_data_path("settings.json")
+    manager_config_dir().join("settings.json")
+}
+
+fn manager_config_dir() -> PathBuf {
+    if std::env::var_os("OPENCODE_TEST_HOME").is_none() {
+        if let Some(config_home) = std::env::var_os("XDG_CONFIG_HOME").filter(|path| !path.is_empty()) {
+            return PathBuf::from(config_home).join("opencode-manager");
+        }
+    }
+    opencode_manager::storage::manager_config_dir()
 }
 
 /// Vị trí CŨ — chỉ dùng cho migration.
@@ -82,16 +98,23 @@ pub fn get_gui_settings() -> Result<GuiSettings, String> {
         settings.language = available.first().cloned().unwrap_or_default();
     }
 
+    if !crate::api::font::font_exists(&settings.font_id) {
+        settings.font_id = default_font();
+    }
+
     Ok(settings)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn save_gui_settings(language: String, theme_id: String) -> Result<(), String> {
+pub fn save_gui_settings(language: String, theme_id: String, font_id: String) -> Result<(), String> {
     if language.trim().is_empty() {
         return Err("Ngôn ngữ không được để trống".to_string());
     }
     if theme_id.trim().is_empty() {
         return Err("Theme không được để trống".to_string());
+    }
+    if !crate::api::font::font_exists(&font_id) {
+        return Err(format!("Font '{}' không có trong fonts/", font_id));
     }
 
     // Chỉ nhận ngôn ngữ thực sự có file — chặn ghi vào settings một mã không
@@ -109,7 +132,11 @@ pub fn save_gui_settings(language: String, theme_id: String) -> Result<(), Strin
         ));
     }
 
-    let settings = GuiSettings { language, theme_id };
+    let settings = GuiSettings {
+        language,
+        theme_id,
+        font_id,
+    };
     let path = settings_path();
     // Backup xoay vòng + ghi atomic (xem opencode_manager::storage).
     opencode_manager::storage::backup_rotate(&path, opencode_manager::storage::BACKUP_KEEP);
@@ -140,7 +167,7 @@ pub fn get_config_paths() -> Result<ConfigPaths, String> {
             .parent()
             .map(|path| path.display().to_string())
             .unwrap_or_default(),
-        manager_config_dir: opencode_manager::storage::manager_config_dir().display().to_string(),
+        manager_config_dir: manager_config_dir().display().to_string(),
         opencode_json: opencode_manager::config::OpencodeConfig::file_path()
             .display()
             .to_string(),
@@ -195,7 +222,7 @@ mod tests {
 
     #[test]
     fn tu_choi_luu_ngon_ngu_khong_ton_tai() {
-        let err = save_gui_settings("khong_ton_tai_9999".into(), "default".into())
+        let err = save_gui_settings("khong_ton_tai_9999".into(), "default".into(), "default".into())
             .expect_err("phải từ chối mã không có file");
         assert!(err.contains("không có trong langs/"), "lỗi: {err}");
     }
@@ -223,7 +250,7 @@ mod tests {
         );
 
         // Lưu lại → atomic + backup xoay vòng xuất hiện ở vị trí MỚI.
-        save_gui_settings("vi".into(), "red_blood".into()).unwrap();
+        save_gui_settings("vi".into(), "red_blood".into(), "default".into()).unwrap();
         assert!(settings_path().exists());
         let baks = std::fs::read_dir(settings_path().parent().unwrap())
             .unwrap()

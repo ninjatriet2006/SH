@@ -91,8 +91,7 @@ async function openFileRecord(path: string): Promise<void> {
     return;
   }
   try {
-    const { open } = await import('@tauri-apps/plugin-shell');
-    await open(path.replace(/^Local::/, ''));
+    await invoke('sys_open_with', { path, execCmd: null, app: null });
   } catch (err) {
     console.error('Lỗi khi mở file Local:', err);
   }
