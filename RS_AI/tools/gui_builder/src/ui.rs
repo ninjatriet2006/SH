@@ -57,11 +57,9 @@ fn draw_select(f: &mut Frame, app: &App) {
 
     if app.projects.is_empty() {
         f.render_widget(
-            Paragraph::new(
-                "Không tìm thấy project nào có binary.\nKiểm tra lại `cargo metadata` ở workspace root.",
-            )
-            .block(Block::default().borders(Borders::ALL).title(" Project "))
-            .wrap(Wrap { trim: true }),
+            Paragraph::new("Không tìm thấy project nào có binary.\nKiểm tra lại `cargo metadata` ở workspace root.")
+                .block(Block::default().borders(Borders::ALL).title(" Project "))
+                .wrap(Wrap { trim: true }),
             chunks[1],
         );
     } else {
@@ -81,9 +79,7 @@ fn draw_select(f: &mut Frame, app: &App) {
 
                 let mut style = Style::default();
                 if is_cursor {
-                    style = style
-                        .bg(Color::DarkGray)
-                        .add_modifier(Modifier::BOLD);
+                    style = style.bg(Color::DarkGray).add_modifier(Modifier::BOLD);
                 }
                 if ticked {
                     style = style.fg(Color::Green);
@@ -106,22 +102,23 @@ fn draw_select(f: &mut Frame, app: &App) {
             .collect();
 
         f.render_widget(
-            List::new(items).block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(" Chọn project cần build "),
-            ),
+            List::new(items).block(Block::default().borders(Borders::ALL).title(" Chọn project cần build ")),
             chunks[1],
         );
     }
 
     let help = Paragraph::new(vec![
         Line::from(vec![
-            key("↑/↓"), Span::raw(" di chuyển   "),
-            key("Space"), Span::raw(" chọn/bỏ   "),
-            key("a"), Span::raw(" chọn tất cả   "),
-            key("Enter"), Span::raw(" build   "),
-            key("q"), Span::raw(" thoát"),
+            key("↑/↓"),
+            Span::raw(" di chuyển   "),
+            key("Space"),
+            Span::raw(" chọn/bỏ   "),
+            key("a"),
+            Span::raw(" chọn tất cả   "),
+            key("Enter"),
+            Span::raw(" build   "),
+            key("q"),
+            Span::raw(" thoát"),
         ]),
         Line::from(Span::styled(
             "App Tauri build qua `cargo tauri build` để frontend được nhúng vào binary.",
@@ -133,12 +130,7 @@ fn draw_select(f: &mut Frame, app: &App) {
 }
 
 fn key(k: &str) -> Span<'_> {
-    Span::styled(
-        k,
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD),
-    )
+    Span::styled(k, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
 }
 
 fn draw_building(f: &mut Frame, app: &App) {
@@ -148,12 +140,12 @@ fn draw_building(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),                                    // tiêu đề
-            Constraint::Length(3),                                    // tiến trình tổng
-            Constraint::Length(3),                                    // tiến trình cargo
-            Constraint::Min(6),                                       // log
-            Constraint::Length(if has_results { 4 } else { 0 }),      // tổng kết
-            Constraint::Length(3),                                    // hướng dẫn
+            Constraint::Length(1),                               // tiêu đề
+            Constraint::Length(3),                               // tiến trình tổng
+            Constraint::Length(3),                               // tiến trình cargo
+            Constraint::Min(6),                                  // log
+            Constraint::Length(if has_results { 4 } else { 0 }), // tổng kết
+            Constraint::Length(3),                               // hướng dẫn
         ])
         .split(f.size());
 
@@ -207,11 +199,7 @@ fn draw_building(f: &mut Frame, app: &App) {
     };
     f.render_widget(
         Gauge::default()
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(" cargo build "),
-            )
+            .block(Block::default().borders(Borders::ALL).title(" cargo build "))
             .gauge_style(Style::default().fg(Color::Cyan))
             .ratio(ratio)
             .label(if total == 0 {
@@ -263,10 +251,7 @@ fn draw_building(f: &mut Frame, app: &App) {
                         if r.ok { "✔ " } else { "✖ " },
                         Style::default().fg(if r.ok { Color::Green } else { Color::Red }),
                     ),
-                    Span::styled(
-                        format!("{:<24}", r.name),
-                        Style::default().add_modifier(Modifier::BOLD),
-                    ),
+                    Span::styled(format!("{:<24}", r.name), Style::default().add_modifier(Modifier::BOLD)),
                     Span::raw(r.message.clone()),
                 ])
             })
@@ -281,10 +266,7 @@ fn draw_building(f: &mut Frame, app: &App) {
 
     let help = if running {
         Paragraph::new(Line::from(vec![
-            Span::styled(
-                "Đang build… ",
-                Style::default().fg(Color::Yellow),
-            ),
+            Span::styled("Đang build… ", Style::default().fg(Color::Yellow)),
             key("Ctrl+C"),
             Span::raw(" thoát cứng (build vẫn có thể còn chạy)"),
         ]))

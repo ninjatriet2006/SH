@@ -57,7 +57,7 @@ pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
     Err("Không tìm thấy công cụ sao chép clipboard (wl-copy, xclip, xsel)".to_string())
 }
 
-/// Bọc đối tượng Command qua `stdbuf` để bỏ đệm (buffer) output. 
+/// Bọc đối tượng Command qua `stdbuf` để bỏ đệm (buffer) output.
 /// Cần thiết cho việc pipe các log real-time mà không bị kẹt vì đệm của HĐH.
 pub fn get_interactive_command(bin: &Path) -> Command {
     // Nếu hệ thống Unix có công cụ `stdbuf` (có trong coreutils)
@@ -78,7 +78,7 @@ pub fn get_interactive_tokio_command(cmd: tokio::process::Command) -> tokio::pro
         let program = cmd.as_std().get_program().to_os_string();
         // Trích xuất mảng arguments gốc
         let args: Vec<std::ffi::OsString> = cmd.as_std().get_args().map(ToOwned::to_owned).collect();
-        
+
         // Khởi tạo lại bằng `stdbuf`
         let mut c = tokio::process::Command::new("stdbuf");
         c.arg("-o0").arg("-e0").arg(&program).args(&args);
@@ -109,7 +109,7 @@ pub fn scan_local_bins(home: &Path) -> Option<PathBuf> {
     if unix_path.exists() {
         return Some(unix_path);
     }
-    
+
     // Trường hợp 2: Đường dẫn thư mục config
     let unix_config_path = home.join(".config/filen-cli/bin/filen");
     if unix_config_path.exists() {

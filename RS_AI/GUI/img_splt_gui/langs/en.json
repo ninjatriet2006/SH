@@ -1,0 +1,14 @@
+{
+  "app": { "title": "Image Splitter", "working": "Working…", "starting": "Starting", "completed": "Completed", "failed": "Failed", "settings_saved": "Settings saved" },
+  "nav": { "dashboard": "Dashboard", "settings": "Settings", "scan": "Scan Images", "environment": "Environment", "process": "Process", "distribute": "Distribute" },
+  "dashboard": { "description": "Split, upscale, and distribute images with FFmpeg.", "images": "Scanned images" },
+  "common": { "input": "Input directory", "output": "Output directory", "browse": "Browse", "selected": "{count} image(s) selected", "result": "Result", "output_warning": "This operation writes to the selected output directory. Review it before continuing." },
+  "settings": { "language": "Language", "theme": "Theme", "font": "Font", "system": "System", "light": "Light", "dark": "Dark", "system_default": "System default", "processing": "Processing settings", "mode": "Distribution mode", "max_files": "Maximum files per folder", "fixed_folders": "Fixed folder count", "retries": "Maximum retries", "min_width": "Minimum upscale width", "target_width": "Target upscale width", "save": "Save settings" },
+  "modes": { "balanced": "Balanced", "greedy": "Greedy", "fixed": "Fixed" },
+  "scan": { "run": "Scan selected directory", "found": "Found {count} image(s)" },
+  "environment": { "check": "Check FFmpeg and FFprobe", "available": "Available", "missing": "Missing", "unknown": "Not checked" },
+  "process": { "format": "Output format (optional)", "upscale": "Upscale small images", "run": "Process images…", "confirm": "Process the selected images and write results to the output directory?" },
+  "distribute": { "chapter": "Chapter (optional)", "run": "Distribute images…", "confirm": "Distribute the selected images into the output directory?" },
+  "job_states": { "started": "Started", "progress": "In progress", "completed": "Completed", "failed": "Failed", "cancelled": "Cancelled" },
+  "log": { "title": "Log", "clear": "Clear" }
+}

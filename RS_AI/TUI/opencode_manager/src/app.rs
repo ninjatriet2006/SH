@@ -3338,8 +3338,10 @@ mod caps_tests {
     /// vào draft (from_entry chấp nhận cả 3 dạng).
     #[test]
     fn draft_doc_duoc_interleaved_dang_chuoi() {
-        let mut entry = ModelEntry::default();
-        entry.interleaved = Some(Interleaved::Field("reasoning".to_string()));
+        let entry = ModelEntry {
+            interleaved: Some(Interleaved::Field("reasoning".to_string())),
+            ..Default::default()
+        };
         let d = ModelCapsDraft::from_entry(&entry);
         assert_eq!(d.interleaved_field, "reasoning");
     }

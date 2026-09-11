@@ -904,7 +904,9 @@ fn draw_popups(app: &App, f: &mut Frame) {
                     Span::styled(" [ Không (N) ] ", Style::default().fg(Color::White)),
                 ]),
             ];
-            let paragraph = Paragraph::new(text).block(block).alignment(ratatui::layout::Alignment::Center);
+            let paragraph = Paragraph::new(text)
+                .block(block)
+                .alignment(ratatui::layout::Alignment::Center);
             f.render_widget(paragraph, area);
         }
         PopupState::SwitchAccountMenu { selected_idx } => {

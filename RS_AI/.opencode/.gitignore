@@ -1,0 +1,7 @@
+node_modules
+package.json
+!tests/fixtures/gui-standalone-audit/GUI/*/package.json
+package-lock.json
+bun.lock
+.gitignore
+!.gitignore

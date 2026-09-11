@@ -1,6 +1,9 @@
 use std::fs;
 use std::process::Command;
 
+use crate::config::{AppEntry, AppStatus};
+use crate::scanner::RescanReport;
+
 #[derive(Clone, Debug)]
 pub struct UpdateEntry {
     pub id: String,
@@ -8,6 +11,65 @@ pub struct UpdateEntry {
     pub current_version: String,
     pub available_version: String,
     pub source: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UpdateOutcome {
+    Success,
+    Failure(String),
+}
+
+#[derive(Clone, Debug)]
+pub struct UpdateResult {
+    pub name: String,
+    pub source: String,
+    pub outcome: UpdateOutcome,
+}
+
+#[derive(Debug)]
+pub struct UpdateRun<R> {
+    pub updates: Vec<UpdateResult>,
+    /// Kept separate from package outcomes so neither failure can hide the other.
+    pub post_apt_rescan: Option<Result<R, String>>,
+}
+
+impl<R> UpdateRun<R> {
+    pub fn update_summary(&self) -> String {
+        let succeeded = self
+            .updates
+            .iter()
+            .filter(|result| result.outcome == UpdateOutcome::Success)
+            .count();
+        format!("Cập nhật: {succeeded}/{} thành công", self.updates.len())
+    }
+}
+
+pub fn run_updates_with<R, U, S>(entries: Vec<&UpdateEntry>, mut update: U, mut rescan: S) -> UpdateRun<R>
+where
+    U: FnMut(&UpdateEntry) -> Result<bool, String>,
+    S: FnMut() -> Result<R, String>,
+{
+    let apt_attempted = entries.iter().any(|entry| entry.source == "apt");
+    let updates = entries
+        .into_iter()
+        .map(|entry| {
+            let outcome = match update(entry) {
+                Ok(true) => UpdateOutcome::Success,
+                Ok(false) => UpdateOutcome::Failure("Lệnh trả về trạng thái thất bại".to_string()),
+                Err(error) => UpdateOutcome::Failure(error),
+            };
+            UpdateResult {
+                name: entry.name.clone(),
+                source: entry.source.clone(),
+                outcome,
+            }
+        })
+        .collect();
+    let post_apt_rescan = apt_attempted.then(&mut rescan);
+    UpdateRun {
+        updates,
+        post_apt_rescan,
+    }
 }
 
 fn check_git_updates(updates: &mut Vec<UpdateEntry>) {
@@ -44,54 +106,50 @@ fn check_git_updates(updates: &mut Vec<UpdateEntry>) {
     }
 }
 
-pub fn execute_updates(entries: Vec<&UpdateEntry>) -> Result<String, String> {
-    let mut result = String::new();
+fn execute_update(entry: &UpdateEntry) -> Result<bool, String> {
     let config = crate::config::Config::load();
-    for entry in entries {
-        result.push_str(&format!("Đang cập nhật {} qua {}...\n", entry.name, entry.source));
-        let status = match entry.source.as_str() {
-            "winget" | "msstore" => Command::new("winget")
-                .args([
-                    "upgrade",
-                    "--id",
-                    &entry.id,
-                    "--silent",
-                    "--accept-package-agreements",
-                    "--accept-source-agreements",
-                    "--include-unknown",
-                ])
-                .status(),
-            "chocolatey" => Command::new("choco").args(["upgrade", &entry.id, "-y"]).status(),
-            "scoop" => Command::new("powershell")
-                .args(["-NoProfile", "-Command", &format!("scoop update {}", entry.id)])
-                .status(),
-            "apt" => Command::new("sudo")
-                .args(["apt-get", "install", "--only-upgrade", "-y", &entry.id])
-                .status(),
-            "flatpak" => Command::new("flatpak").args(["update", "-y", &entry.id]).status(),
-            "snap" => Command::new("sudo").args(["snap", "refresh", &entry.id]).status(),
-            "git" => {
-                if let Some(app) = config.apps.iter().find(|a| a.id == entry.id) {
-                    Command::new("git")
-                        .current_dir(&app.install_path)
-                        .args(["pull", "--rebase", "--autostash"])
-                        .status()
-                } else {
-                    Err(std::io::Error::new(std::io::ErrorKind::NotFound, "App not found"))
-                }
-            }
-            _ => Err(std::io::Error::other("Unknown source")),
-        };
-        match status {
-            Ok(s) if s.success() => {
-                result.push_str(&format!("-> Cập nhật {} thành công!\n", entry.name));
-            }
-            _ => {
-                result.push_str(&format!("-> Cập nhật {} thất bại!\n", entry.name));
+    let status = match entry.source.as_str() {
+        "winget" | "msstore" => Command::new("winget")
+            .args([
+                "upgrade",
+                "--id",
+                &entry.id,
+                "--silent",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+                "--include-unknown",
+            ])
+            .status(),
+        "chocolatey" => Command::new("choco").args(["upgrade", &entry.id, "-y"]).status(),
+        "scoop" => Command::new("powershell")
+            .args(["-NoProfile", "-Command", &format!("scoop update {}", entry.id)])
+            .status(),
+        "apt" => Command::new("sudo")
+            .args(["apt-get", "install", "--only-upgrade", "-y", &entry.id])
+            .status(),
+        "flatpak" => Command::new("flatpak").args(["update", "-y", &entry.id]).status(),
+        "snap" => Command::new("sudo").args(["snap", "refresh", &entry.id]).status(),
+        "git" => {
+            if let Some(app) = config.apps.iter().find(|a| a.id == entry.id) {
+                Command::new("git")
+                    .current_dir(&app.install_path)
+                    .args(["pull", "--rebase", "--autostash"])
+                    .status()
+            } else {
+                Err(std::io::Error::new(std::io::ErrorKind::NotFound, "App not found"))
             }
         }
-    }
-    Ok(result)
+        _ => Err(std::io::Error::other("Unknown source")),
+    };
+    status
+        .map(|status| status.success())
+        .map_err(|error| format!("Không thể chạy cập nhật {}: {error}", entry.name))
+}
+
+pub fn execute_updates(entries: Vec<&UpdateEntry>, previous: &[(AppEntry, AppStatus)]) -> UpdateRun<RescanReport> {
+    run_updates_with(entries, execute_update, || {
+        crate::scanner::rescan_applications(previous)
+    })
 }
 
 #[cfg(target_os = "windows")]
@@ -497,4 +555,62 @@ pub fn clean_system_leftovers() -> Result<String, String> {
     }
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(id: &str) -> UpdateEntry {
+        UpdateEntry {
+            id: id.to_string(),
+            name: id.to_string(),
+            current_version: "1".to_string(),
+            available_version: "2".to_string(),
+            source: "apt".to_string(),
+        }
+    }
+
+    #[test]
+    fn apt_success_always_rescans() {
+        let apt = entry("ok");
+        let mut rescans = 0;
+        let run = run_updates_with(
+            vec![&apt],
+            |_| Ok(true),
+            || {
+                rescans += 1;
+                Ok("verified")
+            },
+        );
+        assert_eq!(rescans, 1);
+        assert_eq!(run.updates[0].outcome, UpdateOutcome::Success);
+        assert_eq!(run.post_apt_rescan, Some(Ok("verified")));
+    }
+
+    #[test]
+    fn apt_partial_and_failure_still_rescan_once() {
+        let ok = entry("ok");
+        let failed = entry("failed");
+        let run = run_updates_with(
+            vec![&ok, &failed],
+            |entry| Ok(entry.id == "ok"),
+            || Err::<(), _>("scan unavailable".to_string()),
+        );
+        assert_eq!(run.updates[0].outcome, UpdateOutcome::Success);
+        assert!(matches!(run.updates[1].outcome, UpdateOutcome::Failure(_)));
+        assert_eq!(run.post_apt_rescan, Some(Err("scan unavailable".to_string())));
+
+        let run = run_updates_with(vec![&failed], |_| Err("spawn failed".to_string()), || Ok(7));
+        assert!(matches!(run.updates[0].outcome, UpdateOutcome::Failure(_)));
+        assert_eq!(run.post_apt_rescan, Some(Ok(7)));
+    }
+
+    #[test]
+    fn non_apt_update_does_not_trigger_post_apt_verify() {
+        let mut flatpak = entry("flatpak-app");
+        flatpak.source = "flatpak".to_string();
+        let run = run_updates_with(vec![&flatpak], |_| Ok(true), || Ok(()));
+        assert!(run.post_apt_rescan.is_none());
+    }
 }

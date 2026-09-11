@@ -5,10 +5,10 @@
 //!
 //! [KHỐI CLOUD_FS]
 
+use crate::models::*;
 use std::process::Stdio;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
-use crate::models::*;
 
 pub async fn list_remote_terminal(active_account: &Option<String>, path: &str) -> Result<Vec<FileItem>, String> {
     let mut cmd = crate::cloud_fs::get_command(active_account);
@@ -350,9 +350,7 @@ pub async fn trash_restore_terminal(active_account: &Option<String>, idx_1based:
         Ok(Ok(output)) => output,
         Ok(Err(e)) => return Err(e.to_string()),
         Err(_) => {
-            return Err(
-                "Yêu cầu quá hạn (timeout). Có thể do tài khoản chưa đăng nhập hoặc lỗi kết nối.".to_string(),
-            );
+            return Err("Yêu cầu quá hạn (timeout). Có thể do tài khoản chưa đăng nhập hoặc lỗi kết nối.".to_string());
         }
     };
     if output.status.success() {
@@ -536,11 +534,7 @@ pub async fn stat_terminal(active_account: &Option<String>, item: &str) -> Resul
 
 // Ghi text vào file cloud (write <file> <content...>)
 
-pub async fn write_file_terminal(
-    active_account: &Option<String>,
-    file: &str,
-    content: &str,
-) -> Result<(), String> {
+pub async fn write_file_terminal(active_account: &Option<String>, file: &str, content: &str) -> Result<(), String> {
     // Content nhiều dòng không truyền trực tiếp qua argv `write` được: CLI tokenize
     // theo \n thành nhiều lệnh → "Unknown command". → ghi file tạm rồi upload.
     if write_file_uses_temp_upload(content) {
@@ -582,10 +576,7 @@ pub async fn view(active_account: &Option<String>, path: Option<&str>) -> Result
 
 // Xuất tất cả Notes (export-notes [path])
 
-pub async fn export_notes_terminal(
-    active_account: &Option<String>,
-    path: Option<&str>,
-) -> Result<String, String> {
+pub async fn export_notes_terminal(active_account: &Option<String>, path: Option<&str>) -> Result<String, String> {
     let mut cmd = crate::cloud_fs::get_command(active_account);
     cmd.args(export_notes_args(path));
     let output = crate::cloud_fs::run_cmd_with_timeout(cmd, 120).await?;
@@ -653,9 +644,7 @@ pub async fn run_cmd_interactive(
 ) -> Result<std::process::Output, String> {
     let mut cmd = crate::sys::get_interactive_tokio_command(cmd);
 
-    cmd.stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     cmd.kill_on_drop(true);
 
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
@@ -667,8 +656,7 @@ pub async fn run_cmd_interactive(
     let mut stdout = child.stdout.take().ok_or_else(|| "stdout bị đóng".to_string())?;
     let mut stderr = child.stderr.take().ok_or_else(|| "stderr bị đóng".to_string())?;
 
-    let deadline =
-        tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
 
     let mut responder = PromptResponder::new(rules);
     let mut out_bytes: Vec<u8> = Vec::new();
@@ -736,4 +724,3 @@ pub async fn run_cmd_confirm(
     let rules = [confirm_prompt_rule(expected_prompts)];
     crate::cloud_fs::run_cmd_interactive(cmd, initial_input, &rules, timeout_secs).await
 }
-

@@ -65,10 +65,8 @@ pub fn get_lang_content(lang_code: String) -> Result<serde_json::Value, String> 
         return Err(format!("Không tìm thấy ngôn ngữ: {}", lang_code));
     }
 
-    let content = fs::read_to_string(&path)
-        .map_err(|e| format!("Lỗi đọc file ngôn ngữ {}: {}", lang_code, e))?;
-    serde_json::from_str(&content)
-        .map_err(|e| format!("Lỗi parse JSON ngôn ngữ {}: {}", lang_code, e))
+    let content = fs::read_to_string(&path).map_err(|e| format!("Lỗi đọc file ngôn ngữ {}: {}", lang_code, e))?;
+    serde_json::from_str(&content).map_err(|e| format!("Lỗi parse JSON ngôn ngữ {}: {}", lang_code, e))
 }
 
 #[cfg(test)]
@@ -91,8 +89,7 @@ mod tests {
         match first_available_lang() {
             Some(code) => {
                 assert!(codes.contains(&code), "fallback '{code}' không có file");
-                let dict = get_lang_content(code.clone())
-                    .unwrap_or_else(|e| panic!("đọc '{code}' thất bại: {e}"));
+                let dict = get_lang_content(code.clone()).unwrap_or_else(|e| panic!("đọc '{code}' thất bại: {e}"));
                 assert!(
                     dict.as_object().is_some_and(|m| !m.is_empty()),
                     "'{code}' phải là object không rỗng"
@@ -106,10 +103,7 @@ mod tests {
     #[test]
     fn chan_ma_ngon_ngu_doc_hai() {
         for bad in ["../../etc/passwd", "..", "vi/../en", "vi.json", ""] {
-            assert!(
-                get_lang_content(bad.to_string()).is_err(),
-                "mã '{bad}' phải bị từ chối"
-            );
+            assert!(get_lang_content(bad.to_string()).is_err(), "mã '{bad}' phải bị từ chối");
         }
     }
 

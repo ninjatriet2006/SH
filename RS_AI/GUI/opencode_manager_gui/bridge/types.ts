@@ -109,6 +109,19 @@ export interface GuiSettings {
     font_id: string;
 }
 
+export type WebState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
+
+/** Exact backend-owned OpenCode Web lifecycle snapshot. */
+export interface WebStatus {
+    state: WebState;
+    url: string | null;
+    error: string | null;
+    /** Backend vẫn sở hữu child handle và có thể dừng tiến trình đó. */
+    has_owned_child: boolean;
+    generation: number;
+    revision: number;
+}
+
 export interface FontInfo {
     id: string;
     name: string;
@@ -166,6 +179,11 @@ export interface ArbiterVerdict {
     tool_use: number;
     vision: number;
     overall: number;
+    /** 0 = restricted, 100 = least/no restriction; null = unknown. */
+    safety_freedom: number | null;
+    safety_confidence: number | null;
+    safety_evidence: string[];
+    overall_version: number;
     /** Số lần chạy được tính vào đồng thuận (≤ 5). */
     runs: number;
     /** `false` = điểm chưa hội tụ giữa các lần (cần chạy thêm). */
@@ -224,6 +242,14 @@ export interface ArbiterLastRun {
 
 /** Trạng thái arbiter cho tab Models. */
 export interface ArbiterState {
+    overall_version: number;
+    overall_weights: {
+        coding: number;
+        reasoning: number;
+        tool_use: number;
+        vision: number;
+        safety_freedom: number;
+    };
     arbiter: string | null;
     run_count: number;
     last_run: ArbiterLastRun | null;

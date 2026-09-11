@@ -22,9 +22,11 @@ import { useProviderStore } from '../store/useProviderStore';
 import { useTranslation } from '../utils/i18n';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { SearchableSelect, type SearchableOption } from '../components/SearchableSelect';
+import { safetyFreedomView } from '../utils/safetyFreedom';
+import { OpenCodeControls } from '../components/OpenCodeControls';
 
 type SortKey = 'provider' | 'model' | 'tools' | 'reasoning' | 'vision' | 'ctx' | 'out' | 'in' | 'outusd';
-type ArbiterSortKey = 'model' | 'coding' | 'reasoning' | 'tools' | 'vision' | 'overall';
+type ArbiterSortKey = 'model' | 'coding' | 'reasoning' | 'tools' | 'vision' | 'safety' | 'overall';
 type ViewMode = 'meta' | 'arbiter' | 'recommend';
 
 /** Event `arbiter://progress` từ backend — log từng lô request của arbiter. */
@@ -303,6 +305,7 @@ export function ModelsPage() {
                 case 'reasoning': return v.reasoning;
                 case 'tools': return v.tool_use;
                 case 'vision': return v.vision;
+                case 'safety': return v.safety_freedom ?? -1;
                 default: return v.overall;
             }
         };
@@ -428,6 +431,8 @@ export function ModelsPage() {
                 </div>
             </div>
             <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>{t('models.matrix_desc')}</p>
+
+            <OpenCodeControls onError={setNotice} />
 
             {notice && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 1rem', marginBottom: '1rem', background: 'rgba(239,68,68,0.12)', borderLeft: '4px solid var(--danger)', borderRadius: '4px', fontSize: '0.9rem' }}>
@@ -706,6 +711,7 @@ export function ModelsPage() {
                                         <th style={{ cursor: 'pointer', textAlign: 'right' }} onClick={() => toggleArbiterSort('reasoning')}>{t('models.arb_reasoning')}{arbiterArrow('reasoning')}</th>
                                         <th style={{ cursor: 'pointer', textAlign: 'right' }} onClick={() => toggleArbiterSort('tools')}>{t('models.arb_tools')}{arbiterArrow('tools')}</th>
                                         <th style={{ cursor: 'pointer', textAlign: 'right' }} onClick={() => toggleArbiterSort('vision')}>{t('models.arb_vision')}{arbiterArrow('vision')}</th>
+                                        <th style={{ cursor: 'pointer', textAlign: 'right' }} onClick={() => toggleArbiterSort('safety')} title={t('models.arb_safety_hint')}>{t('models.arb_safety')}{arbiterArrow('safety')}</th>
                                         <th style={{ cursor: 'pointer', textAlign: 'right' }} onClick={() => toggleArbiterSort('overall')}>{t('models.arb_overall')}{arbiterArrow('overall')}</th>
                                         <th style={{ textAlign: 'right' }} title={t('models.arb_limits_hint')}>{t('models.col_ctx')}</th>
                                         <th style={{ textAlign: 'right' }} title={t('models.arb_limits_hint')}>{t('models.col_out')}</th>
@@ -721,6 +727,12 @@ export function ModelsPage() {
                                             <td style={{ textAlign: 'right' }}>{v.reasoning}</td>
                                             <td style={{ textAlign: 'right' }}>{v.tool_use}</td>
                                             <td style={{ textAlign: 'right' }}>{v.vision}</td>
+                                            <td style={{ textAlign: 'right' }}>
+                                                {(() => {
+                                                    const safety = safetyFreedomView(v.safety_freedom, v.safety_confidence, v.safety_evidence, t('models.arb_safety_unknown'), t('models.arb_confidence'));
+                                                    return <span title={safety.title} style={!safety.known ? { color: 'var(--text-secondary)' } : undefined}>{safety.value}</span>;
+                                                })()}
+                                            </td>
                                             <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary)' }}>{v.overall}</td>
                                             <td style={{ textAlign: 'right', fontSize: '0.8rem' }}>
                                                 {(() => {
@@ -760,7 +772,8 @@ export function ModelsPage() {
                         </div>
                     )}
                     <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '0.5rem' }}>
-                        {t('models.arbiter_legend')}
+                        {t('models.arbiter_legend')} · {t('models.arb_formula')}: v{arbiterState?.overall_version ?? 2}
+                        {arbiterState && ` (${arbiterState.overall_weights.coding}/${arbiterState.overall_weights.reasoning}/${arbiterState.overall_weights.tool_use}/${arbiterState.overall_weights.vision}/${arbiterState.overall_weights.safety_freedom})`}
                     </small>
                 </div>
             ) : (

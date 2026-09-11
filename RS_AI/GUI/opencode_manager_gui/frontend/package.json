@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test": "node --test src/**/*.test.js",
     "lint": "oxlint",
     "preview": "vite preview"
   },

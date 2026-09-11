@@ -98,9 +98,7 @@ fn run_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result
                 }
 
                 // Ctrl+C luôn thoát.
-                if key.modifiers.contains(KeyModifiers::CONTROL)
-                    && matches!(key.code, KeyCode::Char('c'))
-                {
+                if key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.code, KeyCode::Char('c')) {
                     break;
                 }
 
@@ -192,7 +190,9 @@ mod tests {
         use std::sync::mpsc::channel;
 
         let Ok(root) = discovery::workspace_root() else { return };
-        let Ok(projects) = discovery::discover(&root) else { return };
+        let Ok(projects) = discovery::discover(&root) else {
+            return;
+        };
         let Some(project) = projects.iter().find(|p| p.package == "img_splt") else {
             return;
         };

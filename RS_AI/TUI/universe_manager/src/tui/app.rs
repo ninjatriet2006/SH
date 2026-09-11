@@ -27,6 +27,8 @@ pub struct App {
     pub operations_index: usize,
     pub checked_operations: HashSet<usize>, // 0: Start, 1: Stop, 2: Restart, 3: Toggle Autostart
     pub status_message: Option<String>,
+    pub update_result_message: Option<String>,
+    pub rescan_result_message: Option<String>,
     pub process_snapshot: std::sync::Arc<std::sync::Mutex<manager::ProcessSnapshot>>,
     pub running_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
     #[allow(dead_code)]
@@ -93,6 +95,8 @@ impl App {
             operations_index: 0,
             checked_operations: HashSet::new(),
             status_message: None,
+            update_result_message: None,
+            rescan_result_message: None,
             process_snapshot: initial_snapshot,
             worker_thread: Some(worker_thread),
             running_flag,
@@ -190,19 +194,27 @@ impl App {
     }
 
     pub fn reload_apps(&mut self) {
-        // Now only called when explicitly wanting to full reload, but usually we just keep the cached state
-        let system_apps = scanner::scan_all_system_apps();
+        self.rescan_applications();
+    }
 
-        // Scan status for each app
-        self.apps_with_status = system_apps
-            .into_iter()
-            .map(|entry| {
-                let status = entry.check_status();
-                (entry, status)
-            })
-            .collect();
-
-        self.update_filter();
+    pub fn rescan_applications(&mut self) {
+        match scanner::rescan_applications(&self.apps_with_status) {
+            Ok(report) => {
+                self.rescan_result_message = Some(format!(
+                    "Rescan: {} hiện có, giữ {} broken/{} chưa xác minh, gộp {} collision, {} lỗi nguồn",
+                    report.discovered,
+                    report.retained_broken,
+                    report.retained_unverified,
+                    report.merged_collisions,
+                    report.source_errors.len()
+                ));
+                self.apps_with_status = report.records;
+                self.update_filter();
+            }
+            Err(error) => {
+                self.rescan_result_message = Some(format!("Rescan thất bại: {error}"));
+            }
+        }
     }
 
     pub fn next(&mut self) {

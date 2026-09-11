@@ -1,0 +1,14 @@
+{
+  "app": { "title": "Bộ chia ảnh", "working": "Đang xử lý…", "starting": "Đang bắt đầu", "completed": "Hoàn tất", "failed": "Thất bại", "settings_saved": "Đã lưu cài đặt" },
+  "nav": { "dashboard": "Tổng quan", "settings": "Cài đặt", "scan": "Quét ảnh", "environment": "Môi trường", "process": "Xử lý", "distribute": "Phân phối" },
+  "dashboard": { "description": "Chia, phóng to và phân phối ảnh bằng FFmpeg.", "images": "Ảnh đã quét" },
+  "common": { "input": "Thư mục đầu vào", "output": "Thư mục đầu ra", "browse": "Chọn", "selected": "Đã chọn {count} ảnh", "result": "Kết quả", "output_warning": "Thao tác này ghi vào thư mục đầu ra đã chọn. Hãy kiểm tra trước khi tiếp tục." },
+  "settings": { "language": "Ngôn ngữ", "theme": "Giao diện", "font": "Phông chữ", "system": "Hệ thống", "light": "Sáng", "dark": "Tối", "system_default": "Mặc định hệ thống", "processing": "Cài đặt xử lý", "mode": "Chế độ phân phối", "max_files": "Số file tối đa mỗi thư mục", "fixed_folders": "Số thư mục cố định", "retries": "Số lần thử tối đa", "min_width": "Chiều rộng tối thiểu để phóng", "target_width": "Chiều rộng đích", "save": "Lưu cài đặt" },
+  "modes": { "balanced": "Cân bằng", "greedy": "Tham lam", "fixed": "Cố định" },
+  "scan": { "run": "Quét thư mục đã chọn", "found": "Tìm thấy {count} ảnh" },
+  "environment": { "check": "Kiểm tra FFmpeg và FFprobe", "available": "Có sẵn", "missing": "Thiếu", "unknown": "Chưa kiểm tra" },
+  "process": { "format": "Định dạng đầu ra (tùy chọn)", "upscale": "Phóng to ảnh nhỏ", "run": "Xử lý ảnh…", "confirm": "Xử lý các ảnh đã chọn và ghi kết quả vào thư mục đầu ra?" },
+  "distribute": { "chapter": "Chương (tùy chọn)", "run": "Phân phối ảnh…", "confirm": "Phân phối các ảnh đã chọn vào thư mục đầu ra?" },
+  "job_states": { "started": "Đã bắt đầu", "progress": "Đang xử lý", "completed": "Hoàn tất", "failed": "Thất bại", "cancelled": "Đã hủy" },
+  "log": { "title": "Nhật ký", "clear": "Xóa" }
+}

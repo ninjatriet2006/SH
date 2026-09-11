@@ -21,13 +21,16 @@ Nguyên tắc đồng thuận (theo thiết kế):
 use crate::api::models::matrix_rows;
 use opencode_manager::app::App;
 use opencode_manager::arbiter::{
-    ArbiterClient, ArbiterConfig, ArbiterModelInput, ArbiterRun, ArbiterVerdict, ARBITER_BATCH_LIMIT,
+    ArbiterClient, ArbiterConfig, ArbiterModelInput, ArbiterOverallWeights, ArbiterRun, ArbiterVerdict,
+    ARBITER_BATCH_LIMIT, ARBITER_OVERALL_VERSION, ARBITER_OVERALL_WEIGHTS,
 };
 use serde::Serialize;
 
 /// Trạng thái arbiter cho UI (đọc từ arbiter.json — không gọi mạng).
 #[derive(Debug, Clone, Serialize)]
 pub struct ArbiterState {
+    pub overall_version: u8,
+    pub overall_weights: ArbiterOverallWeights,
     /// Model trọng tài lần dùng gần nhất ("pid/mid"); None = chưa từng chạy.
     pub arbiter: Option<String>,
     /// Số lần chạy đang giữ (≤ 5).
@@ -75,6 +78,8 @@ pub fn get_arbiter_state() -> Result<ArbiterState, String> {
     });
 
     Ok(ArbiterState {
+        overall_version: ARBITER_OVERALL_VERSION,
+        overall_weights: ARBITER_OVERALL_WEIGHTS,
         arbiter: cfg.arbiter.clone(),
         run_count: cfg.runs.len(),
         last_run,
@@ -351,6 +356,44 @@ pub fn clear_arbiter_history() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dto_exposes_formula_and_optional_safety_fields() {
+        let state = ArbiterState {
+            overall_version: ARBITER_OVERALL_VERSION,
+            overall_weights: ARBITER_OVERALL_WEIGHTS,
+            arbiter: None,
+            run_count: 0,
+            last_run: None,
+            verdicts: Vec::new(),
+            candidates: Vec::new(),
+        };
+        let json = serde_json::to_value(state).unwrap();
+        assert_eq!(json["overall_version"], 2);
+        assert_eq!(json["overall_weights"]["safety_freedom"], 15);
+
+        let unknown = ArbiterVerdict {
+            model: "p/m".into(),
+            coding: 80,
+            reasoning: 80,
+            tool_use: 80,
+            vision: 80,
+            overall: 80,
+            safety_freedom: None,
+            safety_confidence: None,
+            safety_evidence: Vec::new(),
+            overall_version: 2,
+            runs: 1,
+            stable: true,
+            context: None,
+            output: None,
+            note: String::new(),
+        };
+        let json = serde_json::to_value(unknown).unwrap();
+        assert!(json["safety_freedom"].is_null());
+        assert!(json["safety_confidence"].is_null());
+        assert_eq!(json["safety_evidence"], serde_json::json!([]));
+    }
 
     /// Chuyển epoch → dd/mm/yyyy HH:MM đúng với mốc đã kiểm bằng Python.
     #[test]
@@ -639,6 +682,10 @@ mod recommend_tests {
                 tool_use: 80,
                 vision: 40,
                 overall: 60,
+                safety_freedom: None,
+                safety_confidence: None,
+                safety_evidence: Vec::new(),
+                overall_version: 1,
                 context: Some(1_048_576),
                 output: Some(32_768),
                 note: "generalist".into(),
@@ -652,6 +699,10 @@ mod recommend_tests {
                 tool_use: 70,
                 vision: 20,
                 overall: 78,
+                safety_freedom: None,
+                safety_confidence: None,
+                safety_evidence: Vec::new(),
+                overall_version: 1,
                 context: Some(65_536),
                 output: Some(16_384),
                 note: "coder chuyên".into(),

@@ -63,9 +63,7 @@ where
                         // (Không dùng ở nhánh này vì pkexec không chuyển tiếp stdin;
                         //  chỉ báo lỗi rõ ràng cho người dùng.)
                         "write" => {
-                            return Err(
-                                "Không đủ quyền ghi tệp này. Hãy đổi quyền hoặc chọn vị trí khác.".into()
-                            );
+                            return Err("Không đủ quyền ghi tệp này. Hãy đổi quyền hoặc chọn vị trí khác.".into());
                         }
                         _ => return Err("Hành động sudo không được hỗ trợ".into()),
                     }

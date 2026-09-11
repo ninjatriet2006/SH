@@ -7,3 +7,4 @@ pub mod models;
 pub mod provider;
 pub mod settings;
 pub mod theme;
+pub mod web_control;

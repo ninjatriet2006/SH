@@ -151,7 +151,7 @@ fn run_loop<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result
                             draw_needed = true;
                         }
                         KeyCode::Char('r') if key.modifiers.contains(event::KeyModifiers::ALT) => {
-                            app.needs_initial_scan = true;
+                            app.rescan_applications();
                             draw_needed = true;
                         }
                         KeyCode::Char('q') | KeyCode::Esc => {
@@ -268,9 +268,34 @@ fn run_update_selected_outside_raw<B: Backend>(terminal: &mut Terminal<B>, app: 
             selected_entries.push(entry);
         }
     }
-    match crate::maintenance::execute_updates(selected_entries) {
-        Ok(res) => println!("{}", res),
-        Err(e) => println!("Lỗi cập nhật: {}", e),
+    let run = crate::maintenance::execute_updates(selected_entries, &app.apps_with_status);
+    app.update_result_message = Some(run.update_summary());
+    println!("{}", app.update_result_message.as_deref().unwrap_or_default());
+    for result in &run.updates {
+        match &result.outcome {
+            crate::maintenance::UpdateOutcome::Success => println!("[OK] {} ({})", result.name, result.source),
+            crate::maintenance::UpdateOutcome::Failure(error) => {
+                println!("[LỖI] {} ({}): {}", result.name, result.source, error)
+            }
+        }
+    }
+    if let Some(rescan) = run.post_apt_rescan {
+        match rescan {
+            Ok(report) => {
+                app.rescan_result_message = Some(format!(
+                    "Xác minh sau APT: {} hiện có, giữ {} broken/{} chưa xác minh, gộp {} collision, {} lỗi nguồn",
+                    report.discovered,
+                    report.retained_broken,
+                    report.retained_unverified,
+                    report.merged_collisions,
+                    report.source_errors.len()
+                ));
+                app.apps_with_status = report.records;
+                app.update_filter();
+            }
+            Err(error) => app.rescan_result_message = Some(format!("Xác minh sau APT thất bại: {error}")),
+        }
+        println!("{}", app.rescan_result_message.as_deref().unwrap_or_default());
     }
 
     println!("\nNhấn Enter để tiếp tục...");
@@ -281,7 +306,7 @@ fn run_update_selected_outside_raw<B: Backend>(terminal: &mut Terminal<B>, app: 
     execute!(io::stdout(), EnterAlternateScreen)?;
     terminal.clear()?;
 
-    // Rescan after update
+    // Refresh available updates independently from the post-APT application verification above.
     app.needs_update_scan = true;
     app.checked_updates.clear();
 

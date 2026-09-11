@@ -580,12 +580,14 @@ impl App {
                     AppEvent::Tick => {
                         // Cập nhật logs của máy chủ WebDAV/S3 nếu đang chạy
                         // Ở đây chúng ta sẽ thực hiện đọc không chặn nếu cần
-                        
+
                         // Transfer Worker
                         let timeout_secs = self.transfer.timeout_secs;
                         let mut batch = Vec::new();
                         while self.transfer.running_count() < self.transfer.max_concurrent {
-                            let Some(idx) = self.transfer.next_queued_idx() else { break; };
+                            let Some(idx) = self.transfer.next_queued_idx() else {
+                                break;
+                            };
                             let item = self.transfer.items[idx].clone();
                             self.transfer.items[idx].status = crate::core::transfer::TransferStatus::Running;
                             batch.push(item);
@@ -643,7 +645,12 @@ impl App {
                             }
                         }
                     }
-                    AppEvent::TransferProgress { id, progress, bytes_done, total_bytes } => {
+                    AppEvent::TransferProgress {
+                        id,
+                        progress,
+                        bytes_done,
+                        total_bytes,
+                    } => {
                         if let Some(item) = self.transfer.items.iter_mut().find(|i| i.id == id) {
                             item.progress = progress;
                             item.bytes_done = bytes_done;
@@ -1122,9 +1129,9 @@ async fn run_transfer_worker(
     let kind = item.kind;
     let src = item.src.clone();
     let dst = item.dst.clone();
-    
+
     let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    
+
     let on_update = {
         let tx = tx.clone();
         move |upd: crate::core::transfer::ProgressUpdate| {
@@ -1144,8 +1151,12 @@ async fn run_transfer_worker(
         crate::core::transfer::TransferKind::Copy | crate::core::transfer::TransferKind::Move => {
             if !item.src_local && !item.dst_local {
                 let res = match kind {
-                    crate::core::transfer::TransferKind::Copy => crate::core::operations::Operations::cp(&account, &src, &dst).await,
-                    crate::core::transfer::TransferKind::Move => crate::core::operations::Operations::mv(&account, &src, &dst).await,
+                    crate::core::transfer::TransferKind::Copy => {
+                        crate::core::operations::Operations::cp(&account, &src, &dst).await
+                    }
+                    crate::core::transfer::TransferKind::Move => {
+                        crate::core::operations::Operations::mv(&account, &src, &dst).await
+                    }
                     _ => unreachable!(),
                 };
                 res.map_err(crate::core::transfer::TransferError::Failed)
@@ -1157,12 +1168,18 @@ async fn run_transfer_worker(
                 };
                 res.map_err(crate::core::transfer::TransferError::Failed)
             } else {
-                Err(crate::core::transfer::TransferError::Spawn("Copy/Move không hỗ trợ giữa hai đầu khác loại".to_string()))
+                Err(crate::core::transfer::TransferError::Spawn(
+                    "Copy/Move không hỗ trợ giữa hai đầu khác loại".to_string(),
+                ))
             }
         }
     };
-    
-    if item.cleanup_src && result.is_ok() && (kind == crate::core::transfer::TransferKind::Upload || kind == crate::core::transfer::TransferKind::Download) {
+
+    if item.cleanup_src
+        && result.is_ok()
+        && (kind == crate::core::transfer::TransferKind::Upload
+            || kind == crate::core::transfer::TransferKind::Download)
+    {
         if item.src_local {
             let _ = crate::core::transfer::delete_local_path(&item.src);
         } else {

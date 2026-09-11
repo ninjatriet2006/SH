@@ -1,0 +1,28 @@
+[
+  {
+    "PSPath": "Microsoft.PowerShell.Core\\Registry::HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{A1B2-C3D4}",
+    "PSChildName": "{A1B2-C3D4}",
+    "DisplayName": "Example Editor",
+    "DisplayVersion": "4.2.0",
+    "Publisher": "Example Corp",
+    "UninstallString": "MsiExec.exe /X{A1B2-C3D4}",
+    "InstallLocation": "C:\\Program Files\\Example Editor",
+    "HelpLink": "https://example.invalid/support",
+    "URLInfoAbout": null,
+    "SystemComponent": 0,
+    "ParentKeyName": null
+  },
+  {
+    "PSPath": "Microsoft.PowerShell.Core\\Registry::HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{A1B2-C3D4}",
+    "PSChildName": "{A1B2-C3D4}",
+    "DisplayName": "Example Editor User Install",
+    "DisplayVersion": "4.2.0",
+    "Publisher": "Example Corp",
+    "UninstallString": "MsiExec.exe /X{A1B2-C3D4}",
+    "InstallLocation": "C:\\Users\\demo\\AppData\\Local\\Example Editor",
+    "HelpLink": null,
+    "URLInfoAbout": "https://example.invalid",
+    "SystemComponent": "0",
+    "ParentKeyName": ""
+  }
+]

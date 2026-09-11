@@ -1467,8 +1467,7 @@ fn draw_ckey_need_key_popup(f: &mut Frame, area: Rect, app: &mut App) {
                 let mut items: Vec<ListItem> = app
                     .ckey_account_options
                     .iter()
-                    .enumerate()
-                    .map(|(_i, (pid, name, key))| {
+                    .map(|(pid, name, key)| {
                         let display = if name.trim().is_empty() { pid } else { name };
                         let line = Line::from(vec![
                             Span::styled(format!("{:<20}", display), Style::default().fg(Color::White)),

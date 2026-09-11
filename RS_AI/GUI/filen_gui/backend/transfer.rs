@@ -202,9 +202,7 @@ impl TransferManager {
 
     /// Index của mục queued đầu tiên (để khởi động đúng giới hạn concurrent).
     pub fn next_queued_idx(&self) -> Option<usize> {
-        self.items
-            .iter()
-            .position(|i| i.status == TransferStatus::Queued)
+        self.items.iter().position(|i| i.status == TransferStatus::Queued)
     }
 
     pub fn get_mut(&mut self, id: usize) -> Option<&mut TransferItem> {
@@ -257,13 +255,9 @@ pub async fn run_cli_transfer_terminal(
     // Unix: chạy qua `script -qec` để giả lập TTY — filen-cli (cli-progress) chỉ
     // render progress khi có TTY nên pipe trực tiếp không nhận được dữ liệu.
     let mut cmd = build_transfer_command(&argv);
-    cmd.stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .stdin(Stdio::null());
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null());
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| TransferError::Spawn(e.to_string()))?;
+    let mut child = cmd.spawn().map_err(|e| TransferError::Spawn(e.to_string()))?;
     let mut stdout = child
         .stdout
         .take()
@@ -274,9 +268,7 @@ pub async fn run_cli_transfer_terminal(
         .ok_or_else(|| TransferError::Spawn("stderr bị đóng".to_string()))?;
 
     let deadline = if timeout_secs > 0 {
-        Some(
-            tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_secs),
-        )
+        Some(tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_secs))
     } else {
         None
     };
@@ -344,10 +336,7 @@ pub async fn run_cli_transfer_terminal(
         on_update(upd);
     }
 
-    let status = child
-        .wait()
-        .await
-        .map_err(|e| TransferError::Failed(e.to_string()))?;
+    let status = child.wait().await.map_err(|e| TransferError::Failed(e.to_string()))?;
     if status.success() {
         Ok(())
     } else {
@@ -366,11 +355,7 @@ pub async fn run_cli_transfer_terminal(
 
 /// Đối số CLI cho transfer upload/download (dạng Vec để dễ test và nối thành câu
 /// lệnh khi chạy qua `script`).
-fn build_transfer_argv(
-    kind: TransferKind,
-    src: &str,
-    dst: &str,
-) -> Result<Vec<String>, TransferError> {
+fn build_transfer_argv(kind: TransferKind, src: &str, dst: &str) -> Result<Vec<String>, TransferError> {
     let mut argv = vec![resolve_filen_bin().to_string_lossy().to_string()];
     if let Some(data_path) = get_default_data_dir() {
         argv.push("--data-dir".to_string());
@@ -407,11 +392,7 @@ fn build_transfer_command(argv: &[String]) -> tokio::process::Command {
     #[cfg(unix)]
     {
         if which::which("script").is_ok() {
-            let cmd_str = argv
-                .iter()
-                .map(|a| shell_quote(a))
-                .collect::<Vec<_>>()
-                .join(" ");
+            let cmd_str = argv.iter().map(|a| shell_quote(a)).collect::<Vec<_>>().join(" ");
             let mut cmd = tokio::process::Command::new("script");
             cmd.args(["-qec", cmd_str.as_str(), "/dev/null"]);
             cmd.kill_on_drop(true);
@@ -458,11 +439,7 @@ async fn wait_deadline(deadline: Option<tokio::time::Instant>) {
 /// CUỐI cùng (phần trăm mới nhất); nếu segment cuối không parse được thì ưu
 /// tiên % cao nhất trong các segment đã thấy. Nếu không có `ESC[1G` thì dùng
 /// logic cũ (tách theo `\r`/`\n`).
-fn handle_progress_chunk(
-    chunk: &[u8],
-    carry: &mut String,
-    on_update: &mut impl FnMut(ProgressUpdate),
-) {
+fn handle_progress_chunk(chunk: &[u8], carry: &mut String, on_update: &mut impl FnMut(ProgressUpdate)) {
     carry.push_str(&String::from_utf8_lossy(chunk));
     // Phòng hờ: carry không chứa separator trong thời gian dài → cắt bớt đầu.
     if carry.len() > 16_384 {
@@ -496,10 +473,7 @@ fn handle_progress_chunk(
             on_update(upd);
         }
         // Giữ lại phần sau ESC[1G cuối cùng (render đang dở) cho lần sau.
-        let keep_from = carry
-            .rfind(CURSOR_HOME)
-            .map(|p| p + CURSOR_HOME.len())
-            .unwrap_or(0);
+        let keep_from = carry.rfind(CURSOR_HOME).map(|p| p + CURSOR_HOME.len()).unwrap_or(0);
         *carry = carry[keep_from..].trim_start_matches(['\r', '\n']).to_string();
         return;
     }
@@ -556,9 +530,7 @@ fn parse_percent(text: &str) -> Option<f32> {
                 break;
             }
         }
-        if seen_digit
-            && let Ok(v) = text[start..i].parse::<f32>()
-        {
+        if seen_digit && let Ok(v) = text[start..i].parse::<f32>() {
             return Some((v / 100.0).clamp(0.0, 1.0));
         }
     }
@@ -684,9 +656,7 @@ mod tests {
     #[test]
     fn test_parse_percent_basic() {
         assert_eq!(
-            parse_percent(
-                "Uploading a.txt [██████░░] 60% | 1.2 MB/s | ETA: 0:05 | 6.1 MiB / 10.2 MiB"
-            ),
+            parse_percent("Uploading a.txt [██████░░] 60% | 1.2 MB/s | ETA: 0:05 | 6.1 MiB / 10.2 MiB"),
             Some(0.6)
         );
         assert_eq!(parse_percent("0%"), Some(0.0));
@@ -706,9 +676,7 @@ mod tests {
 
     #[test]
     fn test_parse_bytes_fraction() {
-        let (d, t) = parse_bytes_fraction(
-            "Uploading a.txt [bar] 60% | 1.2 MB/s | ETA: 0:05 | 6.1 MiB / 10.2 MiB",
-        );
+        let (d, t) = parse_bytes_fraction("Uploading a.txt [bar] 60% | 1.2 MB/s | ETA: 0:05 | 6.1 MiB / 10.2 MiB");
         assert_eq!(d, (6.1 * 1024.0 * 1024.0) as u64);
         assert_eq!(t, (10.2 * 1024.0 * 1024.0) as u64);
     }

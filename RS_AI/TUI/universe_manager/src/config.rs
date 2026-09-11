@@ -28,6 +28,9 @@ pub struct AppEntry {
     pub stop_cmd: Option<String>,
     pub category: Option<String>,
     pub package_type: Option<String>,
+    /// All inventory backends that reported this application after de-duplication.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inventory_sources: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registry_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -12,32 +12,6 @@
 pub mod api;
 pub mod core;
 
-/// Hạ tầng cho test integration đổi `OPENCODE_TEST_HOME`.
-///
-/// Env là process-wide: các test ghi file cấu hình theo home phải lấy chung
-/// lock này, nếu không `cargo test` chạy song song sẽ cướp home của nhau
-/// (test A set dirA, test B set dirB, save của A rơi vào dirB).
-#[cfg(test)]
-pub(crate) mod test_support {
-    use std::path::PathBuf;
-    use std::sync::Mutex;
-
-    pub static TEST_ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    /// Tạo thư mục home test riêng (theo tag) rồi trỏ `OPENCODE_TEST_HOME` vào.
-    pub fn isolate_home(tag: &str) -> PathBuf {
-        let dir = std::env::current_dir()
-            .unwrap()
-            .join("target")
-            .join("test_homes")
-            .join(tag);
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::env::set_var("OPENCODE_TEST_HOME", &dir);
-        dir
-    }
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "linux")]
@@ -67,6 +41,7 @@ pub fn run() {
                 // Truyền root thực qua cùng resolver mà bản portable đang dùng.
                 std::env::set_var("OPENCODE_MANAGER_RESOURCE_DIR", resource_dir);
             }
+            app.manage(api::web_control::WebService::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -108,6 +83,14 @@ pub fn run() {
             api::models::set_primary_model,
             api::models::sync_limits_from_dev,
             // ==================
+            // OPENCODE TERMINAL / WEB
+            // ==================
+            api::web_control::web_status,
+            api::web_control::web_start,
+            api::web_control::web_stop,
+            api::web_control::launch_terminal,
+            api::web_control::open_web_url,
+            // ==================
             // ARBITER (trọng tài chấm điểm model)
             // ==================
             api::arbiter::get_arbiter_state,
@@ -128,4 +111,30 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Hạ tầng cho test integration đổi `OPENCODE_TEST_HOME`.
+///
+/// Env là process-wide: các test ghi file cấu hình theo home phải lấy chung
+/// lock này, nếu không `cargo test` chạy song song sẽ cướp home của nhau
+/// (test A set dirA, test B set dirB, save của A rơi vào dirB).
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+
+    pub static TEST_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Tạo thư mục home test riêng (theo tag) rồi trỏ `OPENCODE_TEST_HOME` vào.
+    pub fn isolate_home(tag: &str) -> PathBuf {
+        let dir = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("test_homes")
+            .join(tag);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::env::set_var("OPENCODE_TEST_HOME", &dir);
+        dir
+    }
 }

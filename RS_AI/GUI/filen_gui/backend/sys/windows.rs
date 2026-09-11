@@ -10,10 +10,8 @@ use std::process::Command;
 /// Bóc tách luồng pipe vào tiến trình `clip.exe` của Windows.
 pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
     // Khởi chạy hệ thống clip mặc định
-    let child = Command::new("clip")
-        .stdin(std::process::Stdio::piped())
-        .spawn();
-    
+    let child = Command::new("clip").stdin(std::process::Stdio::piped()).spawn();
+
     if let Ok(mut c) = child {
         if let Some(mut stdin) = c.stdin.take() {
             use std::io::Write;
@@ -54,7 +52,7 @@ pub fn scan_local_bins(home: &Path) -> Option<PathBuf> {
     if win_path.exists() {
         return Some(win_path);
     }
-    
+
     // 2. Kiểm tra file script cmd wrapper
     let win_cmd_path = home.join(".filen-cli\\bin\\filen.cmd");
     if win_cmd_path.exists() {
@@ -68,6 +66,6 @@ pub fn scan_local_bins(home: &Path) -> Option<PathBuf> {
             return Some(npm_path);
         }
     }
-    
+
     None
 }

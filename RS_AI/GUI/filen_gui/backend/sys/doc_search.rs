@@ -3,26 +3,22 @@
 //! Trách nhiệm: Sử dụng các công cụ CLI hệ thống (pdftotext, unzip) để đọc file PDF, DOCX, EPUB, hoặc dự phòng bằng đọc văn bản thuần.
 //! Tương tác: Giao tiếp với sys/mod.rs
 
+use std::fs;
 use std::path::Path;
 use std::process::Command;
-use std::fs;
 
 /// Trích xuất văn bản từ nhiều định dạng file tài liệu phục vụ cho tính năng search.
 pub fn extract_text(path: &Path) -> Option<String> {
     // Lấy phần mở rộng (đuôi) của file chuyển sang chữ thường
     let ext = path.extension()?.to_string_lossy().to_lowercase();
-    
+
     // Xử lý luồng theo từng loại đuôi file
     match ext.as_str() {
         "pdf" => {
             // [TODO]: Hiện tại đang gọi công cụ ngoài qua Terminal (pdftotext).
             // Tương lai có thể viết thêm logic _integrate dùng crate nội bộ thay thế để tăng tính độc lập.
             // Sử dụng công cụ dòng lệnh pdftotext để đọc file pdf và xuất ra luồng stdout (tham số -)
-            let output = Command::new("pdftotext")
-                .arg(path)
-                .arg("-")
-                .output()
-                .ok()?;
+            let output = Command::new("pdftotext").arg(path).arg("-").output().ok()?;
             // Kiểm tra trạng thái tiến trình
             if output.status.success() {
                 // Chuyển đổi dữ liệu nhị phân trả về thành chuỗi ký tự hợp lệ
@@ -30,7 +26,7 @@ pub fn extract_text(path: &Path) -> Option<String> {
             } else {
                 None
             }
-        },
+        }
         "docx" => {
             // [TODO]: Hiện tại đang gọi công cụ ngoài qua Terminal (unzip).
             // Tương lai có thể tích hợp crate `zip` để giải nén nội bộ thay vì phụ thuộc HĐH.
@@ -48,7 +44,7 @@ pub fn extract_text(path: &Path) -> Option<String> {
             } else {
                 None
             }
-        },
+        }
         "epub" => {
             // [TODO]: Hiện tại đang gọi công cụ ngoài qua Terminal (unzip).
             // Tương tự docx, epub cũng là file zip, ta giải nén toàn bộ các file .html và .xhtml
@@ -66,7 +62,7 @@ pub fn extract_text(path: &Path) -> Option<String> {
             } else {
                 None
             }
-        },
+        }
         _ => {
             // Fallback: Đọc thẳng bằng std::fs đối với các định dạng văn bản thô (.txt, .md, .ini,...)
             fs::read_to_string(path).ok()
@@ -80,7 +76,7 @@ fn strip_xml_tags(input: &str) -> String {
     let mut out = String::with_capacity(input.len() / 2);
     // Biến cờ (flag) đánh dấu con trỏ có đang nằm lọt trong một thẻ tag hay không
     let mut in_tag = false;
-    
+
     // Duyệt qua từng ký tự một
     for c in input.chars() {
         if c == '<' {

@@ -26,3 +26,28 @@ Thumbs.db
 *.swo
 *~
 .opencode/
+
+# Keep the active GUI architecture checkpoint and its verification evidence
+# versionable; other local OpenCode state remains ignored.
+!RS_AI/.opencode/
+RS_AI/.opencode/*
+!RS_AI/.opencode/plan-gui-architecture.md
+!RS_AI/.opencode/plan-gui-architecture-phase-1.md
+!RS_AI/.opencode/plan-gui-architecture-phase-2.md
+!RS_AI/.opencode/plan-gui-architecture-phase-4-slice.md
+!RS_AI/.opencode/plan-gui-architecture-phase-5.md
+!RS_AI/.opencode/plan-feature-expansion.md
+!RS_AI/.opencode/plan-feature-expansion-f2.md
+!RS_AI/.opencode/plan-feature-expansion-f3.md
+!RS_AI/.opencode/plan-feature-expansion-f4.md
+!RS_AI/.opencode/audit-gui-standalone.sh
+!RS_AI/.opencode/.gitignore
+!RS_AI/.opencode/test-audit-gui-standalone.sh
+!RS_AI/.opencode/tests/
+!RS_AI/.opencode/tests/**
+!RS_AI/.opencode/gui-standalone-audit.md
+!RS_AI/.opencode/evidence/
+RS_AI/.opencode/evidence/*
+!RS_AI/.opencode/evidence/gui/
+!RS_AI/.opencode/evidence/gui/**
+!RS_AI/.opencode/evidence/f3-opencode-command-matrix.md

@@ -26,3 +26,5 @@ tauri-plugin-log = "2"
 # opencode.json / auth.json / ckey.json, TUI và GUI không thể lệch nhau.
 opencode_manager = { path = "../../../TUI/opencode_manager" }
 tokio = { version = "1", features = ["rt-multi-thread"] }
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.189"

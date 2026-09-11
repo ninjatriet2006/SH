@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Example Editor
+Exec=env BAMF_DESKTOP_FILE_HINT=/var/lib/snapd/desktop/applications/example-editor_editor.desktop /snap/bin/example-editor %U
+Icon=/snap/example-editor/current/meta/gui/icon.png
+Categories=Development;

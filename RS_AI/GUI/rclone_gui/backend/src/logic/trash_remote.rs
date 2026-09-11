@@ -173,7 +173,10 @@ pub fn empty(remote: &str) -> Result<(), String> {
                     .and_then(|b| b.as_bool())
                     .unwrap_or(true);
                 if !can_cleanup {
-                    return Err(format!("Remote '{}' không hỗ trợ dọn sạch thùng rác (CleanUp).", remote));
+                    return Err(format!(
+                        "Remote '{}' không hỗ trợ dọn sạch thùng rác (CleanUp).",
+                        remote
+                    ));
                 }
             }
         }

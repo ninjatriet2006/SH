@@ -1,8 +1,10 @@
-use crate::core::operations::Operations;
 use crate::app::{App, AppEvent, PopupState, Screen, load_stored_accounts, save_stored_accounts};
+use crate::core::operations::Operations;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-fn map_tx(tx: Option<tokio::sync::mpsc::UnboundedSender<crate::app::AppEvent>>) -> Option<tokio::sync::mpsc::UnboundedSender<crate::core::operations::CoreEvent>> {
+fn map_tx(
+    tx: Option<tokio::sync::mpsc::UnboundedSender<crate::app::AppEvent>>,
+) -> Option<tokio::sync::mpsc::UnboundedSender<crate::core::operations::CoreEvent>> {
     tx.map(|app_tx| {
         let (ctx, mut crx) = tokio::sync::mpsc::unbounded_channel::<crate::core::operations::CoreEvent>();
         tokio::spawn(async move {
@@ -195,7 +197,9 @@ pub async fn handle_account_key(app: &mut App, key: KeyEvent) {
                     let pass_clone = password.clone();
                     let keep_clone = "y".to_string();
                     tokio::spawn(async move {
-                        let res = Operations::login_new(&email_clone, &pass_clone, None, &keep_clone, map_tx(tx.clone())).await;
+                        let res =
+                            Operations::login_new(&email_clone, &pass_clone, None, &keep_clone, map_tx(tx.clone()))
+                                .await;
                         if let Some(tx) = tx {
                             let _ = tx.send(AppEvent::LoginFinished {
                                 email: email_clone,
@@ -327,7 +331,8 @@ pub async fn handle_account_key(app: &mut App, key: KeyEvent) {
                         let keep_clone = keep.clone();
                         tokio::spawn(async move {
                             let res =
-                                Operations::login_new(&email_clone, &pass_clone, None, &keep_clone, map_tx(tx.clone())).await;
+                                Operations::login_new(&email_clone, &pass_clone, None, &keep_clone, map_tx(tx.clone()))
+                                    .await;
                             if let Some(tx) = tx {
                                 let _ = tx.send(AppEvent::LoginFinished {
                                     email: email_clone,
@@ -399,7 +404,9 @@ pub async fn handle_account_key(app: &mut App, key: KeyEvent) {
                     let pass_clone = password.clone();
                     let keep_clone = "y".to_string();
                     tokio::spawn(async move {
-                        let res = Operations::login_new(&email_clone, &pass_clone, None, &keep_clone, map_tx(tx.clone())).await;
+                        let res =
+                            Operations::login_new(&email_clone, &pass_clone, None, &keep_clone, map_tx(tx.clone()))
+                                .await;
                         if let Some(tx) = tx {
                             let _ = tx.send(AppEvent::LoginFinished {
                                 email: email_clone,

@@ -73,11 +73,7 @@ pub async fn fs_trash_empty_local() -> Result<(), String> {
 
 /// Bóc tên remote từ tham số Frontend gửi xuống, bỏ dấu ':' nếu có.
 fn require_remote(account: Option<String>) -> Result<String, String> {
-    let name = account
-        .unwrap_or_default()
-        .trim()
-        .trim_end_matches(':')
-        .to_string();
+    let name = account.unwrap_or_default().trim().trim_end_matches(':').to_string();
     if name.is_empty() || name == "Local" {
         return Err("Thiếu tên remote (thùng rác đám mây chỉ áp dụng cho ổ Cloud).".to_string());
     }

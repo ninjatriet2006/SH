@@ -1,0 +1,92 @@
+{
+  "app": {
+    "title": "Universal Converter",
+    "working": "Working…",
+    "ready": "Ready",
+    "starting": "Starting",
+    "completed": "Completed",
+    "failed": "Failed",
+    "settings_saved": "Settings saved"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "dependencies": "Dependencies",
+    "classify": "Classify",
+    "scan": "Scan",
+    "batch": "Batch",
+    "native": "Native",
+    "settings": "Settings"
+  },
+  "dashboard": {
+    "description": "Universal conversion operations are available from the navigation."
+  },
+  "dependencies": {
+    "check": "Check ffmpeg, 7z, soffice"
+  },
+  "classify": {
+    "title": "Classify File or Directory",
+    "placeholder": "Select a file or directory",
+    "browse_file": "Browse file",
+    "browse_directory": "Browse directory",
+    "run": "Classify"
+  },
+  "scan": {
+    "title": "Scan Directory",
+    "placeholder": "Select a directory",
+    "browse": "Browse",
+    "run": "Scan",
+    "types": {
+      "archive": "Archives",
+      "video": "Videos",
+      "image": "Images",
+      "audio": "Audio",
+      "document": "Documents"
+    }
+  },
+  "job_states": {
+    "started": "Started",
+    "progress": "In progress",
+    "completed": "Completed",
+    "failed": "Failed",
+    "cancelled": "Cancelled"
+  },
+  "batch": {
+    "title": "Batch Convert",
+    "select_files": "Select files",
+    "files_selected": "{count} file(s)",
+    "output_placeholder": "Output directory",
+    "browse": "Browse",
+    "format": "Format",
+    "overwrite": "Overwrite",
+    "convert": "Convert"
+  },
+  "native": {
+    "title": "Native Integration",
+    "artifact_placeholder": "Artifact file or directory",
+    "browse_file": "Browse file",
+    "browse_directory": "Browse directory",
+    "target_directory": "Target directory",
+    "target_placeholder": "User-scoped install directory",
+    "install": "Install…",
+    "installation_id": "Installation ID",
+    "uninstall": "Uninstall…",
+    "notice": "Native operations always require confirmation before invoking the bridge.",
+    "confirm_install": "Install this artifact for the current user?",
+    "confirm_uninstall": "Uninstall this recorded installation?"
+  },
+  "settings": {
+    "language": "Language",
+    "theme": "Theme",
+    "font": "Font",
+    "system": "System",
+    "light": "Light",
+    "dark": "Dark",
+    "system_default": "System default",
+    "dejavu_sans": "DejaVu Sans",
+    "save": "Save"
+  },
+  "log": {
+    "title": "Log",
+    "clear": "Clear"
+  }
+}

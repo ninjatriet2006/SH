@@ -107,6 +107,62 @@ h1 {
   color: white;
 }
 
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
+  box-shadow: none;
+}
+
+.opencode-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 3rem;
+  margin-bottom: 1rem;
+}
+
+.opencode-controls__link {
+  min-width: 0;
+  flex: 1 1 28rem;
+  display: grid;
+  grid-template-columns: auto auto;
+  justify-content: start;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.opencode-controls__link code {
+  grid-column: 1 / -1;
+  min-width: 20rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--primary-hover);
+}
+
+.opencode-controls__error {
+  grid-column: 1 / -1;
+  color: var(--danger);
+}
+
+.opencode-controls__actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.web-state--running { color: var(--success); }
+.web-state--error { color: var(--danger); }
+.web-state--starting, .web-state--stopping { color: var(--warning); }
+
+@media (max-width: 1100px) {
+  .opencode-controls { align-items: stretch; flex-direction: column; gap: 1.25rem; }
+  .opencode-controls__link { flex-basis: auto; }
+  .opencode-controls__actions { justify-content: flex-start; }
+}
+
 /* Forms & Inputs */
 .form-group {
   margin-bottom: 1.25rem;

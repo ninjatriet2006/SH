@@ -10,11 +10,15 @@ members = [
     "GUI/filen_gui",
     "GUI/opencode_manager_gui/backend",
     "GUI/img_splt_gui",
-    "GUI/universal_converter_gui",
+    "GUI/img_splt_gui/backend",
+    "GUI/img_splt_gui/bridge",
+    "GUI/universal_converter_gui/backend",
+    "GUI/universal_converter_gui/bridge",
     "GUI/subscription_manager_gui/backend",
     "GUI/rclone_gui/backend",
     "tools/gui_builder",
 ]
+exclude = ["GUI/universal_converter_gui"]
 
 [workspace.package]
 version = "0.1.0"

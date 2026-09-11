@@ -1,0 +1,92 @@
+{
+  "app": {
+    "title": "Bộ chuyển đổi đa năng",
+    "working": "Đang xử lý…",
+    "ready": "Sẵn sàng",
+    "starting": "Đang bắt đầu",
+    "completed": "Hoàn tất",
+    "failed": "Thất bại",
+    "settings_saved": "Đã lưu cài đặt"
+  },
+  "nav": {
+    "dashboard": "Tổng quan",
+    "dependencies": "Phụ thuộc",
+    "classify": "Phân loại",
+    "scan": "Quét",
+    "batch": "Hàng loạt",
+    "native": "Tích hợp hệ thống",
+    "settings": "Cài đặt"
+  },
+  "dashboard": {
+    "description": "Các thao tác chuyển đổi đa năng có trong thanh điều hướng."
+  },
+  "dependencies": {
+    "check": "Kiểm tra ffmpeg, 7z, soffice"
+  },
+  "classify": {
+    "title": "Phân loại tệp hoặc thư mục",
+    "placeholder": "Chọn tệp hoặc thư mục",
+    "browse_file": "Chọn tệp",
+    "browse_directory": "Chọn thư mục",
+    "run": "Phân loại"
+  },
+  "scan": {
+    "title": "Quét thư mục",
+    "placeholder": "Chọn thư mục",
+    "browse": "Chọn",
+    "run": "Quét",
+    "types": {
+      "archive": "Tệp nén",
+      "video": "Video",
+      "image": "Hình ảnh",
+      "audio": "Âm thanh",
+      "document": "Tài liệu"
+    }
+  },
+  "job_states": {
+    "started": "Đã bắt đầu",
+    "progress": "Đang xử lý",
+    "completed": "Hoàn tất",
+    "failed": "Thất bại",
+    "cancelled": "Đã hủy"
+  },
+  "batch": {
+    "title": "Chuyển đổi hàng loạt",
+    "select_files": "Chọn tệp",
+    "files_selected": "{count} tệp",
+    "output_placeholder": "Thư mục đầu ra",
+    "browse": "Chọn",
+    "format": "Định dạng",
+    "overwrite": "Ghi đè",
+    "convert": "Chuyển đổi"
+  },
+  "native": {
+    "title": "Tích hợp hệ thống",
+    "artifact_placeholder": "Tệp hoặc thư mục cài đặt",
+    "browse_file": "Chọn tệp",
+    "browse_directory": "Chọn thư mục",
+    "target_directory": "Thư mục đích",
+    "target_placeholder": "Thư mục cài đặt của người dùng",
+    "install": "Cài đặt…",
+    "installation_id": "Mã cài đặt",
+    "uninstall": "Gỡ cài đặt…",
+    "notice": "Thao tác hệ thống luôn cần xác nhận trước khi gọi bridge.",
+    "confirm_install": "Cài đặt thành phần này cho người dùng hiện tại?",
+    "confirm_uninstall": "Gỡ bản cài đặt đã ghi nhận này?"
+  },
+  "settings": {
+    "language": "Ngôn ngữ",
+    "theme": "Giao diện",
+    "font": "Phông chữ",
+    "system": "Hệ thống",
+    "light": "Sáng",
+    "dark": "Tối",
+    "system_default": "Mặc định hệ thống",
+    "dejavu_sans": "DejaVu Sans",
+    "save": "Lưu"
+  },
+  "log": {
+    "title": "Nhật ký",
+    "clear": "Xóa"
+  }
+}

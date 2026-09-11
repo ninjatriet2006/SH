@@ -1,0 +1,1 @@
+{"main":{"identifier":"main","description":"Image Splitter main-window job event capability","local":true,"windows":["main"],"permissions":["core:event:allow-listen","core:event:allow-unlisten"]}}

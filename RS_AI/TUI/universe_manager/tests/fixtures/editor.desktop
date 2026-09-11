@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Example Editor
+Exec=/opt/example/editor %U
+Icon=example-editor
+Categories=Development;Utility;

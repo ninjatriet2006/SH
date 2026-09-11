@@ -4,23 +4,23 @@
 //! Tương tác: Giao tiếp với operations.rs
 
 #[cfg(unix)]
-pub mod unix;
+pub mod custom_actions;
 #[cfg(unix)]
 pub mod desktop_apps;
 #[cfg(unix)]
-pub mod custom_actions;
-#[cfg(unix)]
 pub mod doc_search;
+#[cfg(unix)]
+pub mod unix;
 #[cfg(windows)]
 pub mod windows;
 
 #[cfg(unix)]
-pub use unix::*;
+pub use custom_actions::*;
 #[cfg(unix)]
 pub use desktop_apps::*;
 #[cfg(unix)]
-pub use custom_actions::*;
-#[cfg(unix)]
 pub use doc_search::*;
+#[cfg(unix)]
+pub use unix::*;
 #[cfg(windows)]
 pub use windows::*;

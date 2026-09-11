@@ -52,7 +52,7 @@ pub fn get_desktop_apps() -> Vec<DesktopApp> {
 /// Hàm nội bộ: Đọc nội dung file .desktop và trích xuất cấu hình (INI format)
 fn parse_desktop_file(path: &PathBuf) -> Option<DesktopApp> {
     let content = fs::read_to_string(path).ok()?;
-    
+
     let mut name = String::new();
     let mut exec = String::new();
     let mut icon = String::new();
@@ -79,19 +79,20 @@ fn parse_desktop_file(path: &PathBuf) -> Option<DesktopApp> {
         if let Some((k, v)) = line.split_once('=') {
             let key = k.trim();
             let val = v.trim();
-            
+
             match key {
                 "Type" if val == "Application" => is_app = true,
                 "Name" if name.is_empty() => name = val.to_string(), // Chỉ lấy Name chuẩn (bỏ qua bản dịch ngôn ngữ)
-                "Exec" => exec = val.to_string(), // Lệnh thực thi
-                "Icon" => icon = val.to_string(), // Tên/đường dẫn icon
+                "Exec" => exec = val.to_string(),                    // Lệnh thực thi
+                "Icon" => icon = val.to_string(),                    // Tên/đường dẫn icon
                 "MimeType" => {
                     // Cắt các MimeType được phân tách bằng dấu chấm phẩy
-                    mime_types = val.split(';')
+                    mime_types = val
+                        .split(';')
                         .map(|s| s.trim().to_string())
                         .filter(|s| !s.is_empty())
                         .collect();
-                },
+                }
                 "NoDisplay" if val.to_lowercase() == "true" => no_display = true, // Bị đánh dấu ẩn
                 _ => {}
             }

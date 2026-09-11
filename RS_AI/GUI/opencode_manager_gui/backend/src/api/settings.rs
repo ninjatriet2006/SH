@@ -13,7 +13,7 @@
 */
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GuiSettings {
@@ -75,8 +75,11 @@ fn migrate_settings_file() {
 #[tauri::command(rename_all = "snake_case")]
 pub fn get_gui_settings() -> Result<GuiSettings, String> {
     migrate_settings_file();
-    let path = settings_path();
-    let mut settings = if let Some(text) = opencode_manager::storage::read_if_exists(&path) {
+    read_gui_settings_from_path(&settings_path())
+}
+
+fn read_gui_settings_from_path(path: &Path) -> Result<GuiSettings, String> {
+    let mut settings = if let Some(text) = opencode_manager::storage::read_if_exists(path) {
         serde_json::from_str::<GuiSettings>(&text).unwrap_or_else(|e| {
             eprintln!("[settings] settings.json hỏng, dùng mặc định: {e}");
             GuiSettings::default()
@@ -107,6 +110,10 @@ pub fn get_gui_settings() -> Result<GuiSettings, String> {
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn save_gui_settings(language: String, theme_id: String, font_id: String) -> Result<(), String> {
+    save_gui_settings_to_path(&settings_path(), language, theme_id, font_id)
+}
+
+fn save_gui_settings_to_path(path: &Path, language: String, theme_id: String, font_id: String) -> Result<(), String> {
     if language.trim().is_empty() {
         return Err("Ngôn ngữ không được để trống".to_string());
     }
@@ -137,11 +144,10 @@ pub fn save_gui_settings(language: String, theme_id: String, font_id: String) ->
         theme_id,
         font_id,
     };
-    let path = settings_path();
     // Backup xoay vòng + ghi atomic (xem opencode_manager::storage).
-    opencode_manager::storage::backup_rotate(&path, opencode_manager::storage::BACKUP_KEEP);
+    opencode_manager::storage::backup_rotate(path, opencode_manager::storage::BACKUP_KEEP);
     let text = serde_json::to_string_pretty(&settings).map_err(|e| format!("Lỗi chuyển đổi cài đặt: {e}"))?;
-    opencode_manager::storage::atomic_write(&path, &text).map_err(|e| format!("Lỗi ghi file cài đặt: {e}"))?;
+    opencode_manager::storage::atomic_write(path, &text).map_err(|e| format!("Lỗi ghi file cài đặt: {e}"))?;
     Ok(())
 }
 
@@ -225,6 +231,29 @@ mod tests {
         let err = save_gui_settings("khong_ton_tai_9999".into(), "default".into(), "default".into())
             .expect_err("phải từ chối mã không có file");
         assert!(err.contains("không có trong langs/"), "lỗi: {err}");
+    }
+
+    #[test]
+    fn save_then_fresh_read_giu_nguyen_language_theme_font() {
+        let unique = format!(
+            "opencode-manager-settings-restart-{}-{:?}-{}",
+            std::process::id(),
+            std::thread::current().id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock phải sau UNIX epoch")
+                .as_nanos()
+        );
+        let path = std::env::temp_dir().join(unique).join("settings.json");
+
+        save_gui_settings_to_path(&path, "vi".into(), "red_blood".into(), "dejavusans".into())
+            .expect("lưu OpenCode GUI settings vào temp path");
+        let actual = read_gui_settings_from_path(&path).expect("fresh-read OpenCode GUI settings từ temp path");
+
+        assert_eq!(actual.language, "vi");
+        assert_eq!(actual.theme_id, "red_blood");
+        assert_eq!(actual.font_id, "dejavusans");
+        assert!(path.starts_with(std::env::temp_dir()));
     }
 
     /// Migration vị trí: manager_gui.json cũ → settings.json mới (không xoá

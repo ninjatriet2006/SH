@@ -1,0 +1,12 @@
+{
+  "id": "dark",
+  "tokens": {
+    "canvas": "#111827",
+    "foreground": "#e5e7eb",
+    "border": "#374151",
+    "panel": "#0b1020",
+    "panel_foreground": "#d1d5db",
+    "accent": "#2563eb",
+    "error": "#7f1d1d"
+  }
+}

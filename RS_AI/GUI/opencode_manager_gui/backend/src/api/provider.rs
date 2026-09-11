@@ -162,6 +162,7 @@ pub fn validate_custom_id(id: &str) -> Result<(), String> {
 /// đúng URL preset thì provider thành built-in (key lưu ở auth.json) — cùng
 /// cơ chế tự động như id sinh từ preset.
 #[tauri::command(rename_all = "snake_case")]
+#[allow(clippy::too_many_arguments)]
 pub async fn save_provider(
     provider_id: String,
     preset_id: String,
@@ -188,6 +189,7 @@ pub async fn save_provider(
     .map_err(|e| format!("Task lưu provider sụp: {e}"))?
 }
 
+#[allow(clippy::too_many_arguments)]
 fn save_provider_blocking(
     provider_id: String,
     preset_id: String,
@@ -444,7 +446,7 @@ fn caps_of_entry(entry: &ModelEntry) -> Option<ScannedModelCaps> {
         Some(Interleaved::Field(f)) => Some(f.clone()),
         _ => None,
     };
-    (entry.tool_call.is_some() || entry.reasoning.is_some() || interleaved.is_some()).then(|| ScannedModelCaps {
+    (entry.tool_call.is_some() || entry.reasoning.is_some() || interleaved.is_some()).then_some(ScannedModelCaps {
         tool_call: entry.tool_call,
         reasoning: entry.reasoning,
         interleaved,
@@ -727,7 +729,6 @@ mod integration_tests {
                 models,
                 whitelist: Some(vec!["allowed".to_string()]),
                 blacklist: Some(vec!["hidden".to_string()]),
-                ..Default::default()
             },
         );
         cfg.save().unwrap();

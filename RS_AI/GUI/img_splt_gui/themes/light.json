@@ -1,0 +1,4 @@
+{
+  "id": "light",
+  "tokens": { "canvas": "#f3f4f6", "foreground": "#111827", "border": "#d1d5db", "panel": "#ffffff", "panel_foreground": "#1f2937", "accent": "#2563eb", "error": "#b91c1c" }
+}

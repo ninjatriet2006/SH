@@ -38,7 +38,6 @@ impl Default for Preferences {
 #[derive(Clone)]
 struct AvailableFont {
     name: String,
-    path: PathBuf,
 }
 
 // ---------------------------------------------------------------------------
@@ -133,102 +132,27 @@ impl UniversalConverterApp {
 // (egui mặc định thiếu glyph Latin Extended + một số emoji/symbol)
 // ---------------------------------------------------------------------------
 
-fn load_font(fonts: &mut egui::FontDefinitions, name: &str, candidates: &[&str], family: egui::FontFamily) {
-    // Load ALL existing fonts (fallback chain tích lũy: font sau bù glyph font trước)
-    for (i, path) in candidates.iter().enumerate() {
-        if std::path::Path::new(path).exists() {
-            if let Ok(bytes) = std::fs::read(path) {
-                let font_name = format!("{name}_{i}");
-                fonts.font_data.insert(
-                    font_name.clone(),
-                    std::sync::Arc::new(egui::FontData::from_owned(bytes)),
-                );
-                if let Some(list) = fonts.families.get_mut(&family) {
-                    list.push(font_name);
-                }
-            }
-        }
-    }
-}
-
-fn font_candidates() -> &'static [(&'static str, &'static str)] {
-    &[
-        ("Noto Sans", "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"),
-        ("DejaVu Sans", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
-        (
-            "Liberation Sans",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        ),
-        ("Arial Unicode", "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"),
-        ("Helvetica", "/System/Library/Fonts/Helvetica.ttc"),
-        ("Segoe UI", "C:\\Windows\\Fonts\\segoeui.ttf"),
-        ("Arial", "C:\\Windows\\Fonts\\arial.ttf"),
-    ]
-}
-
 fn available_fonts() -> Vec<AvailableFont> {
-    font_candidates()
-        .iter()
-        .filter(|(_, path)| Path::new(path).is_file())
-        .map(|(name, path)| AvailableFont {
-            name: (*name).into(),
-            path: PathBuf::from(path),
-        })
-        .collect()
+    vec![AvailableFont {
+        name: "DejaVu Sans".into(),
+    }]
 }
 
 fn setup_fonts(ctx: &egui::Context, selected: Option<&AvailableFont>) {
     let mut fonts = egui::FontDefinitions::default();
 
     if let Some(font) = selected {
-        if let Ok(bytes) = std::fs::read(&font.path) {
-            let name = "selected_font".to_owned();
-            fonts
-                .font_data
-                .insert(name.clone(), std::sync::Arc::new(egui::FontData::from_owned(bytes)));
-            fonts
-                .families
-                .get_mut(&egui::FontFamily::Proportional)
-                .unwrap()
-                .insert(0, name);
+        if font.name == "DejaVu Sans" {
+            let name = "app_local_dejavusans".to_owned();
+            fonts.font_data.insert(
+                name.clone(),
+                std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../fonts/DejaVuSans.ttf"))),
+            );
+            if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+                family.insert(0, name);
+            }
         }
     }
-    load_font(
-        &mut fonts,
-        "sans_fallback",
-        &[
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", // Linux
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", // Linux alt
-            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf", // macOS
-            "C:\\Windows\\Fonts\\segoeui.ttf",                 // Windows
-            "C:\\Windows\\Fonts\\arial.ttf",                   // Windows alt
-        ],
-        egui::FontFamily::Proportional,
-    );
-    load_font(
-        &mut fonts,
-        "mono_fallback",
-        &[
-            "/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf", // Linux (đủ tiếng Việt)
-            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",     // Linux alt
-            "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf", // Linux alt 2
-            "/System/Library/Fonts/Menlo.ttc",                         // macOS
-            "C:\\Windows\\Fonts\\consola.ttf",                         // Windows
-        ],
-        egui::FontFamily::Monospace,
-    );
-    // Ký hiệu đặc biệt (emoji đơn sắc, mũi tên, dấu kiểm...)
-    load_font(
-        &mut fonts,
-        "symbols_fallback",
-        &[
-            "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf", // Linux
-            "/usr/share/fonts/truetype/noto/NotoSansSymbols-Regular.ttf",  // Linux alt
-            "/System/Library/Fonts/Apple Symbols.ttf",                     // macOS
-            "C:\\Windows\\Fonts\\seguiemj.ttf",                            // Windows
-        ],
-        egui::FontFamily::Proportional,
-    );
 
     ctx.set_fonts(fonts);
 }

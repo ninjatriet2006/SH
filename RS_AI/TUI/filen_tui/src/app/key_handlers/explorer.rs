@@ -1,5 +1,5 @@
-use crate::core::operations::Operations;
 use crate::app::{App, AppEvent, PopupState, Screen};
+use crate::core::operations::Operations;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::{Path, PathBuf};
 
@@ -601,10 +601,10 @@ pub async fn handle_explorer_key(app: &mut App, key: KeyEvent) {
                                 crate::core::transfer::TransferKind::Copy
                             }
                         };
-                        
+
                         let src_pane = if app.active_pane_left { 1 } else { 0 };
                         let dst_pane = if app.active_pane_left { 0 } else { 1 };
-                        
+
                         app.transfer.enqueue(
                             kind,
                             item.name.clone(),

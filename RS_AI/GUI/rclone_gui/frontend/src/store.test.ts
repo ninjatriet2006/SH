@@ -4,8 +4,36 @@
   `filen_` (codebase gốc) sang `rclonegui_`.
 - Trách nhiệm: Đảm bảo không mất dữ liệu người dùng đã lưu và không ghi đè dữ liệu mới.
 */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { normalizeSettings, readStored, type AppSettings } from './store';
+
+class IsolatedStorage implements Storage {
+  private readonly values = new Map<string, string>();
+
+  get length(): number {
+    return this.values.size;
+  }
+
+  clear(): void {
+    this.values.clear();
+  }
+
+  getItem(key: string): string | null {
+    return this.values.get(key) ?? null;
+  }
+
+  key(index: number): string | null {
+    return [...this.values.keys()][index] ?? null;
+  }
+
+  removeItem(key: string): void {
+    this.values.delete(key);
+  }
+
+  setItem(key: string, value: string): void {
+    this.values.set(key, value);
+  }
+}
 
 describe('readStored', () => {
   beforeEach(() => {
@@ -76,5 +104,27 @@ describe('normalizeSettings', () => {
     const value = settings({ language: 'vi', theme: 'amber', font: 'dejavusans' });
     expect(normalizeSettings(value, ['en', 'vi'], ['default', 'amber'], ['default', 'dejavusans'])).toBe(false);
     expect(value).toMatchObject({ language: 'vi', theme: 'amber', font: 'dejavusans' });
+  });
+});
+
+describe('settings persistence', () => {
+  it('reads the same values after a fresh module load', async () => {
+    vi.resetModules();
+    vi.stubGlobal('localStorage', new IsolatedStorage());
+
+    const firstRun = await import('./store');
+    firstRun.appState.settings = {
+      showHiddenFiles: true,
+      language: 'vi',
+      theme: 'amber',
+      font: 'dejavusans',
+    };
+    firstRun.saveSettings();
+
+    vi.resetModules();
+    const restarted = await import('./store');
+
+    expect(restarted.appState.settings).toEqual(firstRun.appState.settings);
+    vi.unstubAllGlobals();
   });
 });

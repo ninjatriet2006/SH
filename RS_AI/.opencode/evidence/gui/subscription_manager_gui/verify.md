@@ -1,0 +1,9 @@
+# Subscription Manager GUI — verification
+
+- Result: PASS (2026-09-09). Working directories: `GUI/subscription_manager_gui/frontend` and `GUI/subscription_manager_gui/backend`; A.4-V `[x]`.
+- `npm run build`: PASS; package has no `test` script. `cargo fmt --check`: PASS. `cargo test`: PASS, 48 passed / 0 failed (45 unit + 3 integration). `cargo clippy -- -D warnings`: PASS, 0 warnings.
+- Static A.3–A.4: PASS — sole capability, exact CSP/scope/dialog permission, dialog plugin registered, debug-only log backend plugin, updater disabled, resources/metadata/targets, font hashes/license. MSI/DMG `deferred/platform-unverified`.
+- EN/VI recursive parity PASS. Runtime language/theme/font/fallback: `backend/src/{lang_api.rs,theme_api.rs,font_api.rs,settings_api.rs}`, frontend `SettingsPage.tsx` and theme store; corrupt settings fallback is covered at `settings_api.rs:86`.
+- Persistence/migration: canonical paths and data mirror tests in `backend/src/storage.rs`; settings persistence in `settings_api.rs`. Browser keys in `frontend/src/components/InvoiceModal.tsx`: `vietqr_bank_bin`, `vietqr_account_no`, `vietqr_account_name`.
+- Plugin evidence: `backend/src/lib.rs`; authoritative event row says no event, matching audited backend/frontend.
+- Preference restart survival: PASS. Final targeted rerun `settings_api::tests::save_then_fresh_read_giu_nguyen_settings` PASS (1/1); it writes canonical+mirror under a unique temp directory, fresh-reads and deserializes all settings unchanged, bypasses global env and never touches user files. Packaging/readiness smoke remain PASS.

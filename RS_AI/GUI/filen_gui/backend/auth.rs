@@ -8,9 +8,9 @@
 //! bao gồm: đăng nhập (có xử lý 2FA), lấy thông tin tài khoản (whoami),
 //! kiểm tra dung lượng (statfs), đăng xuất (logout), và xuất các cấu hình bảo mật.
 
+use crate::models::*;
 use std::process::Stdio;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use crate::models::*;
 
 /// Hàm `whoami` dùng để lấy thông tin tài khoản đang đăng nhập hiện tại.
 /// Hàm nhận vào `active_account` (định danh tài khoản) và trả về một chuỗi kết quả.
@@ -19,10 +19,10 @@ pub async fn whoami_terminal(active_account: &Option<String>) -> Result<String, 
     let mut cmd = crate::cloud_fs::get_command(active_account);
     // 2. Thêm đối số "whoami" để gọi lệnh `filen whoami`.
     cmd.arg("whoami");
-    
+
     // 3. Thực thi lệnh ngầm với thời gian chờ tối đa 15 giây (chống treo process).
     let output = crate::cloud_fs::run_cmd_with_timeout(cmd, 15).await?;
-    
+
     // 4. Kiểm tra mã thoát (exit code) của tiến trình.
     if output.status.success() {
         // Nếu thành công (exit code 0), chuyển đổi stdout từ byte sang string, loại bỏ khoảng trắng thừa và trả về.
@@ -40,16 +40,16 @@ pub async fn statfs_terminal(active_account: &Option<String>) -> Result<(String,
     let mut cmd = crate::cloud_fs::get_command(active_account);
     // 2. Thêm đối số "statfs" để gọi lệnh `filen statfs`.
     cmd.arg("statfs");
-    
+
     // 3. Thực thi lệnh với thời gian chờ tối đa 30 giây (tác vụ này có thể gọi API nên cho thời gian dài hơn).
     let output = crate::cloud_fs::run_cmd_with_timeout(cmd, 30).await?;
-    
+
     // 4. Phân tích kết quả đầu ra nếu lệnh chạy thành công.
     if output.status.success() {
         let text = String::from_utf8_lossy(&output.stdout);
         let mut used = "0 B".to_string();
         let mut max = "20 GiB".to_string();
-        
+
         // 5. Vòng lặp: Đọc từng dòng kết quả stdout để tìm từ khóa "Used:" và "Max:".
         for line in text.lines() {
             if line.contains("Used:") {
@@ -69,7 +69,7 @@ pub async fn statfs_terminal(active_account: &Option<String>) -> Result<(String,
 }
 
 /// Hàm `login_new` dùng để thực hiện quá trình đăng nhập tương tác (Interactive Login).
-/// Filen CLI không nhận password qua tham số command-line mà bắt buộc nhập qua stdin, 
+/// Filen CLI không nhận password qua tham số command-line mà bắt buộc nhập qua stdin,
 /// nên hàm này phải spawn process và tương tác trực tiếp qua luồng stdio.
 pub async fn login_new_terminal(
     email: &str,
@@ -108,13 +108,13 @@ pub async fn login_new_terminal(
         let mut cmd = crate::sys::get_interactive_tokio_command(cmd);
         cmd.kill_on_drop(true); // Tự động dọn dẹp process nếu hàm này bị hủy (drop).
         cmd.arg("--data-dir").arg(&data_path).arg("whoami");
-        
+
         // Mở các ống (pipe) để có thể đọc/ghi trực tiếp vào stdin, stdout, stderr của process con.
         cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
 
         // Chạy (spawn) tiến trình.
         let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-        
+
         // Lấy quyền điều khiển các luồng stdio.
         let mut stdout = child.stdout.take().unwrap();
         let mut stderr = child.stderr.take().unwrap();
@@ -172,7 +172,7 @@ pub async fn login_new_terminal(
             let acc_lower = accumulated.to_lowercase();
 
             // 6. Xử lý State Machine: Dựa vào nội dung bộ đệm để quyết định bước tiếp theo.
-            
+
             // Bước 1: Nếu chưa gửi email và CLI in ra dòng chứa "email:"
             if !email_sent && acc_lower.contains("email:") {
                 log(format!("-> Gửi địa chỉ Email: {}", email));
@@ -259,7 +259,7 @@ pub async fn login_new_terminal(
 pub async fn logout_terminal(active_account: &Option<String>) -> Result<(), String> {
     let mut cmd = crate::cloud_fs::get_command(active_account);
     cmd.arg("logout");
-    
+
     // Sử dụng hàm helper thay vì cấu trúc match phức tạp
     let output = crate::cloud_fs::run_cmd_with_timeout(cmd, 10)
         .await
@@ -278,7 +278,7 @@ pub async fn logout_terminal(active_account: &Option<String>) -> Result<(), Stri
 pub async fn export_auth_config_terminal(active_account: &Option<String>) -> Result<String, String> {
     let mut cmd = crate::cloud_fs::get_command(active_account);
     cmd.arg("export-auth-config");
-    
+
     // Khởi tạo các bộ quy tắc (rules) để tự động trả lời khi nhận diện được prompt từ CLI.
     let rules = [
         // Rule 1: Tự động trả lời "y" khi CLI hỏi confirm (ví dụ: overwrite file?).
@@ -287,7 +287,7 @@ pub async fn export_auth_config_terminal(active_account: &Option<String>) -> Res
         PromptRule {
             matcher: looks_like_risks_prompt, // Hàm kiểm tra chuỗi có giống câu hỏi rủi ro không.
             response: b"I am aware of the risks\n", // Câu trả lời gửi vào stdin.
-            max: 1, // Chỉ trả lời tối đa 1 lần để tránh kẹt lặp vô hạn.
+            max: 1,                           // Chỉ trả lời tối đa 1 lần để tránh kẹt lặp vô hạn.
         },
         // Rule 3: Trả lời vị trí xuất file.
         PromptRule {
@@ -296,10 +296,10 @@ pub async fn export_auth_config_terminal(active_account: &Option<String>) -> Res
             max: 1,
         },
     ];
-    
+
     // Chạy interactive với bộ quy tắc trên và timeout 30s.
     let output = crate::cloud_fs::run_cmd_interactive(cmd, b"", &rules, 30).await?;
-    
+
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     } else {
@@ -312,10 +312,10 @@ pub async fn export_auth_config_terminal(active_account: &Option<String>) -> Res
 pub async fn export_api_key_terminal(active_account: &Option<String>) -> Result<String, String> {
     let mut cmd = crate::cloud_fs::get_command(active_account);
     cmd.arg("export-api-key");
-    
+
     // Sử dụng hàm tiện ích `run_cmd_confirm` chuyên dụng cho những lệnh chỉ đòi hỏi "y\n" 1 lần.
     let output = crate::cloud_fs::run_cmd_confirm(cmd, b"", 1, 30).await?;
-    
+
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     } else {

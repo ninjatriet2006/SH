@@ -54,7 +54,7 @@ pub fn get_custom_actions() -> Vec<CustomAction> {
 /// Hàm nội bộ: Đọc file text cấu trúc INI để load Action Metadata
 fn parse_action_file(path: &PathBuf) -> Option<CustomAction> {
     let content = fs::read_to_string(path).ok()?;
-    
+
     // Sử dụng tên file (bỏ đuôi .action) làm ID
     let id = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
     let mut name = String::new();
@@ -62,7 +62,7 @@ fn parse_action_file(path: &PathBuf) -> Option<CustomAction> {
     let mut icon = String::new();
     let mut selection = "any".to_string(); // Mặc định là áp dụng cho mọi selection
     let mut extensions = Vec::new();
-    
+
     let mut active = true; // Cờ bật/tắt của Action
     let mut in_action_entry = false; // Cờ báo hiệu đang đứng trong Block cấu hình
 
@@ -84,20 +84,21 @@ fn parse_action_file(path: &PathBuf) -> Option<CustomAction> {
         if let Some((k, v)) = line.split_once('=') {
             let key = k.trim();
             let val = v.trim();
-            
+
             match key {
                 "Active" if val.to_lowercase() == "false" => active = false, // Vô hiệu hoá action
-                "Name" if name.is_empty() => name = val.to_string(), // Lấy Name đầu tiên tìm thấy
-                "Exec" => exec = val.to_string(), // Script sẽ chạy
-                "Icon" => icon = val.to_string(), // Icon hiển thị
+                "Name" if name.is_empty() => name = val.to_string(),         // Lấy Name đầu tiên tìm thấy
+                "Exec" => exec = val.to_string(),                            // Script sẽ chạy
+                "Icon" => icon = val.to_string(),                            // Icon hiển thị
                 "Selection" => selection = val.to_lowercase(),
                 "Extensions" => {
                     // Cắt chuỗi các phần mở rộng áp dụng (ví dụ: png;jpg;jpeg)
-                    extensions = val.split(';')
+                    extensions = val
+                        .split(';')
                         .map(|s| s.trim().to_lowercase())
                         .filter(|s| !s.is_empty())
                         .collect();
-                },
+                }
                 _ => {}
             }
         }

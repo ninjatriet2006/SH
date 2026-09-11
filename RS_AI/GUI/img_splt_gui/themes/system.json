@@ -1,0 +1,5 @@
+{
+  "id": "system",
+  "tokens": { "canvas": "#111827", "foreground": "#e5e7eb", "border": "#374151", "panel": "#0b1020", "panel_foreground": "#d1d5db", "accent": "#2563eb", "error": "#7f1d1d" },
+  "light_tokens": { "canvas": "#f3f4f6", "foreground": "#111827", "border": "#d1d5db", "panel": "#ffffff", "panel_foreground": "#1f2937", "accent": "#2563eb", "error": "#b91c1c" }
+}

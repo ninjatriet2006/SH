@@ -321,8 +321,7 @@ impl Operations {
         let mut cmd = {
             if which::which("stdbuf").is_ok() {
                 let program = cmd.as_std().get_program().to_os_string();
-                let args: Vec<std::ffi::OsString> =
-                    cmd.as_std().get_args().map(ToOwned::to_owned).collect();
+                let args: Vec<std::ffi::OsString> = cmd.as_std().get_args().map(ToOwned::to_owned).collect();
                 let mut c = Command::new("stdbuf");
                 c.arg("-o0").arg("-e0").arg(&program).args(&args);
                 c
@@ -331,9 +330,7 @@ impl Operations {
             }
         };
 
-        cmd.stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         cmd.kill_on_drop(true);
 
         let mut child = cmd.spawn().map_err(|e| e.to_string())?;
@@ -345,8 +342,7 @@ impl Operations {
         let mut stdout = child.stdout.take().ok_or_else(|| "stdout bị đóng".to_string())?;
         let mut stderr = child.stderr.take().ok_or_else(|| "stderr bị đóng".to_string())?;
 
-        let deadline =
-            tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
 
         let mut responder = PromptResponder::new(rules);
         let mut out_bytes: Vec<u8> = Vec::new();
@@ -1093,11 +1089,7 @@ impl Operations {
     // ─── Phase 6: bổ sung ops theo audit filen help (subtask 6.1→6.10) ─────────
 
     // Đọc n dòng đầu tiên của file cloud (head <file> [-n <lines>], mặc định 10)
-    pub async fn head(
-        active_account: &Option<String>,
-        file: &str,
-        lines: Option<usize>,
-    ) -> Result<String, String> {
+    pub async fn head(active_account: &Option<String>, file: &str, lines: Option<usize>) -> Result<String, String> {
         let mut cmd = Self::get_command(active_account);
         cmd.args(head_args(file, lines));
         let output = Self::run_cmd_with_timeout(cmd, 30).await?;
@@ -1109,11 +1101,7 @@ impl Operations {
     }
 
     // Đọc n dòng cuối cùng của file cloud (tail <file> [-n <lines>], mặc định 10)
-    pub async fn tail(
-        active_account: &Option<String>,
-        file: &str,
-        lines: Option<usize>,
-    ) -> Result<String, String> {
+    pub async fn tail(active_account: &Option<String>, file: &str, lines: Option<usize>) -> Result<String, String> {
         let mut cmd = Self::get_command(active_account);
         cmd.args(tail_args(file, lines));
         let output = Self::run_cmd_with_timeout(cmd, 30).await?;
@@ -1161,11 +1149,7 @@ impl Operations {
     }
 
     // Ghi text vào file cloud (write <file> <content...>)
-    pub async fn write_file(
-        active_account: &Option<String>,
-        file: &str,
-        content: &str,
-    ) -> Result<(), String> {
+    pub async fn write_file(active_account: &Option<String>, file: &str, content: &str) -> Result<(), String> {
         // Content nhiều dòng không truyền trực tiếp qua argv `write` được: CLI tokenize
         // theo \n thành nhiều lệnh → "Unknown command". → ghi file tạm rồi upload.
         if write_file_uses_temp_upload(content) {
@@ -1204,10 +1188,7 @@ impl Operations {
     }
 
     // Xuất tất cả Notes (export-notes [path])
-    pub async fn export_notes(
-        active_account: &Option<String>,
-        path: Option<&str>,
-    ) -> Result<String, String> {
+    pub async fn export_notes(active_account: &Option<String>, path: Option<&str>) -> Result<String, String> {
         let mut cmd = Self::get_command(active_account);
         cmd.args(export_notes_args(path));
         let output = Self::run_cmd_with_timeout(cmd, 120).await?;
@@ -1227,11 +1208,7 @@ impl Operations {
     }
 
     // Chạy sync (sync <locations...> [--continuous])
-    pub async fn sync(
-        active_account: &Option<String>,
-        locations: &[String],
-        continuous: bool,
-    ) -> Result<(), String> {
+    pub async fn sync(active_account: &Option<String>, locations: &[String], continuous: bool) -> Result<(), String> {
         if locations.is_empty() {
             return Err("Không có cặp đồng bộ nào để chạy.".to_string());
         }
@@ -1246,19 +1223,12 @@ impl Operations {
     }
 
     // Chạy sync 1 lần cho cặp local:remote (dạng `/local:/cloud`)
-    pub async fn sync_once(
-        active_account: &Option<String>,
-        local: &str,
-        remote: &str,
-    ) -> Result<(), String> {
+    pub async fn sync_once(active_account: &Option<String>, local: &str, remote: &str) -> Result<(), String> {
         Self::sync(active_account, &[format!("{local}:{remote}")], false).await
     }
 
     // Chạy sync 1 lần cho một pair đã đọc từ syncPairs.json
-    pub async fn sync_pair_once(
-        active_account: &Option<String>,
-        pair: &SyncPair,
-    ) -> Result<(), String> {
+    pub async fn sync_pair_once(active_account: &Option<String>, pair: &SyncPair) -> Result<(), String> {
         Self::sync(active_account, &[sync_pair_arg(pair)], false).await
     }
 
@@ -1419,8 +1389,7 @@ impl WebDavServerState {
             .map_err(|e| format!("Không khởi động được server WebDAV: {e}"))?;
         self.child = Some(child);
         self.running = true;
-        self.logs
-            .push(format!("Đã khởi chạy WebDAV trên cổng {}.", self.port));
+        self.logs.push(format!("Đã khởi chạy WebDAV trên cổng {}.", self.port));
         Ok(())
     }
 
@@ -1466,20 +1435,14 @@ impl S3ServerState {
             return Err("Server S3 đang chạy rồi.".to_string());
         }
         let mut cmd = Operations::get_command(active_account);
-        cmd.args(s3_args(
-            &self.access_key,
-            &self.secret_key,
-            &self.port,
-            self.https,
-        ));
+        cmd.args(s3_args(&self.access_key, &self.secret_key, &self.port, self.https));
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
         let child = cmd
             .spawn()
             .map_err(|e| format!("Không khởi động được server S3: {e}"))?;
         self.child = Some(child);
         self.running = true;
-        self.logs
-            .push(format!("Đã khởi chạy S3 trên cổng {}.", self.port));
+        self.logs.push(format!("Đã khởi chạy S3 trên cổng {}.", self.port));
         Ok(())
     }
 
@@ -1666,11 +1629,7 @@ fn write_temp_path() -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or_default();
-    std::env::temp_dir().join(format!(
-        "filen_gui_write_{}_{}.tmp",
-        std::process::id(),
-        nanos
-    ))
+    std::env::temp_dir().join(format!("filen_gui_write_{}_{}.tmp", std::process::id(), nanos))
 }
 
 fn recents_args() -> Vec<String> {
@@ -1810,17 +1769,12 @@ fn parse_stat_json(text: &str) -> Result<String, String> {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
     };
-    let get_bool = |keys: &[&str]| -> Option<bool> {
-        keys.iter()
-            .find_map(|k| obj.get(*k))
-            .and_then(|v| v.as_bool())
-    };
+    let get_bool = |keys: &[&str]| -> Option<bool> { keys.iter().find_map(|k| obj.get(*k)).and_then(|v| v.as_bool()) };
 
     let name = get_str(&["name", "Name"]).unwrap_or_default();
     let path = get_str(&["path", "Path"]).unwrap_or_default();
     let mime = get_str(&["mime", "mimeType", "MIME"]).unwrap_or_default();
-    let modified = get_str(&["modified", "modifiedAt", "lastModified", "ModificationTime"])
-        .unwrap_or_default();
+    let modified = get_str(&["modified", "modifiedAt", "lastModified", "ModificationTime"]).unwrap_or_default();
 
     let file_type = if let Some(t) = get_str(&["type", "kind", "Type"]) {
         t.to_lowercase()
@@ -2167,14 +2121,8 @@ mod tests {
 
     #[test]
     fn test_head_args_custom_lines() {
-        assert_eq!(
-            head_args("log.txt", Some(5)),
-            vec!["head", "log.txt", "-n", "5"]
-        );
-        assert_eq!(
-            tail_args("log.txt", Some(20)),
-            vec!["tail", "log.txt", "-n", "20"]
-        );
+        assert_eq!(head_args("log.txt", Some(5)), vec!["head", "log.txt", "-n", "5"]);
+        assert_eq!(tail_args("log.txt", Some(20)), vec!["tail", "log.txt", "-n", "20"]);
     }
 
     #[test]
@@ -2235,10 +2183,7 @@ mod tests {
 
     #[test]
     fn test_rm_args_no_trash() {
-        assert_eq!(
-            rm_args("/a/b.txt", true),
-            vec!["rm", "/a/b.txt", "--no-trash"]
-        );
+        assert_eq!(rm_args("/a/b.txt", true), vec!["rm", "/a/b.txt", "--no-trash"]);
     }
 
     // ─── Phase 8.11: phát hiện/đếm prompt xác nhận (rm / rm --no-trash) ────────
@@ -2246,13 +2191,17 @@ mod tests {
     #[test]
     fn test_looks_like_confirm_prompt_detects_real_output() {
         // Output thật của filen-cli `app.promptConfirm` (không có \n vì CLI chờ input)
-        assert!(looks_like_confirm_prompt("Are you sure you want to delete /a.txt? [y/N] "));
+        assert!(looks_like_confirm_prompt(
+            "Are you sure you want to delete /a.txt? [y/N] "
+        ));
         assert!(looks_like_confirm_prompt(
             "Are you sure you want to permanently delete /a.txt? [y/N] "
         ));
         assert!(looks_like_confirm_prompt("Are you sure? [y/N] "));
         // Prompt cũng có thể xuất hiện lẫn với log trước đó trong cùng buffer
-        assert!(looks_like_confirm_prompt("Deleting...\nAre you sure you want to delete /a.txt? [y/N] "));
+        assert!(looks_like_confirm_prompt(
+            "Deleting...\nAre you sure you want to delete /a.txt? [y/N] "
+        ));
     }
 
     #[test]
@@ -2260,7 +2209,9 @@ mod tests {
         assert!(!looks_like_confirm_prompt(""));
         assert!(!looks_like_confirm_prompt("Deleted /a.txt"));
         assert!(!looks_like_confirm_prompt("No such file or directory: /a.txt"));
-        assert!(!looks_like_confirm_prompt("Uploading raw.bin [=====] 100% | 1 MiB / 1 MiB"));
+        assert!(!looks_like_confirm_prompt(
+            "Uploading raw.bin [=====] 100% | 1 MiB / 1 MiB"
+        ));
         assert!(!looks_like_confirm_prompt("y/N without brackets"));
     }
 
@@ -2279,7 +2230,9 @@ mod tests {
         assert!(looks_like_export_location_prompt(
             "Choose an export location: [1] data directory, [2] here:"
         ));
-        assert!(!looks_like_export_location_prompt("Invalid input, please choose \"1\" or \"2\""));
+        assert!(!looks_like_export_location_prompt(
+            "Invalid input, please choose \"1\" or \"2\""
+        ));
     }
 
     #[test]
@@ -2353,7 +2306,10 @@ mod tests {
             r.feed("Choose an export location: [1] data directory, [2] here:"),
             vec![&b"1\n"[..]]
         );
-        assert!(r.feed("Saved auth config to /home/user/.filen-cli/.filen-cli-auth-config").is_empty());
+        assert!(
+            r.feed("Saved auth config to /home/user/.filen-cli/.filen-cli-auth-config")
+                .is_empty()
+        );
     }
 
     #[test]
@@ -2412,10 +2368,7 @@ mod tests {
     #[test]
     fn test_sync_args_multiple_continuous() {
         let locs = vec!["/a:/b".to_string(), "/c:/d".to_string()];
-        assert_eq!(
-            sync_args(&locs, true),
-            vec!["sync", "/a:/b", "/c:/d", "--continuous"]
-        );
+        assert_eq!(sync_args(&locs, true), vec!["sync", "/a:/b", "/c:/d", "--continuous"]);
     }
 
     #[test]
@@ -2525,10 +2478,7 @@ mod tests {
             "https://drive.filen.io/folder/file.txt"
         );
         // Không bắt buộc gạch chéo đầu
-        assert_eq!(
-            web_drive_url(Some("folder")),
-            "https://drive.filen.io/folder"
-        );
+        assert_eq!(web_drive_url(Some("folder")), "https://drive.filen.io/folder");
     }
 
     // ─── Phase 6: parse_ls_long (format recents/ls --long) ─────────────────────
@@ -2675,10 +2625,7 @@ mod tests {
     #[test]
     fn test_sync_pairs_path_ends_with_sync_pairs_json() {
         if let Some(path) = sync_pairs_path() {
-            assert_eq!(
-                path.file_name().and_then(|n| n.to_str()),
-                Some("syncPairs.json")
-            );
+            assert_eq!(path.file_name().and_then(|n| n.to_str()), Some("syncPairs.json"));
         }
     }
 
@@ -2800,17 +2747,16 @@ mod tests {
         std::fs::write(nvm_bin.join("filen"), b"#!/usr/bin/env node\n").unwrap();
 
         let found = scan_node_bins(&tmp);
-        let names: Vec<String> = found
-            .iter()
-            .map(|p| p.to_string_lossy().to_string())
-            .collect();
+        let names: Vec<String> = found.iter().map(|p| p.to_string_lossy().to_string()).collect();
         assert_eq!(found.len(), 2, "chỉ có 2 file tên đúng 'filen': {names:?}");
         assert!(
             names.iter().any(|p| p.contains(".local/bin/filen")),
             "phải tìm thấy ~/.local/bin/filen: {names:?}"
         );
         assert!(
-            names.iter().any(|p| p.contains(".nvm/versions/node/v20.20.2/bin/filen")),
+            names
+                .iter()
+                .any(|p| p.contains(".nvm/versions/node/v20.20.2/bin/filen")),
             "phải tìm thấy nvm filen: {names:?}"
         );
         assert!(

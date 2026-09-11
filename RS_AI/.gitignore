@@ -7,6 +7,9 @@ GUI/**/node_modules/
 GUI/**/dist/
 GUI/**/target/
 GUI/temp_app/
+# AppImage extraction trees created by packaging/smoke commands.
+# Existing tracked copies are not removed by this rule.
+GUI/**/squashfs-root/
 
 # Test / coverage output
 GUI/**/coverage/

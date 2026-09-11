@@ -3,9 +3,9 @@
 //! Trách nhiệm: Chứa các struct dùng chung cho toàn bộ backend như `FileItem`, `TransferStatus`, cấu trúc settings.
 //! Tương tác: Được sử dụng bởi hầu hết các module khác trong `backend` và truyền qua kênh IPC sang frontend.
 
-use std::sync::OnceLock;
-use std::process::Stdio;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::sync::OnceLock;
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct FileItem {
     pub name: String,
@@ -38,7 +38,6 @@ pub struct TrashItemLocal {
     pub original_path: String,
     pub time_deleted: String,
 }
-
 
 // Xác định thư mục dữ liệu mặc định của filen-cli (.filen-cli hoặc .config/filen-cli)
 // Copy từ TUI/filen_tui/src/app/mod.rs để filen_gui độc lập hoàn toàn với filen_tui.
@@ -197,9 +196,8 @@ pub fn scan_node_bins(home: &Path) -> Vec<PathBuf> {
     out
 }
 
-#[allow(dead_code)] // Các ops Cloud sẽ được gọi từ GUI ở phase 3.
-
-
+#[allow(dead_code)]
+// Các ops Cloud sẽ được gọi từ GUI ở phase 3.
 
 // ─── Phase 6: cấu trúc state cho server child (webdav/webdav-proxy/s3/mount) ──
 // Chỉ tham khảo cấu trúc WebDavServerState/S3ServerState ở TUI/filen_tui/src/app/mod.rs;
@@ -317,8 +315,7 @@ impl WebDavServerState {
             .map_err(|e| format!("Không khởi động được server WebDAV: {e}"))?;
         self.child = Some(child);
         self.running = true;
-        self.logs
-            .push(format!("Đã khởi chạy WebDAV trên cổng {}.", self.port));
+        self.logs.push(format!("Đã khởi chạy WebDAV trên cổng {}.", self.port));
         Ok(())
     }
 
@@ -376,8 +373,7 @@ impl S3ServerState {
             .map_err(|e| format!("Không khởi động được server S3: {e}"))?;
         self.child = Some(child);
         self.running = true;
-        self.logs
-            .push(format!("Đã khởi chạy S3 trên cổng {}.", self.port));
+        self.logs.push(format!("Đã khởi chạy S3 trên cổng {}.", self.port));
         Ok(())
     }
 
@@ -564,11 +560,7 @@ pub fn write_temp_path() -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or_default();
-    std::env::temp_dir().join(format!(
-        "filen_gui_write_{}_{}.tmp",
-        std::process::id(),
-        nanos
-    ))
+    std::env::temp_dir().join(format!("filen_gui_write_{}_{}.tmp", std::process::id(), nanos))
 }
 
 pub fn recents_args() -> Vec<String> {
@@ -709,17 +701,12 @@ pub fn parse_stat_json(text: &str) -> Result<String, String> {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
     };
-    let get_bool = |keys: &[&str]| -> Option<bool> {
-        keys.iter()
-            .find_map(|k| obj.get(*k))
-            .and_then(|v| v.as_bool())
-    };
+    let get_bool = |keys: &[&str]| -> Option<bool> { keys.iter().find_map(|k| obj.get(*k)).and_then(|v| v.as_bool()) };
 
     let name = get_str(&["name", "Name"]).unwrap_or_default();
     let path = get_str(&["path", "Path"]).unwrap_or_default();
     let mime = get_str(&["mime", "mimeType", "MIME"]).unwrap_or_default();
-    let modified = get_str(&["modified", "modifiedAt", "lastModified", "ModificationTime"])
-        .unwrap_or_default();
+    let modified = get_str(&["modified", "modifiedAt", "lastModified", "ModificationTime"]).unwrap_or_default();
 
     let file_type = if let Some(t) = get_str(&["type", "kind", "Type"]) {
         t.to_lowercase()
@@ -1073,14 +1060,8 @@ mod tests {
 
     #[test]
     fn test_head_args_custom_lines() {
-        assert_eq!(
-            head_args("log.txt", Some(5)),
-            vec!["head", "log.txt", "-n", "5"]
-        );
-        assert_eq!(
-            tail_args("log.txt", Some(20)),
-            vec!["tail", "log.txt", "-n", "20"]
-        );
+        assert_eq!(head_args("log.txt", Some(5)), vec!["head", "log.txt", "-n", "5"]);
+        assert_eq!(tail_args("log.txt", Some(20)), vec!["tail", "log.txt", "-n", "20"]);
     }
 
     #[test]
@@ -1141,10 +1122,7 @@ mod tests {
 
     #[test]
     fn test_rm_args_no_trash() {
-        assert_eq!(
-            rm_args("/a/b.txt", true),
-            vec!["rm", "/a/b.txt", "--no-trash"]
-        );
+        assert_eq!(rm_args("/a/b.txt", true), vec!["rm", "/a/b.txt", "--no-trash"]);
     }
 
     // ─── Phase 8.11: phát hiện/đếm prompt xác nhận (rm / rm --no-trash) ────────
@@ -1152,13 +1130,17 @@ mod tests {
     #[test]
     fn test_looks_like_confirm_prompt_detects_real_output() {
         // Output thật của filen-cli `app.promptConfirm` (không có \n vì CLI chờ input)
-        assert!(looks_like_confirm_prompt("Are you sure you want to delete /a.txt? [y/N] "));
+        assert!(looks_like_confirm_prompt(
+            "Are you sure you want to delete /a.txt? [y/N] "
+        ));
         assert!(looks_like_confirm_prompt(
             "Are you sure you want to permanently delete /a.txt? [y/N] "
         ));
         assert!(looks_like_confirm_prompt("Are you sure? [y/N] "));
         // Prompt cũng có thể xuất hiện lẫn với log trước đó trong cùng buffer
-        assert!(looks_like_confirm_prompt("Deleting...\nAre you sure you want to delete /a.txt? [y/N] "));
+        assert!(looks_like_confirm_prompt(
+            "Deleting...\nAre you sure you want to delete /a.txt? [y/N] "
+        ));
     }
 
     #[test]
@@ -1166,7 +1148,9 @@ mod tests {
         assert!(!looks_like_confirm_prompt(""));
         assert!(!looks_like_confirm_prompt("Deleted /a.txt"));
         assert!(!looks_like_confirm_prompt("No such file or directory: /a.txt"));
-        assert!(!looks_like_confirm_prompt("Uploading raw.bin [=====] 100% | 1 MiB / 1 MiB"));
+        assert!(!looks_like_confirm_prompt(
+            "Uploading raw.bin [=====] 100% | 1 MiB / 1 MiB"
+        ));
         assert!(!looks_like_confirm_prompt("y/N without brackets"));
     }
 
@@ -1185,7 +1169,9 @@ mod tests {
         assert!(looks_like_export_location_prompt(
             "Choose an export location: [1] data directory, [2] here:"
         ));
-        assert!(!looks_like_export_location_prompt("Invalid input, please choose \"1\" or \"2\""));
+        assert!(!looks_like_export_location_prompt(
+            "Invalid input, please choose \"1\" or \"2\""
+        ));
     }
 
     #[test]
@@ -1259,7 +1245,10 @@ mod tests {
             r.feed("Choose an export location: [1] data directory, [2] here:"),
             vec![&b"1\n"[..]]
         );
-        assert!(r.feed("Saved auth config to /home/user/.filen-cli/.filen-cli-auth-config").is_empty());
+        assert!(
+            r.feed("Saved auth config to /home/user/.filen-cli/.filen-cli-auth-config")
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1318,10 +1307,7 @@ mod tests {
     #[test]
     fn test_sync_args_multiple_continuous() {
         let locs = vec!["/a:/b".to_string(), "/c:/d".to_string()];
-        assert_eq!(
-            sync_args(&locs, true),
-            vec!["sync", "/a:/b", "/c:/d", "--continuous"]
-        );
+        assert_eq!(sync_args(&locs, true), vec!["sync", "/a:/b", "/c:/d", "--continuous"]);
     }
 
     #[test]
@@ -1431,10 +1417,7 @@ mod tests {
             "https://drive.filen.io/folder/file.txt"
         );
         // Không bắt buộc gạch chéo đầu
-        assert_eq!(
-            web_drive_url(Some("folder")),
-            "https://drive.filen.io/folder"
-        );
+        assert_eq!(web_drive_url(Some("folder")), "https://drive.filen.io/folder");
     }
 
     // ─── Phase 6: parse_ls_long (format recents/ls --long) ─────────────────────
@@ -1581,10 +1564,7 @@ mod tests {
     #[test]
     fn test_sync_pairs_path_ends_with_sync_pairs_json() {
         if let Some(path) = sync_pairs_path() {
-            assert_eq!(
-                path.file_name().and_then(|n| n.to_str()),
-                Some("syncPairs.json")
-            );
+            assert_eq!(path.file_name().and_then(|n| n.to_str()), Some("syncPairs.json"));
         }
     }
 
@@ -1706,17 +1686,16 @@ mod tests {
         std::fs::write(nvm_bin.join("filen"), b"#!/usr/bin/env node\n").unwrap();
 
         let found = scan_node_bins(&tmp);
-        let names: Vec<String> = found
-            .iter()
-            .map(|p| p.to_string_lossy().to_string())
-            .collect();
+        let names: Vec<String> = found.iter().map(|p| p.to_string_lossy().to_string()).collect();
         assert_eq!(found.len(), 2, "chỉ có 2 file tên đúng 'filen': {names:?}");
         assert!(
             names.iter().any(|p| p.contains(".local/bin/filen")),
             "phải tìm thấy ~/.local/bin/filen: {names:?}"
         );
         assert!(
-            names.iter().any(|p| p.contains(".nvm/versions/node/v20.20.2/bin/filen")),
+            names
+                .iter()
+                .any(|p| p.contains(".nvm/versions/node/v20.20.2/bin/filen")),
             "phải tìm thấy nvm filen: {names:?}"
         );
         assert!(

@@ -1,0 +1,28 @@
+:root { --canvas: #111827; --foreground: #e5e7eb; --border: #374151; --panel: #0b1020; --panel-foreground: #d1d5db; --accent: #2563eb; --error: #7f1d1d; color-scheme: light dark; font-family: var(--app-font); background: var(--canvas); color: var(--foreground); }
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+:root[data-theme="system"] { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 700px; visibility: hidden; }
+:root[data-font-source] body { visibility: visible; }
+button, input, select { font: inherit; padding: .55rem .75rem; }
+button { cursor: pointer; }
+button:disabled { cursor: wait; opacity: .55; }
+header { align-items: center; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; padding: 1rem 1.5rem; }
+h1 { font-size: 1.2rem; margin: 0; }
+.layout { display: grid; grid-template-columns: 180px 1fr; min-height: 430px; }
+nav { border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: .35rem; padding: 1rem; }
+nav button { background: transparent; border: 0; border-radius: .4rem; text-align: left; }
+nav button.active { background: var(--accent); color: white; }
+main { padding: 1.5rem; overflow: auto; }
+section { display: grid; gap: 1rem; max-width: 760px; }
+.row { align-items: center; display: flex; gap: .65rem; }
+.row input { flex: 1; }
+fieldset { border: 1px solid #4b5563; display: flex; gap: 1rem; }
+section > label { display: grid; gap: .35rem; max-width: 360px; }
+.error { background: var(--error); border: 1px solid #ef4444; border-radius: .4rem; color: white; margin-bottom: 1rem; padding: .75rem; }
+pre { background: var(--panel); border-radius: .4rem; color: var(--panel-foreground); overflow: auto; padding: 1rem; white-space: pre-wrap; }
+aside { border-top: 1px solid var(--border); padding: .75rem 1.5rem; }
+aside > div { align-items: center; display: flex; justify-content: space-between; }
+aside pre { height: 105px; margin-bottom: 0; }
+@media (max-width: 760px) { body { min-width: 0; } .layout { grid-template-columns: 1fr; } nav { border-right: 0; flex-direction: row; flex-wrap: wrap; } .row { align-items: stretch; flex-direction: column; } }

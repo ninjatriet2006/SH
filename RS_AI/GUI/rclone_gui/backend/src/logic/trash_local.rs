@@ -189,7 +189,10 @@ mod tests {
 
     #[test]
     fn percent_decode_handles_encoded_chars() {
-        assert_eq!(percent_decode("/tmp/tt%20space/a%20b%23c%25d.txt"), "/tmp/tt space/a b#c%d.txt");
+        assert_eq!(
+            percent_decode("/tmp/tt%20space/a%20b%23c%25d.txt"),
+            "/tmp/tt space/a b#c%d.txt"
+        );
         assert_eq!(percent_decode("/plain/path.txt"), "/plain/path.txt");
         // `%` đứng cuối không đủ 2 chữ số hex → giữ nguyên, không panic.
         assert_eq!(percent_decode("abc%"), "abc%");

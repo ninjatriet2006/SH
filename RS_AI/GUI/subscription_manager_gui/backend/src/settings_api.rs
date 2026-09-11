@@ -64,12 +64,16 @@ fn write_settings_file(path: &std::path::Path, content: &str) -> Result<(), Stri
 /// gần nhất và mirror chỉ là bản sao khôi phục/di động.
 fn load_settings_text() -> Option<String> {
     let canonical = canonical_settings_path();
-    if let Ok(text) = fs::read_to_string(&canonical) {
+    let mirror = mirror_settings_path();
+    load_settings_text_from_paths(&canonical, &mirror)
+}
+
+fn load_settings_text_from_paths(canonical: &std::path::Path, mirror: &std::path::Path) -> Option<String> {
+    if let Ok(text) = fs::read_to_string(canonical) {
         return Some(text);
     }
-    let mirror = mirror_settings_path();
-    let text = fs::read_to_string(&mirror).ok()?;
-    if let Err(error) = write_settings_file(&canonical, &text) {
+    let text = fs::read_to_string(mirror).ok()?;
+    if let Err(error) = write_settings_file(canonical, &text) {
         eprintln!("[settings] không migrate được {}: {error}", canonical.display());
     }
     Some(text)
@@ -151,11 +155,19 @@ pub fn save_settings(language: String, timezone: String, theme_id: String, font_
     let canonical = canonical_settings_path();
     let mirror = mirror_settings_path();
 
-    match serde_json::to_string_pretty(&settings) {
+    save_settings_to_paths(&canonical, &mirror, &settings)
+}
+
+fn save_settings_to_paths(
+    canonical: &std::path::Path,
+    mirror: &std::path::Path,
+    settings: &Settings,
+) -> Result<(), String> {
+    match serde_json::to_string_pretty(settings) {
         Ok(json_str) => {
-            write_settings_file(&canonical, &json_str)?;
+            write_settings_file(canonical, &json_str)?;
             if mirror != canonical {
-                if let Err(error) = write_settings_file(&mirror, &json_str) {
+                if let Err(error) = write_settings_file(mirror, &json_str) {
                     eprintln!(
                         "[settings] canonical đã lưu nhưng không mirror được {}: {error}",
                         mirror.display()
@@ -219,5 +231,37 @@ mod tests {
             crate::theme_api::get_available_themes().is_ok(),
             "liệt kê theme phải chạy được dù không có default.json"
         );
+    }
+
+    #[test]
+    fn save_then_fresh_read_giu_nguyen_settings() {
+        let root = std::env::temp_dir().join(format!(
+            "subscription-manager-settings-restart-{}-{:?}-{}",
+            std::process::id(),
+            std::thread::current().id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock phải sau UNIX epoch")
+                .as_nanos()
+        ));
+        let canonical = root.join("config/settings.json");
+        let mirror = root.join("storage/settings.json");
+        let expected = Settings {
+            language: "vi".to_string(),
+            timezone: "Europe/London".to_string(),
+            theme_id: "midnight".to_string(),
+            font_id: "dejavusans".to_string(),
+        };
+
+        save_settings_to_paths(&canonical, &mirror, &expected).expect("lưu settings vào temp storage");
+        let fresh_text = load_settings_text_from_paths(&canonical, &mirror).expect("đọc settings ở lượt chạy mới");
+        let actual: Settings = serde_json::from_str(&fresh_text).expect("settings đã lưu phải là JSON hợp lệ");
+
+        assert_eq!(actual.language, expected.language);
+        assert_eq!(actual.timezone, expected.timezone);
+        assert_eq!(actual.theme_id, expected.theme_id);
+        assert_eq!(actual.font_id, expected.font_id);
+        assert!(canonical.starts_with(std::env::temp_dir()));
+        assert!(mirror.starts_with(std::env::temp_dir()));
     }
 }

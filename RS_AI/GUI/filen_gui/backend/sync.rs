@@ -5,7 +5,6 @@
 //!
 //! [KHỐI SYNC]
 
-
 use crate::models::*;
 
 pub fn sync_pairs() -> Result<Vec<SyncPair>, String> {
@@ -37,21 +36,12 @@ pub async fn sync_terminal(
 
 // Chạy sync 1 lần cho cặp local:remote (dạng `/local:/cloud`)
 
-pub async fn sync_once_terminal(
-    active_account: &Option<String>,
-    local: &str,
-    remote: &str,
-) -> Result<(), String> {
+pub async fn sync_once_terminal(active_account: &Option<String>, local: &str, remote: &str) -> Result<(), String> {
     crate::sync::sync_terminal(active_account, &[format!("{local}:{remote}")], false).await
 }
 
 // Chạy sync 1 lần cho một pair đã đọc từ syncPairs.json
 
-pub async fn sync_pair_once_terminal(
-    active_account: &Option<String>,
-    pair: &SyncPair,
-) -> Result<(), String> {
+pub async fn sync_pair_once_terminal(active_account: &Option<String>, pair: &SyncPair) -> Result<(), String> {
     crate::sync::sync_terminal(active_account, &[crate::models::sync_pair_arg(pair)], false).await
 }
-
-

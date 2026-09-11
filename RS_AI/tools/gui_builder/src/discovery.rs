@@ -131,24 +131,13 @@ fn read_metadata(dir: &Path) -> Result<Metadata, String> {
 fn uses_tauri_build(pkg: &MetaPackage) -> bool {
     pkg.build_dependencies
         .iter()
-        .chain(
-            pkg.dependencies
-                .iter()
-                .filter(|d| d.kind.as_deref() == Some("build")),
-        )
+        .chain(pkg.dependencies.iter().filter(|d| d.kind.as_deref() == Some("build")))
         .any(|d| d.name == "tauri-build")
 }
 
 /// Dựng `Project` từ một package đã biết là thuộc workspace nào đó.
-fn make_project(
-    pkg: &MetaPackage,
-    root_for_rel: &Path,
-    target_dir: PathBuf,
-) -> Option<Project> {
-    let bin = pkg
-        .targets
-        .iter()
-        .find(|t| t.kind.iter().any(|k| k == "bin"))?;
+fn make_project(pkg: &MetaPackage, root_for_rel: &Path, target_dir: PathBuf) -> Option<Project> {
+    let bin = pkg.targets.iter().find(|t| t.kind.iter().any(|k| k == "bin"))?;
 
     let manifest = PathBuf::from(&pkg.manifest_path);
     let dir = manifest.parent()?;
@@ -265,11 +254,7 @@ pub fn discover(root: &Path) -> Result<Vec<Project>, String> {
 
     projects.extend(discover_nested(&root_path, &known_dirs));
 
-    projects.sort_by(|a, b| {
-        a.release_name
-            .to_lowercase()
-            .cmp(&b.release_name.to_lowercase())
-    });
+    projects.sort_by(|a, b| a.release_name.to_lowercase().cmp(&b.release_name.to_lowercase()));
     Ok(projects)
 }
 

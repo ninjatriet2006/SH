@@ -1,10 +1,10 @@
+pub mod app_image;
+pub mod autostart;
 pub mod config;
 pub mod detector;
-pub mod app_image;
-pub mod integrator;
-pub mod remover;
-pub mod manager;
-pub mod scanner;
-pub mod maintenance;
-pub mod autostart;
 pub mod installer;
+pub mod integrator;
+pub mod maintenance;
+pub mod manager;
+pub mod remover;
+pub mod scanner;

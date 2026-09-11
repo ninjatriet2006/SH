@@ -102,13 +102,22 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .title(" Nhật ký hoạt động ")
         .border_style(Style::default().fg(Color::DarkGray));
 
-    let status_str = app
-        .status_message
-        .as_deref()
-        .unwrap_or("Đang chờ lệnh từ người dùng...");
-    let status_para = Paragraph::new(status_str)
-        .style(Style::default().fg(Color::LightGreen))
-        .block(status_block);
+    let status_str = [
+        app.status_message.as_deref(),
+        app.update_result_message.as_deref(),
+        app.rescan_result_message.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" | ");
+    let status_para = Paragraph::new(if status_str.is_empty() {
+        "Đang chờ lệnh từ người dùng..."
+    } else {
+        &status_str
+    })
+    .style(Style::default().fg(Color::LightGreen))
+    .block(status_block);
     f.render_widget(status_para, chunks[2]);
 
     // 4. Draw Footer Help
@@ -124,6 +133,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Screen::AppList => Line::from(vec![
             Span::styled(" Phím tắt: ", Style::default().add_modifier(Modifier::BOLD)),
             Span::styled("↑↓/j/k: Duyệt danh sách", Style::default().fg(Color::LightBlue)),
+            Span::styled(" | ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Alt+R: Quét lại & xác minh", Style::default().fg(Color::Cyan)),
             Span::styled(" | ", Style::default().fg(Color::DarkGray)),
             Span::styled("Space: Tích chọn checkbox [x]", Style::default().fg(Color::Yellow)),
             Span::styled(" | ", Style::default().fg(Color::DarkGray)),

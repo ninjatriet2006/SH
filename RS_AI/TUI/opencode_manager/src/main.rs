@@ -1,8 +1,3 @@
-mod api;
-mod app;
-mod ckey;
-mod config;
-mod storage;
 mod ui;
 
 use app::{App, AppMessage, ConfirmAction, Screen};
@@ -12,6 +7,7 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
+use opencode_manager::{api, app, ckey, config};
 use ratatui::prelude::*;
 use std::io;
 use std::time::Duration;

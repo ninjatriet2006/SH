@@ -1,0 +1,9 @@
+# Filen GUI — smoke evidence
+
+- Status: PASS (2026-09-09).
+- Artifact: `/home/bimatkeo/Documents/SH/RS_AI/GUI/filen_gui/bridge/target/release/bundle/appimage/filen_gui_0.1.0_amd64.AppImage`.
+- Artifact SHA-256: `a9220b192ad32b828538ebc453ee2841f7762f20cb47badedb7a1b6f30078f64`, identical to `package.md`.
+- Display route: `DISPLAY=:0`; `test -S /tmp/.X11-unix/X0` PASS; fresh D-Bus route `/usr/bin/dbus-run-session`. External-CWD command from `/tmp/opencode`: `DISPLAY=:0 timeout --signal=TERM --kill-after=2s 20s dbus-run-session -- <AppImage>`; no tool installed.
+- Readiness: process `filen_gui_tauri` remained alive >=5 seconds; QA sent SIGTERM; wrapper exit `143` accepted. No app panic, resource-load, source-tree, launch-CWD or cross-GUI lookup appeared in output.
+- Benign host-service output: xdg-document portal/GVFS reported FUSE permission errors under `/run/user/1000/{doc,gvfs}`; AppImage itself mounted and app remained ready, so extraction fallback was not required for launch.
+- Bundle inspection: `--appimage-extract` PASS; `usr/lib/filen_gui/{langs,themes,fonts}` present with 2/1/4 files respectively.

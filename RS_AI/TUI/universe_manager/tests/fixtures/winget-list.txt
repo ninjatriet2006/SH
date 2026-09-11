@@ -1,0 +1,4 @@
+Name                         Id                         Version      Source
+----------------------------------------------------------------------------
+Example Editor               Example.Editor             4.2.0        winget
+Windows Terminal             MSIX\Microsoft.Terminal    1.21.0       msstore
