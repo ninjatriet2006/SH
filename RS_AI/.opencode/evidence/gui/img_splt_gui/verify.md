@@ -12,3 +12,4 @@
 - Exact current sizes/SHA-256 and fresh external evidence are recorded in `package.md` and `smoke.md` under `/tmp/opencode/img-splt-final-039b2ce6-20260911-1059`.
 - Phase 8 rerun (2026-09-12): frontend 7/7 plus build PASS; backend+bridge 36/36 and fmt/check/clippy PASS with 0 warnings. Overall FAIL because fresh packaging is blocked by nested workspace discovery.
 - Post-four-fix rerun: frontend 7/7 + build; backend+bridge fmt/check/test/clippy 36/36, 0 warnings; workspace/package blocker fixed; fresh DEB/AppImage and dual external-CWD smoke PASS.
+- Reviewer F1 rerun (2026-09-13): frontend 7/7 + build; backend+bridge fmt/check/test/clippy 36/36, 0 warnings; fresh DEB/AppImage inspection and dual external-CWD smoke PASS. Evidence: `/tmp/opencode/phase8-f1-five-20260913T000000Z/img-splt`.

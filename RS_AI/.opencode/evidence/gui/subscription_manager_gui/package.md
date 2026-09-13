@@ -9,3 +9,4 @@
 - MSI/DMG: `deferred/platform-unverified` on Linux.
 - Phase 8.4 refresh (2026-09-12): preserved AppImage `d5a3dca2e489ff54271983b0710062002b27e50542743e3c6cb372ece8601e84`, DEB `b3513ddabec4253c9687c5a9deffe2057ec1cab826303abf7f9a8c3f872fc43b` under `/tmp/opencode/phase-8-artifacts-20260912`.
 - Post-four-fix Phase 8.4 rebuild: AppImage `491d793512ffe1b41b98b27491f02b8882f70502a5d2348e5d2b2187aa3db08a`; DEB `f059d15f8a3e1aa1214e400abefa2cc074ec4069a941869952b80ec6023b5cf5`; preserved under `/tmp/opencode/phase-8-four-fixes-20260912T045604Z-272465`.
+- Reviewer F1 refresh (2026-09-13): fresh AppImage `2b66ae524e3e1c23a9fd8f08dfac757b1d925a091ff039a591fe12e21323db2e` and DEB `565410f5b50a978ccc05f76cac7c78d1f588495442e80ef9e24d46083244b222`; metadata `subscription-manager-gui`/`0.1.0`/`amd64`; durable evidence under `/tmp/opencode/phase8-f1-five-20260913T000000Z/subscription`.

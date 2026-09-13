@@ -10,3 +10,4 @@
 - Preserved evidence/temp: `/tmp/opencode/img-splt-final-039b2ce6-20260911-1059` (fresh extraction, launch logs/exits); nothing deleted.
 - Phase 8.6 (2026-09-12): not rerun because no fresh valid IMG_SPLT artifact was produced; prior smoke is historical only.
 - Post-four-fix Phase 8.6: fresh AppImage `fd7b24f3...90b3a4` and extracted DEB binary both launched from isolated non-repo CWD/XDG roots and stayed alive to timeout 124; extraction/resources/font manifest PASS. Evidence root: `/tmp/opencode/phase-8-four-fixes-20260912T045604Z-272465`.
+- Reviewer F1 refresh (2026-09-13): fresh AppImage and extracted DEB binary both passed isolated external-CWD/XDG smoke (timeout 124); SHA verification, DEB metadata, regular resources, and font manifest PASS. Durable root: `/tmp/opencode/phase8-f1-five-20260913T000000Z/img-splt`.

@@ -9,3 +9,4 @@
 - MSI/DMG: `deferred/platform-unverified` on Linux.
 - Phase 8.4 refresh (2026-09-12): preserved AppImage `6b8fe6526e6fce5db41568f90f13a039e8919e414ff6d5c3bfbe1010b78cab01`, DEB `b2e2f967c1c1a2799d76e1fb212a5eecb8135d3c9529fd585911e60b197db6a8` under `/tmp/opencode/phase-8-artifacts-20260912`.
 - Post-four-fix Phase 8.4 rebuild: AppImage `e6783b4612baf0122d95c1c265724f7d9c6628b4c7bd4335c0b78a1a6fe54ad3`; DEB `ee3ae267430a3c570a7b66d20c916ecd8d4ba22b827c8e532c2ee452ad827480`; preserved under `/tmp/opencode/phase-8-four-fixes-20260912T045604Z-272465`.
+- Reviewer F1 refresh (2026-09-13): fresh AppImage `5dd25864d65e92c279324e2974bc3b13ad86e1140e551b48e2724c1d3ecf1f0b` and DEB `20cb757f9d2e89592b80549450061ec248dccb132caed3b84d11b0a96f3a2692`; metadata `rclone-gui`/`0.1.0`/`amd64`; durable artifacts and inspection evidence under `/tmp/opencode/phase8-f1-five-20260913T000000Z/rclone`.

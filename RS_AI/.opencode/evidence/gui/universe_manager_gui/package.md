@@ -12,3 +12,4 @@
 - Updater is off: `createUpdaterArtifacts:false`, empty plugins, and no updater dependency/registration. Config retains `deb`, `appimage`, `msi`, `dmg`; MSI/DMG are platform-deferred and unverified.
 - Preserved extraction/logs: `/tmp/opencode/universe-reviewer-fixes-95e467b-20260911-qa`; nothing deleted. Runtime details are in `smoke.md`.
 - Post-four-fix Phase 8.4 rebuild: AppImage `dfd954e07d6eb6f07966580bf223f8223671d90f73f6ee36bbafc4b14953cac0`; DEB `79257cd4eddacaf8d7459f991d611292ab3761cec634028f8a3ec4353900a5d8`; preserved under `/tmp/opencode/phase-8-four-fixes-20260912T045604Z-272465`.
+- Reviewer F1 refresh (2026-09-13): fresh AppImage `f5c971dbf8fd96d33440645f1726fbdcd940dd0df6b5bcef617824601f93c315` and DEB `ac2ee889ea3dc94cc7e3dbf43094176045396938989bc4d89089fad1f5a32326`; metadata `universe-manager`/`0.1.0`/`amd64`; durable evidence under `/tmp/opencode/phase8-f1-five-20260913T000000Z/universe`.

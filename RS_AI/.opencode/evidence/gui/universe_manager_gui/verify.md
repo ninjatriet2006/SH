@@ -9,3 +9,4 @@
 - Phase 8 rerun (2026-09-12): frontend 9/9 plus build PASS; bridge 16/16 and all gates PASS, 0 warnings. Backend FAIL: 12/13; `tests/domain.rs:199` rejects spawned executable identity, so backend clippy not reached. Fresh package/smoke PASS.
 - Fresh artifact hashes/sizes and preserved smoke root are recorded in [package.md](package.md) and [smoke.md](smoke.md); rollback evidence remains in [rollback.md](rollback.md).
 - Post-four-fix rerun: backend identity regression fixed; backend 14/14 + bridge 16/16, all fmt/check/clippy gates PASS with 0 warnings. Frontend 9/9 + build and fresh DEB/AppImage dual external-CWD smoke PASS.
+- Reviewer F1 rerun (2026-09-13): frontend 9/9 + build; backend 14/14 + bridge 16/16; all fmt/check/clippy gates PASS, 0 warnings; fresh DEB/AppImage inspection and dual external-CWD smoke PASS. Evidence: `/tmp/opencode/phase8-f1-five-20260913T000000Z/universe`.

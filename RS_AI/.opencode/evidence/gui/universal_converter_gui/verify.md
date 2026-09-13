@@ -10,3 +10,4 @@
 - Deliverables: binary 1 + DEB 1 + AppImage 1 = 3; exact sizes/hashes recorded in `package.md`; MSI/DMG deferred; blockers: none.
 - Phase 8 rerun (2026-09-12): frontend 19/19 plus build PASS; backend+bridge 70/70, 1 ignored helper, fmt/check/clippy PASS with 0 warnings; fresh package/smoke PASS.
 - Post-four-fix rerun: frontend 19/19 + build; backend+bridge 71/71, 1 ignored helper; fmt/check/clippy PASS with 0 warnings; fresh DEB/AppImage and dual external-CWD smoke PASS.
+- Reviewer F1 rerun (2026-09-13): frontend 19/19 + build; backend+bridge 71/71 with 1 ignored helper; fmt/check/clippy PASS, 0 warnings; fresh DEB/AppImage inspection and dual external-CWD smoke PASS. Evidence: `/tmp/opencode/phase8-f1-five-20260913T000000Z/universal`.

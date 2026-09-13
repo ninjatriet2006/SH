@@ -32,12 +32,12 @@
 |---|---|---|---|---|
 | 1 | Chốt baseline parity, persistence, artifact bảy GUI | - | 1 | [x] |
 | 2 | Chốt layer, IPC, capabilities/permissions Tauri v2 | 1 | 1 | [x] |
-| 3 | Nhân bản assets/components, cấm dependency chéo GUI | 1,2 | 1 | [~] |
+| 3 | Nhân bản assets/components, cấm dependency chéo GUI | 1,2 | 1 | [x] |
 | 4 | Chuẩn hóa bốn GUI Tauri hiện hữu | 2,3 | 1 | [x] |
 | 5 | Migrate `universal_converter_gui`, checkpoint và rollback | 4 | 1 | [x] |
 | 6 | Migrate `img_splt_gui`, checkpoint và rollback | 5 | 1 | [x] |
 | 7 | Migrate `universe_manager_gui`, checkpoint và rollback | 6 | 1 | [x] |
-| 8 | Audit package/workspace/path/symlink/runtime coupling | 4,7 | 1 | [~] |
+| 8 | Audit package/workspace/path/symlink/runtime coupling | 4,7 | 1 | [x] |
 | 9 | Nghiệm thu bảy standalone artifacts | 8 | 1 | [ ] |
 
 ## Gates và acceptance
