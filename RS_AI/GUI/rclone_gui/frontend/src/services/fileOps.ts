@@ -5,7 +5,7 @@
 - Tương tác: Giao tiếp với bridge/explorer_api.ts. Không xử lý logic phức tạp, không xử lý sudo hay path parsing ở đây.
 */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../../bridge/ipc';
 import {
   fsMkdir,
   fsDelete,

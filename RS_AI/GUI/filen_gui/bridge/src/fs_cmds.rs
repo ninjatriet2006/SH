@@ -4,54 +4,142 @@
 //! Tương tác: Giao tiếp qua `filen_gui::cloud_fs` và `filen_gui::local_fs`. Giao diện `DualPaneExplorer` sử dụng các alias như `fs_rename_terminal`.
 
 use crate::state::AppState;
+use crate::{
+    auth_cmds::Empty,
+    contract::{backend, success, validate, IpcResult, Req},
+    security::{require_confirmation, validate_sudo_argv},
+};
 use filen_gui::models::{FileItem, TrashItemLocal};
+use serde::Deserialize;
+use std::path::Path;
+
+macro_rules! payload {
+    ($name:ident { $($(#[$meta:meta])* $field:ident : $ty:ty),* $(,)? }) => {
+        #[derive(Deserialize)] pub struct $name { $($(#[$meta])* pub $field: $ty),* }
+    };
+}
+payload!(AccountPath { #[serde(deserialize_with = "crate::contract::present_nullable")] account: Option<String>, path: String });
+payload!(StreamPath { #[serde(deserialize_with = "crate::contract::present_nullable")] account: Option<String>, path: String });
+payload!(PathReq { path: String });
+payload!(RemoteRm { #[serde(deserialize_with = "crate::contract::present_nullable")] account: Option<String>, path: String, recursive: bool, confirmed: bool });
+payload!(RemoteFromTo { #[serde(deserialize_with = "crate::contract::present_nullable")] account: Option<String>, from: String, to: String });
+payload!(LocalFromTo { src: String, dest: String, #[serde(deserialize_with = "crate::contract::present_nullable")] overwrite: Option<bool> });
+payload!(RenameReq {
+    path: String,
+    new_name: String
+});
+payload!(BatchReq { srcs: Vec<String>, dst_dir: String, overwrite: bool });
+payload!(UploadReq { #[serde(deserialize_with = "crate::contract::present_nullable")] account: Option<String>, local: String, remote: String });
+payload!(DownloadReq { #[serde(deserialize_with = "crate::contract::present_nullable")] account: Option<String>, remote: String, local: String });
+payload!(WriteReq { #[serde(deserialize_with = "crate::contract::present_nullable")] account: Option<String>, path: String, content: String });
+payload!(WriteLocalReq {
+    path: String,
+    content: String
+});
+payload!(RenameRemote { #[serde(deserialize_with = "crate::contract::present_nullable")] account: Option<String>, path: String, new_name: String });
+payload!(DeleteRemote { #[serde(deserialize_with = "crate::contract::present_nullable")] account: Option<String>, path: String, confirmed: bool });
+payload!(CopyRemote { #[serde(deserialize_with = "crate::contract::present_nullable")] account: Option<String>, src: String, dest: String });
+payload!(ItemReq { item_id: String });
+payload!(IndexReq { #[serde(deserialize_with = "crate::contract::present_nullable")] account: Option<String>, idx: usize, #[serde(deserialize_with = "crate::contract::present_nullable")] confirmed: Option<bool> });
+payload!(AccountReq { #[serde(deserialize_with = "crate::contract::present_nullable")] account: Option<String> });
+payload!(ModeReq {
+    path: String,
+    mode: u32,
+    confirmed: bool
+});
+payload!(OwnerReq {
+    path: String,
+    uid: u32,
+    gid: u32,
+    confirmed: bool
+});
+payload!(SearchReq { path: String, query: String, #[serde(deserialize_with = "crate::contract::present_nullable")] options: Option<SearchOptions> });
+payload!(SudoReq { action: String, args: Vec<String>, confirmed: bool });
+payload!(PickerReq {});
+
+#[cfg(target_os = "windows")]
+fn open_path(path: &str) -> Result<(), crate::contract::IpcError> {
+    std::process::Command::new("rundll32.exe")
+        .args(["url.dll,FileProtocolHandler", path])
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| backend(error.to_string()))
+}
+
+fn contained_existing(state: &AppState, window: &str, path: &str) -> Result<String, crate::contract::IpcError> {
+    Ok(state
+        .picker_roots
+        .existing(window, Path::new(path))?
+        .to_string_lossy()
+        .into_owned())
+}
+fn contained_create(state: &AppState, window: &str, path: &str) -> Result<String, crate::contract::IpcError> {
+    Ok(state
+        .picker_roots
+        .create(window, Path::new(path))?
+        .to_string_lossy()
+        .into_owned())
+}
 
 /// Liệt kê danh sách file/thư mục trên Cloud (phương thức thông thường).
 #[tauri::command]
-pub async fn fs_list_remote_terminal(
-    account: Option<String>,
-    path: String,
-) -> Result<Vec<FileItem>, String> {
-    filen_gui::cloud_fs::list_remote_terminal(&account, &path).await
+pub async fn fs_list_remote_terminal(request: Req<AccountPath>) -> IpcResult<Vec<FileItem>> {
+    let (id, p) = validate(request)?;
+    let data = filen_gui::cloud_fs::list_remote_terminal(&p.account, &p.path)
+        .await
+        .map_err(backend)?;
+    Ok(success(id, data))
 }
 
 /// Liệt kê danh sách file/thư mục trên Cloud theo dạng luồng (stream),
 /// giúp UI cập nhật dần khi có nhiều file thay vì đợi toàn bộ.
 #[tauri::command]
 pub async fn fs_list_remote_stream_terminal(
-    account: Option<String>,
-    path: String,
+    request: Req<StreamPath>,
     on_chunk: tauri::ipc::Channel<Vec<FileItem>>,
-) -> Result<(), String> {
-    filen_gui::cloud_fs::list_remote_stream_terminal(&account, &path, move |chunk| {
+) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    filen_gui::cloud_fs::list_remote_stream_terminal(&p.account, &p.path, move |chunk| {
         let _ = on_chunk.send(chunk);
-    }).await
+    })
+    .await
+    .map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 /// Lấy ảnh thu nhỏ (thumbnail) của file, sinh ra mã Base64 để hiển thị lên UI.
 #[tauri::command]
-pub async fn fs_get_thumbnail(path: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        filen_gui::local_fs::get_thumbnail(&path)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+pub async fn fs_get_thumbnail(
+    request: Req<PathReq>,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+) -> IpcResult<String> {
+    let (id, p) = validate(request)?;
+    let path = contained_existing(&state, window.label(), &p.path)?;
+    let data = tauri::async_runtime::spawn_blocking(move || filen_gui::local_fs::get_thumbnail(&path))
+        .await
+        .map_err(|e| backend(e.to_string()))?
+        .map_err(backend)?;
+    Ok(success(id, data))
 }
 
 /// Liệt kê danh sách file/thư mục tại máy tính cục bộ (Local).
 /// Hàm này đồng thời cập nhật trình theo dõi tự động (Watcher) để UI phản ứng khi có file mới/bị xóa.
 #[tauri::command]
 pub async fn fs_list_local(
-    path: String,
+    request: Req<PathReq>,
+    window: tauri::Window,
     state: tauri::State<'_, AppState>,
-) -> Result<Vec<FileItem>, String> {
+) -> IpcResult<Vec<FileItem>> {
+    let (id, p) = validate(request)?;
+    let path = contained_existing(&state, window.label(), &p.path)?;
     // Cập nhật trình theo dõi (local watcher)
     {
         use notify::Watcher;
         // Lấy khóa truy cập vào biến trạng thái lưu đường dẫn và trình theo dõi
         let mut watched_path = state.watched_path.lock().unwrap();
         let mut watcher_opt = state.local_watcher.lock().unwrap();
-        
+
         if let Some(watcher) = watcher_opt.as_mut() {
             // Hủy theo dõi đường dẫn cũ nếu đường dẫn thay đổi
             if let Some(old_path) = watched_path.as_ref() {
@@ -68,81 +156,138 @@ pub async fn fs_list_local(
         }
     }
 
-    filen_gui::local_fs::list_local(&path)
+    let data = filen_gui::local_fs::list_local(&path).map_err(backend)?;
+    Ok(success(id, data))
 }
 
 /// Tạo thư mục mới trên Cloud.
 #[tauri::command]
-pub async fn fs_mkdir_terminal(account: Option<String>, path: String) -> Result<(), String> {
-    filen_gui::cloud_fs::mkdir_terminal(&account, &path).await
+pub async fn fs_mkdir_terminal(request: Req<AccountPath>) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    filen_gui::cloud_fs::mkdir_terminal(&p.account, &p.path)
+        .await
+        .map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 /// Xóa file/thư mục trên Cloud (có hỗ trợ tùy chọn xóa vĩnh viễn không qua thùng rác).
 #[tauri::command]
-pub async fn fs_rm_terminal(
-    account: Option<String>,
-    path: String,
-    no_trash: bool,
-) -> Result<(), String> {
-    filen_gui::cloud_fs::rm_terminal(&account, &path, no_trash).await
+pub async fn fs_rm_terminal(request: Req<RemoteRm>) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    require_confirmation(p.confirmed)?;
+    filen_gui::cloud_fs::rm_terminal(&p.account, &p.path, p.recursive)
+        .await
+        .map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 /// Đổi tên / Di chuyển thư mục, file trên Cloud.
 #[tauri::command]
-pub async fn fs_mv_terminal(
-    account: Option<String>,
-    from: String,
-    to: String,
-) -> Result<(), String> {
-    filen_gui::cloud_fs::mv_terminal(&account, &from, &to).await
+pub async fn fs_mv_terminal(request: Req<RemoteFromTo>) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    filen_gui::cloud_fs::mv_terminal(&p.account, &p.from, &p.to)
+        .await
+        .map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 /// Sao chép thư mục, file trên Cloud.
 #[tauri::command]
-pub async fn fs_cp_terminal(
-    account: Option<String>,
-    from: String,
-    to: String,
-) -> Result<(), String> {
-    filen_gui::cloud_fs::cp_terminal(&account, &from, &to).await
+pub async fn fs_cp_terminal(request: Req<RemoteFromTo>) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    filen_gui::cloud_fs::cp_terminal(&p.account, &p.from, &p.to)
+        .await
+        .map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 /// Sao chép thư mục, file trên Local.
 #[tauri::command]
-pub async fn fs_cp_local(from: String, to: String, overwrite: bool) -> Result<(), String> {
-    filen_gui::local_fs::copy_local(&from, &to, overwrite)
+pub async fn fs_cp_local(
+    request: Req<LocalFromTo>,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    let src = contained_existing(&state, window.label(), &p.src)?;
+    let dest = contained_create(&state, window.label(), &p.dest)?;
+    filen_gui::local_fs::copy_local(&src, &dest, p.overwrite.unwrap_or(false)).map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 /// Đổi tên / Di chuyển thư mục, file trên Local.
 #[tauri::command]
-pub async fn fs_mv_local(from: String, to: String) -> Result<(), String> {
-    filen_gui::local_fs::move_local(&from, &to)
+pub async fn fs_mv_local(
+    request: Req<LocalFromTo>,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    let src = contained_existing(&state, window.label(), &p.src)?;
+    let dest = contained_create(&state, window.label(), &p.dest)?;
+    let _ = p.overwrite;
+    filen_gui::local_fs::move_local(&src, &dest).map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 /// Xóa thư mục, file trên Local.
 #[tauri::command]
-pub async fn fs_rm_local(path: String) -> Result<(), String> {
-    filen_gui::local_fs::delete_local(&path)
+pub async fn fs_rm_local(
+    request: Req<DeleteRemote>,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    require_confirmation(p.confirmed)?;
+    let path = contained_existing(&state, window.label(), &p.path)?;
+    filen_gui::local_fs::delete_local(&path).map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 /// Tạo thư mục mới trên Local.
 #[tauri::command]
-pub async fn fs_mkdir_local(path: String) -> Result<(), String> {
-    std::fs::create_dir_all(&path).map_err(|e| e.to_string())
+pub async fn fs_mkdir_local(
+    request: Req<PathReq>,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    let path = contained_create(&state, window.label(), &p.path)?;
+    std::fs::create_dir_all(path).map_err(|e| backend(e.to_string()))?;
+    Ok(success(id, ()))
 }
 
 /// Đổi tên thư mục, file trên Local (giữ nguyên gốc thư mục).
 #[tauri::command]
-pub async fn fs_rename_local(path: String, new_name: String) -> Result<(), String> {
-    let parent = std::path::Path::new(&path).parent().unwrap_or(std::path::Path::new(""));
-    let dest = parent.join(new_name);
-    std::fs::rename(&path, &dest).map_err(|e| e.to_string())
+pub async fn fs_rename_local(
+    request: Req<RenameReq>,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    let path = contained_existing(&state, window.label(), &p.path)?;
+    let dest_path = Path::new(&path).with_file_name(p.new_name);
+    let dest = contained_create(&state, window.label(), &dest_path.to_string_lossy())?;
+    std::fs::rename(path, dest).map_err(|e| backend(e.to_string()))?;
+    Ok(success(id, ()))
 }
 
 /// Lệnh hỗ trợ chép nhiều file, thư mục cùng một lúc dưới Local.
 #[tauri::command]
-pub async fn fs_cp_batch(srcs: Vec<String>, dst_dir: String, overwrite: bool) -> Result<(), String> {
-    filen_gui::local_fs::copy_local_batch(&srcs, &dst_dir, overwrite)
+pub async fn fs_cp_batch(
+    request: Req<BatchReq>,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    let srcs = p
+        .srcs
+        .iter()
+        .map(|v| contained_existing(&state, window.label(), v))
+        .collect::<Result<Vec<_>, _>>()?;
+    let dst = contained_existing(&state, window.label(), &p.dst_dir)?;
+    filen_gui::local_fs::copy_local_batch(&srcs, &dst, p.overwrite).map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 // ---------------------------------------------------------------------------
@@ -151,44 +296,70 @@ pub async fn fs_cp_batch(srcs: Vec<String>, dst_dir: String, overwrite: bool) ->
 
 /// Lấy danh sách rác trong hệ điều hành Local.
 #[tauri::command]
-pub async fn fs_trash_list_local() -> Result<Vec<TrashItemLocal>, String> {
-    filen_gui::local_fs::list_trash_local()
+pub async fn fs_trash_list_local(request: Req<Empty>) -> IpcResult<Vec<TrashItemLocal>> {
+    let (id, _) = validate(request)?;
+    Ok(success(id, filen_gui::local_fs::list_trash_local().map_err(backend)?))
 }
 
 /// Khôi phục file trong thùng rác hệ điều hành.
 #[tauri::command]
-pub async fn fs_trash_restore_local(item_id: String) -> Result<(), String> {
-    filen_gui::local_fs::trash_restore_local(&item_id)
+pub async fn fs_trash_restore_local(request: Req<ItemReq>) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    filen_gui::local_fs::trash_restore_local(&p.item_id).map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 /// Dọn sạch thùng rác cục bộ.
 #[tauri::command]
-pub async fn fs_trash_empty_local() -> Result<(), String> {
-    filen_gui::local_fs::trash_empty_local()
+pub async fn fs_trash_empty_local(request: Req<RemoteRm>) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    require_confirmation(p.confirmed)?;
+    filen_gui::local_fs::trash_empty_local().map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 /// Lấy danh sách rác trên Cloud.
 #[tauri::command]
-pub async fn fs_trash_list_remote_terminal(account: Option<String>) -> Result<Vec<FileItem>, String> {
-    filen_gui::cloud_fs::list_trash_terminal(&account).await
+pub async fn fs_trash_list_remote_terminal(request: Req<AccountReq>) -> IpcResult<Vec<FileItem>> {
+    let (id, p) = validate(request)?;
+    Ok(success(
+        id,
+        filen_gui::cloud_fs::list_trash_terminal(&p.account)
+            .await
+            .map_err(backend)?,
+    ))
 }
 
 /// Khôi phục file trong thùng rác Cloud dựa vào index (ID).
 #[tauri::command]
-pub async fn fs_trash_restore_remote_terminal(account: Option<String>, idx: usize) -> Result<(), String> {
-    filen_gui::cloud_fs::trash_restore_terminal(&account, idx).await
+pub async fn fs_trash_restore_remote_terminal(request: Req<IndexReq>) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    filen_gui::cloud_fs::trash_restore_terminal(&p.account, p.idx)
+        .await
+        .map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 /// Xóa vĩnh viễn 1 file cụ thể trong thùng rác Cloud.
 #[tauri::command]
-pub async fn fs_trash_delete_remote_terminal(account: Option<String>, idx: usize) -> Result<(), String> {
-    filen_gui::cloud_fs::trash_delete_terminal(&account, idx).await
+pub async fn fs_trash_delete_remote_terminal(request: Req<IndexReq>) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    require_confirmation(p.confirmed.unwrap_or(false))?;
+    filen_gui::cloud_fs::trash_delete_terminal(&p.account, p.idx)
+        .await
+        .map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 /// Dọn sạch thùng rác Cloud.
 #[tauri::command]
-pub async fn fs_trash_empty_remote_terminal(account: Option<String>) -> Result<(), String> {
-    filen_gui::cloud_fs::trash_empty_terminal(&account).await
+pub async fn fs_trash_empty_remote_terminal(request: Req<RemoteRm>) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    require_confirmation(p.confirmed)?;
+    filen_gui::cloud_fs::trash_empty_terminal(&p.account)
+        .await
+        .map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 // ---------------------------------------------------------------------------
@@ -198,63 +369,90 @@ pub async fn fs_trash_empty_remote_terminal(account: Option<String>) -> Result<(
 /// Tải lên trực tiếp không qua hàng đợi.
 #[tauri::command]
 pub async fn fs_upload_terminal(
-    account: Option<String>,
-    local: String,
-    remote: String,
-) -> Result<(), String> {
-    filen_gui::cloud_fs::upload_terminal(&account, &local, &remote).await
+    request: Req<UploadReq>,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    let local = contained_existing(&state, window.label(), &p.local)?;
+    filen_gui::cloud_fs::upload_terminal(&p.account, &local, &p.remote)
+        .await
+        .map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 /// Tải xuống trực tiếp không qua hàng đợi.
 #[tauri::command]
 pub async fn fs_download_terminal(
-    account: Option<String>,
-    remote: String,
-    local: String,
-) -> Result<(), String> {
-    filen_gui::cloud_fs::download_terminal(&account, &remote, &local).await
+    request: Req<DownloadReq>,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    let local = contained_create(&state, window.label(), &p.local)?;
+    filen_gui::cloud_fs::download_terminal(&p.account, &p.remote, &local)
+        .await
+        .map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 /// Đọc trực tiếp nội dung văn bản của file Cloud (ví dụ: mở text editor).
 #[tauri::command]
-pub async fn fs_cat_terminal(account: Option<String>, path: String) -> Result<String, String> {
-    filen_gui::cloud_fs::cat_terminal(&account, &path).await
+pub async fn fs_cat_terminal(request: Req<AccountPath>) -> IpcResult<String> {
+    let (id, p) = validate(request)?;
+    Ok(success(
+        id,
+        filen_gui::cloud_fs::cat_terminal(&p.account, &p.path)
+            .await
+            .map_err(backend)?,
+    ))
 }
 
 /// Tạo một public link (liên kết chia sẻ) cho file trên Cloud.
 #[tauri::command]
-pub async fn fs_link_create_terminal(
-    account: Option<String>,
-    path: String,
-) -> Result<String, String> {
-    filen_gui::cloud_fs::create_link_terminal(&account, &path).await
+pub async fn fs_link_create_terminal(request: Req<AccountPath>) -> IpcResult<String> {
+    let (id, p) = validate(request)?;
+    Ok(success(
+        id,
+        filen_gui::cloud_fs::create_link_terminal(&p.account, &p.path)
+            .await
+            .map_err(backend)?,
+    ))
 }
 
 /// Liệt kê toàn bộ public links đã tạo.
 #[tauri::command]
-pub async fn fs_links_list_terminal(
-    account: Option<String>,
-) -> Result<Vec<(String, String)>, String> {
-    filen_gui::cloud_fs::list_links_terminal(&account).await
+pub async fn fs_links_list_terminal(request: Req<AccountReq>) -> IpcResult<Vec<(String, String)>> {
+    let (id, p) = validate(request)?;
+    Ok(success(
+        id,
+        filen_gui::cloud_fs::list_links_terminal(&p.account)
+            .await
+            .map_err(backend)?,
+    ))
 }
 
 /// Ghi nội dung văn bản vào file Cloud.
 #[tauri::command]
-pub async fn fs_write_terminal(
-    account: Option<String>,
-    path: String,
-    content: String,
-) -> Result<(), String> {
-    filen_gui::cloud_fs::write_file_terminal(&account, &path, &content).await
+pub async fn fs_write_terminal(request: Req<WriteReq>) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    filen_gui::cloud_fs::write_file_terminal(&p.account, &p.path, &p.content)
+        .await
+        .map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 /// Ghi nội dung văn bản vào file dưới Local.
 #[tauri::command]
 pub async fn fs_write_local(
-    path: String,
-    content: String,
-) -> Result<(), String> {
-    std::fs::write(&path, content).map_err(|e| e.to_string())
+    request: Req<WriteLocalReq>,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    let path = contained_create(&state, window.label(), &p.path)?;
+    std::fs::write(path, p.content).map_err(|e| backend(e.to_string()))?;
+    Ok(success(id, ()))
 }
 
 // ---------------------------------------------------------------------------
@@ -263,79 +461,85 @@ pub async fn fs_write_local(
 
 /// Alias đổi tên trên Cloud: Thực chất là gọi Move với đường dẫn cùng cha.
 #[tauri::command]
-pub async fn fs_rename_terminal(
-    account: Option<String>,
-    path: String,
-    new_name: String,
-) -> Result<(), String> {
-    let parent = std::path::Path::new(&path)
+pub async fn fs_rename_terminal(request: Req<RenameRemote>) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    let parent = std::path::Path::new(&p.path)
         .parent()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|| "/".to_string());
     let new_path = if parent == "/" || parent.ends_with('/') {
-        format!("{parent}{new_name}")
+        format!("{parent}{}", p.new_name)
     } else {
-        format!("{parent}/{new_name}")
+        format!("{parent}/{}", p.new_name)
     };
-    filen_gui::cloud_fs::mv_terminal(&account, &path, &new_path).await
+    filen_gui::cloud_fs::mv_terminal(&p.account, &p.path, &new_path)
+        .await
+        .map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 /// Alias xóa trên Cloud (vào thùng rác thay vì xóa vĩnh viễn).
 #[tauri::command]
-pub async fn fs_delete_terminal(account: Option<String>, path: String) -> Result<(), String> {
-    filen_gui::cloud_fs::rm_terminal(&account, &path, false).await
+pub async fn fs_delete_terminal(request: Req<DeleteRemote>) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    require_confirmation(p.confirmed)?;
+    filen_gui::cloud_fs::rm_terminal(&p.account, &p.path, false)
+        .await
+        .map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 /// Alias sao chép Cloud.
 #[tauri::command]
-pub async fn fs_copy_terminal(
-    account: Option<String>,
-    src: String,
-    dest: String,
-) -> Result<(), String> {
-    filen_gui::cloud_fs::cp_terminal(&account, &src, &dest).await
+pub async fn fs_copy_terminal(request: Req<CopyRemote>) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    filen_gui::cloud_fs::cp_terminal(&p.account, &p.src, &p.dest)
+        .await
+        .map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 /// Alias di chuyển Cloud.
 #[tauri::command]
-pub async fn fs_move_terminal(
-    account: Option<String>,
-    src: String,
-    dest: String,
-) -> Result<(), String> {
-    filen_gui::cloud_fs::mv_terminal(&account, &src, &dest).await
+pub async fn fs_move_terminal(request: Req<CopyRemote>) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    filen_gui::cloud_fs::mv_terminal(&p.account, &p.src, &p.dest)
+        .await
+        .map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 /// Mở file trong ứng dụng mặc định của hệ điều hành.
 #[tauri::command]
-pub fn fs_open(path: String) -> Result<(), String> {
+pub fn fs_open(request: Req<PathReq>, window: tauri::Window, state: tauri::State<'_, AppState>) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    let path = contained_existing(&state, window.label(), &p.path)?;
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", &path])
-            .spawn()
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        open_path(&path)?;
+        Ok(success(id, ()))
     }
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
             .arg(&path)
             .spawn()
-            .map_err(|e| e.to_string())?;
-        return Ok(());
+            .map_err(|e| backend(e.to_string()))?;
+        return Ok(success(id, ()));
     }
     #[cfg(target_os = "linux")]
     {
         std::process::Command::new("xdg-open")
             .arg(&path)
             .spawn()
-            .map_err(|e| e.to_string())?;
-        Ok(())
+            .map_err(|e| backend(e.to_string()))?;
+        Ok(success(id, ()))
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
-        Err("Hệ điều hành chưa được hỗ trợ để mở file ngoài hệ thống".to_string())
+        Err(crate::contract::unavailable(
+            "Hệ điều hành chưa được hỗ trợ để mở file ngoài hệ thống",
+        ))
     }
 }
 
@@ -355,11 +559,17 @@ pub struct StatInfo {
 
 /// Tính toán thông tin dung lượng mở rộng: đếm tổng dung lượng, số lượng file, thư mục bên trong (đệ quy).
 #[tauri::command]
-pub fn fs_stat_advanced(path: String) -> Result<StatInfo, String> {
+pub fn fs_stat_advanced(
+    request: Req<PathReq>,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+) -> IpcResult<StatInfo> {
+    let (id, request) = validate(request)?;
+    let path = contained_existing(&state, window.label(), &request.path)?;
     use std::path::Path;
     let p = Path::new(&path);
-    let meta = std::fs::metadata(p).map_err(|e| e.to_string())?;
-    
+    let meta = std::fs::metadata(p).map_err(|e| backend(e.to_string()))?;
+
     let mut size = meta.len();
     let mut file_count = 0;
     let mut dir_count = 0;
@@ -381,69 +591,90 @@ pub fn fs_stat_advanced(path: String) -> Result<StatInfo, String> {
 
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
         use std::os::unix::fs::MetadataExt;
-        Ok(StatInfo {
-            size,
-            file_count,
-            dir_count,
-            permissions: meta.permissions().mode(),
-            uid: meta.uid(),
-            gid: meta.gid(),
-        })
+        use std::os::unix::fs::PermissionsExt;
+        Ok(success(
+            id,
+            StatInfo {
+                size,
+                file_count,
+                dir_count,
+                permissions: meta.permissions().mode(),
+                uid: meta.uid(),
+                gid: meta.gid(),
+            },
+        ))
     }
     #[cfg(not(unix))]
     {
-        Ok(StatInfo {
-            size,
-            file_count,
-            dir_count,
-            permissions: 0,
-            uid: 0,
-            gid: 0,
-        })
+        Ok(success(
+            id,
+            StatInfo {
+                size,
+                file_count,
+                dir_count,
+                permissions: 0,
+                uid: 0,
+                gid: 0,
+            },
+        ))
     }
 }
 
 /// Thay đổi quyền truy cập (chmod).
 #[tauri::command]
-pub fn fs_chmod(path: String, mode: u32) -> Result<(), String> {
+pub fn fs_chmod(request: Req<ModeReq>, window: tauri::Window, state: tauri::State<'_, AppState>) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    require_confirmation(p.confirmed)?;
+    let path = contained_existing(&state, window.label(), &p.path)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).map_err(|e| e.to_string())?;
-        Ok(())
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(p.mode)).map_err(|e| backend(e.to_string()))?;
+        Ok(success(id, ()))
     }
     #[cfg(not(unix))]
     {
-        let _ = (path, mode);
-        Err("Lệnh chmod không được hỗ trợ trên hệ điều hành này".to_string())
+        let _ = (path, p.mode);
+        Err(crate::contract::unavailable(
+            "Lệnh chmod không được hỗ trợ trên hệ điều hành này",
+        ))
     }
 }
 
 /// Thay đổi chủ sở hữu (chown).
 #[tauri::command]
-pub fn fs_chown(path: String, uid: u32, gid: u32) -> Result<(), String> {
-    filen_gui::local_fs::chown_local(&path, uid, gid)
+pub fn fs_chown(request: Req<OwnerReq>, window: tauri::Window, state: tauri::State<'_, AppState>) -> IpcResult<()> {
+    let (id, p) = validate(request)?;
+    require_confirmation(p.confirmed)?;
+    let path = contained_existing(&state, window.label(), &p.path)?;
+    filen_gui::local_fs::chown_local(&path, p.uid, p.gid).map_err(backend)?;
+    Ok(success(id, ()))
 }
 
 /// Lấy thông tin dung lượng còn trống của một đường dẫn phân vùng (dành cho Local).
 #[tauri::command]
-pub fn fs_get_free_space(path: String) -> Result<u64, String> {
+pub fn fs_get_free_space(
+    request: Req<PathReq>,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+) -> IpcResult<u64> {
+    let (id, p) = validate(request)?;
+    let path = contained_existing(&state, window.label(), &p.path)?;
     #[cfg(unix)]
     {
-        let c_path = std::ffi::CString::new(path.as_bytes()).map_err(|e| e.to_string())?;
+        let c_path = std::ffi::CString::new(path.as_bytes()).map_err(|e| backend(e.to_string()))?;
         let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
         if unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) } == 0 {
             // Khối lượng khả dụng * kích thước khối
-            Ok(stat.f_bavail as u64 * stat.f_frsize as u64)
+            Ok(success(id, stat.f_bavail as u64 * stat.f_frsize as u64))
         } else {
-            Err("Không thể lấy dung lượng phân vùng trống".to_string())
+            Err(backend("Không thể lấy dung lượng phân vùng trống".to_string()))
         }
     }
     #[cfg(not(unix))]
     {
-        Ok(0)
+        Ok(success(id, 0))
     }
 }
 
@@ -453,10 +684,13 @@ pub struct SearchOptions {
     /// Sử dụng tìm kiếm tương đối (Fuzzy search) hay chính xác.
     pub fuzzy: bool,
     /// Từ khóa nội dung nếu muốn tìm bên trong văn bản (Content search).
+    #[serde(deserialize_with = "crate::contract::present_nullable")]
     pub content_query: Option<String>,
     /// Dung lượng tệp nhỏ nhất.
+    #[serde(deserialize_with = "crate::contract::present_nullable")]
     pub min_size: Option<u64>,
     /// Dung lượng tệp lớn nhất.
+    #[serde(deserialize_with = "crate::contract::present_nullable")]
     pub max_size: Option<u64>,
 }
 
@@ -473,11 +707,19 @@ pub struct SearchResult {
 
 /// Tìm kiếm File/Thư mục cục bộ (hỗ trợ lọc file lớn/nhỏ, tên và cả nội dung văn bản).
 #[tauri::command]
-pub async fn fs_search_local(path: String, query: String, options: Option<SearchOptions>) -> Result<Vec<SearchResult>, String> {
-    use std::path::Path;
-    use fuzzy_matcher::FuzzyMatcher;
+pub async fn fs_search_local(
+    request: Req<SearchReq>,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+) -> IpcResult<Vec<SearchResult>> {
+    let (id, request) = validate(request)?;
+    let path = contained_existing(&state, window.label(), &request.path)?;
+    let query = request.query;
+    let options = request.options;
     use fuzzy_matcher::skim::SkimMatcherV2;
-    
+    use fuzzy_matcher::FuzzyMatcher;
+    use std::path::Path;
+
     let root = Path::new(&path);
     let mut results = Vec::new();
     let lower_query = query.to_lowercase();
@@ -487,32 +729,36 @@ pub async fn fs_search_local(path: String, query: String, options: Option<Search
         min_size: None,
         max_size: None,
     });
-    
+
     let matcher = SkimMatcherV2::default();
     let walker = walkdir::WalkDir::new(root).into_iter();
-    
+
     for entry in walker.filter_map(|e| e.ok()) {
         if entry.path() == root {
             continue; // Bỏ qua thư mục gốc
         }
-        
+
         let meta = match entry.metadata() {
             Ok(m) => m,
             Err(_) => continue,
         };
-        
+
         let size = meta.len();
         // Lọc giới hạn dung lượng (min_size, max_size)
         if let Some(min_s) = opts.min_size {
-            if size < min_s { continue; }
+            if size < min_s {
+                continue;
+            }
         }
         if let Some(max_s) = opts.max_size {
-            if size > max_s { continue; }
+            if size > max_s {
+                continue;
+            }
         }
-        
+
         let file_name = entry.file_name().to_string_lossy().to_string();
         let mut score = 0;
-        
+
         // Lọc theo từ khóa ở tên file
         if !query.is_empty() {
             if opts.fuzzy {
@@ -529,13 +775,17 @@ pub async fn fs_search_local(path: String, query: String, options: Option<Search
                 }
             }
         }
-        
+
         // Lọc theo từ khóa bên trong nội dung văn bản
         if let Some(ref cq) = opts.content_query {
             if !cq.trim().is_empty() {
-                if meta.is_dir() { continue; } // Không đọc thư mục
-                if size > 10 * 1024 * 1024 { continue; } // Bỏ qua file > 10MB để tránh treo ứng dụng
-                
+                if meta.is_dir() {
+                    continue;
+                } // Không đọc thư mục
+                if size > 10 * 1024 * 1024 {
+                    continue;
+                } // Bỏ qua file > 10MB để tránh treo ứng dụng
+
                 // Trích xuất text từ file doc/pdf hoặc txt
                 if let Some(content) = filen_gui::sys::doc_search::extract_text(entry.path()) {
                     if !content.to_lowercase().contains(&cq.to_lowercase()) {
@@ -547,14 +797,15 @@ pub async fn fs_search_local(path: String, query: String, options: Option<Search
             }
         }
 
-        let mod_time = meta.modified()
+        let mod_time = meta
+            .modified()
             .ok()
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs())
             .unwrap_or(0);
-            
+
         let mod_time_str = format!("{}", mod_time);
-        
+
         results.push(SearchResult {
             item: filen_gui::models::FileItem {
                 name: file_name,
@@ -572,56 +823,35 @@ pub async fn fs_search_local(path: String, query: String, options: Option<Search
             break;
         }
     }
-    
-    Ok(results)
+
+    Ok(success(id, results))
 }
 
 #[tauri::command]
-pub async fn fs_sudo_exec(action: String, args: Vec<String>) -> Result<(), String> {
-    use std::process::Command;
+pub async fn fs_sudo_exec(
+    request: Req<SudoReq>,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+) -> IpcResult<()> {
+    let (_, p) = validate(request)?;
+    require_confirmation(p.confirmed)?;
+    validate_sudo_argv(&p.action, &p.args)?;
+    let _ = (window, state);
+    unreachable!("privileged actions are rejected by validate_sudo_argv")
+}
 
-    #[cfg(target_os = "linux")]
-    {
-        let mut cmd_args = Vec::new();
-        match action.as_str() {
-            "rm" => {
-                cmd_args.push("rm".to_string());
-                cmd_args.push("-rf".to_string());
-                for arg in args { cmd_args.push(arg); }
-            },
-            "mkdir" => {
-                cmd_args.push("mkdir".to_string());
-                cmd_args.push("-p".to_string());
-                for arg in args { cmd_args.push(arg); }
-            },
-            "mv" => {
-                cmd_args.push("mv".to_string());
-                for arg in args { cmd_args.push(arg); }
-            },
-            "cp" => {
-                cmd_args.push("cp".to_string());
-                cmd_args.push("-r".to_string());
-                for arg in args { cmd_args.push(arg); }
-            },
-            _ => return Err("Unsupported action".into()),
-        }
-        let output = Command::new("pkexec")
-            .args(&cmd_args)
-            .output()
-            .map_err(|e| format!("Failed to execute pkexec: {}", e))?;
-            
-        if !output.status.success() {
-            let err = String::from_utf8_lossy(&output.stderr).into_owned();
-            if err.is_empty() {
-                return Err("Thao tác bị huỷ hoặc lỗi phân quyền.".into());
-            }
-            return Err(err);
-        }
-        Ok(())
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        return Err("Tính năng Sudo hiện tại chỉ hỗ trợ trên Linux (qua pkexec).".into());
-    }
+#[tauri::command]
+pub async fn fs_picker_select(
+    request: Req<PickerReq>,
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+) -> IpcResult<String> {
+    let (id, _) = validate(request)?;
+    let dialog = rfd::FileDialog::new().set_parent(&window);
+    let selected = tauri::async_runtime::spawn_blocking(move || dialog.pick_folder())
+        .await
+        .map_err(|error| backend(error.to_string()))?
+        .ok_or_else(|| crate::contract::invalid("directory selection was cancelled"))?;
+    let root = state.picker_roots.replace(window.label(), &selected)?;
+    Ok(success(id, root.to_string_lossy().into_owned()))
 }

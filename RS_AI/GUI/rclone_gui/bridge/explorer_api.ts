@@ -5,7 +5,7 @@ Trách nhiệm: Gọi các Tauri command nhóm file/thư mục (list, mkdir, cop
 Các module tương tác: frontend/src/services/fileOps.ts, backend/src/api/files.rs
 */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './ipc';
 import type { FileItem } from '../frontend/src/store.ts';
 import { debugStore } from '../frontend/src/services/debugStore.ts';
 

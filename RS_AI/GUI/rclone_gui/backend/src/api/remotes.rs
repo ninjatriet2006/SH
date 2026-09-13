@@ -16,7 +16,6 @@ use serde_json::{json, Value};
 
 /// Tên hàm: list_remotes
 /// Mô tả: Trả về danh sách tất cả các remote đã cấu hình từ rclone config dump.
-#[tauri::command]
 pub async fn list_remotes() -> Result<Vec<Value>, String> {
     let dump: Value = blocking(|| {
         let output = rclone::run_cmd(&["config", "dump"])?;
@@ -53,7 +52,6 @@ pub async fn list_remotes() -> Result<Vec<Value>, String> {
 
 /// Tên hàm: get_providers
 /// Mô tả: Trả về danh sách tất cả các loại cloud (Google Drive, Dropbox...) được rclone hỗ trợ dưới dạng JSON.
-#[tauri::command]
 pub async fn get_providers() -> Result<String, String> {
     blocking(|| {
         let output = rclone::run_cmd(&["config", "providers"])?;
@@ -70,7 +68,6 @@ pub async fn get_providers() -> Result<String, String> {
 
 /// Tên hàm: create_remote
 /// Mô tả: Tạo mới một cấu hình cloud (remote). Nhận vào tên, loại (provider) và các tùy chọn bổ sung (options).
-#[tauri::command]
 pub async fn create_remote(
     name: String,
     provider: String,
@@ -106,7 +103,6 @@ pub async fn create_remote(
 
 /// Tên hàm: delete_remote
 /// Mô tả: Xóa một cấu hình cloud (remote) khỏi rclone.
-#[tauri::command]
 pub async fn delete_remote(name: String) -> Result<String, String> {
     blocking(move || {
         let output = rclone::run_cmd(&["config", "delete", &name])?;
@@ -123,7 +119,6 @@ pub async fn delete_remote(name: String) -> Result<String, String> {
 
 /// Tên hàm: update_remote
 /// Mô tả: Cập nhật các thông số của một cấu hình cloud hiện có.
-#[tauri::command]
 pub async fn update_remote(name: String, options: std::collections::HashMap<String, String>) -> Result<String, String> {
     blocking(move || {
         let mut args = vec!["config", "update", &name];
@@ -154,7 +149,6 @@ pub async fn update_remote(name: String, options: std::collections::HashMap<Stri
 
 /// Tên hàm: get_backend_features
 /// Mô tả: Kiểm tra xem ổ đĩa cloud này có hỗ trợ tính năng nào (vd: Thùng rác, copy server-side...).
-#[tauri::command]
 pub async fn get_backend_features(remote: String) -> Result<Value, String> {
     blocking(move || {
         // Đuôi ":" báo cho rclone biết đây là một remote
@@ -174,7 +168,6 @@ pub async fn get_backend_features(remote: String) -> Result<Value, String> {
 
 /// Tên hàm: check_transfer_capability
 /// Mô tả: Đánh giá khả năng copy/move giữa 2 đường dẫn thông qua rclone features.
-#[tauri::command]
 pub async fn check_transfer_capability(src: String, dst: String) -> Result<Value, String> {
     let (src_remote, _) = parse_remote_path(&src);
     let (dst_remote, _) = parse_remote_path(&dst);
@@ -232,7 +225,6 @@ mod tests {
 
 /// Tên hàm: rclone_about
 /// Mô tả: Lấy thông tin dung lượng của một remote (total, used, free, trashed, other).
-#[tauri::command]
 pub async fn rclone_about(remote: String) -> Result<Value, String> {
     blocking(move || {
         let output = rclone::run_cmd(&["about", &remote, "--json"])?;
@@ -250,7 +242,6 @@ pub async fn rclone_about(remote: String) -> Result<Value, String> {
 
 /// Tên hàm: rclone_size
 /// Mô tả: Lấy thông tin kích thước và số lượng tệp của một remote hoặc thư mục.
-#[tauri::command]
 pub async fn rclone_size(remote: String) -> Result<Value, String> {
     blocking(move || {
         let output = rclone::run_cmd(&["size", &remote, "--json"])?;

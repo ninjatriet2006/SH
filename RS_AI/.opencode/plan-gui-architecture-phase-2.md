@@ -145,7 +145,7 @@ Source registry: [bridge/lib.rs](../GUI/filen_gui/bridge/src/lib.rs). Every indi
 | `accounts_load` | `{}` | `StoredAccount[]` | auth_cmds.rs |
 | `accounts_save` | `{accounts:StoredAccount[]}` | `()` | auth_cmds.rs |
 | `fs_list_remote_terminal` | `{account:String|null,path:String}` | `FileItem[]` | [fs_cmds.rs](../GUI/filen_gui/bridge/src/fs_cmds.rs) |
-| `fs_list_remote_stream_terminal` | `{account:String|null,path:String,on_chunk:Channel<FileItem[]>}` | `()` | fs_cmds.rs |
+| `fs_list_remote_stream_terminal` | `{account:String|null,path:String}` plus Tauri transport arg `onChunk:Channel<FileItem[]>` | `()` | fs_cmds.rs |
 | `fs_list_local` | `{path:String}` | `FileItem[]` | fs_cmds.rs |
 | `fs_get_thumbnail` | `{path:String}` | `String` | fs_cmds.rs |
 | `fs_mkdir_terminal` | `{account:String|null,path:String}` | `()` | fs_cmds.rs |
@@ -165,7 +165,7 @@ Source registry: [bridge/lib.rs](../GUI/filen_gui/bridge/src/lib.rs). Every indi
 | `fs_links_list_terminal` | `{account:String|null}` | `FileItem[]` | fs_cmds.rs |
 | `fs_write_terminal` | `{account:String|null,path:String,content:String}` | `()` | fs_cmds.rs |
 | `fs_write_local` | `{path:String,content:String}` | `()` | fs_cmds.rs |
-| `fs_sudo_exec` | `{action:String,args:String[]}` | `()` | fs_cmds.rs |
+| `fs_sudo_exec` | `{action:String,args:String[],confirmed:bool}` | always `Forbidden`; privileged path operations are disabled to avoid TOCTOU | fs_cmds.rs |
 | `fs_rename_terminal` | `{account:String|null,path:String,new_name:String}` | `()` | fs_cmds.rs |
 | `fs_delete_terminal` | `{account:String|null,path:String}` | `()` | fs_cmds.rs |
 | `fs_copy_terminal` | `{account:String|null,from:String,to:String}` | `()` | fs_cmds.rs |
@@ -178,7 +178,7 @@ Source registry: [bridge/lib.rs](../GUI/filen_gui/bridge/src/lib.rs). Every indi
 | `fs_search_local` | `{path:String,query:String,options:SearchOptions|null}` | `SearchResult[]` | fs_cmds.rs |
 | `fs_trash_list_local` | `{}` | `FileItem[]` | fs_cmds.rs |
 | `fs_trash_restore_local` | `{item_id:String}` | `()` | fs_cmds.rs |
-| `fs_trash_empty_local` | `{}` | `()` | fs_cmds.rs |
+| `fs_trash_empty_local` | `{account:String|null,path:String,recursive:bool,confirmed:bool}` | `()` | fs_cmds.rs |
 | `fs_trash_list_remote_terminal` | `{account:String|null}` | `FileItem[]` | fs_cmds.rs |
 | `fs_trash_restore_remote_terminal` | `{account:String|null,idx:usize}` | `()` | fs_cmds.rs |
 | `fs_trash_delete_remote_terminal` | `{account:String|null,idx:usize}` | `()` | fs_cmds.rs |
@@ -273,7 +273,7 @@ row returns `IpcResult<Response>` and its error is exactly `IpcError`; its runti
 | `list_providers` | `{}` | `ProviderView[]` | [provider.rs](../GUI/opencode_manager_gui/backend/src/api/provider.rs) |
 | `list_presets` | `{}` | `PresetView[]` | provider.rs |
 | `get_provider_secret` | `{provider_id:String}` | `String` | provider.rs |
-| `save_provider` | `{provider_id:String,preset_id:String,name:String,base_url:String,api_key:String,force_overwrite_id:String|null,npm:bool|null,custom_id:String|null}` | `SaveResult` | provider.rs |
+| `save_provider` | `{provider_id:String,preset_id:String,name:String,base_url:String,api_key:String,force_overwrite_id:String|null,npm:String|null,custom_id:String|null}` | `SaveResult` | provider.rs |
 | `delete_provider` | `{provider_id:String}` | `()` | provider.rs |
 | `delete_providers` | `{provider_ids:String[]}` | `usize` | provider.rs |
 | `test_provider` | `{provider_id:String}` | `StatusView` | provider.rs |
@@ -285,11 +285,11 @@ row returns `IpcResult<Response>` and its error is exactly `IpcError`; its runti
 | `bulk_add_providers` | `{endpoint:String,keys:String[]}` | `BulkAddResult` | [bulk.rs](../GUI/opencode_manager_gui/backend/src/api/bulk.rs) |
 | `list_ckey_profiles` | `{}` | `CkeyProfileView[]` | [ckey.rs](../GUI/opencode_manager_gui/backend/src/api/ckey.rs) |
 | `save_ckey_profile` | `{profile_id:String|null,name:String,key:String}` | `String` | ckey.rs |
-| `delete_ckey_profile` | `{profile_id:String}` | `()` | ckey.rs |
-| `set_active_ckey_profile` | `{profile_id:String}` | `Option<String>` | ckey.rs |
-| `fetch_ckey_dashboard` | `{profile_id:String,since_days:u32|null,force:bool|null}` | `CkeyDashboard` | ckey.rs |
-| `fetch_ckey_usage` | `{profile_id:String,page:u32,limit:u32,model:String|null,force:bool|null}` | `CkeyUsageView` | ckey.rs |
-| `fetch_ckey_deposit` | `{profile_id:String,amount:String,page:u32,limit:u32,force:bool|null}` | `CkeyDepositView` | ckey.rs |
+| `delete_ckey_profile` | `{profile_id:String}` | `Option<String>` | ckey.rs |
+| `set_active_ckey_profile` | `{profile_id:String}` | `()` | ckey.rs |
+| `fetch_ckey_dashboard` | `{profile_id:String,since_days:u64|null,force:bool|null}` | `CkeyDashboard` | ckey.rs |
+| `fetch_ckey_usage` | `{profile_id:String,page:u64,limit:u64,model:String|null,force:bool|null}` | `CkeyUsageView` | ckey.rs |
+| `fetch_ckey_deposit` | `{profile_id:String,amount:u64,page:u64,limit:u64,force:bool|null}` | `CkeyDepositView` | ckey.rs |
 | `list_ckey_import_items` | `{profile_id:String}` | `CkeyImportList` | ckey.rs |
 | `import_ckey_models` | `{profile_id:String,selected:String[]}` | `CkeyImportResult` | ckey.rs |
 | `list_model_matrix` | `{}` | `ModelMatrixRow[]` | [models.rs](../GUI/opencode_manager_gui/backend/src/api/models.rs) |
@@ -307,6 +307,11 @@ row returns `IpcResult<Response>` and its error is exactly `IpcError`; its runti
 | `get_lang_content` | `{lang_code:String}` | `Value` | lang.rs |
 | `get_available_themes` | `{}` | `Theme[]` | [theme.rs](../GUI/opencode_manager_gui/backend/src/api/theme.rs) |
 | `get_available_fonts` | `{}` | `FontInfo[]` | [font.rs](../GUI/opencode_manager_gui/backend/src/api/font.rs) |
+| `web_status` | `{}` | `WebStatus` | [web_control.rs](../GUI/opencode_manager_gui/backend/src/api/web_control.rs) |
+| `web_start` | `{}` | `WebStatus` | web_control.rs |
+| `web_stop` | `{}` | `WebStatus` | web_control.rs |
+| `launch_terminal` | `{}` | `()` | web_control.rs |
+| `open_web_url` | `{url:String}` | `()` | web_control.rs |
 
 ### A.5 Subscription Manager — command registry
 
@@ -416,6 +421,7 @@ app-specific paths. An empty root set denies the operation.
 | Universe Manager | `search_apps` | configured `managed_dir` canonicalized beneath a canonical frontend-selected managed-directory root; config reads remain in `app_config_dir` |
 | Universe Manager | `preferences_get` | `app_data_dir` only |
 | Universe Manager | `preferences_set` | `app_data_dir` only |
+| Universe Manager | `picker_select` | bridge-owned parented native picker; one canonical directory for `managed` or `source`, stored as per-window/per-kind provenance; request carries no path/window ID |
 
 ### A.4 Metadata and release evidence matrix
 
@@ -432,7 +438,7 @@ standalone bridge outputs under `GUI/filen_gui/bridge/target/release/`.
 | Subscription Manager | `subscription_manager_gui` / `subscription_manager_gui` / `com.subscription.manager` (`subscription_manager_gui_lib` is library only) | `targets:["deb","appimage","msi","dmg"]`; `target/release/subscription_manager_gui`; `target/release/bundle/{deb,appimage,msi,dmg}/`. | `GUI/subscription_manager_gui/backend/{Cargo.toml,tauri.conf.json,capabilities/main.json}`, `GUI/subscription_manager_gui/{langs,themes,fonts}/`. |
 | Universal Converter | `Universal Converter` / `universal-converter-gui` / `com.sh.universal-converter` | bridge `GUI/universal_converter_gui/bridge`; workspace output under `RS_AI/target/release/`; Linux binary plus `bundle/{deb,appimage}/` verified; MSI/DMG deferred/platform-unverified. | `GUI/universal_converter_gui/bridge/{Cargo.toml,tauri.conf.json,capabilities/main.json}`, `GUI/universal_converter_gui/{langs,themes,fonts}/`, `.opencode/evidence/gui/universal_converter_gui/package.md`. |
 | IMG_SPLT | `Image Splitter` / `img-splt-gui` / `com.sh.image-splitter` | bridge `GUI/img_splt_gui/bridge`; workspace output under `RS_AI/target/release/`; Linux binary plus `bundle/{deb,appimage}/` required; MSI/DMG deferred/platform-unverified. | `GUI/img_splt_gui/bridge/{Cargo.toml,tauri.conf.json,capabilities/main.json}`, `GUI/img_splt_gui/{langs,themes,fonts}/`, `.opencode/evidence/gui/img_splt_gui/package.md`. |
-| Universe Manager | `Universe Manager` / `universe-manager-gui` / `com.sh.universe-manager` | bridge `GUI/universe_manager_gui/bridge`; `targets:["deb","appimage","msi","dmg"]`; binary `GUI/universe_manager_gui/bridge/target/release/universe-manager-gui`; bundles `GUI/universe_manager_gui/bridge/target/release/bundle/{deb,appimage,msi,dmg}/`. | `GUI/universe_manager_gui/bridge/{Cargo.toml,tauri.conf.json,capabilities/main.json}`, `GUI/universe_manager_gui/{langs,themes,fonts}/`, `GUI/universe_manager_gui/bridge/target/release/{universe-manager-gui,bundle/{deb,appimage,msi,dmg}/}`. |
+| Universe Manager | `Universe Manager` / `universe-manager-gui` / `com.sh.universe-manager` | bridge `GUI/universe_manager_gui/bridge`; config retains `targets:["deb","appimage","msi","dmg"]`; Linux binary plus `bundle/{deb,appimage}/` required on this runner; MSI/DMG deferred/platform-unverified and require native runners. Output root is `GUI/universe_manager_gui/bridge/target/release/`. | `GUI/universe_manager_gui/bridge/{Cargo.toml,tauri.conf.json,capabilities/main.json}`, `GUI/universe_manager_gui/{langs,themes,fonts}/`, `.opencode/evidence/gui/universe_manager_gui/package.md`. |
 
 No row authorizes sharing: all identifiers, bridge DTOs, resource manifests, capability files,
 preferences, build outputs, and release evidence remain local to the named standalone app.
@@ -464,6 +470,9 @@ khai báo các DTO này trong bridge của chính nó; không tạo crate, packa
   conversion or native install/uninstall command. Exact DTOs/errors are only A.6.
 - `AppEntry` is exactly the serialized `universe_manager::config::AppEntry`, with no reduced model.
   Job-producing commands and exact topics are only A.7.
+- Additionally owns bridge-local `picker_select` solely to establish one canonical managed/source
+  directory root per invoking window and kind. It uses exact-pinned `rfd = 0.16.0`, is parented to the
+  invoking window, grants no webview dialog capability, accepts no path/window ID, and emits no event.
 
 #### A.5.4 Tauri metadata, window, resources và persistence
 
@@ -525,6 +534,7 @@ is parented to the invoking window, and only a successful result establishes tha
 | Universe Manager | `search_apps` | `SearchAppsRequest {query:String}` | `SearchReport {query:String,results:SearchResult[]}`; `SearchResult {name:String,id:String,version:String,source:String}` | `Validation\|Io\|Cancelled` | same |
 | Universe Manager | `preferences_get` | `Empty {}` | `Preferences` | `Io\|Internal` | src/main.rs; planned bridge/src/commands.rs |
 | Universe Manager | `preferences_set` | `Preferences` | `Preferences` | `Validation\|Io` | same |
+| Universe Manager | `picker_select` | `UniversePickerSelectRequest {kind:"managed"\|"source"}` | `UniversePickerSelectResult {kind:"managed"\|"source",path:PathRef}` | `InvalidArgument\|NotFound\|Io\|Internal` | bridge-owned explicit native directory picker; planned `bridge/src/commands.rs` |
 
 ### A.7 Event registry 1:1
 

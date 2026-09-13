@@ -92,12 +92,10 @@ pub fn scan_fonts() -> Vec<FontInfo> {
     fonts
 }
 
-#[tauri::command]
 pub fn get_available_themes() -> Result<Vec<ThemeInfo>, String> {
     Ok(scan_themes())
 }
 
-#[tauri::command]
 pub fn get_available_fonts() -> Result<Vec<FontInfo>, String> {
     Ok(scan_fonts())
 }

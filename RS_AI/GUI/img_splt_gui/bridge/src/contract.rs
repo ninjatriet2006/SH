@@ -51,6 +51,18 @@ pub struct IpcError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PartialRollbackDetails {
+    pub failures: Vec<RollbackFailureDetails>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RollbackFailureDetails {
+    pub from: PathRef,
+    pub to: PathRef,
+    pub cause: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum JobResult<T> {
     Completed { request_id: String, value: T },

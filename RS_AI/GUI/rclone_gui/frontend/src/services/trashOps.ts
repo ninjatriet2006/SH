@@ -9,7 +9,7 @@ Quy ước đường dẫn ảo:
   `trash://<remote>`   → thùng rác của một remote rclone (Drive/Jottacloud/PikPak)
 */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../../bridge/ipc';
 import type { FileItem } from '../store';
 
 // ====================================================================================

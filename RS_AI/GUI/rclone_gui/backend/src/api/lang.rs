@@ -42,13 +42,11 @@ pub fn first_available_lang() -> Option<String> {
 /// Danh sách ngôn ngữ khả dụng cho frontend.
 /// `rename_all = "snake_case"` để tham số Rust snake_case không bị Tauri đổi
 /// sang camelCase (mặc định của v2) làm bridge gọi vào báo "missing required key".
-#[tauri::command(rename_all = "snake_case")]
 pub fn get_available_langs() -> Result<Vec<String>, String> {
     Ok(scan_lang_codes())
 }
 
 /// Đọc nội dung một file từ điển.
-#[tauri::command(rename_all = "snake_case")]
 pub fn get_lang_content(lang_code: String) -> Result<serde_json::Value, String> {
     // Chặn path traversal: `lang_code` ghép trực tiếp vào đường dẫn nên phải
     // giới hạn ký tự, tránh `../../etc/passwd`.

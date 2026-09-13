@@ -6,6 +6,7 @@
 */
 
 use crate::core::resources::resource_dir;
+use crate::ipc::{respond, Empty, IpcResult, Req};
 use serde::Serialize;
 use std::fs;
 
@@ -74,8 +75,9 @@ pub fn font_exists(id: &str) -> bool {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn get_available_fonts() -> Result<Vec<FontInfo>, String> {
-    Ok(scan_fonts())
+pub fn get_available_fonts(request: Req<Empty>) -> IpcResult<Vec<FontInfo>> {
+    let (request_id, _) = request.validate()?;
+    Ok(respond(request_id, scan_fonts()))
 }
 
 #[cfg(test)]

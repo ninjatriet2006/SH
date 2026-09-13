@@ -4,7 +4,7 @@
 - Trách nhiệm: Chỉ lưu trữ trạng thái (chế độ copy/cut và danh sách đường dẫn). Giao tiếp với clipboard của hệ điều hành OS qua Tauri `invoke`.
 - Tương tác: Tính năng dán thực tế (Paste) gọi hàm `pasteTo`, xử lý xung đột tệp tin, và chuyển xuống `transferManager` để tải lên/copy.
 */
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../../bridge/ipc';
 
 import type { Pane } from '../services/explorerStore';
 // Removed fileOps import

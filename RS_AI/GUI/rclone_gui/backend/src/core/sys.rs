@@ -59,7 +59,6 @@ pub struct OSClipboardData {
 
 /// Hàm API: sys_open_with
 /// Chức năng: Mở một file cụ thể bằng một ứng dụng hoặc lệnh tùy chỉnh
-#[tauri::command]
 pub async fn sys_open_with(path: String, exec_cmd: Option<String>, app: Option<String>) -> Result<(), String> {
     blocking(move || {
         // Frontend gửi xuống đường dẫn dạng "Remote::/path" (xem logic::file_ops::parse_remote_path).
@@ -152,7 +151,6 @@ fn shell_split(input: &str) -> Vec<String> {
 
 /// Hàm API: sys_list_apps
 /// Chức năng: Lấy danh sách ứng dụng trên hệ điều hành để hiển thị mục Open With
-#[tauri::command]
 pub async fn sys_list_apps() -> Result<Vec<DesktopApp>, String> {
     // Quét Desktop Entry thật (chuẩn FreeDesktop.org) thay vì trả dữ liệu giả.
     blocking(|| Ok(crate::logic::desktop_apps::list())).await
@@ -160,7 +158,6 @@ pub async fn sys_list_apps() -> Result<Vec<DesktopApp>, String> {
 
 /// Hàm API: os_clipboard_set
 /// Chức năng: Lưu danh sách file vào clipboard giả lập (thông qua file JSON tạm)
-#[tauri::command]
 pub async fn os_clipboard_set(items: Vec<OSClipboardItem>, is_cut: bool) -> Result<(), String> {
     blocking(move || {
         let data = OSClipboardData { items, is_cut };
@@ -179,7 +176,6 @@ pub async fn os_clipboard_set(items: Vec<OSClipboardItem>, is_cut: bool) -> Resu
 
 /// Hàm API: os_clipboard_get
 /// Chức năng: Lấy danh sách file từ clipboard giả lập
-#[tauri::command]
 pub async fn os_clipboard_get() -> Result<Option<OSClipboardData>, String> {
     blocking(|| {
         // Đường dẫn tới file JSON clipboard
@@ -203,7 +199,6 @@ pub async fn os_clipboard_get() -> Result<Option<OSClipboardData>, String> {
 
 /// Hàm API: sys_get_custom_actions
 /// Chức năng: Lấy danh sách các lệnh tùy chỉnh của người dùng để hiển thị context menu
-#[tauri::command]
 pub async fn sys_get_custom_actions() -> Result<Vec<CustomAction>, String> {
     // Tạm thời trả về danh sách rỗng (có thể thêm logic đọc từ file config JSON sau này)
     Ok(vec![])
@@ -211,7 +206,6 @@ pub async fn sys_get_custom_actions() -> Result<Vec<CustomAction>, String> {
 
 /// Hàm API: sys_get_valid_actions
 /// Chức năng: Lọc danh sách action hợp lệ dựa trên file được chọn
-#[tauri::command]
 pub async fn sys_get_valid_actions(files: Vec<SimpleFileItem>) -> Result<Vec<CustomAction>, String> {
     let actions = sys_get_custom_actions().await?;
     let sel_count = files.len();
@@ -249,7 +243,6 @@ pub async fn sys_get_valid_actions(files: Vec<SimpleFileItem>) -> Result<Vec<Cus
 
 /// Hàm API: sys_execute_custom_action
 /// Chức năng: Thực thi một lệnh tùy chỉnh lên một danh sách file được chọn
-#[tauri::command]
 pub async fn sys_execute_custom_action(
     exec_template: String,
     base_path: String,

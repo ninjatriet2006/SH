@@ -1,5 +1,5 @@
 import { listen } from '@tauri-apps/api/event';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../../bridge/ipc';
 import { listFiles } from '../../../bridge/explorer_api.ts';
 import { logActivity, isBookmarked, toggleBookmark } from '../store';
 import type { FileItem } from '../store';

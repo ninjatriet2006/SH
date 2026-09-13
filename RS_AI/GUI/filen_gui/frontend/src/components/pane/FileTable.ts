@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../ipc';
 import type { FileItem } from '../../store';
 import { formatSize, formatDate } from '../../features/format';
 import type { SortKey, SortDir } from '../../features/sort';
@@ -308,7 +308,7 @@ export class FileTable {
           // Mở file (File Execution)
           if (opts.pane === 'left' && !rec.path.startsWith('trash://')) {
             try {
-              const { invoke } = await import('@tauri-apps/api/core');
+              const { invoke } = await import('../../ipc');
               await invoke('fs_open', { path: rec.path });
             } catch (err) {
               console.error("Lỗi khi mở file Local:", err);
@@ -390,7 +390,7 @@ export class FileTable {
           // Mở file (File Execution)
           if (this.opts.pane === 'left' && !rec.path.startsWith('trash://')) {
             try {
-              const { invoke } = await import('@tauri-apps/api/core');
+              const { invoke } = await import('../../ipc');
               await invoke('fs_open', { path: rec.path });
             } catch (err) {
               console.error("Lỗi khi mở file Local:", err);

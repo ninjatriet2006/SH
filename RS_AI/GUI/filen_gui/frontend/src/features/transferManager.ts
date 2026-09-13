@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { appState } from '../store';
 import { undoManager } from '../services/undoManager';
@@ -107,11 +107,12 @@ class TransferManager {
       name,
       src,
       dst,
-      srcLocal,
-      dstLocal,
-      cleanupSrc,
-      srcPane: 0, // not really used by backend for anything critical
-      dstPane: 1
+      src_local: srcLocal,
+      dst_local: dstLocal,
+      cleanup_src: cleanupSrc,
+      confirmed: cleanupSrc,
+      src_pane: 0, // not really used by backend for anything critical
+      dst_pane: 1
     });
 
     this.tasks.set(id, {
@@ -134,7 +135,7 @@ class TransferManager {
     this.notify();
 
     // Start immediately
-    await invoke('transfer_start', { account });
+    await invoke('transfer_start', { account: account ?? null });
   }
 
   async cancel(id: number) {

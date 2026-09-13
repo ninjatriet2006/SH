@@ -11,6 +11,7 @@
 
 pub mod api;
 pub mod core;
+pub mod ipc;
 pub mod logic;
 
 use tauri::Manager;
@@ -24,81 +25,81 @@ pub fn run() {
             // ==================
             // FILES API
             // ==================
-            api::files::list_files,
-            api::files::fs_mkdir,
-            api::files::fs_touch,
-            api::files::fs_delete,
-            api::files::fs_rename,
-            api::files::fs_copy,
-            api::files::fs_move,
-            api::files::fs_cancel,
-            api::files::fs_stat_advanced,
-            api::files::fs_search,
-            api::files::fs_check_conflicts,
-            api::files::get_home_dir,
-            api::files::get_user_places,
-            api::files::open_in_terminal,
-            api::files::fs_get_thumbnail,
-            api::files::fs_temp_dir,
-            api::files::fs_chmod,
-            api::files::fs_chown,
-            api::files::fs_read_text,
-            api::files::fs_write_text,
+            ipc::list_files,
+            ipc::fs_mkdir,
+            ipc::fs_touch,
+            ipc::fs_delete,
+            ipc::fs_rename,
+            ipc::fs_copy,
+            ipc::fs_move,
+            ipc::fs_cancel,
+            ipc::fs_stat_advanced,
+            ipc::fs_search,
+            ipc::fs_check_conflicts,
+            ipc::get_home_dir,
+            ipc::get_user_places,
+            ipc::open_in_terminal,
+            ipc::fs_get_thumbnail,
+            ipc::fs_temp_dir,
+            ipc::fs_chmod,
+            ipc::fs_chown,
+            ipc::fs_read_text,
+            ipc::fs_write_text,
             // ==================
             // SYS API (Trong core/sys.rs)
             // ==================
-            core::sys::sys_open_with,
-            core::sys::sys_list_apps,
-            core::sys::os_clipboard_set,
-            core::sys::os_clipboard_get,
-            core::sys::sys_get_custom_actions,
-            core::sys::sys_get_valid_actions,
-            core::sys::sys_execute_custom_action,
+            ipc::sys_open_with,
+            ipc::sys_list_apps,
+            ipc::os_clipboard_set,
+            ipc::os_clipboard_get,
+            ipc::sys_get_custom_actions,
+            ipc::sys_get_valid_actions,
+            ipc::sys_execute_custom_action,
             // ==================
             // TRASH API
             // ==================
-            api::trash::fs_trash_list_local,
-            api::trash::fs_trash_restore_local,
-            api::trash::fs_trash_delete_local,
-            api::trash::fs_trash_empty_local,
-            api::trash::fs_trash_list_remote_terminal,
-            api::trash::fs_trash_restore_remote_terminal,
-            api::trash::fs_trash_delete_remote_terminal,
-            api::trash::fs_trash_empty_remote_terminal,
+            ipc::fs_trash_list_local,
+            ipc::fs_trash_restore_local,
+            ipc::fs_trash_delete_local,
+            ipc::fs_trash_empty_local,
+            ipc::fs_trash_list_remote_terminal,
+            ipc::fs_trash_restore_remote_terminal,
+            ipc::fs_trash_delete_remote_terminal,
+            ipc::fs_trash_empty_remote_terminal,
             // ==================
             // REMOTES API
             // ==================
-            api::remotes::list_remotes,
-            api::remotes::get_providers,
-            api::remotes::create_remote,
-            api::remotes::update_remote,
-            api::remotes::delete_remote,
-            api::remotes::get_backend_features,
-            api::remotes::check_transfer_capability,
-            api::remotes::rclone_about,
-            api::remotes::rclone_size,
+            ipc::list_remotes,
+            ipc::get_providers,
+            ipc::create_remote,
+            ipc::update_remote,
+            ipc::delete_remote,
+            ipc::get_backend_features,
+            ipc::check_transfer_capability,
+            ipc::rclone_about,
+            ipc::rclone_size,
             // ==================
             // MOUNT API
             // ==================
-            api::mount::check_fuse_installed,
-            api::mount::create_mount_service,
-            api::mount::delete_mount_service,
-            api::mount::manage_mount_service,
-            api::mount::list_mount_services,
-            api::mount::get_mount_service_config,
+            ipc::check_fuse_installed,
+            ipc::create_mount_service,
+            ipc::delete_mount_service,
+            ipc::manage_mount_service,
+            ipc::list_mount_services,
+            ipc::get_mount_service_config,
             // ==================
             // CONFIG API
             // ==================
-            api::config::get_config_content,
-            api::config::set_config_content,
-            api::config::reorder_config,
+            ipc::get_config_content,
+            ipc::set_config_content,
+            ipc::reorder_config,
             // ==================
             // LANG API
             // ==================
-            api::lang::get_available_langs,
-            api::lang::get_lang_content,
-            api::appearance::get_available_themes,
-            api::appearance::get_available_fonts,
+            ipc::get_available_langs,
+            ipc::get_lang_content,
+            ipc::get_available_themes,
+            ipc::get_available_fonts,
         ])
         .setup(|app| {
             if let Ok(path) = app.path().resource_dir() {

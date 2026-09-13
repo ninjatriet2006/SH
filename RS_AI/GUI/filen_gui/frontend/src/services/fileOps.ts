@@ -2,7 +2,7 @@
 //
 // Mỗi hàm trả Promise và bọc try/catch để lỗi command không làm crash UI.
 // Tên command khớp với contract trong src-tauri/src/lib.rs (docs/app-shell.md §3.2).
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc';
 import { transferManager } from '../features/transferManager';
 import { baseName, joinPath } from '../features/dragDrop';
 import type { FileItem } from '../store';
@@ -11,17 +11,18 @@ import { undoManager } from './undoManager';
 /** Chuyển lỗi invoke thành Error có message rõ ràng. */
 function toError(e: unknown): Error {
   if (e instanceof Error) return e;
+  if (typeof e === 'object' && e !== null && 'message' in e) return new Error(String(e.message));
   return new Error(String(e));
 }
 
 async function runWithSudoFallback<T>(action: string, args: string[], fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
-  } catch (e: any) {
-    const errStr = String(e).toLowerCase();
-    if (errStr.includes('permission denied') || errStr.includes('access is denied') || errStr.includes('os error 13')) {
+  } catch (e: unknown) {
+    const errStr = (typeof e === 'object' && e !== null && 'message' in e ? String(e.message) : String(e)).toLowerCase();
+    if (action === 'mkdir' && (errStr.includes('permission denied') || errStr.includes('access is denied') || errStr.includes('os error 13'))) {
       if (confirm(`Lỗi phân quyền (Permission Denied).\nBạn có muốn thử lại thao tác này với quyền quản trị viên (Root/Admin) không?`)) {
-        await invoke('fs_sudo_exec', { action, args });
+        await invoke('fs_sudo_exec', { action, args, confirmed: true });
         return undefined as T;
       }
     }
@@ -35,7 +36,7 @@ export async function listRemote(
   account?: string,
 ): Promise<FileItem[]> {
   try {
-    return await invoke<FileItem[]>('fs_list_remote_terminal', { account, path });
+    return await invoke<FileItem[]>('fs_list_remote_terminal', { account: account ?? null, path });
   } catch (e) {
     throw toError(e);
   }
@@ -52,7 +53,7 @@ export async function listLocal(path: string): Promise<FileItem[]> {
 // ── Thư mục ────────────────────────────────────────────────────────────────
 export async function mkdir(path: string, account?: string): Promise<void> {
   try {
-    await invoke('fs_mkdir_terminal', { account, path });
+    await invoke('fs_mkdir_terminal', { account: account ?? null, path });
   } catch (e) {
     throw toError(e);
   }
@@ -67,7 +68,7 @@ export async function mkdirLocal(path: string): Promise<void> {
 // ── Xoá / đổi tên / sao chép / di chuyển ──────────────────────────────────
 export async function remove(path: string, account?: string): Promise<void> {
   try {
-    await invoke('fs_delete_terminal', { account, path });
+    await invoke('fs_delete_terminal', { account: account ?? null, path, confirmed: true });
   } catch (e) {
     throw toError(e);
   }
@@ -79,7 +80,7 @@ export async function rename(
   account?: string,
 ): Promise<void> {
   try {
-    await invoke('fs_rename_terminal', { account, path, new_name: newName });
+    await invoke('fs_rename_terminal', { account: account ?? null, path, new_name: newName });
     // Undo
     const lastSlash = path.replace(/\\/g, '/').lastIndexOf('/');
     const parentDir = lastSlash >= 0 ? path.substring(0, lastSlash) : '';
@@ -160,7 +161,7 @@ export async function cpBatch(
 
 export async function rmLocal(path: string): Promise<void> {
   await runWithSudoFallback('rm', [path], async () => {
-    await invoke('fs_rm_local', { path });
+    await invoke('fs_rm_local', { account: null, path, confirmed: true });
   });
 }
 
@@ -188,7 +189,7 @@ export async function download(
 // ── Đọc / ghi nội dung ─────────────────────────────────────────────────────
 export async function cat(path: string, account?: string): Promise<string> {
   try {
-    return await invoke<string>('fs_cat_terminal', { account, path });
+    return await invoke<string>('fs_cat_terminal', { account: account ?? null, path });
   } catch (e) {
     throw toError(e);
   }
@@ -200,7 +201,7 @@ export async function write(
   account?: string,
 ): Promise<void> {
   try {
-    await invoke('fs_write_terminal', { account, path, content });
+    await invoke('fs_write_terminal', { account: account ?? null, path, content });
   } catch (e) {
     throw toError(e);
   }
@@ -220,7 +221,7 @@ export async function linkCreate(
   account?: string,
 ): Promise<string> {
   try {
-    return await invoke<string>('fs_link_create_terminal', { account, path });
+    return await invoke<string>('fs_link_create_terminal', { account: account ?? null, path });
   } catch (e) {
     throw toError(e);
   }
@@ -230,7 +231,7 @@ export async function linksList(
   account?: string,
 ): Promise<[string, string][]> {
   try {
-    return await invoke<[string, string][]>('fs_links_list_terminal', { account });
+    return await invoke<[string, string][]>('fs_links_list_terminal', { account: account ?? null });
   } catch (e) {
     throw toError(e);
   }
@@ -264,14 +265,14 @@ export async function statAdvanced(path: string): Promise<StatInfo> {
 
 export async function chmod(path: string, mode: number): Promise<void> {
   try {
-    await invoke('fs_chmod', { path, mode });
+    await invoke('fs_chmod', { path, mode, confirmed: true });
   } catch (e) {
     throw toError(e);
   }
 }
 
 export async function chown(path: string, uid: number, gid: number): Promise<void> {
-  return invoke('fs_chown', { path, uid, gid });
+  return invoke('fs_chown', { path, uid, gid, confirmed: true });
 }
 
 export async function getFreeSpace(path: string): Promise<number> {
@@ -298,7 +299,7 @@ export interface SearchOptions {
 
 export async function searchLocal(path: string, query: string, options?: SearchOptions): Promise<SearchResult[]> {
   try {
-    return await invoke<SearchResult[]>('fs_search_local', { path, query, options });
+    return await invoke<SearchResult[]>('fs_search_local', { path, query, options: options ?? null });
   } catch (e) {
     throw toError(e);
   }

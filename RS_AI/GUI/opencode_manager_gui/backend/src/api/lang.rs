@@ -7,6 +7,8 @@ Các module tương tác: frontend `store/useSettingsStore.ts`, core::resources.
 */
 
 use crate::core::resources::resource_dir;
+use crate::ipc::{from_string, respond, Empty, IpcResult, Req};
+use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
 
@@ -43,12 +45,25 @@ pub fn first_available_lang() -> Option<String> {
 /// sang camelCase (`lang_code` → `langCode`), trong khi bridge gửi snake_case →
 /// IPC báo "missing required key" và command không bao giờ chạy.
 #[tauri::command(rename_all = "snake_case")]
-pub fn get_available_langs() -> Result<Vec<String>, String> {
-    Ok(scan_lang_codes())
+pub fn get_available_langs(request: Req<Empty>) -> IpcResult<Vec<String>> {
+    let (request_id, _) = request.validate()?;
+    Ok(respond(request_id, scan_lang_codes()))
+}
+
+#[derive(Deserialize)]
+pub struct LangContentRequest {
+    pub lang_code: String,
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn get_lang_content(lang_code: String) -> Result<serde_json::Value, String> {
+pub fn get_lang_content(request: Req<LangContentRequest>) -> IpcResult<serde_json::Value> {
+    let (request_id, payload) = request.validate()?;
+    get_lang_content_inner(payload.lang_code)
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
+}
+
+fn get_lang_content_inner(lang_code: String) -> Result<serde_json::Value, String> {
     // Chặn path traversal: `lang_code` ghép trực tiếp vào đường dẫn.
     if lang_code.is_empty()
         || !lang_code
@@ -85,7 +100,8 @@ mod tests {
         match first_available_lang() {
             Some(code) => {
                 assert!(codes.contains(&code), "fallback '{code}' không có file");
-                let dict = get_lang_content(code.clone()).unwrap_or_else(|e| panic!("đọc '{code}' thất bại: {e}"));
+                let dict =
+                    get_lang_content_inner(code.clone()).unwrap_or_else(|e| panic!("đọc '{code}' thất bại: {e}"));
                 assert!(
                     dict.as_object().is_some_and(|m| !m.is_empty()),
                     "'{code}' phải là object không rỗng"
@@ -98,7 +114,10 @@ mod tests {
     #[test]
     fn chan_ma_ngon_ngu_doc_hai() {
         for bad in ["../../etc/passwd", "..", "vi/../en", "vi.json", ""] {
-            assert!(get_lang_content(bad.to_string()).is_err(), "mã '{bad}' phải bị từ chối");
+            assert!(
+                get_lang_content_inner(bad.to_string()).is_err(),
+                "mã '{bad}' phải bị từ chối"
+            );
         }
     }
 
@@ -146,7 +165,7 @@ mod tests {
         assert!(!keys.is_empty(), "không thu được key i18n nào");
 
         for code in scan_lang_codes() {
-            let dict = get_lang_content(code.clone()).expect("đọc file ngôn ngữ");
+            let dict = get_lang_content_inner(code.clone()).expect("đọc file ngôn ngữ");
             let thieu: Vec<&String> = keys
                 .iter()
                 .filter(|k| {

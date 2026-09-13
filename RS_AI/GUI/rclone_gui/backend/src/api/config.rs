@@ -64,17 +64,14 @@ fn write_config(content: String) -> Result<(), String> {
     }
 }
 
-#[tauri::command]
 pub async fn get_config_content() -> Result<String, String> {
     blocking(read_config).await
 }
 
-#[tauri::command]
 pub async fn set_config_content(content: String) -> Result<(), String> {
     blocking(move || write_config(content)).await
 }
 
-#[tauri::command]
 pub async fn reorder_config(names: Vec<String>) -> Result<(), String> {
     blocking(move || {
         let content = read_config()?;

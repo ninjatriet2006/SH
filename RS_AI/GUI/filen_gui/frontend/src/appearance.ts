@@ -1,4 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "./ipc";
 import { ThemeManager, type ThemeEntry } from "./themes/ThemeManager";
 
 export interface FontEntry {
@@ -15,7 +16,6 @@ const loadedFonts = new Map<string, FontFace>();
 export async function discoverAppearance(): Promise<void> {
   themes = (await themeManager.loadAll()).filter((theme) => theme.valid);
   try {
-    const { invoke } = await import("@tauri-apps/api/core");
     fonts = await invoke<FontEntry[]>("appearance_list_fonts");
   } catch {
     fonts = [];

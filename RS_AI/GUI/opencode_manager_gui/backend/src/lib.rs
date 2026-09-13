@@ -11,6 +11,7 @@
 
 pub mod api;
 pub mod core;
+pub mod ipc;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

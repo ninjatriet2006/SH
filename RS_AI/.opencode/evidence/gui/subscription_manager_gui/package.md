@@ -7,3 +7,5 @@
 - Host: Tauri CLI `2.11.4`, WebKitGTK `2.52.6`, GTK `3.24.41`, `/usr/bin/dpkg-deb`, `DISPLAY=:0` and X0 socket present; `xvfb-run` absent but smoke was excluded.
 - Root `Cargo.lock` was not edited/reconciled and retained pre-existing dirty hash `1795db56fd55f8977ec05d1f58abde691972231476ee26d539607e7ebec255fe`.
 - MSI/DMG: `deferred/platform-unverified` on Linux.
+- Phase 8.4 refresh (2026-09-12): preserved AppImage `d5a3dca2e489ff54271983b0710062002b27e50542743e3c6cb372ece8601e84`, DEB `b3513ddabec4253c9687c5a9deffe2057ec1cab826303abf7f9a8c3f872fc43b` under `/tmp/opencode/phase-8-artifacts-20260912`.
+- Post-four-fix Phase 8.4 rebuild: AppImage `491d793512ffe1b41b98b27491f02b8882f70502a5d2348e5d2b2187aa3db08a`; DEB `f059d15f8a3e1aa1214e400abefa2cc074ec4069a941869952b80ec6023b5cf5`; preserved under `/tmp/opencode/phase-8-four-fixes-20260912T045604Z-272465`.

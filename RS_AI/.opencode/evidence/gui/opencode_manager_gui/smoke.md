@@ -7,3 +7,5 @@
 - Readiness: final artifact process `opencode_manager_gui` remained alive for the full 8-second rerun; timeout sent SIGTERM and wrapper exit `124` is accepted. No app panic, resource-load, source-tree, launch-CWD or cross-GUI lookup appeared in output.
 - Benign host-service output: xdg-document portal/GVFS reported FUSE permission errors under `/run/user/1000/{doc,gvfs}`; AppImage itself mounted and app remained ready, so extraction fallback was not required for launch.
 - Bundle inspection: `--appimage-extract` PASS; `usr/lib/opencode_manager_gui/{langs,themes,fonts}` present with 2/2/4 files respectively.
+- Phase 8.6 refresh (2026-09-12): AppImage `5c7bad3e...f5bc` launched from `/tmp`; timeout 124, only benign host portal/GVFS/FUSE diagnostics.
+- Post-four-fix Phase 8.6: fresh AppImage `c0e6aba6...086f48` and extracted DEB binary passed isolated external-CWD/XDG launch (timeout 124); extraction/resources/font manifest PASS. Evidence root: `/tmp/opencode/phase-8-four-fixes-20260912T045604Z-272465`.

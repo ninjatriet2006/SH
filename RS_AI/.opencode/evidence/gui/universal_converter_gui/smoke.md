@@ -8,3 +8,5 @@
 - Loader PASS: isolated persisted `font_id=dejavusans` was read; trace records 2 successful `O_RDONLY` opens of bundled `$RESOURCE/fonts/DejaVuSans.ttf`.
 - Isolation PASS: 0 source-tree, launch-CWD resource, or cross-GUI fallback matches; system `/usr/share/fonts` reads occurred only as allowed host-stack/system-sentinel behavior.
 - Logs/evidence: `artifact.sha256`, `manifest-check.log`, `font-file-types.log`, `final-{exit,stdout,stderr,strace}.log` in the preserved temp above; no temp/artifact deleted.
+- Phase 8.6 refresh (2026-09-12): AppImage `d0bfcfcb...369b` launched from `/tmp`; alive to timeout 124 with an empty log.
+- Post-four-fix Phase 8.6: fresh AppImage `5d7dc2fe...51c0c1` and extracted DEB binary passed isolated external-CWD/XDG launch (timeout 124); extraction/resources/font manifest PASS. Evidence root: `/tmp/opencode/phase-8-four-fixes-20260912T045604Z-272465`.

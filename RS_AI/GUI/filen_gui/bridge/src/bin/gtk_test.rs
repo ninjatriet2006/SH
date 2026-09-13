@@ -1,7 +1,7 @@
 fn main() {
     gtk::init().unwrap();
     let clipboard = gtk::Clipboard::get(&gdk::SELECTION_CLIPBOARD);
-    
+
     let targets = vec![
         gtk::TargetEntry::new("x-special/gnome-copied-files", gtk::TargetFlags::empty(), 0),
         gtk::TargetEntry::new("text/uri-list", gtk::TargetFlags::empty(), 1),

@@ -4,16 +4,18 @@
 //! Khởi tạo builder và chạy ứng dụng.
 //! Tương tác: Điểm truy cập chính, gọi `filen_gui_tauri::run()` từ `bridge/src/main.rs`.
 
-pub mod state;
-pub mod auth_cmds;
-pub mod fs_cmds;
-pub mod transfer_cmds;
-pub mod sys_cmds;
 pub mod appearance_cmds;
+pub mod auth_cmds;
+pub mod contract;
+pub mod fs_cmds;
+pub mod security;
+pub mod state;
+pub mod sys_cmds;
+pub mod transfer_cmds;
 
+use notify::{EventKind, Watcher};
 use state::{AppState, WhoAmIPayload};
 use tauri::{Emitter, Manager};
-use notify::{Watcher, EventKind};
 
 /// Điểm khởi chạy chính của ứng dụng Tauri.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -33,7 +35,6 @@ pub fn run() {
             auth_cmds::auth_statfs_terminal,
             auth_cmds::accounts_load,
             auth_cmds::accounts_save,
-            
             // ----------------- File System -----------------
             fs_cmds::fs_list_remote_terminal,
             fs_cmds::fs_list_remote_stream_terminal,
@@ -57,7 +58,6 @@ pub fn run() {
             fs_cmds::fs_write_terminal,
             fs_cmds::fs_write_local,
             fs_cmds::fs_sudo_exec,
-            
             // --------- Alias thao tác File System ---------
             fs_cmds::fs_rename_terminal,
             fs_cmds::fs_delete_terminal,
@@ -69,7 +69,6 @@ pub fn run() {
             fs_cmds::fs_chown,
             fs_cmds::fs_get_free_space,
             fs_cmds::fs_search_local,
-            
             // ----------------- Thùng rác (Trash) -----------------
             fs_cmds::fs_trash_list_local,
             fs_cmds::fs_trash_restore_local,
@@ -78,14 +77,12 @@ pub fn run() {
             fs_cmds::fs_trash_restore_remote_terminal,
             fs_cmds::fs_trash_delete_remote_terminal,
             fs_cmds::fs_trash_empty_remote_terminal,
-            
             // ----------------- Truyền tải (Transfer) -----------------
             transfer_cmds::transfer_enqueue,
             transfer_cmds::transfer_start,
             transfer_cmds::transfer_cancel,
             transfer_cmds::transfer_cancel_all,
             transfer_cmds::transfer_remove_finished,
-            
             // ----------------- Lệnh hệ thống (System) -----------------
             sys_cmds::os_clipboard_set,
             sys_cmds::os_clipboard_get,
@@ -95,7 +92,8 @@ pub fn run() {
             sys_cmds::sys_open_with,
             sys_cmds::open_in_terminal,
             appearance_cmds::appearance_list_themes,
-            appearance_cmds::appearance_list_fonts
+            appearance_cmds::appearance_list_fonts,
+            fs_cmds::fs_picker_select
         ])
         .setup(|app| {
             if let Ok(resource_dir) = app.path().resource_dir() {
@@ -104,7 +102,7 @@ pub fn run() {
             // Cài đặt Inotify Watcher để theo dõi biến động thư mục nội bộ (Local Pane)
             let (tx, rx) = std::sync::mpsc::channel();
             let app_handle_for_watch = app.handle().clone();
-            
+
             // Luồng phụ nhận sự kiện thay đổi file và báo lên UI
             std::thread::spawn(move || {
                 for res in rx {
@@ -119,7 +117,7 @@ pub fn run() {
                                     let _ = app_handle_for_watch.emit("local-dir-changed", ());
                                 }
                             }
-                        },
+                        }
                         Err(e) => println!("Lỗi watcher: {:?}", e),
                     }
                 }
@@ -160,7 +158,7 @@ pub fn run() {
                 // Gửi kết quả kiểm tra phiên về Frontend
                 let _ = app_clone.emit("auth:whoami-finished", WhoAmIPayload { email, error });
             });
-            
+
             Ok(())
         })
         .run(tauri::generate_context!())

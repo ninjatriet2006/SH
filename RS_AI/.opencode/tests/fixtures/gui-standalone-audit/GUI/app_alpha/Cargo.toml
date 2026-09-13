@@ -1,0 +1,6 @@
+[package]
+name = "app_alpha_fixture"
+version = "0.1.0"
+
+[dependencies]
+app_beta_fixture = { path = "../app_beta" }

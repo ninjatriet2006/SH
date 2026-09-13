@@ -10,3 +10,5 @@
   `frontend/src/pages/ModelsPage.tsx:125` use `arbiter://progress`. `cargo tauri build --bundles deb,appimage`
   and external-CWD AppImage readiness smoke PASS; details are in `package.md` and `smoke.md`.
 - Preference restart survival: PASS by exact targeted rerun `cargo test api::settings::tests::save_then_fresh_read_giu_nguyen_language_theme_font -- --exact` (1/1). It saves `vi` / `red_blood` / `dejavusans` to a unique system-temp path, then performs a fresh filesystem read and verifies all three exact values; it bypasses migration/global env and never accesses user config/data paths.
+- Phase 8 rerun (2026-09-12): frontend 8/8, lint/build PASS; Rust 75/75, fmt/check/clippy PASS with 0 warnings; fresh package/smoke PASS.
+- Post-four-fix rerun: unchanged PASS — frontend 8/8 + lint/build; Rust fmt/check/test/clippy 75/75, 0 warnings; fresh DEB/AppImage and dual external-CWD smoke PASS.

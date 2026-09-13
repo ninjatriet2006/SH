@@ -1,7 +1,7 @@
 ---
 description: Reviewer - Review code diff, kiểm tra style, logic, security, performance và approve hoặc request changes.
 mode: subagent
-model: cBAjYv/gpt-5.6-sol
+model: JustWoker/gpt-5.6-sol
 temperature: 0.1
 permission:
   edit: deny

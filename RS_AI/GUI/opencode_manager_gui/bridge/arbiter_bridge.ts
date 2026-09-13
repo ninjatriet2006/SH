@@ -5,15 +5,15 @@
 - Tương tác: `pages/ModelsPage.tsx`, backend `api/arbiter.rs`.
 */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invokeIpc, ipcErrorMessage } from './ipc';
 import type { ArbiterState, ArbiterVerdict, RecommendationView } from './types';
 
 /** Trạng thái arbiter (lịch sử + kết quả đồng thuận + danh sách ứng viên). */
 export async function getArbiterState(): Promise<ArbiterState> {
     try {
-        return await invoke<ArbiterState>('get_arbiter_state');
+        return await invokeIpc<ArbiterState>('get_arbiter_state');
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
@@ -26,21 +26,21 @@ export async function runArbiterEvaluation(
     arbiterModel: string,
 ): Promise<ArbiterVerdict[]> {
     try {
-        return await invoke<ArbiterVerdict[]>('run_arbiter_evaluation', {
+        return await invokeIpc<ArbiterVerdict[], { arbiter_provider: string; arbiter_model: string }>('run_arbiter_evaluation', {
             arbiter_provider: arbiterProvider,
             arbiter_model: arbiterModel,
         });
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
 /** Xoá lịch sử chấm — lần chạy kế tiếp tính lại từ "lần 1". */
 export async function clearArbiterHistory(): Promise<void> {
     try {
-        await invoke<void>('clear_arbiter_history');
+        await invokeIpc<void>('clear_arbiter_history');
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
@@ -50,10 +50,10 @@ export async function clearArbiterHistory(): Promise<void> {
  */
 export async function recommendModels(task?: string | null): Promise<RecommendationView> {
     try {
-        return await invoke<RecommendationView>('recommend_models', {
+        return await invokeIpc<RecommendationView, { task: string | null }>('recommend_models', {
             task: task ?? null,
         });
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }

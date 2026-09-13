@@ -1,15 +1,16 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc';
 import type { FileItem } from '../store';
 
 function toError(e: unknown): Error {
   if (e instanceof Error) return e;
+  if (typeof e === 'object' && e !== null && 'message' in e) return new Error(String(e.message));
   return new Error(String(e));
 }
 
 // ── Remote Trash (Cloud) ──────────────────────────────────────────────────
 export async function listRemoteTrash(account?: string): Promise<FileItem[]> {
   try {
-    return await invoke<FileItem[]>('fs_trash_list_remote_terminal', { account });
+    return await invoke<FileItem[]>('fs_trash_list_remote_terminal', { account: account ?? null });
   } catch (e) {
     throw toError(e);
   }
@@ -20,7 +21,7 @@ export async function restoreRemoteTrash(
   account?: string,
 ): Promise<void> {
   try {
-    await invoke('fs_trash_restore_remote_terminal', { account, idx });
+    await invoke('fs_trash_restore_remote_terminal', { account: account ?? null, idx, confirmed: null });
   } catch (e) {
     throw toError(e);
   }
@@ -31,7 +32,7 @@ export async function deleteRemoteTrash(
   account?: string,
 ): Promise<void> {
   try {
-    await invoke('fs_trash_delete_remote_terminal', { account, idx });
+    await invoke('fs_trash_delete_remote_terminal', { account: account ?? null, idx, confirmed: true });
   } catch (e) {
     throw toError(e);
   }
@@ -39,7 +40,7 @@ export async function deleteRemoteTrash(
 
 export async function emptyRemoteTrash(account?: string): Promise<void> {
   try {
-    await invoke('fs_trash_empty_remote_terminal', { account });
+    await invoke('fs_trash_empty_remote_terminal', { account: account ?? null, path: '', recursive: false, confirmed: true });
   } catch (e) {
     throw toError(e);
   }
@@ -63,7 +64,7 @@ export async function listLocalTrash(): Promise<TrashItemLocal[]> {
 
 export async function restoreLocalTrash(itemId: string): Promise<void> {
   try {
-    await invoke('fs_trash_restore_local', { itemId });
+    await invoke('fs_trash_restore_local', { item_id: itemId });
   } catch (e) {
     throw toError(e);
   }
@@ -71,7 +72,7 @@ export async function restoreLocalTrash(itemId: string): Promise<void> {
 
 export async function emptyLocalTrash(): Promise<void> {
   try {
-    await invoke('fs_trash_empty_local');
+    await invoke('fs_trash_empty_local', { account: null, path: '', recursive: false, confirmed: true });
   } catch (e) {
     throw toError(e);
   }

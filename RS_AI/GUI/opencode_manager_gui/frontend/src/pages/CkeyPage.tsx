@@ -268,7 +268,7 @@ export function CkeyPage() {
     useEffect(() => {
         if (activeId) {
             const request = ++importRequestRef.current;
-            listCkeyImportItems()
+            listCkeyImportItems(activeId)
                 .then(list => {
                     if (request !== importRequestRef.current) return;
                     startTransition(() => {
@@ -343,7 +343,7 @@ export function CkeyPage() {
             const r = await importCkeyModels(activeId, [...checked]);
             setNotice(`${t('ckey.import_done')}: +${r.added} / -${r.removed}`);
             await fetchProviders();
-            const list = await listCkeyImportItems();
+            const list = await listCkeyImportItems(activeId);
             if (request !== importRequestRef.current) return;
             startTransition(() => {
                 setImportTarget(list.target_provider);

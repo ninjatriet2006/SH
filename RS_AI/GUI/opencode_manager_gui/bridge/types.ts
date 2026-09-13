@@ -78,9 +78,9 @@ export interface ModelCapsView {
  * `true/false` = ghi đè. `interleaved` rỗng = bỏ qua.
  */
 export interface ModelCaps {
-    tool_call?: boolean | null;
-    reasoning?: boolean | null;
-    interleaved?: string | null;
+    tool_call: boolean | null;
+    reasoning: boolean | null;
+    interleaved: string | null;
 }
 
 export interface BadProvider {
@@ -120,6 +120,15 @@ export interface WebStatus {
     has_owned_child: boolean;
     generation: number;
     revision: number;
+}
+
+/** Contract local cho năm command Web đã đăng ký và đang được UI sử dụng. */
+export interface WebCommandPayloads {
+    web_status: Record<string, never>;
+    web_start: Record<string, never>;
+    web_stop: Record<string, never>;
+    launch_terminal: Record<string, never>;
+    open_web_url: { url: string };
 }
 
 export interface FontInfo {

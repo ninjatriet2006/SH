@@ -35,9 +35,9 @@
 | 3 | Nhân bản assets/components, cấm dependency chéo GUI | 1,2 | 1 | [~] |
 | 4 | Chuẩn hóa bốn GUI Tauri hiện hữu | 2,3 | 1 | [x] |
 | 5 | Migrate `universal_converter_gui`, checkpoint và rollback | 4 | 1 | [x] |
-| 6 | Migrate `img_splt_gui`, checkpoint và rollback | 5 | 1 | [ ] |
-| 7 | Migrate `universe_manager_gui`, checkpoint và rollback | 6 | 1 | [ ] |
-| 8 | Audit package/workspace/path/symlink/runtime coupling | 4,7 | 1 | [ ] |
+| 6 | Migrate `img_splt_gui`, checkpoint và rollback | 5 | 1 | [x] |
+| 7 | Migrate `universe_manager_gui`, checkpoint và rollback | 6 | 1 | [x] |
+| 8 | Audit package/workspace/path/symlink/runtime coupling | 4,7 | 1 | [~] |
 | 9 | Nghiệm thu bảy standalone artifacts | 8 | 1 | [ ] |
 
 ## Gates và acceptance
@@ -83,8 +83,8 @@ Mỗi checkbox cần log command/output, bundle manifest và smoke ngoài source
 | opencode_manager_gui | `backend: cargo tauri build`; workspace `target/release/bundle` | [x] | [x] | [x] | [x] | [x] | [x] | [x] | [x] |
 | subscription_manager_gui | `backend: cargo tauri build`; workspace `target/release/bundle` | [x] | [x] | [x] | [x] | [x] | [x] | [x] | [x] |
 | universal_converter_gui | `bridge: cargo tauri build`; workspace `target/release/bundle` | [x] | [x] | [x] | [x] | [x] | [x] | [x] | [x] |
-| img_splt_gui | `bridge: cargo tauri build`; workspace `target/release/bundle` | [~] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| universe_manager_gui | `bridge: cargo tauri build`; `bridge/target/release/bundle` | [~] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| img_splt_gui | `bridge: cargo tauri build`; workspace `target/release/bundle` | [x] | [x] | [x] | [x] | [x] | [x] | [x] | [x] |
+| universe_manager_gui | `bridge: cargo tauri build`; `bridge/target/release/bundle` | [x] | [x] | [x] | [x] | [x] | [x] | [x] | [x] |
 
 Pass/fail: build/run + app-specific tests; IPC DTO/error/capability inventory; restart persistence and
 egui parity checklist; EN/VI key coverage + applied/fallback theme/font; no GUI coupling audit; bundle
@@ -96,5 +96,12 @@ pass khi ba thư mục tồn tại và audit dependency direction không phát h
 ## Trạng thái
 - Audit sơ bộ: [x]
 - Plan approved: [x]
-- Implementation: [~] — Phase 4 và Phase 5 hoàn tất; Phase 6–7 chưa triển khai
-- Validation/review/docs: [~] — Phase 5 review/docs/cross-check complete; Phase 6–7 còn chờ
+- Implementation: [x] — Phase 4–7 implemented
+- Validation/review/docs: [x] — Phase 5–7 Reviewer-approved and Cross Checker CLEAN
+
+## Current checkpoint before context compaction
+
+- Compact handoff: Phase 7 is complete; Phase 8 is active on the current IPC/security and artifact-matrix
+  findings. Phase 9 is not started. GitNexus status/context was refreshed from this repository.
+- Keep only the current Phase 8 work; no deferred provider/API research plan is active.
+- Preserve dirty worktree and all `/tmp/opencode` rollback worktrees; do not commit/push/delete.

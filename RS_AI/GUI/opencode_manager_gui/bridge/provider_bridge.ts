@@ -10,33 +10,33 @@ Tham số dùng snake_case khớp `rename_all = "snake_case"` ở backend. Tauri
 command không bao giờ chạy.
 */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invokeIpc, ipcErrorMessage } from './ipc';
 import type {
     ProviderView, PresetView, SaveResult, StatusView, ScannedModel, BadProvider, ModelCaps,
 } from './types';
 
 export async function listProviders(): Promise<ProviderView[]> {
     try {
-        return await invoke<ProviderView[]>('list_providers');
+        return await invokeIpc<ProviderView[]>('list_providers');
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
 export async function listPresets(): Promise<PresetView[]> {
     try {
-        return await invoke<PresetView[]>('list_presets');
+        return await invokeIpc<PresetView[]>('list_presets');
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
 /** Lấy API key THẬT — chỉ gọi khi mở form sửa, không lưu lâu trong state. */
 export async function getProviderSecret(providerId: string): Promise<string> {
     try {
-        return await invoke<string>('get_provider_secret', { provider_id: providerId });
+        return await invokeIpc<string, { provider_id: string }>('get_provider_secret', { provider_id: providerId });
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
@@ -53,7 +53,10 @@ export async function saveProvider(args: {
     customId?: string | null;
 }): Promise<SaveResult> {
     try {
-        return await invoke<SaveResult>('save_provider', {
+        return await invokeIpc<SaveResult, {
+            provider_id: string; preset_id: string; name: string; base_url: string; api_key: string;
+            force_overwrite_id: string | null; npm: string | null; custom_id: string | null;
+        }>('save_provider', {
             provider_id: args.providerId ?? '',
             preset_id: args.presetId,
             name: args.name,
@@ -64,56 +67,56 @@ export async function saveProvider(args: {
             custom_id: args.customId ?? null,
         });
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
 export async function deleteProvider(providerId: string): Promise<void> {
     try {
-        await invoke<void>('delete_provider', { provider_id: providerId });
+        await invokeIpc<void, { provider_id: string }>('delete_provider', { provider_id: providerId });
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
 export async function deleteProviders(providerIds: string[]): Promise<number> {
     try {
-        return await invoke<number>('delete_providers', { provider_ids: providerIds });
+        return await invokeIpc<number, { provider_ids: string[] }>('delete_providers', { provider_ids: providerIds });
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
 export async function testProvider(providerId: string): Promise<StatusView> {
     try {
-        return await invoke<StatusView>('test_provider', { provider_id: providerId });
+        return await invokeIpc<StatusView, { provider_id: string }>('test_provider', { provider_id: providerId });
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
 /** Kiểm tra một cặp URL/key CHƯA lưu (nút Kiểm tra trong form). */
 export async function testConnection(baseUrl: string, apiKey: string): Promise<StatusView> {
     try {
-        return await invoke<StatusView>('test_connection', { base_url: baseUrl, api_key: apiKey });
+        return await invokeIpc<StatusView, { base_url: string; api_key: string }>('test_connection', { base_url: baseUrl, api_key: apiKey });
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
 export async function testAllProviders(): Promise<StatusView[]> {
     try {
-        return await invoke<StatusView[]>('test_all_providers');
+        return await invokeIpc<StatusView[]>('test_all_providers');
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
 export async function scanProviderModels(providerId: string): Promise<ScannedModel[]> {
     try {
-        return await invoke<ScannedModel[]>('scan_provider_models', { provider_id: providerId });
+        return await invokeIpc<ScannedModel[], { provider_id: string }>('scan_provider_models', { provider_id: providerId });
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
@@ -129,20 +132,22 @@ export async function setProviderModels(
     caps?: Record<string, ModelCaps>,
 ): Promise<ProviderView> {
     try {
-        return await invoke<ProviderView>('set_provider_models', {
+        return await invokeIpc<ProviderView, {
+            provider_id: string; selected: string[]; caps: Record<string, ModelCaps> | null;
+        }>('set_provider_models', {
             provider_id: providerId,
             selected,
             caps: caps ?? null,
         });
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
 export async function findBadProviders(): Promise<BadProvider[]> {
     try {
-        return await invoke<BadProvider[]>('find_bad_providers');
+        return await invokeIpc<BadProvider[]>('find_bad_providers');
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }

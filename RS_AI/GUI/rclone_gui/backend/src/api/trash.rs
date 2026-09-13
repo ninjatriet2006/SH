@@ -27,28 +27,24 @@ pub struct TrashItemLocal {
 
 /// Tên hàm: fs_trash_list_local
 /// Mô tả: Lấy danh sách mục trong thùng rác cục bộ, mới xoá xếp trước.
-#[tauri::command]
 pub async fn fs_trash_list_local() -> Result<Vec<TrashItemLocal>, String> {
     blocking(trash_local::list).await
 }
 
 /// Tên hàm: fs_trash_restore_local
 /// Mô tả: Khôi phục một mục từ thùng rác cục bộ về vị trí gốc.
-#[tauri::command]
 pub async fn fs_trash_restore_local(item_id: String) -> Result<(), String> {
     blocking(move || trash_local::restore(&item_id)).await
 }
 
 /// Tên hàm: fs_trash_delete_local
 /// Mô tả: Xoá vĩnh viễn một mục khỏi thùng rác cục bộ.
-#[tauri::command]
 pub async fn fs_trash_delete_local(item_id: String) -> Result<(), String> {
     blocking(move || trash_local::delete(&item_id)).await
 }
 
 /// Tên hàm: fs_trash_empty_local
 /// Mô tả: Xoá vĩnh viễn toàn bộ mục trong thùng rác cục bộ.
-#[tauri::command]
 pub async fn fs_trash_empty_local() -> Result<(), String> {
     blocking(|| {
         let items = trash_local::list()?;
@@ -82,7 +78,6 @@ fn require_remote(account: Option<String>) -> Result<String, String> {
 
 /// Tên hàm: fs_trash_list_remote_terminal
 /// Mô tả: Liệt kê các mục trong thùng rác của remote (Google Drive, Jottacloud, PikPak).
-#[tauri::command]
 pub async fn fs_trash_list_remote_terminal(account: Option<String>) -> Result<Vec<FileItem>, String> {
     let remote = require_remote(account)?;
     blocking(move || trash_remote::list(&remote)).await
@@ -90,7 +85,6 @@ pub async fn fs_trash_list_remote_terminal(account: Option<String>) -> Result<Ve
 
 /// Tên hàm: fs_trash_restore_remote_terminal
 /// Mô tả: Khôi phục một mục trong thùng rác đám mây về vị trí gốc.
-#[tauri::command]
 pub async fn fs_trash_restore_remote_terminal(account: Option<String>, path: String) -> Result<(), String> {
     let remote = require_remote(account)?;
     blocking(move || trash_remote::restore(&remote, &path)).await
@@ -98,7 +92,6 @@ pub async fn fs_trash_restore_remote_terminal(account: Option<String>, path: Str
 
 /// Tên hàm: fs_trash_delete_remote_terminal
 /// Mô tả: Xoá vĩnh viễn một mục đang ở trong thùng rác đám mây.
-#[tauri::command]
 pub async fn fs_trash_delete_remote_terminal(account: Option<String>, path: String) -> Result<(), String> {
     let remote = require_remote(account)?;
     blocking(move || trash_remote::delete(&remote, &path)).await
@@ -106,7 +99,6 @@ pub async fn fs_trash_delete_remote_terminal(account: Option<String>, path: Stri
 
 /// Tên hàm: fs_trash_empty_remote_terminal
 /// Mô tả: Dọn sạch toàn bộ thùng rác đám mây (`rclone cleanup`).
-#[tauri::command]
 pub async fn fs_trash_empty_remote_terminal(account: Option<String>) -> Result<(), String> {
     let remote = require_remote(account)?;
     blocking(move || trash_remote::empty(&remote)).await

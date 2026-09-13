@@ -8,6 +8,7 @@
 */
 
 use crate::core::resources::resource_dir;
+use crate::ipc::{respond, Empty, IpcResult, Req};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -22,7 +23,8 @@ pub struct Theme {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn get_available_themes() -> Result<Vec<Theme>, String> {
+pub fn get_available_themes(request: Req<Empty>) -> IpcResult<Vec<Theme>> {
+    let (request_id, _) = request.validate()?;
     let dir = resource_dir("themes");
     let mut themes = Vec::new();
 
@@ -45,5 +47,5 @@ pub fn get_available_themes() -> Result<Vec<Theme>, String> {
     }
 
     themes.sort_by(|a, b| a.id.cmp(&b.id));
-    Ok(themes)
+    Ok(respond(request_id, themes))
 }

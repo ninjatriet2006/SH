@@ -7,7 +7,7 @@ Trách nhiệm: Lấy danh sách ngôn ngữ có thật trong `langs/` và đọ
 Các module tương tác: frontend/src/main.ts, backend/src/api/lang.rs
 */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './ipc';
 
 /** Danh sách mã ngôn ngữ (tên file `.json` trong `langs/`), đã sắp xếp. */
 export async function getAvailableLangs(): Promise<string[]> {

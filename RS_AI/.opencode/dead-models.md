@@ -13,6 +13,7 @@ Registry ghi nhận các model bị coi là "chết" (không phản hồi / lỗ
 
 | model | trạng thái | fail_count | phát hiện lúc | triệu chứng | ghi chú |
 |-------|-----------|------------|---------------|-------------|---------|
+| cBAjYv/gpt-5.6-sol | DEAD | 3 | 2026-09-12 | Filen lần đầu và cả Filen/OpenCode retry bị từ chối do provider precharge quota còn `$0.019756` | Đã reroute: lead → `Thuan_justworker/gpt-5.6-sol`, 6 agent vai nặng → `JustWoker/gpt-5.6-sol` theo yêu cầu user 2026-09-12 |
 | cBAjYv/gpt-5.6-sol | RECOVERED | 2 | 2026-09-10 | Reviewer rồi Rust Dev Phase 6 lỗi protocol `message_start`; phiên sau phản hồi lại và user yêu cầu tiếp tục | Có thể tiếp tục dùng; theo dõi nếu tái phát |
 | cBAjYv/gpt-5.6-sol | RECOVERED | 1 | 2026-09-09 | Rust Dev task 5.4 lần đầu trả `<none>`; retry hoàn tất 8/8 tests | Có thể tiếp tục dùng; theo dõi nếu tái phát |
 | cBAjYv/gpt-5.6-terra | DEAD | 2 | 2026-09-08 | Docs rồi Explorer lỗi protocol `message_start` khi message trước còn mở; hai Explorer khác bị hủy cùng batch | Không giao agent Terra; chuyển mọi task sang vai dùng Sol cho tới khi probe hồi phục |

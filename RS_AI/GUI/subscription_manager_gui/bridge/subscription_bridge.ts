@@ -6,9 +6,8 @@
 */
 
 // Nhúng lệnh gọi API từ Tauri
-import { invoke } from '@tauri-apps/api/core';
 // Nhúng kiểu dữ liệu Subscription
-import type { Subscription, AutoRenewReport } from './types';
+import { invokeCommand, type Subscription, type AutoRenewReport, type Empty } from './types';
 
 // Hàm gọi API gán gói dịch vụ cho người dùng
 export async function addSubscriptionToUser(
@@ -20,10 +19,10 @@ export async function addSubscriptionToUser(
 ): Promise<Subscription> {
     try {
         // Gọi lệnh "add_subscription_to_user"
-        const result = await invoke<Subscription>('add_subscription_to_user', {
+        const result = await invokeCommand<Subscription, { user_id: string; package_id: string; custom_expiration_date: string | null; amount: number | null; auto_renew: boolean | null }>('add_subscription_to_user', {
             user_id: user_id,
             package_id: package_id,
-            custom_expiration_date: custom_expiration_date ?? null,
+            custom_expiration_date: custom_expiration_date == null ? null : String(custom_expiration_date),
             amount: amount ?? null,
             auto_renew: auto_renew ?? null
         });
@@ -43,9 +42,9 @@ export async function updateSubscriptionExpiry(
 ): Promise<Subscription> {
     try {
         // Gọi lệnh "update_subscription_expiry"
-        const result = await invoke<Subscription>('update_subscription_expiry', {
+        const result = await invokeCommand<Subscription, { subscription_id: string; new_expiration_date: string; amount: number | null; auto_renew: boolean | null }>('update_subscription_expiry', {
             subscription_id: subscription_id,
-            new_expiration_date: new_expiration_date,
+            new_expiration_date: String(new_expiration_date),
             amount: amount ?? null,
             auto_renew: auto_renew ?? null
         });
@@ -59,7 +58,7 @@ export async function updateSubscriptionExpiry(
 export async function removeSubscriptionFromUser(subscription_id: string): Promise<void> {
     try {
         // Gọi "remove_subscription_from_user"
-        await invoke<void>('remove_subscription_from_user', {
+        await invokeCommand<void, { subscription_id: string }>('remove_subscription_from_user', {
             subscription_id: subscription_id
         });
     } catch (error) {
@@ -71,7 +70,7 @@ export async function removeSubscriptionFromUser(subscription_id: string): Promi
 export async function listUserSubscriptions(userId: string): Promise<Subscription[]> {
     try {
         // Gọi "list_user_subscriptions"
-        const result = await invoke<Subscription[]>('list_user_subscriptions', {
+        const result = await invokeCommand<Subscription[], { user_id: string }>('list_user_subscriptions', {
             user_id: userId
         });
         return result;
@@ -84,7 +83,7 @@ export async function listUserSubscriptions(userId: string): Promise<Subscriptio
 export async function checkSubscriptionStatus(subscription_id: string): Promise<boolean> {
     try {
         // Gọi "check_subscription_status"
-        const result = await invoke<boolean>('check_subscription_status', {
+        const result = await invokeCommand<boolean, { subscription_id: string }>('check_subscription_status', {
             subscription_id: subscription_id
         });
         return result;
@@ -96,7 +95,7 @@ export async function checkSubscriptionStatus(subscription_id: string): Promise<
 // Hàm gọi API lấy danh sách toàn bộ đăng ký trong hệ thống
 export async function listAllSubscriptions(): Promise<Subscription[]> {
     try {
-        const result = await invoke<Subscription[]>('list_all_subscriptions');
+        const result = await invokeCommand<Subscription[], Empty>('list_all_subscriptions', {});
         return result;
     } catch (error) {
         throw new Error(String(error));
@@ -109,7 +108,7 @@ export async function setSubscriptionAutoRenew(
     auto_renew: boolean
 ): Promise<Subscription> {
     try {
-        return await invoke<Subscription>('set_subscription_auto_renew', {
+        return await invokeCommand<Subscription, { subscription_id: string; auto_renew: boolean }>('set_subscription_auto_renew', {
             subscription_id: subscription_id,
             auto_renew: auto_renew
         });
@@ -122,7 +121,7 @@ export async function setSubscriptionAutoRenew(
 /// tiền, gói nào bị bỏ qua vì thiếu số dư).
 export async function processAutoRenewals(): Promise<AutoRenewReport> {
     try {
-        return await invoke<AutoRenewReport>('process_auto_renewals');
+        return await invokeCommand<AutoRenewReport, Empty>('process_auto_renewals', {});
     } catch (error) {
         throw new Error(String(error));
     }

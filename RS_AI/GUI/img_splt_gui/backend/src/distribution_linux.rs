@@ -53,6 +53,26 @@ pub(crate) fn distribute_validated(
     cancellation: &CancellationToken,
     progress: &mut impl FnMut(DistributionProgress),
 ) -> Result<DistributionReport> {
+    distribute_validated_with(
+        options,
+        input_directory,
+        files,
+        output_directory,
+        cancellation,
+        progress,
+        &mut validate_distributed_source,
+    )
+}
+
+fn distribute_validated_with(
+    options: &DistributionOptions,
+    input_directory: &Path,
+    files: Vec<PathBuf>,
+    output_directory: &Path,
+    cancellation: &CancellationToken,
+    progress: &mut impl FnMut(DistributionProgress),
+    destination_validator: &mut impl FnMut(&Folder, &OsStr, Identity, &Path) -> Result<()>,
+) -> Result<DistributionReport> {
     let input_fd = open_directory(input_directory)?;
     let output_fd = open_directory(output_directory)?;
     let total = files.len() as u64;
@@ -111,7 +131,7 @@ pub(crate) fn distribute_validated(
 
     let mut completed = Vec::new();
     for (index, planned) in moves.into_iter().enumerate() {
-        let operation = (|| {
+        let operation: Result<()> = (|| {
             cancellation.check()?;
             verify_attached(&output_fd, &folders[planned.folder])?;
             let destination_name = move_no_replace(
@@ -123,10 +143,16 @@ pub(crate) fn distribute_validated(
                 output_directory,
             )?;
             completed.push(CompletedMove {
-                source_name: planned.source_name,
-                destination_name,
+                source_name: planned.source_name.clone(),
+                destination_name: destination_name.clone(),
                 folder: planned.folder,
             });
+            destination_validator(
+                &folders[planned.folder],
+                &destination_name,
+                planned.source_identity,
+                Path::new(&planned.source_name),
+            )?;
             Ok(())
         })();
         if let Err(error) = operation {
@@ -226,27 +252,7 @@ fn move_no_replace(
             ));
         }
         match renameat_with(input, source_name, &folder.fd, &destination, RenameFlags::NOREPLACE) {
-            Ok(()) => {
-                let moved = stat_no_follow(&folder.fd, &destination).map_err(|error| {
-                    BackendError::from_io("cannot verify distributed source identity", source_path, error)
-                })?;
-                if FileType::from_raw_mode(moved.st_mode) == FileType::RegularFile && identity(&moved) == expected {
-                    return Ok(destination);
-                }
-                let rollback = renameat_with(&folder.fd, &destination, input, source_name, RenameFlags::NOREPLACE);
-                return match rollback {
-                    Ok(()) => Err(BackendError::at_path(
-                        ErrorKind::Conflict,
-                        "distribution source changed during commit",
-                        source_path,
-                    )),
-                    Err(error) => Err(io_error(
-                        "cannot roll back mismatched distribution source",
-                        source_path,
-                        error,
-                    )),
-                };
-            }
+            Ok(()) => return Ok(destination),
             Err(error) if error == rustix::io::Errno::EXIST => continue,
             Err(error) => {
                 return Err(io_error(
@@ -262,6 +268,25 @@ fn move_no_replace(
         "cannot allocate collision-free output name",
         output_directory.join(&folder.name).join(source_name),
     ))
+}
+
+fn validate_distributed_source(
+    folder: &Folder,
+    destination: &OsStr,
+    expected: Identity,
+    source_path: &Path,
+) -> Result<()> {
+    let moved = stat_no_follow(&folder.fd, destination)
+        .map_err(|error| BackendError::from_io("cannot verify distributed source identity", source_path, error))?;
+    if FileType::from_raw_mode(moved.st_mode) == FileType::RegularFile && identity(&moved) == expected {
+        Ok(())
+    } else {
+        Err(BackendError::at_path(
+            ErrorKind::Conflict,
+            "distribution source changed during commit",
+            source_path,
+        ))
+    }
 }
 
 fn verify_attached(root: &OwnedFd, folder: &Folder) -> Result<()> {
@@ -387,4 +412,113 @@ fn io_error(message: &'static str, path: impl Into<PathBuf>, error: rustix::io::
 
 fn errno(error: rustix::io::Errno) -> io::Error {
     io::Error::from_raw_os_error(error.raw_os_error())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::distribution::DistributionMode;
+    use std::error::Error;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn options(input: &Path, source: PathBuf, output: &Path) -> DistributionOptions {
+        DistributionOptions {
+            input_directory: input.to_owned(),
+            files: vec![source],
+            output_directory: output.to_owned(),
+            chapter: None,
+            mode: DistributionMode::Greedy,
+            max_files_per_folder: 1,
+            fixed_folder_count: 1,
+        }
+    }
+
+    fn injected_validation_error(source_path: &Path) -> BackendError {
+        BackendError::from_io(
+            "cannot verify distributed source identity",
+            source_path,
+            io::Error::new(io::ErrorKind::PermissionDenied, "injected destination stat failure"),
+        )
+    }
+
+    #[test]
+    fn current_move_is_rolled_back_when_destination_validation_fails() {
+        let input = TempDir::new().expect("create input directory");
+        let output = TempDir::new().expect("create output directory");
+        let source = input.path().join("page.png");
+        fs::write(&source, b"fixture").expect("write source");
+        let options = options(input.path(), source.clone(), output.path());
+
+        let error = distribute_validated_with(
+            &options,
+            input.path(),
+            vec![source.clone()],
+            output.path(),
+            &CancellationToken::new(),
+            &mut |_| {},
+            &mut |_, _, _, source_path| Err(injected_validation_error(source_path)),
+        )
+        .expect_err("destination validation failure must abort distribution");
+
+        assert_eq!(error.kind(), ErrorKind::Io);
+        assert_eq!(error.path(), Some(Path::new("page.png")));
+        assert!(error.partial_rollback().is_none());
+        assert_eq!(
+            error
+                .source()
+                .and_then(|cause| cause.downcast_ref::<io::Error>())
+                .map(io::Error::kind),
+            Some(io::ErrorKind::PermissionDenied)
+        );
+        assert_eq!(fs::read(source).expect("read restored source"), b"fixture");
+        assert!(output.path().read_dir().expect("read output").next().is_none());
+    }
+
+    #[test]
+    fn current_move_rollback_failure_is_typed_without_replacing_validation_cause() {
+        let input = TempDir::new().expect("create input directory");
+        let output = TempDir::new().expect("create output directory");
+        let source = input.path().join("page.png");
+        fs::write(&source, b"fixture").expect("write source");
+        let options = options(input.path(), source.clone(), output.path());
+        let occupied_source = source.clone();
+
+        let error = distribute_validated_with(
+            &options,
+            input.path(),
+            vec![source.clone()],
+            output.path(),
+            &CancellationToken::new(),
+            &mut |_| {},
+            &mut |_, _, _, source_path| {
+                fs::write(&occupied_source, b"occupied").expect("occupy source before rollback");
+                Err(injected_validation_error(source_path))
+            },
+        )
+        .expect_err("occupied source must make current rollback partial");
+
+        let rollback = error.partial_rollback().expect("typed partial rollback");
+        assert_eq!(error.kind(), ErrorKind::Io);
+        assert_eq!(error.path(), Some(Path::new("page.png")));
+        assert_eq!(
+            error
+                .source()
+                .and_then(|cause| cause.downcast_ref::<io::Error>())
+                .map(io::Error::kind),
+            Some(io::ErrorKind::PermissionDenied)
+        );
+        assert_eq!(rollback.failures().len(), 1);
+        assert_eq!(
+            rollback.failures()[0].from_path(),
+            output.path().join("Oneshot/page.png")
+        );
+        assert_eq!(rollback.failures()[0].to_path(), source);
+        assert_eq!(rollback.failures()[0].io_error().kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read(&occupied_source).expect("read occupied source"), b"occupied");
+        assert_eq!(
+            fs::read(output.path().join("Oneshot/page.png")).expect("read unrestored move"),
+            b"fixture"
+        );
+    }
 }

@@ -2,7 +2,7 @@
 //
 // Chỉ lưu state (mode + danh sách item). Paste logic nằm ở `pasteTo` — gọi
 // fs_cp_batch (copy local), fs_mv_local (cut local) hoặc fs_upload (cloud).
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc';
 import type { Pane } from '../services/explorerStore';
 import * as fileOps from '../services/fileOps';
 import { OperationModal } from '../components/OperationModal';
@@ -29,7 +29,7 @@ export function setClipboard(mode: ClipboardMode, items: ClipboardItem[]): void 
   // Sync to OS clipboard if items are all local
   if (items.length > 0 && items.every(i => i.pane === 'left')) {
     const paths = items.map(i => i.path);
-    invoke('os_clipboard_set', { paths, isCut: mode === 'cut' }).catch(err => {
+    invoke('os_clipboard_set', { paths, is_cut: mode === 'cut' }).catch(err => {
       console.warn('Failed to set OS clipboard:', err);
     });
   }

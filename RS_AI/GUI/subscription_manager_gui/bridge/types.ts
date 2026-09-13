@@ -5,6 +5,22 @@
 - Tương tác: Được Import bởi tất cả các Bridge API và các Component của Frontend.
 */
 
+import { invoke } from '@tauri-apps/api/core';
+
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+export type Req<T> = { schema_version: 1; request_id: string | null; payload: T };
+export type Res<T> = { schema_version: 1; request_id: string | null; data: T };
+export type IpcErrorCode = 'invalid_argument' | 'not_found' | 'conflict' | 'unauthorized'
+    | 'forbidden' | 'unavailable' | 'io' | 'validation' | 'cancelled' | 'internal';
+export type IpcError = { code: IpcErrorCode; message: string; retryable: boolean; details: JsonValue | null };
+export type Empty = Record<string, never>;
+
+export async function invokeCommand<T, P>(command: string, payload: P): Promise<T> {
+    const request: Req<P> = { schema_version: 1, request_id: null, payload };
+    const response = await invoke<Res<T>>(command, { request });
+    return response.data;
+}
+
 // Định nghĩa giao diện (Interface) mô tả cấu trúc của một người dùng
 export interface User {
     // Mã định danh duy nhất của người dùng
@@ -70,6 +86,7 @@ export interface AutoRenewSkip {
     user_id: string;
     package_id: string;
     reason: string;
+    auto_renew_disabled: boolean;
 }
 
 // Định nghĩa giao diện mô tả cấu trúc Lịch sử giao dịch

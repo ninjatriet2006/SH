@@ -1011,7 +1011,23 @@ fn map_backend(source: backend::BackendError) -> IpcError {
         backend::ErrorKind::Validation => IpcErrorCode::Validation,
         backend::ErrorKind::Cancelled => IpcErrorCode::Cancelled,
     };
-    error(code, source.to_string())
+    let details = source.partial_rollback().map(|rollback| PartialRollbackDetails {
+        failures: rollback
+            .failures()
+            .iter()
+            .map(|failure| RollbackFailureDetails {
+                from: path_ref(failure.from_path().to_owned()),
+                to: path_ref(failure.to_path().to_owned()),
+                cause: failure.io_error().to_string(),
+            })
+            .collect(),
+    });
+    IpcError {
+        code,
+        message: source.to_string(),
+        retryable: false,
+        details: details.and_then(|details| serde_json::to_value(details).ok()),
+    }
 }
 
 fn map_process_error(source: backend::BackendError) -> IpcError {
@@ -1062,5 +1078,85 @@ fn error(code: IpcErrorCode, message: impl Into<String>) -> IpcError {
         message: message.into(),
         retryable: false,
         details: None,
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn new() -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("valid clock")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!("img-splt-bridge-rollback-{}-{nonce}", std::process::id()));
+            fs::create_dir(&path).expect("create test directory");
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn typed_partial_rollback_is_mapped_to_structured_error_details() {
+        let root = TestDirectory::new();
+        let input = root.path().join("input");
+        let output = root.path().join("output");
+        fs::create_dir_all(&input).expect("create input directory");
+        fs::create_dir_all(&output).expect("create output directory");
+        let first = input.join("page1.png");
+        let second = input.join("page2.png");
+        fs::write(&first, b"first").expect("write first image");
+        fs::write(&second, b"second").expect("write second image");
+        let options = backend::DistributionOptions {
+            input_directory: input.clone(),
+            files: vec![first.clone(), second.clone()],
+            output_directory: output.clone(),
+            chapter: None,
+            mode: backend::DistributionMode::Greedy,
+            max_files_per_folder: 1,
+            fixed_folder_count: 1,
+        };
+
+        let backend_error = backend::distribute_images(&options, &backend::CancellationToken::new(), |progress| {
+            if progress.completed == 1 {
+                fs::write(&first, b"occupied").expect("occupy rollback destination");
+                fs::rename(&second, input.join("page2-original.png")).expect("move second image");
+                fs::write(&second, b"replacement").expect("replace second image");
+            }
+        })
+        .expect_err("distribution must have a partial rollback");
+        let rollback_cause = backend_error
+            .partial_rollback()
+            .expect("typed partial rollback")
+            .failures()[0]
+            .io_error()
+            .to_string();
+        let failure = map_backend(backend_error);
+
+        assert_eq!(failure.code, IpcErrorCode::Conflict);
+        assert_eq!(
+            failure.details,
+            Some(serde_json::json!({
+                "failures": [{
+                    "from": {"path": output.join("Oneshot Part 1/page1.png").to_string_lossy()},
+                    "to": {"path": first.to_string_lossy()},
+                    "cause": rollback_cause,
+                }]
+            }))
+        );
     }
 }

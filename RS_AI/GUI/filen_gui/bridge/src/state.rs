@@ -3,13 +3,15 @@
 //! Trách nhiệm: Lưu trữ trạng thái dùng chung (TransferManager, Watchers), làm data struct cho IPC.
 //! Tương tác: Được inject vào các Tauri command và Event emitter qua `tauri::State`.
 
-use std::sync::Mutex;
+use crate::security::PickerRoots;
 use filen_gui::transfer::TransferManager;
 use notify::RecommendedWatcher;
 use serde::Serialize;
+use std::sync::Mutex;
 
 /// Trạng thái toàn cục của ứng dụng được chia sẻ giữa các lệnh (commands) của Tauri.
 pub struct AppState {
+    pub picker_roots: PickerRoots,
     /// Quản lý tiến trình truyền tải file (upload, download, copy, move).
     pub transfer: Mutex<TransferManager>,
     /// Đối tượng theo dõi hệ thống file nội bộ (inotify watcher) để cập nhật UI tự động.
@@ -21,6 +23,7 @@ pub struct AppState {
 impl Default for AppState {
     fn default() -> Self {
         AppState {
+            picker_roots: PickerRoots::default(),
             // Khởi tạo trình quản lý truyền tải với cấu hình mặc định
             transfer: Mutex::new(TransferManager::new()),
             // Ban đầu chưa khởi tạo trình theo dõi

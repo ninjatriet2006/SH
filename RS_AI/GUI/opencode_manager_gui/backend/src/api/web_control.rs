@@ -3,7 +3,8 @@
 //! The web child is owned here, never shared with the visible terminal process,
 //! and every process argument is passed directly (there is no shell expansion).
 
-use serde::Serialize;
+use crate::ipc::{respond, Empty, IpcError, IpcErrorCode, IpcResult, Req};
+use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -61,6 +62,20 @@ impl WebControlError {
             code,
             message: message.into(),
         }
+    }
+}
+
+impl From<WebControlError> for IpcError {
+    fn from(error: WebControlError) -> Self {
+        let code = match error.code {
+            "transition_in_progress" | "process_cleanup_required" | "web_not_running" => IpcErrorCode::Conflict,
+            "invalid_localhost_url" => IpcErrorCode::InvalidArgument,
+            "state_poisoned" => IpcErrorCode::Internal,
+            _ => IpcErrorCode::Unavailable,
+        };
+        let mut ipc = IpcError::new(code, error.message);
+        ipc.details = Some(serde_json::json!({ "source_code": error.code }));
+        ipc
     }
 }
 
@@ -741,28 +756,50 @@ fn localhost_port(url: &str) -> Option<u16> {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn web_status(service: tauri::State<'_, WebService>) -> Result<WebStatus, WebControlError> {
-    service.status()
+pub fn web_status(request: Req<Empty>, service: tauri::State<'_, WebService>) -> IpcResult<WebStatus> {
+    let (request_id, _) = request.validate()?;
+    service
+        .status()
+        .map(|data| respond(request_id, data))
+        .map_err(Into::into)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn web_start(service: tauri::State<'_, WebService>) -> Result<WebStatus, WebControlError> {
-    service.start()
+pub fn web_start(request: Req<Empty>, service: tauri::State<'_, WebService>) -> IpcResult<WebStatus> {
+    let (request_id, _) = request.validate()?;
+    service
+        .start()
+        .map(|data| respond(request_id, data))
+        .map_err(Into::into)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn web_stop(service: tauri::State<'_, WebService>) -> Result<WebStatus, WebControlError> {
-    service.stop()
+pub fn web_stop(request: Req<Empty>, service: tauri::State<'_, WebService>) -> IpcResult<WebStatus> {
+    let (request_id, _) = request.validate()?;
+    service.stop().map(|data| respond(request_id, data)).map_err(Into::into)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn launch_terminal(service: tauri::State<'_, WebService>) -> Result<(), WebControlError> {
-    service.launch_terminal()
+pub fn launch_terminal(request: Req<Empty>, service: tauri::State<'_, WebService>) -> IpcResult<()> {
+    let (request_id, _) = request.validate()?;
+    service
+        .launch_terminal()
+        .map(|data| respond(request_id, data))
+        .map_err(Into::into)
+}
+
+#[derive(Deserialize)]
+pub struct OpenWebUrlRequest {
+    pub url: String,
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn open_web_url(url: String, service: tauri::State<'_, WebService>) -> Result<(), WebControlError> {
-    service.open_url(url.trim())
+pub fn open_web_url(request: Req<OpenWebUrlRequest>, service: tauri::State<'_, WebService>) -> IpcResult<()> {
+    let (request_id, payload) = request.validate()?;
+    service
+        .open_url(payload.url.trim())
+        .map(|data| respond(request_id, data))
+        .map_err(Into::into)
 }
 
 #[cfg(test)]

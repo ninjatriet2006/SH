@@ -1,4 +1,5 @@
-import { invoke, Channel } from '@tauri-apps/api/core';
+import { Channel } from '@tauri-apps/api/core';
+import { invoke } from '../ipc';
 import { listen } from '@tauri-apps/api/event';
 import { appState, logActivity } from '../store';
 import type { FileItem } from '../store';
@@ -198,25 +199,18 @@ export class DualPaneExplorer {
   async init() {
     window.addEventListener('keydown', this.handleKeyDown);
     
-    let leftPath = appState.explorer?.leftPath;
-    if (!leftPath || leftPath === '/') {
-      try {
-        const { desktopDir } = await import('@tauri-apps/api/path');
-        leftPath = await desktopDir();
-      } catch (e) {
-        console.warn('Could not get desktop dir', e);
-        try {
-          const { homeDir } = await import('@tauri-apps/api/path');
-          leftPath = await homeDir();
-        } catch (e2) {
-          leftPath = '/';
-        }
-      }
+    let leftPath: string;
+    try {
+      leftPath = await invoke<string>('fs_picker_select');
+    } catch (error) {
+      console.warn('Local directory selection cancelled', error);
+      this.leftPane.renderPlaceholder('Chọn một thư mục để duyệt tệp cục bộ.', '');
+      leftPath = '';
     }
     
     const rightPath = appState.explorer?.rightPath ?? '/';
     await Promise.all([
-      this.loadPane('left', leftPath),
+      leftPath ? this.loadPane('left', leftPath) : Promise.resolve(),
       this.loadPane('right', rightPath),
     ]);
   }
@@ -247,7 +241,7 @@ export class DualPaneExplorer {
     let files: FileItem[] = [];
     try {
       if (path === 'trash://remote') {
-        files = await invoke('fs_trash_list_remote_terminal', { account: undefined }) as any;
+        files = await invoke('fs_trash_list_remote_terminal', { account: null }) as any;
       } else if (path === 'trash://local') {
         files = await invoke('fs_trash_list_local') as any;
       } else if (pane === 'right') {
@@ -273,7 +267,7 @@ export class DualPaneExplorer {
           }
         };
         
-        await invoke('fs_list_remote_stream_terminal', { account: undefined, path, onChunk });
+        await invoke('fs_list_remote_stream_terminal', { account: null, path }, undefined, { onChunk });
         console.log('fs_list_remote_stream finished for', path, 'total:', files.length);
       } else {
         files = await invoke('fs_list_local', { path }) as any;
@@ -340,7 +334,7 @@ export class DualPaneExplorer {
 
   private async handleMkdir(pane: 'left' | 'right', name: string) {
     const path = (pane === 'left' ? appState.explorer?.leftPath : appState.explorer?.rightPath) ?? '/';
-    await invoke('fs_mkdir_terminal', { path: path + '/' + name });
+    await invoke('fs_mkdir_terminal', { account: null, path: path + '/' + name });
     await this.loadPane(pane, path);
   }
 

@@ -2,7 +2,7 @@ import { OperationModal } from './OperationModal';
 import { type Pane } from '../services/explorerStore';
 import type { FileItem } from '../store';
 import * as fileOps from '../services/fileOps';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../../bridge/ipc';
 import { emblemStore } from '../services/emblemStore';
 import { formatSize, formatDate, escapeHtml } from '../features/format';
 

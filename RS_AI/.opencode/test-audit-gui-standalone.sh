@@ -4,18 +4,25 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FIXTURE="$HERE/tests/fixtures/gui-standalone-audit"
 
-if output="$(AUDIT_ROOT="$FIXTURE" "$HERE/audit-gui-standalone.sh" 2>&1)"; then
+if output="$(AUDIT_ROOT="$FIXTURE" AUDIT_EXPECTED_GUI_ROOTS="app_alpha,app_beta" "$HERE/audit-gui-standalone.sh" 2>&1)"; then
   printf '%s\n' "fixture audit unexpectedly passed" >&2
   exit 1
 fi
 
-case "$output" in
-  *"crosses app_alpha -> app_beta"*) ;;
-  *)
+for expected in \
+  "relative import crosses app_alpha -> app_beta" \
+  "manifest path crosses app_alpha -> app_beta" \
+  "symlink crosses app_alpha -> app_beta" \
+  "runtime/config path crosses app_alpha -> app_beta" \
+  "allowlist entry permits GUI coupling via app_beta"; do
+  case "$output" in
+    *"$expected"*) ;;
+    *)
     printf '%s\n' "$output" >&2
-    printf '%s\n' "fixture audit did not report the cross-app regression" >&2
+    printf '%s\n' "fixture audit did not report: $expected" >&2
     exit 1
-    ;;
-esac
+      ;;
+  esac
+done
 
-printf '%s\n' "PASS: isolated GUI audit fixture was rejected"
+printf '%s\n' "PASS: 5 isolated GUI coupling fixture cases were rejected"

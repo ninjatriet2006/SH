@@ -5,7 +5,7 @@ Trách nhiệm: Gọi lệnh get_config_content, set_config_content.
 Các module tương tác: frontend/src/features/remotesManager.ts, backend/src/config.rs
 */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './ipc';
 
 export async function getConfigContent(): Promise<string> {
     try {

@@ -163,7 +163,7 @@ export async function MenuFile(e: MouseEvent, opts: ContextMenuOptions): Promise
           new OpenWithModal(fullPath).open();
           break;
         case 'Open in Terminal':
-          import('@tauri-apps/api/core').then(({ invoke }) => {
+          import('../../../bridge/ipc').then(({ invoke }) => {
             invoke('open_in_terminal', { path: fullPath.replace(/^Local::/, '') })
               .catch((err) => console.error('Open terminal failed:', err));
           });
@@ -279,7 +279,7 @@ export function MenuEmpty(e: MouseEvent, opts: FolderContextMenuOptions): void {
           onSelectAll();
           break;
         case 'Open in Terminal':
-          import('@tauri-apps/api/core').then(({ invoke }) => {
+          import('../../../bridge/ipc').then(({ invoke }) => {
             invoke('open_in_terminal', { path: basePath.replace(/^Local::/, '') })
               .catch((err) => console.error('Open terminal failed:', err));
           });

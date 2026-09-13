@@ -7,13 +7,12 @@
 - Tương tác: `components/InvoiceModal.tsx`, backend `payment_api.rs`.
 */
 
-import { invoke } from '@tauri-apps/api/core';
-import type { PaymentRef, PaymentLookup } from './types';
+import { invokeCommand, type PaymentRef, type PaymentLookup } from './types';
 
 /// Phát hành mã mới cho nhóm giao dịch của CÙNG một khách và lưu lại.
 export async function issuePaymentRef(user_id: string, transaction_ids: string[]): Promise<PaymentRef> {
     try {
-        return await invoke<PaymentRef>('issue_payment_ref', { user_id, transaction_ids });
+        return await invokeCommand<PaymentRef, { user_id: string; transaction_ids: string[] }>('issue_payment_ref', { user_id, transaction_ids });
     } catch (error) {
         throw new Error(String(error));
     }
@@ -23,7 +22,7 @@ export async function issuePaymentRef(user_id: string, transaction_ids: string[]
 /// Chịu được chuỗi bẩn từ sao kê và mã bị gõ sai một phần.
 export async function lookupPaymentRef(input: string): Promise<PaymentLookup> {
     try {
-        return await invoke<PaymentLookup>('lookup_payment_ref', { input });
+        return await invokeCommand<PaymentLookup, { input: string }>('lookup_payment_ref', { input });
     } catch (error) {
         throw new Error(String(error));
     }
@@ -32,7 +31,7 @@ export async function lookupPaymentRef(input: string): Promise<PaymentLookup> {
 /// Danh sách mã đã phát hành, mới nhất trước. Bỏ trống `user_id` = lấy tất cả.
 export async function listPaymentRefs(user_id?: string): Promise<PaymentRef[]> {
     try {
-        return await invoke<PaymentRef[]>('list_payment_refs', { user_id: user_id ?? null });
+        return await invokeCommand<PaymentRef[], { user_id: string | null }>('list_payment_refs', { user_id: user_id ?? null });
     } catch (error) {
         throw new Error(String(error));
     }
@@ -41,7 +40,7 @@ export async function listPaymentRefs(user_id?: string): Promise<PaymentRef[]> {
 /// Đánh dấu đã nhận được tiền cho một mã (đối soát xong).
 export async function settlePaymentRef(code: string, settled: boolean): Promise<PaymentRef> {
     try {
-        return await invoke<PaymentRef>('settle_payment_ref', { code, settled });
+        return await invokeCommand<PaymentRef, { code: string; settled: boolean }>('settle_payment_ref', { code, settled });
     } catch (error) {
         throw new Error(String(error));
     }

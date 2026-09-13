@@ -10,6 +10,7 @@
 */
 
 use crate::core::store::{build_views, detect_duplicate, is_builtin, load_merged, save_split, unique_id, ProviderView};
+use crate::ipc::{from_string, respond, Empty, IpcError, IpcResult, Req};
 use opencode_manager::api::{ApiClient, ApiStatus};
 use opencode_manager::app::{App, DynamicPreset};
 use opencode_manager::config::{normalize_base_url, Interleaved, ModelEntry};
@@ -63,10 +64,11 @@ fn status_view(provider_id: &str, status: &ApiStatus) -> StatusView {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn list_providers() -> Result<Vec<ProviderView>, String> {
+pub fn list_providers(request: Req<Empty>) -> IpcResult<Vec<ProviderView>> {
+    let (request_id, _) = request.validate()?;
     let presets = presets();
-    let (config, _auth) = load_merged(&presets)?;
-    Ok(build_views(&config, &presets))
+    let (config, _auth) = load_merged(&presets).map_err(from_string)?;
+    Ok(respond(request_id, build_views(&config, &presets)))
 }
 
 /// Danh sách preset để chọn khi thêm provider.
@@ -80,17 +82,26 @@ pub struct PresetView {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn list_presets() -> Result<Vec<PresetView>, String> {
-    Ok(presets()
-        .into_iter()
-        .map(|p| PresetView {
-            id: p.id,
-            name: p.name,
-            base_url: p.base_url,
-            id_prefix: p.id_prefix,
-            npm: p.npm,
-        })
-        .collect())
+pub fn list_presets(request: Req<Empty>) -> IpcResult<Vec<PresetView>> {
+    let (request_id, _) = request.validate()?;
+    Ok(respond(
+        request_id,
+        presets()
+            .into_iter()
+            .map(|p| PresetView {
+                id: p.id,
+                name: p.name,
+                base_url: p.base_url,
+                id_prefix: p.id_prefix,
+                npm: p.npm,
+            })
+            .collect(),
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct ProviderIdRequest {
+    pub provider_id: String,
 }
 
 /// Lấy API key THẬT của một provider — chỉ dùng khi mở form sửa.
@@ -98,14 +109,17 @@ pub fn list_presets() -> Result<Vec<PresetView>, String> {
 /// Tách riêng khỏi `list_providers` (chỉ trả key đã che) để key không nằm sẵn
 /// trong state của frontend suốt phiên làm việc.
 #[tauri::command(rename_all = "snake_case")]
-pub fn get_provider_secret(provider_id: String) -> Result<String, String> {
+pub fn get_provider_secret(request: Req<ProviderIdRequest>) -> IpcResult<String> {
+    let (request_id, payload) = request.validate()?;
+    let provider_id = payload.provider_id;
     let presets = presets();
-    let (config, _auth) = load_merged(&presets)?;
+    let (config, _auth) = load_merged(&presets).map_err(from_string)?;
     config
         .provider
         .get(&provider_id)
         .map(|p| p.options.api_key.clone())
-        .ok_or_else(|| format!("Không tìm thấy provider: {provider_id}"))
+        .map(|secret| respond(request_id, secret))
+        .ok_or_else(|| from_string(format!("Không tìm thấy provider: {provider_id}")))
 }
 
 /// Kết quả lưu provider. `duplicate_of` != None nghĩa là CHƯA lưu — frontend
@@ -124,6 +138,21 @@ pub struct SaveResult {
 pub struct DuplicateInfo {
     pub id: String,
     pub name: String,
+}
+
+#[derive(Deserialize)]
+pub struct SaveProviderRequest {
+    pub provider_id: String,
+    pub preset_id: String,
+    pub name: String,
+    pub base_url: String,
+    pub api_key: String,
+    #[serde(deserialize_with = "crate::ipc::present_nullable")]
+    pub force_overwrite_id: Option<String>,
+    #[serde(deserialize_with = "crate::ipc::present_nullable")]
+    pub npm: Option<String>,
+    #[serde(deserialize_with = "crate::ipc::present_nullable")]
+    pub custom_id: Option<String>,
 }
 
 /// Ký tự an toàn cho id provider do người dùng tự đặt: chữ, số, `_`, `-`.
@@ -162,31 +191,24 @@ pub fn validate_custom_id(id: &str) -> Result<(), String> {
 /// đúng URL preset thì provider thành built-in (key lưu ở auth.json) — cùng
 /// cơ chế tự động như id sinh từ preset.
 #[tauri::command(rename_all = "snake_case")]
-#[allow(clippy::too_many_arguments)]
-pub async fn save_provider(
-    provider_id: String,
-    preset_id: String,
-    name: String,
-    base_url: String,
-    api_key: String,
-    force_overwrite_id: Option<String>,
-    npm: Option<String>,
-    custom_id: Option<String>,
-) -> Result<SaveResult, String> {
+pub async fn save_provider(request: Req<SaveProviderRequest>) -> IpcResult<SaveResult> {
+    let (request_id, payload) = request.validate()?;
     tauri::async_runtime::spawn_blocking(move || {
         save_provider_blocking(
-            provider_id,
-            preset_id,
-            name,
-            base_url,
-            api_key,
-            force_overwrite_id,
-            npm,
-            custom_id,
+            payload.provider_id,
+            payload.preset_id,
+            payload.name,
+            payload.base_url,
+            payload.api_key,
+            payload.force_overwrite_id,
+            payload.npm,
+            payload.custom_id,
         )
     })
     .await
-    .map_err(|e| format!("Task lưu provider sụp: {e}"))?
+    .map_err(|e| IpcError::internal(format!("Task lưu provider sụp: {e}")))?
+    .map(|data| respond(request_id, data))
+    .map_err(from_string)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -335,48 +357,67 @@ fn save_provider_blocking(
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn delete_provider(provider_id: String) -> Result<(), String> {
+pub fn delete_provider(request: Req<ProviderIdRequest>) -> IpcResult<()> {
+    let (request_id, payload) = request.validate()?;
+    let provider_id = payload.provider_id;
     let presets = presets();
-    let (mut config, mut auth) = load_merged(&presets)?;
+    let (mut config, mut auth) = load_merged(&presets).map_err(from_string)?;
 
     if config.provider.remove(&provider_id).is_none() {
-        return Err(format!("Không tìm thấy provider: {provider_id}"));
+        return Err(from_string(format!("Không tìm thấy provider: {provider_id}")));
     }
     // Xoá luôn ở auth.json, nếu không `merge_auth_into_providers` sẽ dựng lại
     // provider này ở lần nạp sau — người dùng tưởng xoá không có tác dụng.
     auth.remove(&provider_id);
 
-    save_split(&config, &mut auth, &presets)?;
-    Ok(())
+    save_split(&config, &mut auth, &presets).map_err(from_string)?;
+    Ok(respond(request_id, ()))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn test_provider(provider_id: String) -> Result<StatusView, String> {
+pub fn test_provider(request: Req<ProviderIdRequest>) -> IpcResult<StatusView> {
+    let (request_id, payload) = request.validate()?;
+    let provider_id = payload.provider_id;
     let presets = presets();
-    let (config, _auth) = load_merged(&presets)?;
+    let (config, _auth) = load_merged(&presets).map_err(from_string)?;
     let p = config
         .provider
         .get(&provider_id)
-        .ok_or_else(|| format!("Không tìm thấy provider: {provider_id}"))?;
+        .ok_or_else(|| from_string(format!("Không tìm thấy provider: {provider_id}")))?;
 
     let client = ApiClient::new();
     let status = block_on(client.test_api(&p.options.base_url, &p.options.api_key));
-    Ok(status_view(&provider_id, &status))
+    Ok(respond(request_id, status_view(&provider_id, &status)))
+}
+
+#[derive(Deserialize)]
+pub struct TestConnectionRequest {
+    pub base_url: String,
+    pub api_key: String,
 }
 
 /// Kiểm tra kết nối một cặp URL/key CHƯA lưu (nút "Kiểm tra" trong form).
 #[tauri::command(rename_all = "snake_case")]
-pub fn test_connection(base_url: String, api_key: String) -> Result<StatusView, String> {
+pub fn test_connection(request: Req<TestConnectionRequest>) -> IpcResult<StatusView> {
+    let (request_id, payload) = request.validate()?;
+    let TestConnectionRequest { base_url, api_key } = payload;
     if base_url.trim().is_empty() || api_key.trim().is_empty() {
-        return Err("Cần cả Base URL và API Key để kiểm tra".to_string());
+        return Err(from_string("Cần cả Base URL và API Key để kiểm tra".to_string()));
     }
     let client = ApiClient::new();
     let status = block_on(client.test_api(&normalize_base_url(&base_url), &api_key));
-    Ok(status_view("", &status))
+    Ok(respond(request_id, status_view("", &status)))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn test_all_providers() -> Result<Vec<StatusView>, String> {
+pub fn test_all_providers(request: Req<Empty>) -> IpcResult<Vec<StatusView>> {
+    let (request_id, _) = request.validate()?;
+    test_all_providers_inner()
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
+}
+
+fn test_all_providers_inner() -> Result<Vec<StatusView>, String> {
     let presets = presets();
     let (config, _auth) = load_merged(&presets)?;
 
@@ -454,7 +495,14 @@ fn caps_of_entry(entry: &ModelEntry) -> Option<ScannedModelCaps> {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn scan_provider_models(provider_id: String) -> Result<Vec<ScannedModel>, String> {
+pub fn scan_provider_models(request: Req<ProviderIdRequest>) -> IpcResult<Vec<ScannedModel>> {
+    let (request_id, payload) = request.validate()?;
+    scan_provider_models_inner(payload.provider_id)
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
+}
+
+fn scan_provider_models_inner(provider_id: String) -> Result<Vec<ScannedModel>, String> {
     let presets = presets();
     let (config, _auth) = load_merged(&presets)?;
     let p = config
@@ -522,10 +570,21 @@ pub fn scan_provider_models(provider_id: String) -> Result<Vec<ScannedModel>, St
 /// `ModelEntry`). Field `None` = "không đổi", `Some` = ghi đè.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ModelCaps {
+    #[serde(deserialize_with = "crate::ipc::present_nullable")]
     pub tool_call: Option<bool>,
+    #[serde(deserialize_with = "crate::ipc::present_nullable")]
     pub reasoning: Option<bool>,
     /// Tên field reasoning (vd "reasoning_content"); rỗng = bỏ qua.
+    #[serde(deserialize_with = "crate::ipc::present_nullable")]
     pub interleaved: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct SetProviderModelsRequest {
+    pub provider_id: String,
+    pub selected: Vec<String>,
+    #[serde(deserialize_with = "crate::ipc::present_nullable")]
+    pub caps: Option<HashMap<String, ModelCaps>>,
 }
 
 fn apply_caps(entry: &mut ModelEntry, caps: Option<&ModelCaps>) {
@@ -551,7 +610,14 @@ fn apply_caps(entry: &mut ModelEntry, caps: Option<&ModelCaps>) {
 /// `selected` là danh sách CUỐI CÙNG: model trong config mà không có trong đây
 /// sẽ bị xoá. Nhờ vậy bỏ tick một model stale là nó biến mất khỏi config.
 #[tauri::command(rename_all = "snake_case")]
-pub fn set_provider_models(
+pub fn set_provider_models(request: Req<SetProviderModelsRequest>) -> IpcResult<ProviderView> {
+    let (request_id, payload) = request.validate()?;
+    set_provider_models_inner(payload.provider_id, payload.selected, payload.caps)
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
+}
+
+fn set_provider_models_inner(
     provider_id: String,
     selected: Vec<String>,
     caps: Option<HashMap<String, ModelCaps>>,
@@ -601,10 +667,17 @@ pub struct BadProvider {
 
 /// Tìm provider KHÔNG hoạt động (sai key / hết tiền / offline) để đề xuất xoá.
 #[tauri::command(rename_all = "snake_case")]
-pub fn find_bad_providers() -> Result<Vec<BadProvider>, String> {
+pub fn find_bad_providers(request: Req<Empty>) -> IpcResult<Vec<BadProvider>> {
+    let (request_id, _) = request.validate()?;
+    find_bad_providers_inner()
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
+}
+
+fn find_bad_providers_inner() -> Result<Vec<BadProvider>, String> {
     let presets = presets();
     let (config, _auth) = load_merged(&presets)?;
-    let statuses = test_all_providers()?;
+    let statuses = test_all_providers_inner()?;
 
     let mut out: Vec<BadProvider> = statuses
         .into_iter()
@@ -624,8 +697,20 @@ pub fn find_bad_providers() -> Result<Vec<BadProvider>, String> {
 }
 
 /// Xoá nhiều provider một lượt (sau khi người dùng chọn trong danh sách dọn).
+#[derive(Deserialize)]
+pub struct DeleteProvidersRequest {
+    pub provider_ids: Vec<String>,
+}
+
 #[tauri::command(rename_all = "snake_case")]
-pub fn delete_providers(provider_ids: Vec<String>) -> Result<usize, String> {
+pub fn delete_providers(request: Req<DeleteProvidersRequest>) -> IpcResult<usize> {
+    let (request_id, payload) = request.validate()?;
+    delete_providers_inner(payload.provider_ids)
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
+}
+
+fn delete_providers_inner(provider_ids: Vec<String>) -> Result<usize, String> {
     if provider_ids.is_empty() {
         return Err("Chưa chọn provider nào để xoá".to_string());
     }

@@ -2,7 +2,7 @@ import { OperationModal } from './OperationModal';
 import { type Pane } from '../services/explorerStore';
 import type { FileItem } from '../store';
 import * as fileOps from '../services/fileOps';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc';
 import { emblemStore } from '../services/emblemStore';
 
 const AVAILABLE_EMOJIS = ['⭐', '❤️', '🔒', '🔥', '⚠️', '✅', '📌', '🎵', '📷', '💼', '🚀', '💡'];
@@ -209,7 +209,7 @@ export class PropertiesModal {
         const app = (item as HTMLElement).dataset.exec;
         if (app) {
           try {
-            await invoke('sys_open_with', { path: this.fullPath, app });
+            await invoke('sys_open_with', { path: this.fullPath, exec_cmd: app });
             this.modal.close();
           } catch (e) {
             console.warn('Failed to open', e);
@@ -223,7 +223,7 @@ export class PropertiesModal {
         const app = cmdInp?.value?.trim();
         if (app) {
           try {
-            await invoke('sys_open_with', { path: this.fullPath, app });
+            await invoke('sys_open_with', { path: this.fullPath, exec_cmd: app });
             this.modal.close();
           } catch (e) {
             console.warn('Failed to open with custom app', e);

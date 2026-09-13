@@ -10,10 +10,10 @@ Các module tương tác: lib.rs, frontend (qua Tauri command), bridge/mount_api
 
 use crate::core::task::blocking;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct MountConfig {
     pub service_name: String,
     pub is_user_level: bool,
@@ -30,7 +30,7 @@ pub struct MountConfig {
     pub read_only: bool,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Debug)]
 pub struct SystemdServiceInfo {
     pub name: String,
     pub is_user: bool,
@@ -39,7 +39,6 @@ pub struct SystemdServiceInfo {
 }
 
 /// Kiểm tra hệ thống đã cài đặt FUSE chưa
-#[tauri::command]
 pub async fn check_fuse_installed() -> Result<bool, String> {
     blocking(|| {
         // Kiểm tra fuse hoặc fuse3 hoặc fusermount
@@ -63,22 +62,77 @@ pub async fn check_fuse_installed() -> Result<bool, String> {
 }
 
 /// Helper để lấy đường dẫn systemd service
-fn get_service_path(service_name: &str, is_user: bool) -> PathBuf {
+fn validate_service_name(service_name: &str) -> Result<(), String> {
+    let valid = !service_name.is_empty()
+        && service_name.len() <= 128
+        && service_name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'));
+    if valid {
+        Ok(())
+    } else {
+        Err("service_name must be a strict ASCII identifier ([A-Za-z0-9_-], max 128)".to_string())
+    }
+}
+
+fn service_dir(is_user: bool) -> PathBuf {
     if is_user {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-        let dir = PathBuf::from(home).join(".config/systemd/user");
-        let _ = fs::create_dir_all(&dir);
-        dir.join(format!("{}.service", service_name))
+        PathBuf::from(home).join(".config/systemd/user")
     } else {
-        PathBuf::from(format!("/etc/systemd/system/{}.service", service_name))
+        PathBuf::from("/etc/systemd/system")
+    }
+}
+
+fn normalized_absolute(path: &Path) -> Result<PathBuf, String> {
+    if !path.is_absolute() {
+        return Err("service path must be absolute".to_string());
+    }
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::RootDir => normalized.push("/"),
+            std::path::Component::Normal(part) => normalized.push(part),
+            _ => return Err("service path contains a non-canonical component".to_string()),
+        }
+    }
+    Ok(normalized)
+}
+
+fn get_service_path(service_name: &str, is_user: bool) -> Result<PathBuf, String> {
+    validate_service_name(service_name)?;
+    let dir = normalized_absolute(&service_dir(is_user))?;
+    let candidate = normalized_absolute(&dir.join(format!("{service_name}.service")))?;
+    if candidate.parent() != Some(dir.as_path()) || !candidate.starts_with(&dir) {
+        return Err("service path escapes the systemd service directory".to_string());
+    }
+    Ok(candidate)
+}
+
+fn require_confirmation(confirmed: bool) -> Result<(), String> {
+    if confirmed {
+        Ok(())
+    } else {
+        Err("confirmed=true is required for privileged or destructive mount actions".to_string())
+    }
+}
+
+fn validate_action(action: &str) -> Result<(), String> {
+    if matches!(action, "start" | "stop" | "enable" | "disable" | "restart") {
+        Ok(())
+    } else {
+        Err("unsupported systemctl action".to_string())
     }
 }
 
 /// Tạo file Systemd Service cho rclone mount
-#[tauri::command]
-pub async fn create_mount_service(config: MountConfig) -> Result<String, String> {
+pub async fn create_mount_service(config: MountConfig, confirmed: bool) -> Result<String, String> {
+    validate_service_name(&config.service_name)?;
+    if !config.is_user_level {
+        require_confirmation(confirmed)?;
+    }
     blocking(move || {
-        let service_path = get_service_path(&config.service_name, config.is_user_level);
+        let service_path = get_service_path(&config.service_name, config.is_user_level)?;
 
         // Lấy đường dẫn thực tế của rclone
         let rclone_path = String::from_utf8_lossy(
@@ -177,18 +231,19 @@ WantedBy=default.target
 }
 
 /// Xoá systemd service
-#[tauri::command]
-pub async fn delete_mount_service(service_name: String, is_user: bool) -> Result<String, String> {
+pub async fn delete_mount_service(service_name: String, is_user: bool, confirmed: bool) -> Result<String, String> {
+    validate_service_name(&service_name)?;
+    require_confirmation(confirmed)?;
     // Stop service first
-    manage_mount_service(service_name.clone(), is_user, "stop".to_string())
+    manage_mount_service(service_name.clone(), is_user, "stop".to_string(), true)
         .await
         .ok();
-    manage_mount_service(service_name.clone(), is_user, "disable".to_string())
+    manage_mount_service(service_name.clone(), is_user, "disable".to_string(), true)
         .await
         .ok();
 
     blocking(move || {
-        let service_path = get_service_path(&service_name, is_user);
+        let service_path = get_service_path(&service_name, is_user)?;
 
         if !is_user {
             let pkexec = Command::new("pkexec")
@@ -216,8 +271,17 @@ pub async fn delete_mount_service(service_name: String, is_user: bool) -> Result
 }
 
 /// Gửi lệnh start/stop/enable/disable cho systemd
-#[tauri::command]
-pub async fn manage_mount_service(service_name: String, is_user: bool, action: String) -> Result<String, String> {
+pub async fn manage_mount_service(
+    service_name: String,
+    is_user: bool,
+    action: String,
+    confirmed: bool,
+) -> Result<String, String> {
+    validate_service_name(&service_name)?;
+    validate_action(&action)?;
+    if !is_user || matches!(action.as_str(), "stop" | "disable" | "restart") {
+        require_confirmation(confirmed)?;
+    }
     blocking(move || {
         let mut cmd = if is_user {
             let mut c = Command::new("systemctl");
@@ -245,10 +309,10 @@ pub async fn manage_mount_service(service_name: String, is_user: bool, action: S
 }
 
 /// Lấy danh sách các file .service từ user và system
-#[tauri::command]
 pub async fn get_mount_service_config(service_name: String, is_user: bool) -> Result<MountConfig, String> {
+    validate_service_name(&service_name)?;
     blocking(move || {
-        let service_path = get_service_path(&service_name, is_user);
+        let service_path = get_service_path(&service_name, is_user)?;
         if !service_path.exists() {
             return Err(format!("Service file not found at: {:?}", service_path));
         }
@@ -329,7 +393,6 @@ pub async fn get_mount_service_config(service_name: String, is_user: bool) -> Re
     .await
 }
 
-#[tauri::command]
 pub async fn list_mount_services() -> Result<Vec<SystemdServiceInfo>, String> {
     blocking(|| {
         let mut services = Vec::new();
@@ -454,4 +517,48 @@ fn shlex_split(input: &str) -> Vec<String> {
     }
 
     parts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn service_name_is_strict_identifier() {
+        for valid in ["rclone-drive", "RCLONE_2", "a"] {
+            assert!(validate_service_name(valid).is_ok(), "{valid}");
+        }
+        for malicious in [
+            "",
+            "../evil",
+            "a.service",
+            "a/b",
+            "a;id",
+            "$(id)",
+            "a b",
+            "a\nExecStart=/bin/id",
+        ] {
+            assert!(validate_service_name(malicious).is_err(), "{malicious:?}");
+        }
+    }
+
+    #[test]
+    fn service_path_is_contained_and_canonical() {
+        let path = get_service_path("rclone-safe", false).expect("safe path");
+        assert_eq!(path, PathBuf::from("/etc/systemd/system/rclone-safe.service"));
+        assert_eq!(path.parent(), Some(Path::new("/etc/systemd/system")));
+        assert!(get_service_path("../../tmp/owned", false).is_err());
+    }
+
+    #[test]
+    fn privileged_and_destructive_actions_require_confirmation() {
+        assert!(require_confirmation(false).is_err());
+        assert!(require_confirmation(true).is_ok());
+        for action in ["start", "stop", "enable", "disable", "restart"] {
+            assert!(validate_action(action).is_ok());
+        }
+        for action in ["status;id", "daemon-reload", "", "--help"] {
+            assert!(validate_action(action).is_err());
+        }
+    }
 }

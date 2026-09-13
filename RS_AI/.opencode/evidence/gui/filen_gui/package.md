@@ -8,3 +8,5 @@
 - Host: Tauri CLI `2.11.4`, WebKitGTK `2.52.6`, GTK `3.24.41`, `/usr/bin/dpkg-deb`, `DISPLAY=:0` and X0 socket present; `xvfb-run` absent but not required because smoke was excluded.
 - Lockfiles were not edited/reconciled: root hash `1795db56fd55f8977ec05d1f58abde691972231476ee26d539607e7ebec255fe`; Filen hash `c49da9bb24acc0af82eeb834dbbb3f054390a9af0e754828b195d0df58294c0c` (both pre-existing dirty).
 - MSI/DMG: `deferred/platform-unverified` on Linux.
+- Phase 8.4 refresh (2026-09-12): fresh Linux outputs preserved in `/tmp/opencode/phase-8-artifacts-20260912`; AppImage SHA-256 `3759463bc66a73bc439cac63b048247e1c141a2874edb37d43df5f0cd785edf5`, DEB `36e25dfd6c711f8b15857dcd558f7280788f6fa71c8d1f21bbda0f18ce859357`.
+- Post-four-fix Phase 8.4 rebuild (2026-09-12): AppImage `05fd1fdbae8c170656ddb582885ca35f4856f2fc53a33eff96e4f980f51cf916`; DEB `b59571491ab1f26f215a8e4371ee758a6d466d38aa0e3ed75dc9d380dac0b71e`; preserved under `/tmp/opencode/phase-8-four-fixes-20260912T045604Z-272465`.

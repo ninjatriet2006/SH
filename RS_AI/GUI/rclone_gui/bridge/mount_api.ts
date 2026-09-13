@@ -5,7 +5,7 @@ Trách nhiệm: Gọi lệnh kiểm tra fuse, tạo/xoá/quản lý service, l�
 Các module tương tác: frontend/src/features/mountManager.ts, backend/src/mount.rs
 */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './ipc';
 
 export interface MountConfig {
     service_name: string;
@@ -39,9 +39,9 @@ export async function checkFuseInstalled(): Promise<boolean> {
     }
 }
 
-export async function createMountService(config: MountConfig): Promise<boolean> {
+export async function createMountService(config: MountConfig, confirmed: boolean): Promise<boolean> {
     try {
-        await invoke('create_mount_service', { config });
+        await invoke('create_mount_service', { config, confirmed });
         return true;
     } catch (error) {
         console.error("Lỗi khi tạo mount service:", error);
@@ -50,9 +50,9 @@ export async function createMountService(config: MountConfig): Promise<boolean> 
     }
 }
 
-export async function deleteMountService(serviceName: string, isUser: boolean): Promise<boolean> {
+export async function deleteMountService(serviceName: string, isUser: boolean, confirmed: boolean): Promise<boolean> {
     try {
-        await invoke('delete_mount_service', { serviceName, isUser });
+        await invoke('delete_mount_service', { serviceName, isUser, confirmed });
         return true;
     } catch (error) {
         console.error("Lỗi khi xoá mount service:", error);
@@ -61,9 +61,9 @@ export async function deleteMountService(serviceName: string, isUser: boolean): 
     }
 }
 
-export async function manageMountService(serviceName: string, isUser: boolean, action: string): Promise<boolean> {
+export async function manageMountService(serviceName: string, isUser: boolean, action: string, confirmed: boolean): Promise<boolean> {
     try {
-        await invoke('manage_mount_service', { serviceName, isUser, action });
+        await invoke('manage_mount_service', { serviceName, isUser, action, confirmed });
         return true;
     } catch (error) {
         console.error(`Lỗi khi ${action} mount service:`, error);

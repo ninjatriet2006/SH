@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc';
 
 export class ServersDashboard {
   element: HTMLDivElement;

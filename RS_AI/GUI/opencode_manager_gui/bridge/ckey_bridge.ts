@@ -12,7 +12,7 @@ chuyển đổi qua active. IMPORT chọn provider đích + dùng AI key của p
 Tham số dùng snake_case khớp `rename_all = "snake_case"` ở backend.
 */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invokeIpc, ipcErrorMessage } from './ipc';
 import type {
     CkeyDashboard, CkeyDepositView, CkeyImportList, CkeyImportResult,
     CkeyProfileView, CkeyUsageView,
@@ -22,9 +22,9 @@ import type {
 
 export async function listCkeyProfiles(): Promise<CkeyProfileView[]> {
     try {
-        return await invoke<CkeyProfileView[]>('list_ckey_profiles');
+        return await invokeIpc<CkeyProfileView[]>('list_ckey_profiles');
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
@@ -35,31 +35,31 @@ export async function saveCkeyProfile(args: {
     key: string;
 }): Promise<string> {
     try {
-        return await invoke<string>('save_ckey_profile', {
+        return await invokeIpc<string, { profile_id: string | null; name: string; key: string }>('save_ckey_profile', {
             profile_id: args.profileId ?? null,
             name: args.name,
             key: args.key,
         });
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
 /** Xoá profile (dọn binding trỏ tới nó). Trả về id active mới nếu còn. */
 export async function deleteCkeyProfile(profileId: string): Promise<string | null> {
     try {
-        return await invoke<string | null>('delete_ckey_profile', { profile_id: profileId });
+        return await invokeIpc<string | null, { profile_id: string }>('delete_ckey_profile', { profile_id: profileId });
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
 /** Chuyển tài khoản đang xem sang profile khác. */
 export async function setActiveCkeyProfile(profileId: string): Promise<void> {
     try {
-        await invoke<void>('set_active_ckey_profile', { profile_id: profileId });
+        await invokeIpc<void, { profile_id: string }>('set_active_ckey_profile', { profile_id: profileId });
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
@@ -75,13 +75,13 @@ export async function fetchCkeyDashboard(
     force?: boolean,
 ): Promise<CkeyDashboard> {
     try {
-        return await invoke<CkeyDashboard>('fetch_ckey_dashboard', {
+        return await invokeIpc<CkeyDashboard, { profile_id: string; since_days: number | null; force: boolean | null }>('fetch_ckey_dashboard', {
             profile_id: profileId,
             since_days: sinceDays ?? null,
             force: force ?? false,
         });
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
@@ -94,7 +94,9 @@ export async function fetchCkeyUsage(
     force?: boolean,
 ): Promise<CkeyUsageView> {
     try {
-        return await invoke<CkeyUsageView>('fetch_ckey_usage', {
+        return await invokeIpc<CkeyUsageView, {
+            profile_id: string; page: number; limit: number; model: string | null; force: boolean;
+        }>('fetch_ckey_usage', {
             profile_id: profileId,
             page,
             limit,
@@ -102,7 +104,7 @@ export async function fetchCkeyUsage(
             force: force ?? false,
         });
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
@@ -115,7 +117,9 @@ export async function fetchCkeyDeposit(
     force?: boolean,
 ): Promise<CkeyDepositView> {
     try {
-        return await invoke<CkeyDepositView>('fetch_ckey_deposit', {
+        return await invokeIpc<CkeyDepositView, {
+            profile_id: string; amount: number; page: number; limit: number; force: boolean;
+        }>('fetch_ckey_deposit', {
             profile_id: profileId,
             amount,
             page,
@@ -123,7 +127,7 @@ export async function fetchCkeyDeposit(
             force: force ?? false,
         });
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
@@ -134,11 +138,11 @@ export async function fetchCkeyDeposit(
  * Backend tự suy provider ĐÍCH từ binding của tài khoản đang xem (mặc định id
  * chuẩn "ckey"); kết quả kèm đích để hiển thị. Không cần chọn gì cả.
  */
-export async function listCkeyImportItems(): Promise<CkeyImportList> {
+export async function listCkeyImportItems(profileId: string): Promise<CkeyImportList> {
     try {
-        return await invoke<CkeyImportList>('list_ckey_import_items');
+        return await invokeIpc<CkeyImportList, { profile_id: string }>('list_ckey_import_items', { profile_id: profileId });
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }
 
@@ -151,11 +155,11 @@ export async function importCkeyModels(
     selected: string[],
 ): Promise<CkeyImportResult> {
     try {
-        return await invoke<CkeyImportResult>('import_ckey_models', {
+        return await invokeIpc<CkeyImportResult, { profile_id: string; selected: string[] }>('import_ckey_models', {
             profile_id: profileId,
             selected,
         });
     } catch (error) {
-        throw new Error(String(error));
+        throw new Error(ipcErrorMessage(error));
     }
 }

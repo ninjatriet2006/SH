@@ -19,11 +19,13 @@ Nguyên tắc đồng thuận (theo thiết kế):
 */
 
 use crate::api::models::matrix_rows;
+use crate::ipc::{from_string, respond, Empty, IpcError, IpcResult, Req};
 use opencode_manager::app::App;
 use opencode_manager::arbiter::{
     ArbiterClient, ArbiterConfig, ArbiterModelInput, ArbiterOverallWeights, ArbiterRun, ArbiterVerdict,
     ARBITER_BATCH_LIMIT, ARBITER_OVERALL_VERSION, ARBITER_OVERALL_WEIGHTS,
 };
+use serde::Deserialize;
 use serde::Serialize;
 
 /// Trạng thái arbiter cho UI (đọc từ arbiter.json — không gọi mạng).
@@ -59,7 +61,14 @@ pub struct ArbiterCandidate {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn get_arbiter_state() -> Result<ArbiterState, String> {
+pub fn get_arbiter_state(request: Req<Empty>) -> IpcResult<ArbiterState> {
+    let (request_id, _) = request.validate()?;
+    get_arbiter_state_inner()
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
+}
+
+fn get_arbiter_state_inner() -> Result<ArbiterState, String> {
     let cfg = ArbiterConfig::load()?;
     let rows = matrix_rows()?;
 
@@ -103,6 +112,12 @@ pub struct ArbiterProgress {
     pub scored: usize,
 }
 
+#[derive(Deserialize)]
+pub struct RunArbiterEvaluationRequest {
+    pub arbiter_provider: String,
+    pub arbiter_model: String,
+}
+
 fn emit_progress(app: &tauri::AppHandle, stage: &str, message: String, current: usize, total: usize, scored: usize) {
     use tauri::Emitter;
     let _ = app.emit(
@@ -129,12 +144,16 @@ fn emit_progress(app: &tauri::AppHandle, stage: &str, message: String, current: 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn run_arbiter_evaluation(
     app: tauri::AppHandle,
-    arbiter_provider: String,
-    arbiter_model: String,
-) -> Result<Vec<ArbiterVerdict>, String> {
-    tauri::async_runtime::spawn_blocking(move || run_arbiter_evaluation_blocking(app, arbiter_provider, arbiter_model))
-        .await
-        .map_err(|e| format!("Task trọng tài sụp: {e}"))?
+    request: Req<RunArbiterEvaluationRequest>,
+) -> IpcResult<Vec<ArbiterVerdict>> {
+    let (request_id, payload) = request.validate()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        run_arbiter_evaluation_blocking(app, payload.arbiter_provider, payload.arbiter_model)
+    })
+    .await
+    .map_err(|e| IpcError::internal(format!("Task trọng tài sụp: {e}")))?
+    .map(|data| respond(request_id, data))
+    .map_err(from_string)
 }
 
 fn run_arbiter_evaluation_blocking(
@@ -345,7 +364,14 @@ fn chrono_ts_text(secs: u64) -> String {
 
 /// Xoá lịch sử chấm (bắt đầu lại từ đầu — lần chạy kế tiếp là "lần 1").
 #[tauri::command(rename_all = "snake_case")]
-pub fn clear_arbiter_history() -> Result<(), String> {
+pub fn clear_arbiter_history(request: Req<Empty>) -> IpcResult<()> {
+    let (request_id, _) = request.validate()?;
+    clear_arbiter_history_inner()
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
+}
+
+fn clear_arbiter_history_inner() -> Result<(), String> {
     let mut cfg = ArbiterConfig::load()?;
     cfg.runs.clear();
     cfg.arbiter = None;
@@ -584,8 +610,21 @@ fn score_for_task(
 /// Model chưa được judge không xếp hạng được (đếm trong `unevaluated`) —
 /// xếp hạng mà không có judge sẽ thành đọc thông số, thất bại đúng cái
 /// người dùng muốn tránh.
+#[derive(Deserialize)]
+pub struct RecommendModelsRequest {
+    #[serde(deserialize_with = "crate::ipc::present_nullable")]
+    pub task: Option<String>,
+}
+
 #[tauri::command(rename_all = "snake_case")]
-pub fn recommend_models(task: Option<String>) -> Result<RecommendationView, String> {
+pub fn recommend_models(request: Req<RecommendModelsRequest>) -> IpcResult<RecommendationView> {
+    let (request_id, payload) = request.validate()?;
+    recommend_models_inner(payload.task)
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
+}
+
+fn recommend_models_inner(task: Option<String>) -> Result<RecommendationView, String> {
     let task = task
         .map(|t| t.trim().to_string())
         .filter(|t| !t.is_empty())
@@ -725,7 +764,7 @@ mod recommend_tests {
         let test_dir = crate::test_support::isolate_home("rec_coding");
         seed(&test_dir);
 
-        let view = recommend_models(Some("coding".into())).unwrap();
+        let view = recommend_models_inner(Some("coding".into())).unwrap();
         assert_eq!(view.task, "coding");
         assert_eq!(view.items.len(), 2, "nojudge chưa được chấm");
         assert_eq!(view.unevaluated, 1, "p/nojudge nằm ngoài xếp hạng");
@@ -757,14 +796,14 @@ mod recommend_tests {
         seed(&test_dir);
 
         // long_context: big (1M) trên small (64k).
-        let view = recommend_models(Some("long_context".into())).unwrap();
+        let view = recommend_models_inner(Some("long_context".into())).unwrap();
         assert_eq!(view.items[0].model_id, "big");
         assert_eq!(view.items[0].base, 100, "1M → thang log chuẩn hoá max 100");
         assert_eq!(view.items[1].model_id, "small");
         assert_eq!(view.items[1].base, 80, "64k → 80");
 
         // value: không có giá trong dev cache → không phạt, thứ tự theo overall.
-        let view = recommend_models(Some("value".into())).unwrap();
+        let view = recommend_models_inner(Some("value".into())).unwrap();
         assert_eq!(view.items[0].model_id, "small", "overall 78 > 60");
         assert!(view.items[0].adjustments.is_empty(), "không có giá → không phạt");
 
@@ -773,7 +812,7 @@ mod recommend_tests {
         // big tin cậy tool hơn (80>70) và context lớn có ích cho agent chạy
         // dài → big thắng tác vụ này là ĐÚNG thiết kế: mỗi tác vụ thưởng đúng
         // thứ nó cần, không phải coding-point mọi nơi.
-        let view = recommend_models(Some("agentic".into())).unwrap();
+        let view = recommend_models_inner(Some("agentic".into())).unwrap();
         assert_eq!(view.items[0].model_id, "big");
         assert_eq!(view.items[0].base, 70);
         assert_eq!(view.items[0].score, 78, "70 + ctx(+8)");
@@ -784,11 +823,11 @@ mod recommend_tests {
         );
 
         // Task lạ → lỗi liệt kê tác vụ hợp lệ.
-        let err = recommend_models(Some("tts".into())).unwrap_err();
+        let err = recommend_models_inner(Some("tts".into())).unwrap_err();
         assert!(err.contains("coding"), "lỗi phải gợi ý danh sách: {err}");
 
         // None → mặc định coding.
-        assert_eq!(recommend_models(None).unwrap().task, "coding");
+        assert_eq!(recommend_models_inner(None).unwrap().task, "coding");
     }
 
     /// Biên công thức điều chỉnh context.

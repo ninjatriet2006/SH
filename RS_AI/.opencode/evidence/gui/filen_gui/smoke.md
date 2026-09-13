@@ -7,3 +7,5 @@
 - Readiness: process `filen_gui_tauri` remained alive >=5 seconds; QA sent SIGTERM; wrapper exit `143` accepted. No app panic, resource-load, source-tree, launch-CWD or cross-GUI lookup appeared in output.
 - Benign host-service output: xdg-document portal/GVFS reported FUSE permission errors under `/run/user/1000/{doc,gvfs}`; AppImage itself mounted and app remained ready, so extraction fallback was not required for launch.
 - Bundle inspection: `--appimage-extract` PASS; `usr/lib/filen_gui/{langs,themes,fonts}` present with 2/1/4 files respectively.
+- Phase 8.6 refresh (2026-09-12): fresh AppImage `3759463b...edf5` launched from `/tmp` with `APPIMAGE_EXTRACT_AND_RUN=1`; alive to timeout 124. Log has only benign host portal/GVFS/FUSE diagnostics.
+- Post-four-fix Phase 8.6: fresh AppImage `05fd1fd...56f9b` and extracted DEB binary both launched from isolated non-repo CWD/XDG roots and stayed alive to timeout 124; extraction/resources/font manifest PASS. Logs: `/tmp/opencode/phase-8-four-fixes-20260912T045604Z-272465`.

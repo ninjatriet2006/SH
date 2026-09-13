@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/capabilities.json",
+  "identifier": "main",
+  "description": "Universe Manager main-window event capability",
+  "windows": ["main"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

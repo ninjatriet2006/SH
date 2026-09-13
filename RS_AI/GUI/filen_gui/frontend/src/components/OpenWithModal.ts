@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc';
 import { OperationModal } from './OperationModal';
 
 export interface DesktopApp {
@@ -52,7 +52,7 @@ export class OpenWithModal {
     confirmBtn?.addEventListener('click', async () => {
       if (this.selectedApp) {
         try {
-          await invoke('sys_open_with', { path: this.targetPath, execCmd: this.selectedApp.exec });
+          await invoke('sys_open_with', { path: this.targetPath, exec_cmd: this.selectedApp.exec });
         } catch (e) {
           console.warn('sys_open_with failed:', e);
         }

@@ -147,7 +147,7 @@ export function MenuFile(e: MouseEvent, opts: ContextMenuOptions): void {
           new OpenWithModal(fullPath).open();
           break;
         case 'Open in Terminal':
-          import('@tauri-apps/api/core').then(({ invoke }) => {
+          import('../ipc').then(({ invoke }) => {
             invoke('open_in_terminal', { path: fullPath })
               .catch((err) => console.error('Open terminal failed:', err));
           });
@@ -230,7 +230,7 @@ export function MenuEmpty(e: MouseEvent, opts: FolderContextMenuOptions): void {
           onSelectAll();
           break;
         case 'Open in Terminal':
-          import('@tauri-apps/api/core').then(({ invoke }) => {
+          import('../ipc').then(({ invoke }) => {
             invoke('open_in_terminal', { path: basePath })
               .catch((err) => console.error('Open terminal failed:', err));
           });
@@ -381,6 +381,7 @@ async function handleTrashAction(action: string, f: FileItem, basePath: string, 
         if (idx > 0) await trashOps.restoreRemoteTrash(idx);
       }
     } else if (action === 'Xoá vĩnh viễn') {
+      if (!confirm(`Xoá vĩnh viễn ${f.name}? Thao tác này không thể hoàn tác.`)) return;
       if (basePath === 'trash://local') {
         alert('Tính năng xoá từng file cục bộ chưa hoàn thiện. Vui lòng làm trống toàn bộ thùng rác.');
         return;

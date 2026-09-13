@@ -1,0 +1,5 @@
+{
+  "app": { "title": "Universe Manager", "scaffold": "The Tauri interface is being initialized." },
+  "nav": { "dashboard": "Dashboard", "config": "Config", "scan": "Scan Apps", "manager": "App Manager", "search": "Search", "settings": "Settings" },
+  "settings": { "language": "Language", "theme": "Theme", "font": "Font", "system": "System", "light": "Light", "dark": "Dark", "system_default": "System default" }
+}

@@ -18,130 +18,42 @@ fn crate_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-fn api_sources() -> Vec<(String, String)> {
-    let src = crate_dir().join("src");
-    let mut out = Vec::new();
-    for entry in std::fs::read_dir(&src).expect("đọc src/") {
-        let path = entry.expect("entry").path();
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_default()
-            .to_string();
-        if name.ends_with("_api.rs") || name == "storage.rs" {
-            let content = std::fs::read_to_string(&path).expect("đọc file api");
-            out.push((name, content));
-        }
-    }
-    assert!(!out.is_empty(), "không tìm thấy file chứa Tauri command nào");
-    out
-}
-
-/// Cắt phần trong ngoặc đơn của chữ ký hàm, bắt đầu từ vị trí dấu `(`.
-fn param_block(src: &str, open_paren: usize) -> &str {
-    let bytes = src.as_bytes();
-    let mut depth = 0usize;
-    for (i, b) in bytes.iter().enumerate().skip(open_paren) {
-        match b {
-            b'(' => depth += 1,
-            b')' => {
-                depth -= 1;
-                if depth == 0 {
-                    return &src[open_paren + 1..i];
-                }
-            }
-            _ => {}
-        }
-    }
-    panic!("không tìm được ngoặc đóng của chữ ký hàm");
-}
-
-/// Tách tên tham số cấp trên cùng: bỏ qua dấu phẩy nằm trong `<...>`/`(...)`.
-fn split_param_names(block: &str) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut depth = 0i32;
-    let mut current = String::new();
-    for ch in block.chars() {
-        match ch {
-            '<' | '(' | '[' => {
-                depth += 1;
-                current.push(ch);
-            }
-            '>' | ')' | ']' => {
-                depth -= 1;
-                current.push(ch);
-            }
-            ',' if depth == 0 => {
-                names.push(std::mem::take(&mut current));
-            }
-            _ => current.push(ch),
-        }
-    }
-    names.push(current);
-
-    names
-        .into_iter()
-        .filter_map(|part| {
-            let part = part.trim();
-            if part.is_empty() {
-                return None;
-            }
-            // Bỏ comment dòng lẫn trong chữ ký.
-            let part: String = part
-                .lines()
-                .filter(|l| !l.trim_start().starts_with("//"))
-                .collect::<Vec<_>>()
-                .join(" ");
-            let name = part.split(':').next()?.trim().to_string();
-            if name.is_empty() || name == "self" {
-                None
-            } else {
-                Some(name)
-            }
-        })
-        .collect()
+fn command_source() -> (String, String) {
+    let path = crate_dir().join("src/lib.rs");
+    ("lib.rs".to_string(), std::fs::read_to_string(path).expect("đọc lib.rs"))
 }
 
 /// Map: tên command Rust -> tập tên tham số.
 fn rust_commands() -> HashMap<String, HashSet<String>> {
     let mut map = HashMap::new();
-    for (file, src) in api_sources() {
-        let mut cursor = 0usize;
-        while let Some(rel) = src[cursor..].find("#[tauri::command") {
-            let attr_start = cursor + rel;
-            let attr_end = src[attr_start..]
-                .find(']')
-                .map(|i| attr_start + i + 1)
-                .expect("attribute thiếu ]");
-            let attr = &src[attr_start..attr_end];
+    let (file, src) = command_source();
+    let macro_body = src
+        .split_once("macro_rules! command")
+        .expect("thiếu command macro")
+        .1
+        .split_once("command!(")
+        .expect("thiếu command registry")
+        .0;
+    assert!(
+        macro_body.contains(r#"rename_all = "snake_case""#),
+        "{file}: command macro thiếu rename_all snake_case"
+    );
+    assert!(macro_body.contains("request: Req<$request>"));
 
-            // Lớp bảo vệ 1: bắt buộc khai báo snake_case.
-            assert!(
-                attr.contains(r#"rename_all = "snake_case""#),
-                "{file}: `{attr}` thiếu `rename_all = \"snake_case\"`.\n\
-                 Tauri v2 mặc định camelCase nên tham số snake_case sẽ bị đổi tên \
-                 và bridge gọi vào sẽ báo `missing required key`."
-            );
-
-            let after = &src[attr_end..];
-            let fn_rel = after.find("fn ").expect("sau attribute phải có `fn`");
-            let name_start = attr_end + fn_rel + 3;
-            let open_paren = src[name_start..]
-                .find('(')
-                .map(|i| name_start + i)
-                .expect("chữ ký hàm thiếu (");
-            let fn_name = src[name_start..open_paren].trim().to_string();
-            let params = split_param_names(param_block(&src, open_paren));
-
-            map.insert(fn_name, params.into_iter().collect());
-            cursor = open_paren;
+    for chunk in src.split("command!(").skip(1) {
+        let mut parts = chunk.split(',');
+        let wrapper = parts.next().expect("wrapper").trim();
+        if !wrapper.starts_with("ipc_") || wrapper.contains(':') {
+            continue;
         }
+        let command = parts.next().expect("command").trim().trim_matches('"');
+        map.insert(command.to_string(), HashSet::from(["request".to_string()]));
     }
     assert!(!map.is_empty(), "không parse được command nào từ source Rust");
     map
 }
 
-/// Đọc các key mà bridge TS gửi kèm mỗi `invoke('cmd', { ... })`.
+/// Đọc payload DTO mà bridge TS gửi qua helper `invokeCommand`.
 fn bridge_calls() -> Vec<(String, String, Vec<String>)> {
     let bridge = crate_dir().parent().expect("thư mục app").join("bridge");
     let mut calls = Vec::new();
@@ -155,6 +67,9 @@ fn bridge_calls() -> Vec<(String, String, Vec<String>)> {
             .and_then(|n| n.to_str())
             .unwrap_or_default()
             .to_string();
+        if file == "types.ts" {
+            continue;
+        }
         let src = std::fs::read_to_string(&path).expect("đọc bridge ts");
         collect_invokes(&file, &src, &mut calls);
     }
@@ -164,17 +79,18 @@ fn bridge_calls() -> Vec<(String, String, Vec<String>)> {
 
 fn collect_invokes(file: &str, src: &str, out: &mut Vec<(String, String, Vec<String>)>) {
     let mut cursor = 0usize;
-    while let Some(rel) = src[cursor..].find("invoke") {
+    while let Some(rel) = src[cursor..].find("invokeCommand<") {
         let start = cursor + rel;
         let rest = &src[start..];
         // Bỏ qua dòng import và chú thích.
-        let Some(quote_rel) = rest.find('\'') else { break };
-        let open_paren = rest[..quote_rel].find('(');
-        if open_paren.is_none() {
-            cursor = start + 6;
+        let Some(call_rel) = rest.find(">(") else { break };
+        if call_rel > 300 {
+            cursor = start + "invokeCommand<".len();
             continue;
         }
-        let name_start = start + quote_rel + 1;
+        let after_call = &rest[call_rel + 2..];
+        let Some(quote_rel) = after_call.find('\'') else { break };
+        let name_start = start + call_rel + 2 + quote_rel + 1;
         let Some(name_len) = src[name_start..].find('\'') else {
             break;
         };
@@ -185,7 +101,7 @@ fn collect_invokes(file: &str, src: &str, out: &mut Vec<(String, String, Vec<Str
             continue;
         }
 
-        // Có object payload ngay sau dấu phẩy?
+        // Payload là đối số object thứ hai của invokeCommand(command, payload).
         let after_name = name_start + name_len + 1;
         let tail = &src[after_name..];
         let keys = match tail.find(|c: char| !c.is_whitespace()) {
@@ -288,22 +204,54 @@ fn key_bridge_gui_khop_tham_so_rust() {
             continue;
         };
         for key in keys {
-            if !params.contains(&key) {
+            if !params.contains("request") {
+                loi.push(format!("{file}: `{cmd}` không nhận đúng một tham số `request`"));
+                continue;
+            }
+            let expected = request_fields(&cmd);
+            if !expected.contains(&key) {
                 let mut goi_y = String::new();
                 // Gợi ý khi lệch do camelCase.
                 let snake = to_snake(&key);
-                if params.contains(&snake) {
+                if expected.contains(&snake) {
                     goi_y = format!(" (ý bạn là `{snake}`?)");
                 }
                 loi.push(format!(
                     "{file}: `{cmd}` nhận key `{key}` nhưng tham số Rust là {:?}{goi_y}",
-                    sorted(params)
+                    sorted(&expected)
                 ));
             }
         }
     }
 
     assert!(loi.is_empty(), "Lệch tên tham số IPC:\n  - {}", loi.join("\n  - "));
+}
+
+fn request_fields(command: &str) -> HashSet<String> {
+    let (_, src) = command_source();
+    let marker = format!("ipc_{command},");
+    let after = src
+        .split_once(&marker)
+        .unwrap_or_else(|| panic!("thiếu khai báo {command}"))
+        .1;
+    let request_type = after.split(',').nth(1).expect("request DTO").trim();
+    let dto_marker = format!("request_dto!({request_type} {{");
+    let body = src
+        .split_once(&dto_marker)
+        .unwrap_or_else(|| panic!("thiếu DTO {request_type}"))
+        .1
+        .split_once("});")
+        .expect("đóng DTO")
+        .0;
+    body.lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with("#[") {
+                return None;
+            }
+            line.split_once(':').map(|(name, _)| name.trim().to_string())
+        })
+        .collect()
 }
 
 fn sorted(set: &HashSet<String>) -> Vec<String> {
@@ -345,7 +293,7 @@ fn command_dang_ky_day_du_trong_handler() {
         .map(str::to_string)
         .collect();
 
-    let defined: HashSet<String> = rust_commands().keys().cloned().collect();
+    let defined: HashSet<String> = rust_commands().keys().map(|name| format!("ipc_{name}")).collect();
 
     let thieu: Vec<_> = sorted(&defined.difference(&registered).cloned().collect());
     let du: Vec<_> = sorted(&registered.difference(&defined).cloned().collect());

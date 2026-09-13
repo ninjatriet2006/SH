@@ -11,9 +11,11 @@ hàng loạt provider trùng, nên hàm này lọc theo cặp (endpoint đã chu
 */
 
 use crate::core::store::{load_merged, save_split};
+use crate::ipc::{from_string, respond, IpcResult, Req};
 use opencode_manager::app::DynamicPreset;
 use opencode_manager::ckey::generate_provider_name;
 use opencode_manager::config::{normalize_base_url, OpencodeConfig, Provider, ProviderOptions};
+use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashSet;
 
@@ -129,10 +131,23 @@ fn presets() -> Vec<DynamicPreset> {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn bulk_add_providers(endpoint: String, keys: String) -> Result<BulkAddResult, String> {
+pub fn bulk_add_providers(request: Req<BulkAddProvidersRequest>) -> IpcResult<BulkAddResult> {
+    let (request_id, payload) = request.validate()?;
+    bulk_add_providers_inner(payload.endpoint, payload.keys)
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
+}
+
+#[derive(Deserialize)]
+pub struct BulkAddProvidersRequest {
+    pub endpoint: String,
+    pub keys: Vec<String>,
+}
+
+fn bulk_add_providers_inner(endpoint: String, keys: Vec<String>) -> Result<BulkAddResult, String> {
     let presets = presets();
     let (mut config, mut auth) = load_merged(&presets)?;
-    let result = bulk_add_into(&mut config, &endpoint, &keys)?;
+    let result = bulk_add_into(&mut config, &endpoint, &keys.join("\n"))?;
 
     // Chỉ ghi file khi thật sự có thay đổi — tránh tạo bản backup vô ích của
     // `opencode.json` mỗi lần người dùng bấm nút mà mọi key đều trùng.

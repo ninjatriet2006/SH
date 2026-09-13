@@ -6,15 +6,14 @@
 */
 
 // Nhúng hàm invoke từ thư viện Tauri để gọi lệnh Rust
-import { invoke } from '@tauri-apps/api/core';
 // Nhúng định nghĩa kiểu dữ liệu User
-import type { User } from './types';
+import { invokeCommand, type User } from './types';
 
 // Hàm gọi API thêm người dùng
 export async function addUser(username: string, email?: string, phone?: string, contact_url?: string): Promise<User> {
     try {
         // Gửi lệnh "add_user" xuống Rust với tham số
-        const result = await invoke<User>('add_user', { 
+        const result = await invokeCommand<User, { username: string; email: string | null; phone: string | null; contact_url: string | null }>('add_user', {
             username, 
             email: email || null,
             phone: phone || null,
@@ -33,7 +32,7 @@ export async function addUser(username: string, email?: string, phone?: string, 
 export async function updateUser(id: string, username?: string, email?: string, phone?: string, contact_url?: string): Promise<User> {
     try {
         // Gửi lệnh "update_user" xuống Rust
-        const result = await invoke<User>('update_user', { 
+        const result = await invokeCommand<User, { id: string; username: string | null; email: string | null; phone: string | null; contact_url: string | null }>('update_user', {
             id, 
             username: username ?? null, 
             email: email ?? null,
@@ -51,7 +50,7 @@ export async function updateUser(id: string, username?: string, email?: string, 
 export async function deleteUser(id: string): Promise<void> {
     try {
         // Gửi lệnh "delete_user" xuống Rust
-        await invoke<void>('delete_user', { id });
+        await invokeCommand<void, { id: string }>('delete_user', { id });
     } catch (error) {
         // Bắt và ném lỗi
         throw new Error(String(error));
@@ -62,7 +61,7 @@ export async function deleteUser(id: string): Promise<void> {
 export async function listUsers(page?: number, limit?: number): Promise<User[]> {
     try {
         // Gửi lệnh "list_users" xuống Rust
-        const result = await invoke<User[]>('list_users', { 
+        const result = await invokeCommand<User[], { page: number | null; limit: number | null }>('list_users', {
             page: page ?? null, 
             limit: limit ?? null 
         });
@@ -76,7 +75,7 @@ export async function listUsers(page?: number, limit?: number): Promise<User[]> 
 // Hàm điều chỉnh số dư: `delta` > 0 nạp thêm, < 0 trừ ra (có thể tạo công nợ).
 export async function adjustUserBalance(id: string, delta: number, note?: string): Promise<User> {
     try {
-        return await invoke<User>('adjust_user_balance', {
+        return await invokeCommand<User, { id: string; delta: number; note: string | null }>('adjust_user_balance', {
             id,
             delta,
             note: note ?? null

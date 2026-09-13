@@ -3,12 +3,45 @@
 //! Trách nhiệm: Thêm, Hủy, Bắt đầu transfer, giao tiếp (event emitter) tiến trình download/upload/copy/move.
 //! Tương tác: Giao tiếp với `TransferManager` trong `AppState`.
 
-use crate::state::{AppState, TransferProgressPayload, TransferFinishedPayload};
-use filen_gui::transfer::{
-    ProgressUpdate, TransferError, TransferItem, TransferKind, TransferStatus,
-    copy_local, delete_local_path, move_local, run_cli_transfer_terminal,
+use crate::{
+    contract::{backend, success, validate, IpcResult, Req},
+    security::require_confirmation,
+    state::{AppState, TransferFinishedPayload, TransferProgressPayload},
 };
+use filen_gui::transfer::{
+    copy_local, delete_local_path, move_local, run_cli_transfer_terminal, ProgressUpdate, TransferError, TransferItem,
+    TransferKind, TransferStatus,
+};
+use serde::Deserialize;
 use tauri::Emitter;
+
+#[derive(Deserialize)]
+pub struct TransferEnqueueReq {
+    kind: String,
+    name: String,
+    src: String,
+    dst: String,
+    src_local: bool,
+    dst_local: bool,
+    cleanup_src: bool,
+    src_pane: usize,
+    dst_pane: usize,
+    confirmed: bool,
+}
+
+#[derive(Deserialize)]
+pub struct AccountReq {
+    #[serde(deserialize_with = "crate::contract::present_nullable")]
+    account: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct IdReq {
+    id: usize,
+}
+
+#[derive(Deserialize)]
+pub struct Empty {}
 
 /// Chuyển đổi từ chuỗi (string) cấu hình sang kiểu enum `TransferKind` an toàn.
 pub fn parse_transfer_kind(kind: &str) -> Result<TransferKind, String> {
@@ -26,46 +59,63 @@ pub fn parse_transfer_kind(kind: &str) -> Result<TransferKind, String> {
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn transfer_enqueue(
+    request: Req<TransferEnqueueReq>,
+    window: tauri::Window,
     state: tauri::State<'_, AppState>,
-    kind: String,
-    name: String,
-    src: String,
-    dst: String,
-    src_local: bool,
-    dst_local: bool,
-    cleanup_src: bool,
-    src_pane: usize,
-    dst_pane: usize,
-) -> Result<usize, String> {
-    let kind = parse_transfer_kind(&kind)?;
+) -> IpcResult<usize> {
+    let (request_id, request) = validate(request)?;
+    let kind = parse_transfer_kind(&request.kind).map_err(backend)?;
+    if request.cleanup_src {
+        require_confirmation(request.confirmed)?;
+    }
+    let src = if request.src_local {
+        state
+            .picker_roots
+            .existing(window.label(), std::path::Path::new(&request.src))?
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        request.src
+    };
+    let dst = if request.dst_local {
+        state
+            .picker_roots
+            .create(window.label(), std::path::Path::new(&request.dst))?
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        request.dst
+    };
     // Khóa trạng thái để sửa đổi danh sách tác vụ an toàn giữa các luồng
-    let mut mgr = state.transfer.lock().map_err(|e| e.to_string())?;
-    Ok(mgr.enqueue(
+    let mut mgr = state.transfer.lock().map_err(|e| backend(e.to_string()))?;
+    let id = mgr.enqueue(
         kind,
-        name,
+        request.name,
         src,
         dst,
-        src_local,
-        dst_local,
-        cleanup_src,
-        src_pane,
-        dst_pane,
-    ))
+        request.src_local,
+        request.dst_local,
+        request.cleanup_src,
+        request.src_pane,
+        request.dst_pane,
+    );
+    Ok(success(request_id, id))
 }
 
 /// Bắt đầu xử lý các tác vụ đang đợi cho đến khi đạt giới hạn chạy song song (`max_concurrent`).
 /// Mỗi tác vụ sẽ tạo một luồng ảo (async task) riêng để không chặn luồng chính.
 #[tauri::command]
 pub async fn transfer_start(
+    request: Req<AccountReq>,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
-    account: Option<String>,
-) -> Result<(), String> {
+) -> IpcResult<()> {
+    let (request_id, request) = validate(request)?;
     let (batch, timeout_secs) = {
-        let mut mgr = state.transfer.lock().map_err(|e| e.to_string())?;
+        let mut mgr = state.transfer.lock().map_err(|e| backend(e.to_string()))?;
         let timeout_secs = mgr.timeout_secs;
         let mut batch = Vec::new();
-        
+
         // Kích hoạt các tác vụ tiếp theo nếu chưa quá số lượng tối đa cho phép
         while mgr.running_count() < mgr.max_concurrent {
             let Some(idx) = mgr.next_queued_idx() else {
@@ -77,40 +127,43 @@ pub async fn transfer_start(
         }
         (batch, timeout_secs)
     };
-    
+
     // Spawn từng tác vụ độc lập vào background
     for item in batch {
         let app = app.clone();
-        let account = account.clone();
+        let account = request.account.clone();
         tauri::async_runtime::spawn(async move {
             run_transfer_worker(app, item, account, timeout_secs).await;
         });
     }
-    Ok(())
+    Ok(success(request_id, ()))
 }
 
 /// Hủy một tác vụ thông qua ID.
 #[tauri::command]
-pub fn transfer_cancel(state: tauri::State<'_, AppState>, id: usize) -> Result<(), String> {
-    let mgr = state.transfer.lock().map_err(|e| e.to_string())?;
-    mgr.cancel(id);
-    Ok(())
+pub fn transfer_cancel(request: Req<IdReq>, state: tauri::State<'_, AppState>) -> IpcResult<()> {
+    let (request_id, request) = validate(request)?;
+    let mgr = state.transfer.lock().map_err(|e| backend(e.to_string()))?;
+    mgr.cancel(request.id);
+    Ok(success(request_id, ()))
 }
 
 /// Hủy toàn bộ tác vụ trong hàng đợi.
 #[tauri::command]
-pub fn transfer_cancel_all(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mgr = state.transfer.lock().map_err(|e| e.to_string())?;
+pub fn transfer_cancel_all(request: Req<Empty>, state: tauri::State<'_, AppState>) -> IpcResult<()> {
+    let (request_id, _) = validate(request)?;
+    let mgr = state.transfer.lock().map_err(|e| backend(e.to_string()))?;
     mgr.cancel_all();
-    Ok(())
+    Ok(success(request_id, ()))
 }
 
 /// Dọn dẹp danh sách các tác vụ đã hoàn thành hoặc thất bại (để giải phóng UI).
 #[tauri::command]
-pub fn transfer_remove_finished(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut mgr = state.transfer.lock().map_err(|e| e.to_string())?;
+pub fn transfer_remove_finished(request: Req<Empty>, state: tauri::State<'_, AppState>) -> IpcResult<()> {
+    let (request_id, _) = validate(request)?;
+    let mut mgr = state.transfer.lock().map_err(|e| backend(e.to_string()))?;
     mgr.remove_finished();
-    Ok(())
+    Ok(success(request_id, ()))
 }
 
 /// Xử lý cốt lõi luồng truyền tải thực sự, sau đó báo cáo kết quả (event emitter) về UI.

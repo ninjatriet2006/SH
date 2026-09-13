@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../../bridge/ipc';
 import { OperationModal } from './OperationModal';
 import { escapeHtml } from '../features/format';
 

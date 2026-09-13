@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../../../bridge/ipc';
 import type { FileItem } from '../../store';
 import { formatSize, formatDate, escapeHtml } from '../../features/format';
 import { typeLabel, type SortKey, type SortDir } from '../../features/sort';

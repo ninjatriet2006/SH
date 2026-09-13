@@ -1,0 +1,3 @@
+[workspace]
+resolver = "2"
+members = ["GUI/app_alpha", "GUI/app_beta"]

@@ -9,7 +9,8 @@
 //!
 //! Test tĩnh (đọc source, không cần chạy app) gồm 2 lớp bảo vệ:
 //!   1. Mọi `#[tauri::command]` phải khai báo `rename_all = "snake_case"`.
-//!   2. Mọi key mà bridge TS gửi phải tồn tại trong tham số của command Rust.
+//!   2. Mọi bridge phải đi qua envelope helper `invokeIpc`; command Rust nhận
+//!      đúng một tham số `request` (ngoài state/app do Tauri inject).
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -279,28 +280,44 @@ fn moi_command_khai_bao_snake_case() {
 }
 
 #[test]
-fn key_bridge_gui_khop_tham_so_rust() {
+fn bridge_gui_dung_envelope_request_chuan() {
     let cmds = rust_commands();
     let mut loi = Vec::new();
 
-    for (file, cmd, keys) in bridge_calls() {
+    for (file, cmd, _keys) in bridge_calls() {
+        if file == "ipc.ts" {
+            continue;
+        }
+        if !cmds.contains_key(&cmd) && matches!(cmd.as_str(), "command" | "payload") {
+            continue;
+        }
         let Some(params) = cmds.get(&cmd) else {
             loi.push(format!("{file}: gọi `{cmd}` nhưng không có command Rust nào tên vậy"));
             continue;
         };
-        for key in keys {
-            if !params.contains(&key) {
-                let mut goi_y = String::new();
-                // Gợi ý khi lệch do camelCase.
-                let snake = to_snake(&key);
-                if params.contains(&snake) {
-                    goi_y = format!(" (ý bạn là `{snake}`?)");
-                }
-                loi.push(format!(
-                    "{file}: `{cmd}` nhận key `{key}` nhưng tham số Rust là {:?}{goi_y}",
-                    sorted(params)
-                ));
-            }
+        if !params.contains("request") {
+            loi.push(format!(
+                "{file}: `{cmd}` chưa nhận envelope `request`; tham số Rust là {:?}",
+                sorted(params)
+            ));
+        }
+    }
+
+    let bridge = crate_dir().parent().expect("thư mục app").join("bridge");
+    for entry in std::fs::read_dir(&bridge).expect("đọc bridge/") {
+        let path = entry.expect("entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("ts")
+            || path.file_name().and_then(|n| n.to_str()) == Some("ipc.ts")
+            || path.file_name().and_then(|n| n.to_str()) == Some("types.ts")
+        {
+            continue;
+        }
+        let src = std::fs::read_to_string(&path).expect("đọc bridge ts");
+        if src.contains("@tauri-apps/api/core") || !src.contains("invokeIpc") {
+            loi.push(format!(
+                "{}: phải gọi Tauri qua invokeIpc",
+                path.file_name().and_then(|n| n.to_str()).unwrap_or_default()
+            ));
         }
     }
 
@@ -311,19 +328,6 @@ fn sorted(set: &HashSet<String>) -> Vec<String> {
     let mut v: Vec<String> = set.iter().cloned().collect();
     v.sort();
     v
-}
-
-fn to_snake(s: &str) -> String {
-    let mut out = String::new();
-    for ch in s.chars() {
-        if ch.is_ascii_uppercase() {
-            out.push('_');
-            out.push(ch.to_ascii_lowercase());
-        } else {
-            out.push(ch);
-        }
-    }
-    out
 }
 
 /// Mọi command đăng ký trong `generate_handler!` phải tồn tại và ngược lại —

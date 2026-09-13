@@ -49,10 +49,16 @@ class UndoManager {
           break;
         case 'copy':
           // Undo copy: delete the destination file
+          if (!confirm(`Xoá ${this.basename(action.dest)} để hoàn tác thao tác sao chép?`)) {
+            throw new Error('Đã huỷ hoàn tác sao chép.');
+          }
           await remove(action.dest, action.account);
           break;
         case 'move':
           // Undo move: move the destination back to the source
+          if (!confirm(`Di chuyển ${this.basename(action.dest)} về vị trí cũ?`)) {
+            throw new Error('Đã huỷ hoàn tác di chuyển.');
+          }
           if (action.isLocal) {
             await moveLocal(action.dest, action.src);
           } else {
@@ -82,9 +88,15 @@ class UndoManager {
     try {
       switch (action.type) {
         case 'rename':
+          if (!confirm(`Thực hiện lại việc đổi tên ${this.basename(action.src)}?`)) {
+            throw new Error('Đã huỷ làm lại thao tác đổi tên.');
+          }
           await rename(action.src, this.basename(action.dest), action.account);
           break;
         case 'copy':
+          if (!confirm(`Thực hiện lại việc sao chép ${this.basename(action.src)}?`)) {
+            throw new Error('Đã huỷ làm lại thao tác sao chép.');
+          }
           if (action.isLocal) {
             await cpLocal(action.src, action.dest, true);
           } else {
@@ -92,6 +104,9 @@ class UndoManager {
           }
           break;
         case 'move':
+          if (!confirm(`Thực hiện lại việc di chuyển ${this.basename(action.src)}?`)) {
+            throw new Error('Đã huỷ làm lại thao tác di chuyển.');
+          }
           if (action.isLocal) {
             await moveLocal(action.src, action.dest);
           } else {
@@ -99,6 +114,9 @@ class UndoManager {
           }
           break;
         case 'delete':
+          if (!confirm(`Xoá lại ${this.basename(action.src)}?`)) {
+            throw new Error('Đã huỷ làm lại thao tác xoá.');
+          }
           await remove(action.src, action.account);
           break;
       }

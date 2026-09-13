@@ -12,4 +12,4 @@
 | host fonts/inline strings | local `langs/themes/fonts` | EN/VI, theme/font fallback, exact DejaVu manifest hashes |
 | no package | Tauri v2 bridge | shared workspace target, updater disabled, DEB/AppImage and external-CWD smoke |
 
-The old egui source remains available for rollback until Phase 6 is independently CLEAN; no user file is deleted by this map.
+The old egui source remains preserved for rollback but is excluded from the workspace; only the Tauri `Image Splitter` release entry is selectable. No user file is deleted by this map.

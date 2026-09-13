@@ -23,6 +23,7 @@ refresh định kỳ bằng force = false → cache còn hạn thì không đụ
 */
 
 use crate::core::store::{load_merged, mask_key, save_split};
+use crate::ipc::{from_string, respond, Empty, IpcError, IpcResult, Req};
 use opencode_manager::app::DynamicPreset;
 use opencode_manager::ckey::{
     CkeyAiKey, CkeyClient, CkeyModel, CkeyProfile, CkeyUsagePage, CkeyUsageStats, CKEY_LLM_BASE_URL,
@@ -145,7 +146,14 @@ pub struct CkeyProfileView {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn list_ckey_profiles() -> Result<Vec<CkeyProfileView>, String> {
+pub fn list_ckey_profiles(request: Req<Empty>) -> IpcResult<Vec<CkeyProfileView>> {
+    let (request_id, _) = request.validate()?;
+    list_ckey_profiles_inner()
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
+}
+
+fn list_ckey_profiles_inner() -> Result<Vec<CkeyProfileView>, String> {
     let cfg = CkeyConfig::load()?;
     let active = cfg.active_profile().map(|p| p.id.clone());
     let mut out: Vec<CkeyProfileView> = cfg
@@ -169,8 +177,23 @@ pub fn list_ckey_profiles() -> Result<Vec<CkeyProfileView>, String> {
 /// Thêm hoặc sửa một profile. `profile_id` = None → tạo mới (trả id mới).
 /// Đổi key của profile là đổi key cho MỌI provider đang gắn nó (binding tham
 /// chiếu, không copy) — chính là ưu điểm của mô hình profile.
+#[derive(Deserialize)]
+pub struct SaveCkeyProfileRequest {
+    #[serde(deserialize_with = "crate::ipc::present_nullable")]
+    pub profile_id: Option<String>,
+    pub name: String,
+    pub key: String,
+}
+
 #[tauri::command(rename_all = "snake_case")]
-pub fn save_ckey_profile(profile_id: Option<String>, name: String, key: String) -> Result<String, String> {
+pub fn save_ckey_profile(request: Req<SaveCkeyProfileRequest>) -> IpcResult<String> {
+    let (request_id, payload) = request.validate()?;
+    save_ckey_profile_inner(payload.profile_id, payload.name, payload.key)
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
+}
+
+fn save_ckey_profile_inner(profile_id: Option<String>, name: String, key: String) -> Result<String, String> {
     let name = name.trim().to_string();
     let key = key.trim().to_string();
     if key.is_empty() {
@@ -214,8 +237,25 @@ pub fn save_ckey_profile(profile_id: Option<String>, name: String, key: String) 
 }
 
 /// Xoá profile + dọn binding trỏ tới nó. Trả về id profile active mới (nếu còn).
+#[derive(Deserialize)]
+pub struct CkeyProfileIdRequest {
+    pub profile_id: String,
+}
+
+#[derive(Deserialize)]
+pub struct ListCkeyImportItemsRequest {
+    pub profile_id: String,
+}
+
 #[tauri::command(rename_all = "snake_case")]
-pub fn delete_ckey_profile(profile_id: String) -> Result<Option<String>, String> {
+pub fn delete_ckey_profile(request: Req<CkeyProfileIdRequest>) -> IpcResult<Option<String>> {
+    let (request_id, payload) = request.validate()?;
+    delete_ckey_profile_inner(payload.profile_id)
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
+}
+
+fn delete_ckey_profile_inner(profile_id: String) -> Result<Option<String>, String> {
     let mut cfg = CkeyConfig::load()?;
     if !cfg.remove_profile(&profile_id) {
         return Err(format!("Không tìm thấy profile: {profile_id}"));
@@ -226,7 +266,14 @@ pub fn delete_ckey_profile(profile_id: String) -> Result<Option<String>, String>
 
 /// Chuyển tài khoản đang xem (dashboard/usage/deposit) sang profile khác.
 #[tauri::command(rename_all = "snake_case")]
-pub fn set_active_ckey_profile(profile_id: String) -> Result<(), String> {
+pub fn set_active_ckey_profile(request: Req<CkeyProfileIdRequest>) -> IpcResult<()> {
+    let (request_id, payload) = request.validate()?;
+    set_active_ckey_profile_inner(payload.profile_id)
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
+}
+
+fn set_active_ckey_profile_inner(profile_id: String) -> Result<(), String> {
     let mut cfg = CkeyConfig::load()?;
     if cfg.profile(&profile_id).is_none() {
         return Err(format!("Không tìm thấy profile: {profile_id}"));
@@ -360,15 +407,25 @@ pub struct CkeyKeyView {
     pub key_masked: String,
 }
 
+#[derive(Deserialize)]
+pub struct FetchCkeyDashboardRequest {
+    pub profile_id: String,
+    #[serde(deserialize_with = "crate::ipc::present_nullable")]
+    pub since_days: Option<u64>,
+    #[serde(deserialize_with = "crate::ipc::present_nullable")]
+    pub force: Option<bool>,
+}
+
 #[tauri::command(rename_all = "snake_case")]
-pub async fn fetch_ckey_dashboard(
-    profile_id: String,
-    since_days: Option<u64>,
-    force: Option<bool>,
-) -> Result<CkeyDashboard, String> {
-    tauri::async_runtime::spawn_blocking(move || fetch_ckey_dashboard_blocking(profile_id, since_days, force))
-        .await
-        .map_err(|e| format!("Task dashboard CKey sụp: {e}"))?
+pub async fn fetch_ckey_dashboard(request: Req<FetchCkeyDashboardRequest>) -> IpcResult<CkeyDashboard> {
+    let (request_id, payload) = request.validate()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        fetch_ckey_dashboard_blocking(payload.profile_id, payload.since_days, payload.force)
+    })
+    .await
+    .map_err(|e| IpcError::internal(format!("Task dashboard CKey sụp: {e}")))?
+    .map(|data| respond(request_id, data))
+    .map_err(from_string)
 }
 
 fn fetch_ckey_dashboard_blocking(
@@ -503,17 +560,33 @@ pub struct CkeyUsageItemView {
     pub created_at_text: String,
 }
 
+#[derive(Deserialize)]
+pub struct FetchCkeyUsageRequest {
+    pub profile_id: String,
+    pub page: u64,
+    pub limit: u64,
+    #[serde(deserialize_with = "crate::ipc::present_nullable")]
+    pub model: Option<String>,
+    #[serde(deserialize_with = "crate::ipc::present_nullable")]
+    pub force: Option<bool>,
+}
+
 #[tauri::command(rename_all = "snake_case")]
-pub async fn fetch_ckey_usage(
-    profile_id: String,
-    page: u64,
-    limit: u64,
-    model: Option<String>,
-    force: Option<bool>,
-) -> Result<CkeyUsageView, String> {
-    tauri::async_runtime::spawn_blocking(move || fetch_ckey_usage_blocking(profile_id, page, limit, model, force))
-        .await
-        .map_err(|e| format!("Task lịch sử CKey sụp: {e}"))?
+pub async fn fetch_ckey_usage(request: Req<FetchCkeyUsageRequest>) -> IpcResult<CkeyUsageView> {
+    let (request_id, payload) = request.validate()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        fetch_ckey_usage_blocking(
+            payload.profile_id,
+            payload.page,
+            payload.limit,
+            payload.model,
+            payload.force,
+        )
+    })
+    .await
+    .map_err(|e| IpcError::internal(format!("Task lịch sử CKey sụp: {e}")))?
+    .map(|data| respond(request_id, data))
+    .map_err(from_string)
 }
 
 fn fetch_ckey_usage_blocking(
@@ -616,17 +689,32 @@ pub struct CkeyDepositHistoryItemView {
     pub time_text: String,
 }
 
+#[derive(Deserialize)]
+pub struct FetchCkeyDepositRequest {
+    pub profile_id: String,
+    pub amount: u64,
+    pub page: u64,
+    pub limit: u64,
+    #[serde(deserialize_with = "crate::ipc::present_nullable")]
+    pub force: Option<bool>,
+}
+
 #[tauri::command(rename_all = "snake_case")]
-pub async fn fetch_ckey_deposit(
-    profile_id: String,
-    amount: u64,
-    page: u64,
-    limit: u64,
-    force: Option<bool>,
-) -> Result<CkeyDepositView, String> {
-    tauri::async_runtime::spawn_blocking(move || fetch_ckey_deposit_blocking(profile_id, amount, page, limit, force))
-        .await
-        .map_err(|e| format!("Task nạp tiền CKey sụp: {e}"))?
+pub async fn fetch_ckey_deposit(request: Req<FetchCkeyDepositRequest>) -> IpcResult<CkeyDepositView> {
+    let (request_id, payload) = request.validate()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        fetch_ckey_deposit_blocking(
+            payload.profile_id,
+            payload.amount,
+            payload.page,
+            payload.limit,
+            payload.force,
+        )
+    })
+    .await
+    .map_err(|e| IpcError::internal(format!("Task nạp tiền CKey sụp: {e}")))?
+    .map(|data| respond(request_id, data))
+    .map_err(from_string)
 }
 
 fn fetch_ckey_deposit_blocking(
@@ -813,22 +901,24 @@ impl CkeyImportItem {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn list_ckey_import_items() -> Result<CkeyImportList, String> {
-    tauri::async_runtime::spawn_blocking(list_ckey_import_items_blocking)
+pub async fn list_ckey_import_items(request: Req<ListCkeyImportItemsRequest>) -> IpcResult<CkeyImportList> {
+    let (request_id, payload) = request.validate()?;
+    tauri::async_runtime::spawn_blocking(move || list_ckey_import_items_blocking(payload.profile_id))
         .await
-        .map_err(|e| format!("Task catalogue CKey sụp: {e}"))?
+        .map_err(|e| IpcError::internal(format!("Task catalogue CKey sụp: {e}")))?
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
 }
 
-fn list_ckey_import_items_blocking() -> Result<CkeyImportList, String> {
+fn list_ckey_import_items_blocking(profile_id: String) -> Result<CkeyImportList, String> {
     // Catalogue toàn cục — KHÔNG phụ thuộc tài khoản (chỉ cần một tài khoản
     // bất kỳ để tải lần đầu). Đích import suy từ binding của tài khoản ĐANG
     // XEM (mặc định id chuẩn "ckey") — không cần người dùng chọn.
     let ckey_cfg = CkeyConfig::load()?;
-    let active = ckey_cfg
-        .active_profile()
-        .map(|p| p.id.clone())
-        .ok_or_else(|| "Chưa có tài khoản CKey nào — thêm một account key trước.".to_string())?;
-    let provider_id = opencode_manager::ckey::resolve_import_target(&ckey_cfg, &active);
+    if ckey_cfg.profile(&profile_id).is_none() {
+        return Err(format!("Không tìm thấy profile: {profile_id}"));
+    }
+    let provider_id = opencode_manager::ckey::resolve_import_target(&ckey_cfg, &profile_id);
 
     let models = models_catalog(false)?;
 
@@ -898,6 +988,12 @@ pub struct CkeyImportResult {
     pub provider_created: bool,
 }
 
+#[derive(Deserialize)]
+pub struct ImportCkeyModelsRequest {
+    pub profile_id: String,
+    pub selected: Vec<String>,
+}
+
 /// Ghi danh sách model đã chọn vào provider CKey, dùng AI key của `profile_id`.
 ///
 /// Ghi danh sách model đã chọn vào provider ĐÍCH — đích suy từ binding của
@@ -908,10 +1004,13 @@ pub struct CkeyImportResult {
 /// Import là lúc DUY NHẤT binding đổi: provider "thuộc" tài khoản nào thì trả
 /// tiền tài khoản đó, nên khoá luôn được đồng bộ theo AI key active của profile.
 #[tauri::command(rename_all = "snake_case")]
-pub async fn import_ckey_models(profile_id: String, selected: Vec<String>) -> Result<CkeyImportResult, String> {
-    tauri::async_runtime::spawn_blocking(move || import_ckey_models_blocking(profile_id, selected))
+pub async fn import_ckey_models(request: Req<ImportCkeyModelsRequest>) -> IpcResult<CkeyImportResult> {
+    let (request_id, payload) = request.validate()?;
+    tauri::async_runtime::spawn_blocking(move || import_ckey_models_blocking(payload.profile_id, payload.selected))
         .await
-        .map_err(|e| format!("Task import CKey sụp: {e}"))?
+        .map_err(|e| IpcError::internal(format!("Task import CKey sụp: {e}")))?
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
 }
 
 fn import_ckey_models_blocking(profile_id: String, selected: Vec<String>) -> Result<CkeyImportResult, String> {

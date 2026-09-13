@@ -8,3 +8,5 @@
 - Resources: exact 8/8 payload files verified in DEB and AppDir: langs 2, themes 3, fonts 3; font manifest 2/2 hashes PASS.
 - Updater: disabled (`createUpdaterArtifacts:false`), plugins empty, no updater entry in workspace lockfile.
 - Final release deliverables: 3 (binary 1, DEB 1, AppImage 1); MSI/DMG deferred; no artifacts deleted.
+- Phase 8.4 refresh (2026-09-12): preserved AppImage `d0bfcfcb59966c29c4bec5e4cf0120b644f34826fe6db074dca8064ad3a8369b`, DEB `6accd06678129f7bb5ad5c70d728c45132e93603a84e478c8339e580b17e6aed` under `/tmp/opencode/phase-8-artifacts-20260912`.
+- Post-four-fix Phase 8.4 rebuild: AppImage `5d7dc2fe43500e3fa7cff3afa05bad1af571236fecafa37fc9970beee151c0c1`; DEB `7f639a9e9d4ecc4e37f60b8e71670846e2e17c00e2d08941b785725d2d7321d1`; preserved under `/tmp/opencode/phase-8-four-fixes-20260912T045604Z-272465`.

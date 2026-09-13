@@ -12,6 +12,7 @@
  di chuyển bất kỳ file nào thuộc OpenCode.
 */
 
+use crate::ipc::{from_string, respond, Empty, IpcResult, Req};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -73,9 +74,12 @@ fn migrate_settings_file() {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn get_gui_settings() -> Result<GuiSettings, String> {
+pub fn get_gui_settings(request: Req<Empty>) -> IpcResult<GuiSettings> {
+    let (request_id, _) = request.validate()?;
     migrate_settings_file();
     read_gui_settings_from_path(&settings_path())
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
 }
 
 fn read_gui_settings_from_path(path: &Path) -> Result<GuiSettings, String> {
@@ -108,9 +112,19 @@ fn read_gui_settings_from_path(path: &Path) -> Result<GuiSettings, String> {
     Ok(settings)
 }
 
+#[derive(Deserialize)]
+pub struct SaveGuiSettingsRequest {
+    pub language: String,
+    pub theme_id: String,
+    pub font_id: String,
+}
+
 #[tauri::command(rename_all = "snake_case")]
-pub fn save_gui_settings(language: String, theme_id: String, font_id: String) -> Result<(), String> {
-    save_gui_settings_to_path(&settings_path(), language, theme_id, font_id)
+pub fn save_gui_settings(request: Req<SaveGuiSettingsRequest>) -> IpcResult<()> {
+    let (request_id, payload) = request.validate()?;
+    save_gui_settings_to_path(&settings_path(), payload.language, payload.theme_id, payload.font_id)
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
 }
 
 fn save_gui_settings_to_path(path: &Path, language: String, theme_id: String, font_id: String) -> Result<(), String> {
@@ -167,23 +181,32 @@ pub struct ConfigPaths {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn get_config_paths() -> Result<ConfigPaths, String> {
-    Ok(ConfigPaths {
-        opencode_config_dir: opencode_manager::config::OpencodeConfig::file_path()
-            .parent()
-            .map(|path| path.display().to_string())
-            .unwrap_or_default(),
-        manager_config_dir: manager_config_dir().display().to_string(),
-        opencode_json: opencode_manager::config::OpencodeConfig::file_path()
-            .display()
-            .to_string(),
-        auth_json: opencode_manager::config::AuthEntry::file_path().display().to_string(),
-        ckey_json: opencode_manager::config::CkeyConfig::file_path().display().to_string(),
-        arbiter_json: opencode_manager::arbiter::ArbiterConfig::file_path()
-            .display()
-            .to_string(),
-        settings_json: settings_path().display().to_string(),
-    })
+pub fn get_config_paths(request: Req<Empty>) -> IpcResult<ConfigPaths> {
+    let (request_id, _) = request.validate()?;
+    Ok(respond(
+        request_id,
+        ConfigPaths {
+            opencode_config_dir: opencode_manager::config::OpencodeConfig::file_path()
+                .parent()
+                .map(|path| path.display().to_string())
+                .unwrap_or_default(),
+            manager_config_dir: manager_config_dir().display().to_string(),
+            opencode_json: opencode_manager::config::OpencodeConfig::file_path()
+                .display()
+                .to_string(),
+            auth_json: opencode_manager::config::AuthEntry::file_path().display().to_string(),
+            ckey_json: opencode_manager::config::CkeyConfig::file_path().display().to_string(),
+            arbiter_json: opencode_manager::arbiter::ArbiterConfig::file_path()
+                .display()
+                .to_string(),
+            settings_json: settings_path().display().to_string(),
+        },
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct OpenExternalUrlRequest {
+    pub url: String,
 }
 
 /// Mở một URL https trong trình duyệt/người xem ngoài của hệ điều hành.
@@ -193,7 +216,14 @@ pub fn get_config_paths() -> Result<ConfigPaths, String> {
 /// dùng URL lạ chạy chương trình tuỳ ý; `spawn` truyền arg trực tiếp (không
 /// qua shell) nên không tiêm lệnh được.
 #[tauri::command(rename_all = "snake_case")]
-pub fn open_external_url(url: String) -> Result<(), String> {
+pub fn open_external_url(request: Req<OpenExternalUrlRequest>) -> IpcResult<()> {
+    let (request_id, payload) = request.validate()?;
+    open_external_url_inner(payload.url)
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
+}
+
+fn open_external_url_inner(url: String) -> Result<(), String> {
     let url = url.trim();
     if !url.starts_with("https://") || url.contains(|c: char| c.is_whitespace()) {
         return Err("Chỉ mở được đường dẫn https:// hợp lệ.".to_string());
@@ -228,8 +258,13 @@ mod tests {
 
     #[test]
     fn tu_choi_luu_ngon_ngu_khong_ton_tai() {
-        let err = save_gui_settings("khong_ton_tai_9999".into(), "default".into(), "default".into())
-            .expect_err("phải từ chối mã không có file");
+        let err = save_gui_settings_to_path(
+            &settings_path(),
+            "khong_ton_tai_9999".into(),
+            "default".into(),
+            "default".into(),
+        )
+        .expect_err("phải từ chối mã không có file");
         assert!(err.contains("không có trong langs/"), "lỗi: {err}");
     }
 
@@ -269,7 +304,8 @@ mod tests {
         std::fs::write(&old, r#"{"language":"vi","theme_id":"red_blood"}"#).unwrap();
 
         // Đọc cài đặt → migration tự chạy, dữ liệu còn nguyên vẹn.
-        let settings = get_gui_settings().unwrap();
+        migrate_settings_file();
+        let settings = read_gui_settings_from_path(&settings_path()).unwrap();
         assert_eq!(settings.language, "vi", "ngôn ngữ phải sống sót qua migration");
         assert_eq!(settings.theme_id, "red_blood");
         assert!(settings_path().exists(), "file phải ở vị trí mới");
@@ -279,7 +315,7 @@ mod tests {
         );
 
         // Lưu lại → atomic + backup xoay vòng xuất hiện ở vị trí MỚI.
-        save_gui_settings("vi".into(), "red_blood".into(), "default".into()).unwrap();
+        save_gui_settings_to_path(&settings_path(), "vi".into(), "red_blood".into(), "default".into()).unwrap();
         assert!(settings_path().exists());
         let baks = std::fs::read_dir(settings_path().parent().unwrap())
             .unwrap()
@@ -293,7 +329,13 @@ mod tests {
 
     #[test]
     fn config_paths_phan_tach_opencode_va_manager() {
-        let paths = get_config_paths().unwrap();
+        let paths = get_config_paths(Req {
+            schema_version: crate::ipc::SCHEMA_VERSION,
+            request_id: None,
+            payload: Empty {},
+        })
+        .unwrap()
+        .data;
 
         assert!(paths.opencode_config_dir.ends_with(".config/opencode"));
         assert!(paths.manager_config_dir.ends_with(".config/opencode-manager"));

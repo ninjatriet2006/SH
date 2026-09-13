@@ -179,7 +179,7 @@ function bindSidebar(): void {
   });
 
   document.getElementById("btn-logout")?.addEventListener("click", async () => {
-    const { invoke } = await import('@tauri-apps/api/core');
+    const { invoke } = await import('./ipc');
     try {
       await invoke('auth_logout_terminal', {});
     } catch (_) {}
@@ -273,7 +273,7 @@ async function mountExplorer(): Promise<void> {
 
 // ── Khôi phục session: filen đã đăng nhập sẵn thì bật UI tương ứng ─────────
 async function restoreSession(): Promise<void> {
-  const { invoke } = await import('@tauri-apps/api/core');
+  const { invoke } = await import('./ipc');
   const { appState } = await import('./store');
   try {
     const email = await invoke<string | null>('auth_whoami_terminal', {});

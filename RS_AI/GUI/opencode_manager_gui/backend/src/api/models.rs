@@ -17,8 +17,10 @@ chỉ điền chỗ trống — không ghi đè lựa chọn của người dùn
 */
 
 use crate::core::store::{load_merged, save_split};
+use crate::ipc::{from_string, respond, Empty, IpcResult, Req};
 use opencode_manager::app::App;
 use opencode_manager::config::ModelEntry;
+use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -308,8 +310,17 @@ pub fn matrix_rows() -> Result<Vec<ModelMatrixRow>, String> {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn list_model_matrix() -> Result<Vec<ModelMatrixRow>, String> {
-    matrix_rows()
+pub fn list_model_matrix(request: Req<Empty>) -> IpcResult<Vec<ModelMatrixRow>> {
+    let (request_id, _) = request.validate()?;
+    matrix_rows().map(|data| respond(request_id, data)).map_err(from_string)
+}
+
+#[derive(Deserialize)]
+pub struct SetPrimaryModelRequest {
+    #[serde(deserialize_with = "crate::ipc::present_nullable")]
+    pub provider_id: Option<String>,
+    #[serde(deserialize_with = "crate::ipc::present_nullable")]
+    pub model_id: Option<String>,
 }
 
 // ============================================================
@@ -322,7 +333,14 @@ pub fn list_model_matrix() -> Result<Vec<ModelMatrixRow>, String> {
 /// Model phải đang có trong config: model chưa import mà đặt làm model chính
 /// sẽ khiến OpenCode không resolve được khi khởi động.
 #[tauri::command(rename_all = "snake_case")]
-pub fn set_primary_model(provider_id: Option<String>, model_id: Option<String>) -> Result<Option<String>, String> {
+pub fn set_primary_model(request: Req<SetPrimaryModelRequest>) -> IpcResult<Option<String>> {
+    let (request_id, payload) = request.validate()?;
+    set_primary_model_inner(payload.provider_id, payload.model_id)
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
+}
+
+fn set_primary_model_inner(provider_id: Option<String>, model_id: Option<String>) -> Result<Option<String>, String> {
     let presets = App::load_dynamic_presets();
     let (mut config, mut auth) = load_merged(&presets)?;
 
@@ -369,7 +387,14 @@ pub fn set_primary_model(provider_id: Option<String>, model_id: Option<String>) 
 /// mọi model). Field `input` và mọi capability khác giữ nguyên.
 /// Trả về số model đã sửa (0 = không có gì lệch).
 #[tauri::command(rename_all = "snake_case")]
-pub fn sync_limits_from_dev() -> Result<usize, String> {
+pub fn sync_limits_from_dev(request: Req<Empty>) -> IpcResult<usize> {
+    let (request_id, _) = request.validate()?;
+    sync_limits_from_dev_inner()
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
+}
+
+fn sync_limits_from_dev_inner() -> Result<usize, String> {
     let presets = App::load_dynamic_presets();
     let (mut config, mut auth) = load_merged(&presets)?;
     let dev = load_dev_models();
@@ -520,7 +545,7 @@ mod tests {
         let test_dir = crate::test_support::isolate_home("model_matrix");
         seed(&test_dir);
 
-        let rows = list_model_matrix().unwrap();
+        let rows = matrix_rows().unwrap();
         // p1: 2, p2: 3, zenmux (builtin key-only): 2 từ catalogue = 7.
         assert_eq!(rows.len(), 7);
 
@@ -603,26 +628,26 @@ mod tests {
         seed(&test_dir);
 
         // Đổi model chính sang p2/gamma → file ghi "p2/gamma".
-        let m = set_primary_model(Some("p2".into()), Some("gamma".into())).unwrap();
+        let m = set_primary_model_inner(Some("p2".into()), Some("gamma".into())).unwrap();
         assert_eq!(m.as_deref(), Some("p2/gamma"));
         let saved = opencode_manager::config::OpencodeConfig::load().unwrap();
         assert_eq!(saved.model.as_deref(), Some("p2/gamma"));
-        let rows = list_model_matrix().unwrap();
+        let rows = matrix_rows().unwrap();
         assert!(rows.iter().find(|r| r.model_id == "gamma").unwrap().is_primary);
         assert!(!rows.iter().find(|r| r.model_id == "alpha").unwrap().is_primary);
 
         // Model không có trong provider → từ chối (OpenCode sẽ không resolve được).
-        let err = set_primary_model(Some("p1".into()), Some("khong-co".into())).unwrap_err();
+        let err = set_primary_model_inner(Some("p1".into()), Some("khong-co".into())).unwrap_err();
         assert!(err.contains("chưa có trong provider"), "lỗi: {err}");
 
         // Provider lạ → từ chối.
-        assert!(set_primary_model(Some("la".into()), Some("x".into())).is_err());
+        assert!(set_primary_model_inner(Some("la".into()), Some("x".into())).is_err());
 
         // Thiếu một bên → hướng dẫn rõ.
-        assert!(set_primary_model(Some("p1".into()), None).is_err());
+        assert!(set_primary_model_inner(Some("p1".into()), None).is_err());
 
         // Trống cả hai → xoá lựa chọn.
-        let m = set_primary_model(None, None).unwrap();
+        let m = set_primary_model_inner(None, None).unwrap();
         assert_eq!(m, None);
         assert_eq!(opencode_manager::config::OpencodeConfig::load().unwrap().model, None);
     }
@@ -635,10 +660,10 @@ mod tests {
         seed(&test_dir);
 
         // Chạy lần 1: chỉ alpha conflict (beta không khai limit).
-        let fixed = sync_limits_from_dev().unwrap();
+        let fixed = sync_limits_from_dev_inner().unwrap();
         assert_eq!(fixed, 1, "chỉ alpha bị lệch");
 
-        let rows = list_model_matrix().unwrap();
+        let rows = matrix_rows().unwrap();
         let alpha = rows.iter().find(|r| r.model_id == "alpha").unwrap();
         assert_eq!(alpha.context, Some(128000), "limit phải về giá trị models.dev");
         assert_eq!(alpha.output, Some(16000));
@@ -649,7 +674,7 @@ mod tests {
         assert!(alpha.is_primary);
 
         // Chạy lần 2: không còn gì lệch → 0 và không ghi file.
-        assert_eq!(sync_limits_from_dev().unwrap(), 0);
+        assert_eq!(sync_limits_from_dev_inner().unwrap(), 0);
 
         // File trên đĩa phản ánh đúng giá trị mới.
         let saved = opencode_manager::config::OpencodeConfig::load().unwrap();

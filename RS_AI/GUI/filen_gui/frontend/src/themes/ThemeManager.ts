@@ -157,7 +157,7 @@ export class ThemeManager {
   async loadAll(): Promise<ThemeEntry[]> {
     const entries: ThemeEntry[] = [];
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
+      const { invoke } = await import("../ipc");
       const files = await invoke<Array<{ id: string; content: string }>>("appearance_list_themes");
       for (const file of files) {
         entries.push(this.loadOne(`${file.id}.json`, file.content));

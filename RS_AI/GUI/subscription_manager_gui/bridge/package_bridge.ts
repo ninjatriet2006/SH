@@ -6,18 +6,17 @@
 */
 
 // Nhúng lệnh gọi API từ Tauri
-import { invoke } from '@tauri-apps/api/core';
 // Nhúng kiểu dữ liệu Package
-import type { Package } from './types';
+import { invokeCommand, type Package } from './types';
 
 // Hàm gọi API thêm gói dịch vụ
 export async function addPackage(name: string, duration_days: number, price: number, description?: string): Promise<Package> {
     try {
         // Gửi lệnh "add_package" xuống Rust
-        const result = await invoke<Package>('add_package', { 
+        const result = await invokeCommand<Package, { name: string; duration_days: number; description: string | null; price: number | null }>('add_package', {
             name, 
             duration_days: duration_days, 
-            price,
+            price: price ?? null,
             description: description || null 
         });
         return result;
@@ -30,7 +29,7 @@ export async function addPackage(name: string, duration_days: number, price: num
 export async function updatePackage(id: string, name?: string, duration_days?: number, price?: number, description?: string): Promise<Package> {
     try {
         // Gọi lệnh "update_package" 
-        const result = await invoke<Package>('update_package', { 
+        const result = await invokeCommand<Package, { id: string; name: string | null; duration_days: number | null; description: string | null; price: number | null }>('update_package', {
             id, 
             name: name || null, 
             duration_days: duration_days ?? null, 
@@ -48,7 +47,7 @@ export async function updatePackage(id: string, name?: string, duration_days?: n
 export async function deletePackage(id: string): Promise<void> {
     try {
         // Gọi "delete_package"
-        await invoke<void>('delete_package', { id });
+        await invokeCommand<void, { id: string }>('delete_package', { id });
     } catch (error) {
         throw new Error(String(error));
     }
@@ -58,7 +57,7 @@ export async function deletePackage(id: string): Promise<void> {
 export async function listPackages(page?: number, limit?: number): Promise<Package[]> {
     try {
         // Gọi "list_packages"
-        const result = await invoke<Package[]>('list_packages', { 
+        const result = await invokeCommand<Package[], { page: number | null; limit: number | null }>('list_packages', {
             page: page ?? null, 
             limit: limit ?? null 
         });

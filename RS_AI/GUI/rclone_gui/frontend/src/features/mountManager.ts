@@ -108,7 +108,7 @@ export class MountManager {
                     if (confirm(`Bạn có chắc chắn muốn Xoá service: ${name}?\nThao tác này sẽ unmount và xoá cấu hình.`)) {
                         target.disabled = true;
                         target.textContent = 'Đang xoá...';
-                        const success = await deleteMountService(name, isUser);
+                        const success = await deleteMountService(name, isUser, true);
                         if (success) this.renderList();
                     }
                 });
@@ -148,7 +148,9 @@ export class MountManager {
         const originalText = target.textContent;
         target.textContent = '...';
         
-        await manageMountService(name, isUser, action);
+        const destructive = action === 'stop' || action === 'disable' || action === 'restart';
+        if (destructive && !confirm(`Xác nhận thao tác ${action} service: ${name}?`)) return;
+        await manageMountService(name, isUser, action, !isUser || destructive);
         
         target.textContent = originalText;
         target.disabled = false;
@@ -304,7 +306,7 @@ export class MountManager {
             
             btnSave.disabled = true;
             btnSave.textContent = 'Đang xử lý...';
-            const success = await createMountService({
+            const mountConfig: MountConfig = {
                 service_name,
                 is_user_level,
                 remote_name,
@@ -318,13 +320,21 @@ export class MountManager {
                 buffer_size: '64M',
                 allow_other,
                 read_only
-            });
+            };
+            const confirmed = mountConfig.is_user_level
+                || confirm('Tạo System Level service cần quyền root. Bạn có chắc muốn tiếp tục?');
+            if (!confirmed) {
+                btnSave.disabled = false;
+                btnSave.textContent = existingConfig ? 'Lưu Thay Đổi' : 'Lưu & Tạo Service';
+                return;
+            }
+            const success = await createMountService(mountConfig, confirmed);
             
             if (success) {
                 // Thu dọn service cũ nếu người dùng đang edit và tên service thay đổi
                 if (existingConfig && existingConfig.service_name !== service_name) {
                     try {
-                        await deleteMountService(existingConfig.service_name, existingConfig.is_user_level);
+                        await deleteMountService(existingConfig.service_name, existingConfig.is_user_level, true);
                     } catch (e) {
                         console.warn("Failed to delete old service after rename:", e);
                     }

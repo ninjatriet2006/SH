@@ -8,3 +8,5 @@
 - Package build: PASS for DEB and AppImage; all final outputs verified only under `RS_AI/target/release`; bridge-local target absent.
 - Metadata/resources/updater: exact configuration and packaged payload verified; resources 8/8 in each bundle representation, font manifest 2/2; updater disabled/no dependency.
 - Deliverables: binary 1 + DEB 1 + AppImage 1 = 3; exact sizes/hashes recorded in `package.md`; MSI/DMG deferred; blockers: none.
+- Phase 8 rerun (2026-09-12): frontend 19/19 plus build PASS; backend+bridge 70/70, 1 ignored helper, fmt/check/clippy PASS with 0 warnings; fresh package/smoke PASS.
+- Post-four-fix rerun: frontend 19/19 + build; backend+bridge 71/71, 1 ignored helper; fmt/check/clippy PASS with 0 warnings; fresh DEB/AppImage and dual external-CWD smoke PASS.

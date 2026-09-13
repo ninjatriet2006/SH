@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc';
 import { appState } from '../store';
 export class AuthModal {
   element: HTMLDivElement;
@@ -53,7 +53,7 @@ export class AuthModal {
     }
     try {
       if (!this.pendingTwoFA) {
-        await invoke('auth_login_terminal', { email, password, twofaCode: null, keepLogged: keep });
+        await invoke('auth_login_terminal', { email, password, twofa_code: null, keep_logged: keep });
         // success
         appState.auth = { user: email };
         this.close();
@@ -63,12 +63,12 @@ export class AuthModal {
           this.errorLabel.textContent = 'Enter 2FA code.';
           return;
         }
-        await invoke('auth_login_twofa_terminal', { email, password, twofaCode: code, keepLogged: keep });
+        await invoke('auth_login_twofa_terminal', { email, password, twofa_code: code, keep_logged: keep });
         appState.auth = { user: email };
         this.close();
       }
-    } catch (e: any) {
-      const msg = e as string;
+    } catch (e: unknown) {
+      const msg = typeof e === 'object' && e !== null && 'message' in e ? String(e.message) : String(e);
       if (msg.includes('2FA_REQUIRED')) {
         this.pendingTwoFA = true;
         this.twofaInput.style.display = 'block';
@@ -107,4 +107,3 @@ export class AuthModal {
   }
   getElement(): HTMLDivElement { return this.element; }
 }
-

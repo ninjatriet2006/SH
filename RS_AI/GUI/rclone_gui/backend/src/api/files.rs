@@ -24,7 +24,6 @@ pub struct ConflictInfo {
     pub dest_full_path: String,
 }
 
-#[tauri::command]
 pub async fn fs_check_conflicts(
     app_handle: tauri::AppHandle,
     srcs: Vec<String>,
@@ -76,7 +75,6 @@ pub struct SearchResultItem {
     path: String,
 }
 
-#[tauri::command]
 pub async fn list_files(
     app_handle: tauri::AppHandle,
     path: String,
@@ -139,7 +137,6 @@ pub async fn list_files(
     Ok(files)
 }
 
-#[tauri::command]
 pub async fn fs_mkdir(path: String) -> Result<(), String> {
     blocking(move || {
         let (remote, real_path) = file_ops::parse_remote_path(&path);
@@ -157,7 +154,6 @@ pub async fn fs_mkdir(path: String) -> Result<(), String> {
     .await
 }
 
-#[tauri::command]
 pub async fn fs_delete(path: String) -> Result<(), String> {
     blocking(move || {
         let (remote, real_path) = file_ops::parse_remote_path(&path);
@@ -190,7 +186,6 @@ pub async fn fs_delete(path: String) -> Result<(), String> {
     .await
 }
 
-#[tauri::command]
 pub async fn fs_touch(path: String) -> Result<(), String> {
     blocking(move || {
         let (remote, real_path) = file_ops::parse_remote_path(&path);
@@ -206,7 +201,6 @@ pub async fn fs_touch(path: String) -> Result<(), String> {
     .await
 }
 
-#[tauri::command]
 pub async fn fs_rename(old_path: String, new_path: String) -> Result<(), String> {
     blocking(move || {
         let (remote, old_real) = file_ops::parse_remote_path(&old_path);
@@ -227,7 +221,6 @@ pub async fn fs_rename(old_path: String, new_path: String) -> Result<(), String>
     .await
 }
 
-#[tauri::command]
 pub async fn fs_copy(
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
@@ -254,7 +247,6 @@ pub async fn fs_copy(
     }
 }
 
-#[tauri::command]
 pub async fn fs_move(
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
@@ -279,12 +271,10 @@ pub async fn fs_move(
     }
 }
 
-#[tauri::command]
 pub async fn fs_cancel(state: State<'_, AppState>, task_id: u32) -> Result<(), String> {
     transfer::cancel_transfer(state, task_id)
 }
 
-#[tauri::command]
 pub async fn fs_stat_advanced(path: String) -> Result<StatInfo, String> {
     blocking(move || {
         let (remote, real_path) = file_ops::parse_remote_path(&path);
@@ -342,7 +332,6 @@ fn read_local_ownership(remote: &str, target: &str) -> (u32, u32, u32) {
     (0, 0, 0)
 }
 
-#[tauri::command]
 pub async fn fs_search(path: String, query: String) -> Result<Vec<SearchResultItem>, String> {
     blocking(move || {
         let (remote, real_path) = file_ops::parse_remote_path(&path);
@@ -399,7 +388,6 @@ pub async fn fs_search(path: String, query: String) -> Result<Vec<SearchResultIt
     .await
 }
 
-#[tauri::command]
 pub async fn get_home_dir() -> Result<String, String> {
     // Trả về đúng $HOME. (Trước đây hàm này trả về ~/Desktop nhưng vẫn được gọi
     // dưới nhãn "Local", gây nhầm lẫn về vị trí thực tế đang mở.)
@@ -436,7 +424,6 @@ fn xdg_user_dir(key: &str, home: &str) -> Option<String> {
 /// Tên hàm: get_user_places
 /// Mô tả: Danh sách thư mục người dùng chuẩn XDG để dựng mục "Truy cập nhanh".
 /// Chỉ trả về thư mục thực sự tồn tại, nên không hiện mục dẫn tới đường dẫn rỗng.
-#[tauri::command]
 pub async fn get_user_places() -> Result<Vec<UserPlace>, String> {
     blocking(|| {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
@@ -481,7 +468,6 @@ pub async fn get_user_places() -> Result<Vec<UserPlace>, String> {
     .await
 }
 
-#[tauri::command]
 pub async fn open_in_terminal(path: String) -> Result<(), String> {
     blocking(move || {
         #[cfg(target_os = "windows")]
@@ -534,7 +520,6 @@ pub async fn open_in_terminal(path: String) -> Result<(), String> {
     .await
 }
 
-#[tauri::command]
 pub async fn fs_get_thumbnail(path: String) -> Result<String, String> {
     blocking(move || {
         use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -606,7 +591,6 @@ pub async fn fs_get_thumbnail(path: String) -> Result<String, String> {
 /// Tên hàm: fs_read_text
 /// Mô tả: Đọc nội dung văn bản của một file (Local hoặc remote) qua `rclone cat`.
 /// Giới hạn kích thước để không kéo cả file lớn vào bộ nhớ / IPC.
-#[tauri::command]
 pub async fn fs_read_text(path: String, max_bytes: Option<u64>) -> Result<String, String> {
     blocking(move || {
         let (remote, real_path) = file_ops::parse_remote_path(&path);
@@ -636,7 +620,6 @@ pub async fn fs_read_text(path: String, max_bytes: Option<u64>) -> Result<String
 /// Tên hàm: fs_write_text
 /// Mô tả: Ghi nội dung văn bản vào một file (Local hoặc remote) qua `rclone rcat`.
 /// `rcat` đọc từ stdin nên hoạt động đồng nhất cho mọi backend.
-#[tauri::command]
 pub async fn fs_write_text(path: String, content: String) -> Result<(), String> {
     blocking(move || {
         let (remote, real_path) = file_ops::parse_remote_path(&path);
@@ -658,7 +641,6 @@ pub async fn fs_write_text(path: String, content: String) -> Result<(), String> 
     .await
 }
 
-#[tauri::command]
 pub fn fs_temp_dir() -> String {
     std::env::temp_dir().to_string_lossy().to_string()
 }
@@ -666,7 +648,6 @@ pub fn fs_temp_dir() -> String {
 /// Tên hàm: fs_chmod
 /// Mô tả: Đổi quyền (mode) của một file/thư mục trên ổ Local.
 /// Chỉ hỗ trợ Unix — remote cloud không có khái niệm mode POSIX.
-#[tauri::command]
 pub async fn fs_chmod(path: String, mode: u32) -> Result<(), String> {
     blocking(move || {
         let (remote, real_path) = file_ops::parse_remote_path(&path);
@@ -703,7 +684,6 @@ pub async fn fs_chmod(path: String, mode: u32) -> Result<(), String> {
 /// Tên hàm: fs_chown
 /// Mô tả: Đổi chủ sở hữu (uid/gid) của một file/thư mục trên ổ Local.
 /// Thao tác này gần như luôn cần quyền root nên đi thẳng qua `pkexec chown`.
-#[tauri::command]
 pub async fn fs_chown(path: String, uid: u32, gid: u32) -> Result<(), String> {
     blocking(move || {
         let (remote, real_path) = file_ops::parse_remote_path(&path);

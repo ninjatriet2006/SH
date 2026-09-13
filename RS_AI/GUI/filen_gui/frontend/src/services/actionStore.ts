@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc';
 import type { FileItem } from '../store';
 
 export interface CustomAction {
@@ -66,8 +66,8 @@ class ActionStore {
 
     try {
       await invoke('sys_execute_custom_action', { 
-        execTemplate: action.exec, 
-        filePaths: paths 
+        exec_template: action.exec,
+        file_paths: paths
       });
     } catch (e) {
       console.error(`Failed to execute custom action ${action.name}:`, e);

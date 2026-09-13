@@ -5,7 +5,7 @@
 - Tương tác: Gọi backend API thông qua `sys_get_custom_actions` và `sys_execute_custom_action`.
 */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../../../bridge/ipc';
 import type { FileItem } from '../store';
 
 // ====================================================================================
