@@ -38,7 +38,7 @@
 | 6 | Migrate `img_splt_gui`, checkpoint và rollback | 5 | 1 | [x] |
 | 7 | Migrate `universe_manager_gui`, checkpoint và rollback | 6 | 1 | [x] |
 | 8 | Audit package/workspace/path/symlink/runtime coupling | 4,7 | 1 | [x] |
-| 9 | Nghiệm thu bảy standalone artifacts | 8 | 1 | [ ] |
+| 9 | Nghiệm thu bảy standalone artifacts | 8 | 1 | [x] |
 
 ## Gates và acceptance
 - Gate 1: baseline hành vi, persistence, build/package và test hiện có của từng app được ghi nhận.

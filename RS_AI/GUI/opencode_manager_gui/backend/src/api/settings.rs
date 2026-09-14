@@ -14,6 +14,7 @@
 
 use crate::ipc::{from_string, respond, Empty, IpcResult, Req};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +26,15 @@ pub struct GuiSettings {
     pub theme_id: String,
     #[serde(default = "default_font")]
     pub font_id: String,
+    /// Danh sách provider yêu thích (thứ tự = vị trí hiển thị).
+    #[serde(default)]
+    pub favorite_providers: Vec<String>,
+    /// Model ghim cho mỗi provider: provider_id → model_id.
+    #[serde(default)]
+    pub pinned_models: HashMap<String, String>,
+    /// Provider đang chờ được kiểm tra model tự động khi GUI khởi động.
+    #[serde(default)]
+    pub tracked_providers: Vec<String>,
 }
 
 fn default_theme() -> String {
@@ -42,8 +52,211 @@ impl Default for GuiSettings {
             language: crate::api::lang::first_available_lang().unwrap_or_default(),
             theme_id: default_theme(),
             font_id: default_font(),
+            favorite_providers: Vec::new(),
+            pinned_models: HashMap::new(),
+            tracked_providers: Vec::new(),
         }
     }
+}
+
+/// Phần sở thích hiển thị provider của `GuiSettings` — tách riêng để frontend
+/// chỉ nạp/thao tác khối này khi bấm sao/ghim, không kéo theo language/theme/font.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct ProviderPreferences {
+    /// Provider yêu thích, theo đúng thứ tự hiển thị (dấu ★ lên đầu bảng).
+    #[serde(default)]
+    pub favorite_providers: Vec<String>,
+    /// Model ghim cho mỗi provider: provider_id → model_id.
+    #[serde(default)]
+    pub pinned_models: HashMap<String, String>,
+    /// Provider được người dùng đánh dấu để kiểm tra model khi khởi động.
+    #[serde(default)]
+    pub tracked_providers: Vec<String>,
+}
+
+impl From<&GuiSettings> for ProviderPreferences {
+    fn from(settings: &GuiSettings) -> Self {
+        Self {
+            favorite_providers: settings.favorite_providers.clone(),
+            pinned_models: settings.pinned_models.clone(),
+            tracked_providers: settings.tracked_providers.clone(),
+        }
+    }
+}
+
+impl From<GuiSettings> for ProviderPreferences {
+    fn from(settings: GuiSettings) -> Self {
+        Self {
+            favorite_providers: settings.favorite_providers,
+            pinned_models: settings.pinned_models,
+            tracked_providers: settings.tracked_providers,
+        }
+    }
+}
+
+/// Đọc settings, áp một chỉnh sửa lên sở thích, ghi lại (backup + atomic) rồi
+/// trả về trạng thái mới. Mutation trả lỗi thì KHÔNG ghi gì cả. Mọi lệnh sửa
+/// preferences đều đi qua đây để không thể quên backup/xoay vòng.
+fn update_preferences(
+    path: &Path,
+    mutate: impl FnOnce(&mut GuiSettings) -> Result<(), String>,
+) -> Result<ProviderPreferences, String> {
+    let mut settings = read_gui_settings_from_path(path)?;
+    mutate(&mut settings)?;
+    opencode_manager::storage::backup_rotate(path, opencode_manager::storage::BACKUP_KEEP);
+    let text = serde_json::to_string_pretty(&settings).map_err(|e| format!("Lỗi chuyển đổi cài đặt: {e}"))?;
+    opencode_manager::storage::atomic_write(path, &text).map_err(|e| format!("Lỗi ghi file cài đặt: {e}"))?;
+    Ok(ProviderPreferences::from(&settings))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn get_provider_preferences(request: Req<Empty>) -> IpcResult<ProviderPreferences> {
+    let (request_id, _) = request.validate()?;
+    migrate_settings_file();
+    read_gui_settings_from_path(&settings_path())
+        .map(|settings| respond(request_id, ProviderPreferences::from(&settings)))
+        .map_err(from_string)
+}
+
+#[derive(Deserialize)]
+pub struct ToggleFavoriteProviderRequest {
+    pub provider_id: String,
+}
+
+fn toggle_favorite_inner(path: &Path, provider_id: String) -> Result<ProviderPreferences, String> {
+    if provider_id.is_empty() {
+        return Err("provider_id không được để trống".to_string());
+    }
+    update_preferences(path, |settings| {
+        match settings.favorite_providers.iter().position(|id| id == &provider_id) {
+            // Đã yêu thích → bỏ; chưa → thêm vào CUỐI nhóm sao (nhóm này luôn
+            // đứng đầu bảng, thứ tự trong nhóm = thứ tự trong danh sách).
+            Some(pos) => {
+                settings.favorite_providers.remove(pos);
+            }
+            None => settings.favorite_providers.push(provider_id.clone()),
+        }
+        Ok(())
+    })
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn toggle_favorite_provider(request: Req<ToggleFavoriteProviderRequest>) -> IpcResult<ProviderPreferences> {
+    let (request_id, payload) = request.validate()?;
+    toggle_favorite_inner(&settings_path(), payload.provider_id.trim().to_string())
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
+}
+
+#[derive(Deserialize)]
+pub struct ReorderFavoriteProvidersRequest {
+    /// Toàn bộ danh sách yêu thích theo thứ tự MỚI (phải là hoán vị của hiện có).
+    pub provider_ids: Vec<String>,
+}
+
+fn reorder_favorites_inner(path: &Path, provider_ids: Vec<String>) -> Result<ProviderPreferences, String> {
+    let ids: Vec<String> = provider_ids.into_iter().map(|s| s.trim().to_string()).collect();
+    update_preferences(path, |settings| {
+        // Chỉ chấp nhận hoán vị ĐÚNG của danh sách hiện có: chống ghi mất
+        // provider khi frontend gửi danh sách lệch (stale sau khi xoá/bỏ sao).
+        let mut expected = settings.favorite_providers.clone();
+        let mut actual = ids.clone();
+        expected.sort_unstable();
+        actual.sort_unstable();
+        if expected != actual {
+            return Err("Danh sách đổi thứ tự không trùng khớp các provider đang được yêu thích".to_string());
+        }
+        settings.favorite_providers = ids;
+        Ok(())
+    })
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn reorder_favorite_providers(request: Req<ReorderFavoriteProvidersRequest>) -> IpcResult<ProviderPreferences> {
+    let (request_id, payload) = request.validate()?;
+    reorder_favorites_inner(&settings_path(), payload.provider_ids)
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
+}
+
+#[derive(Deserialize)]
+pub struct SetPinnedModelRequest {
+    pub provider_id: String,
+    /// Model ghim; CHUỖI RỖNG = bỏ ghim.
+    pub model_id: String,
+}
+
+fn set_pinned_model_inner(path: &Path, provider_id: String, model_id: String) -> Result<ProviderPreferences, String> {
+    if provider_id.is_empty() {
+        return Err("provider_id không được để trống".to_string());
+    }
+    update_preferences(path, |settings| {
+        if model_id.is_empty() {
+            settings.pinned_models.remove(&provider_id);
+        } else {
+            settings.pinned_models.insert(provider_id, model_id.clone());
+        }
+        Ok(())
+    })
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn set_pinned_model(request: Req<SetPinnedModelRequest>) -> IpcResult<ProviderPreferences> {
+    let (request_id, payload) = request.validate()?;
+    set_pinned_model_inner(
+        &settings_path(),
+        payload.provider_id.trim().to_string(),
+        payload.model_id.trim().to_string(),
+    )
+    .map(|data| respond(request_id, data))
+    .map_err(from_string)
+}
+
+#[derive(Deserialize)]
+pub struct ToggleTrackedProviderRequest {
+    pub provider_id: String,
+}
+
+fn toggle_tracked_inner(path: &Path, provider_id: String) -> Result<ProviderPreferences, String> {
+    if provider_id.is_empty() {
+        return Err("provider_id không được để trống".to_string());
+    }
+    update_preferences(path, |settings| {
+        if let Some(pos) = settings.tracked_providers.iter().position(|id| id == &provider_id) {
+            settings.tracked_providers.remove(pos);
+        } else {
+            settings.tracked_providers.push(provider_id.clone());
+        }
+        Ok(())
+    })
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn toggle_tracked_provider(request: Req<ToggleTrackedProviderRequest>) -> IpcResult<ProviderPreferences> {
+    let (request_id, payload) = request.validate()?;
+    toggle_tracked_inner(&settings_path(), payload.provider_id.trim().to_string())
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
+}
+
+#[derive(Deserialize)]
+pub struct UntrackProviderRequest {
+    pub provider_id: String,
+}
+
+fn untrack_provider_inner(path: &Path, provider_id: String) -> Result<ProviderPreferences, String> {
+    update_preferences(path, |settings| {
+        settings.tracked_providers.retain(|id| id != &provider_id);
+        Ok(())
+    })
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn untrack_provider(request: Req<UntrackProviderRequest>) -> IpcResult<ProviderPreferences> {
+    let (request_id, payload) = request.validate()?;
+    untrack_provider_inner(&settings_path(), payload.provider_id.trim().to_string())
+        .map(|data| respond(request_id, data))
+        .map_err(from_string)
 }
 
 /// Vị trí MỚI: `${XDG_CONFIG_HOME:-$HOME/.config}/opencode-manager/settings.json` (dữ liệu riêng của
@@ -153,10 +366,15 @@ fn save_gui_settings_to_path(path: &Path, language: String, theme_id: String, fo
         ));
     }
 
+    // Đọc settings hiện có để GIỮ favorites/pinned_models qua lần lưu này.
+    let existing = read_gui_settings_from_path(path).unwrap_or_default();
     let settings = GuiSettings {
         language,
         theme_id,
         font_id,
+        favorite_providers: existing.favorite_providers,
+        pinned_models: existing.pinned_models,
+        tracked_providers: existing.tracked_providers,
     };
     // Backup xoay vòng + ghi atomic (xem opencode_manager::storage).
     opencode_manager::storage::backup_rotate(path, opencode_manager::storage::BACKUP_KEEP);
@@ -344,5 +562,131 @@ mod tests {
         assert!(paths.ckey_json.starts_with(&paths.manager_config_dir));
         assert!(paths.arbiter_json.starts_with(&paths.manager_config_dir));
         assert!(paths.settings_json.starts_with(&paths.manager_config_dir));
+    }
+
+    fn temp_settings_path(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "opencode-manager-prefs-{tag}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ))
+    }
+
+    #[test]
+    fn toggle_yeu_thich_them_cuoi_roi_bo_duoc() {
+        let path = temp_settings_path("toggle");
+        let _ = std::fs::remove_file(&path);
+
+        // Thêm hai lượt: sao đứng cuối danh sách theo thứ tự bấm.
+        toggle_favorite_inner(&path, "p1".into()).unwrap();
+        toggle_favorite_inner(&path, "p2".into()).unwrap();
+        let prefs = read_gui_settings_from_path(&path)
+            .map(ProviderPreferences::from)
+            .unwrap();
+        assert_eq!(prefs.favorite_providers, vec!["p1".to_string(), "p2".to_string()]);
+
+        // Bấm lại provider đang sao → bỏ sao, phần còn lại giữ nguyên thứ tự.
+        toggle_favorite_inner(&path, "p1".into()).unwrap();
+        let prefs = read_gui_settings_from_path(&path)
+            .map(ProviderPreferences::from)
+            .unwrap();
+        assert_eq!(prefs.favorite_providers, vec!["p2".to_string()]);
+
+        // provider_id rỗng bị chặn, không tạo file rác.
+        assert!(toggle_favorite_inner(&path, "".into()).is_err());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn doi_thu_tu_yeu_thich_chi_nhan_hoan_vi_dung() {
+        let path = temp_settings_path("reorder");
+        let _ = std::fs::remove_file(&path);
+        toggle_favorite_inner(&path, "a".into()).unwrap();
+        toggle_favorite_inner(&path, "b".into()).unwrap();
+        toggle_favorite_inner(&path, "c".into()).unwrap();
+
+        // Hoán vị đúng → ghi nhận thứ tự mới.
+        reorder_favorites_inner(&path, vec!["c".into(), "a".into(), "b".into()]).unwrap();
+        let prefs = read_gui_settings_from_path(&path)
+            .map(ProviderPreferences::from)
+            .unwrap();
+        assert_eq!(
+            prefs.favorite_providers,
+            vec!["c".to_string(), "a".to_string(), "b".to_string()]
+        );
+
+        // Danh sách lệch (thiếu/thừa/giả) → lỗi và KHÔNG ghi đè mất yêu thích.
+        let err = reorder_favorites_inner(&path, vec!["a".into(), "b".into()]).unwrap_err();
+        assert!(err.contains("không trùng khớp"), "lỗi: {err}");
+        let prefs = read_gui_settings_from_path(&path)
+            .map(ProviderPreferences::from)
+            .unwrap();
+        assert_eq!(
+            prefs.favorite_providers.len(),
+            3,
+            "danh sách cũ phải sống sót sau reorder sai"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn ghim_model_va_bo_ghim_bang_chuoi_rong() {
+        let path = temp_settings_path("pin");
+        let _ = std::fs::remove_file(&path);
+
+        set_pinned_model_inner(&path, "p1".into(), "gpt-x".into()).unwrap();
+        set_pinned_model_inner(&path, "p2".into(), "claude-y".into()).unwrap();
+        let prefs = read_gui_settings_from_path(&path)
+            .map(ProviderPreferences::from)
+            .unwrap();
+        assert_eq!(prefs.pinned_models.get("p1").map(String::as_str), Some("gpt-x"));
+        assert_eq!(prefs.pinned_models.get("p2").map(String::as_str), Some("claude-y"));
+
+        // Chuỗi rỗng = bỏ ghim đúng provider đó.
+        set_pinned_model_inner(&path, "p1".into(), "".into()).unwrap();
+        let prefs = read_gui_settings_from_path(&path)
+            .map(ProviderPreferences::from)
+            .unwrap();
+        assert!(!prefs.pinned_models.contains_key("p1"));
+        assert!(prefs.pinned_models.contains_key("p2"));
+
+        assert!(set_pinned_model_inner(&path, "".into(), "m".into()).is_err());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Settings cũ (file chỉ có language/theme/font) phải mượt mà nhận thêm
+    /// favorites/pinned qua `#[serde(default)]` — migration không cần bước riêng.
+    #[test]
+    fn settings_cu_thieu_truong_so_thich_van_doc_duoc() {
+        let path = temp_settings_path("legacy-fields");
+        let _ = std::fs::remove_file(&path);
+        std::fs::write(&path, r#"{"language":"vi","theme_id":"default","font_id":"default"}"#).unwrap();
+
+        let settings = read_gui_settings_from_path(&path).unwrap();
+        assert!(settings.favorite_providers.is_empty());
+        assert!(settings.pinned_models.is_empty());
+
+        // Ghi preference vào file cũ → các trường cài đặt gốc không bị mất.
+        toggle_favorite_inner(&path, "legacy_p".into()).unwrap();
+        let settings = read_gui_settings_from_path(&path).unwrap();
+        assert_eq!(settings.language, "vi");
+        assert_eq!(settings.favorite_providers, vec!["legacy_p".to_string()]);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Lưu language/theme/font (trang Cài đặt) KHÔNG được xoá yêu thích/ghim.
+    #[test]
+    fn save_cai_dat_giu_nguyen_yeu_thich_ghim() {
+        let path = temp_settings_path("preserve");
+        let _ = std::fs::remove_file(&path);
+        toggle_favorite_inner(&path, "keep_me".into()).unwrap();
+        set_pinned_model_inner(&path, "keep_me".into(), "m1".into()).unwrap();
+
+        save_gui_settings_to_path(&path, "vi".into(), "default".into(), "default".into()).unwrap();
+        let settings = read_gui_settings_from_path(&path).unwrap();
+        assert_eq!(settings.favorite_providers, vec!["keep_me".to_string()]);
+        assert_eq!(settings.pinned_models.get("keep_me").map(String::as_str), Some("m1"));
+        let _ = std::fs::remove_file(&path);
     }
 }

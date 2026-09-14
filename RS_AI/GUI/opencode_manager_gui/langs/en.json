@@ -5,7 +5,8 @@
     "ckey": "CKey",
     "cleanup": "Cleanup",
     "settings": "Settings",
-    "models": "Models"
+    "models": "Models",
+    "resize_hint": "Drag to resize sidebar · Double-click to reset"
   },
   "common": {
     "save": "Save",
@@ -43,12 +44,28 @@
     "col_url": "Base URL",
     "col_key": "API Key",
     "col_models": "Models",
+    "col_pinned_model": "Pinned model",
+    "col_favorite": "Favorite",
     "col_status": "Status",
     "col_actions": "Actions",
+    "group_custom": "Custom provider",
+    "group_builtin": "Built-in Provider",
+    "favorite": "Star this provider (pins it to the top)",
+    "unfavorite": "Remove star",
+    "move_up": "Move up among starred",
+    "move_down": "Move down among starred",
+    "pinned_none": "— none —",
+    "pinned_hint": "Pin a favorite model from this provider's model list",
+    "endpoint_conflict": "Endpoint duplicates built-in provider",
+    "col_resize_hint": "Drag to resize column · Double-click to reset",
+    "col_tracking": "Track",
+    "track": "Track model recovery",
+    "untrack": "Stop tracking",
     "builtin": "Built-in",
     "custom": "Custom",
     "no_key": "No key",
     "model_count": "models",
+    "from_catalog": "from catalog — not yet saved in config",
     "scan_models": "Scan models",
     "test_one": "Test connection",
     "delete_confirm_title": "Confirm provider removal",
@@ -64,6 +81,7 @@
     "result_added": "Added",
     "result_existing": "Already existed",
     "result_dup": "Duplicates in list",
+    "result_conflict": "created at a built-in endpoint",
     "result_normalized": "Normalized endpoint"
   },
   "ckey": {
@@ -155,6 +173,9 @@
     "dup_title": "Duplicate detected",
     "dup_msg": "Another provider already uses this Base URL and API Key. Merge into it?",
     "dup_merge": "Merge into",
+    "conflict_title": "Endpoint conflicts with built-in provider",
+    "conflict_msg": "This endpoint is the same as the built-in provider below. Keeping a separate custom provider duplicates that endpoint (same API, two entries). Save anyway?",
+    "conflict_save": "Save anyway",
     "keep_key": "Leave empty to keep the current key."
   },
   "models": {

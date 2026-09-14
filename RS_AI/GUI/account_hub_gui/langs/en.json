@@ -1,0 +1,71 @@
+{
+  "langs": [
+    { "id": "en", "name": "English" },
+    { "id": "vi", "name": "Tiếng Việt" }
+  ],
+  "app": {
+    "title": "Account Hub - Email & Web Platform Manager",
+    "subtitle": "Track registration status, daily check-in, and website criteria"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "matrix": "Registration Matrix",
+    "emails": "Manage Gmail",
+    "websites": "Manage Websites",
+    "settings": "Settings"
+  },
+  "common": {
+    "add": "Add New",
+    "edit": "Edit",
+    "delete": "Delete",
+    "save": "Save Changes",
+    "cancel": "Cancel",
+    "search": "Search...",
+    "status": "Status",
+    "actions": "Actions",
+    "yes": "Yes",
+    "no": "No",
+    "notes": "Notes",
+    "confirm_delete": "Are you sure you want to delete?",
+    "registered": "Registered",
+    "not_registered": "Not Registered",
+    "filter_all": "All",
+    "filter_registered": "Registered",
+    "filter_unregistered": "Not Registered"
+  },
+  "matrix": {
+    "title": "Account & Website Matrix",
+    "quick_toggle": "Click a cell to toggle registration status",
+    "select_email": "Select Email",
+    "select_web": "Select Website",
+    "view_mode": "View Mode",
+    "by_email": "By Email",
+    "by_web": "By Website"
+  },
+  "email": {
+    "title": "Gmail List",
+    "add_title": "Add New Email",
+    "email_address": "Email Address",
+    "owner": "Owner / Group",
+    "recovery_email": "Recovery Email",
+    "phone": "Phone Number",
+    "tags": "Tags (comma separated)",
+    "registered_count": "Registered Sites",
+    "created_at": "Created At"
+  },
+  "website": {
+    "title": "Web Platforms",
+    "add_title": "Add New Website",
+    "name": "Website Name",
+    "url": "URL",
+    "category": "Category",
+    "daily_checkin": "Daily Check-in",
+    "cheat_account": "Can cheat / multi-acc",
+    "requires_kyc": "Requires KYC",
+    "requires_proxy": "Requires Proxy/VPN",
+    "custom_criteria": "Custom Criteria",
+    "criteria_name": "Criteria Name",
+    "criteria_value": "Value",
+    "add_criterion": "Add Criteria"
+  }
+}

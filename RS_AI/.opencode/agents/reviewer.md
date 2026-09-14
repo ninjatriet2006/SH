@@ -1,7 +1,7 @@
 ---
 description: Reviewer - Review code diff, kiểm tra style, logic, security, performance và approve hoặc request changes.
 mode: subagent
-model: JustWoker/gpt-5.6-sol
+model: custom_11/anthropic/claude-opus-4-6-thinking
 temperature: 0.1
 permission:
   edit: deny

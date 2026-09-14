@@ -66,6 +66,11 @@ export function BulkAddPage() {
                             {t('bulk.result_normalized')}: {result.normalized_endpoint}
                         </div>
                     )}
+                    {result.builtin_conflicts > 0 && (
+                        <div style={{ marginTop: '0.25rem', color: 'var(--danger)' }}>
+                            ⚠ {t('bulk.result_conflict')}: {result.builtin_conflicts}
+                        </div>
+                    )}
                 </div>
             )}
 

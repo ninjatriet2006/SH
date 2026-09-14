@@ -1,12 +1,14 @@
 /*
 [INTEGRITY NOTES]
  - Mục đích: Root component — layout, điều hướng và khởi tạo cài đặt/theme/font.
-- Trách nhiệm: Nạp cài đặt + theme trước khi render nội dung; hiển thị sidebar.
-- Tương tác: các store và trang trong `pages/`.
+- Trách nhiệm: Nạp cài đặt + theme trước khi render nội dung; hiển thị sidebar
+   (có handle kéo đổi độ rộng, lưu localStorage, nhấn đúp để đặt lại).
+- Tương tác: các store và trang trong `pages/`, `utils/dragResize.ts`.
 */
 
 import { Routes, Route, NavLink } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import { Server, ShieldAlert, Settings as SettingsIcon, Layers, Cloud, BarChart3 } from 'lucide-react';
 import { ProvidersPage } from './pages/ProvidersPage';
 import { BulkAddPage } from './pages/BulkAddPage';
@@ -18,12 +20,25 @@ import { useSettingsStore } from './store/useSettingsStore';
 import { useThemeStore } from './store/useThemeStore';
 import { useFontStore } from './store/useFontStore';
 import { useTranslation } from './utils/i18n';
+import { startHorizontalDrag } from './utils/dragResize';
+
+const SIDEBAR_STORAGE_KEY = 'opencode-manager:sidebar-width';
+const SIDEBAR_MIN = 180;
+const SIDEBAR_MAX = 420;
+const SIDEBAR_DEFAULT = 240;
+
+/** Độ rộng lưu phải nằm trong biên cho phép; giá trị rác/biến mất → về mặc định. */
+function loadSidebarWidth(): number {
+    const v = Number(localStorage.getItem(SIDEBAR_STORAGE_KEY));
+    return Number.isFinite(v) && v >= SIDEBAR_MIN && v <= SIDEBAR_MAX ? v : SIDEBAR_DEFAULT;
+}
 
 function App() {
     const { initSettings, isLoading } = useSettingsStore();
     const { initThemes, isLoading: isThemeLoading } = useThemeStore();
     const { initFonts, isLoading: isFontLoading } = useFontStore();
     const { t } = useTranslation();
+    const [sidebarWidth, setSidebarWidth] = useState<number>(loadSidebarWidth);
 
     useEffect(() => {
         const initAll = async () => {
@@ -36,6 +51,28 @@ function App() {
         initAll();
     }, []);
 
+    const startSidebarResize = useCallback((e: ReactMouseEvent) => {
+        e.preventDefault();
+        const startX = e.clientX;
+        const startWidth = sidebarWidth;
+        let latest = startWidth;
+        startHorizontalDrag(
+            clientX => {
+                latest = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Math.round(startWidth + clientX - startX)));
+                setSidebarWidth(latest);
+            },
+            // Chỉ ghi localStorage khi thả tay — kéo không gây ghi liên tục.
+            () => {
+                try { localStorage.setItem(SIDEBAR_STORAGE_KEY, String(latest)); } catch { /* bỏ qua */ }
+            },
+        );
+    }, [sidebarWidth]);
+
+    const resetSidebarWidth = useCallback(() => {
+        setSidebarWidth(SIDEBAR_DEFAULT);
+        try { localStorage.setItem(SIDEBAR_STORAGE_KEY, String(SIDEBAR_DEFAULT)); } catch { /* bỏ qua */ }
+    }, []);
+
     if (isLoading || isThemeLoading || isFontLoading) {
         return (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', color: 'var(--text-primary)' }}>
@@ -45,8 +82,14 @@ function App() {
     }
 
     return (
-        <div className="app-layout">
+        <div className="app-layout" style={{ gridTemplateColumns: `${sidebarWidth}px 1fr` }}>
             <nav className="sidebar">
+                <div
+                    className="sidebar-resizer"
+                    onMouseDown={startSidebarResize}
+                    onDoubleClick={resetSidebarWidth}
+                    title={t('sidebar.resize_hint')}
+                />
                 <h2 style={{ color: 'var(--primary)', marginBottom: '2rem', paddingLeft: '1rem' }}>
                     OpenCode
                 </h2>

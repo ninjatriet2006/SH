@@ -1,7 +1,7 @@
 ---
 description: Codebase Explorer - Tìm kiếm file, đọc hiểu cấu trúc, phân tích dependencies và trả về map ngắn gọn cho team.
 mode: subagent
-model: cBAjYv/gpt-5.6-terra
+model: custom_11/anthropic/claude-opus-4-6-thinking
 temperature: 0.1
 permission:
   edit: deny

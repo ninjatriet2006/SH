@@ -271,9 +271,10 @@ fn moi_command_khai_bao_snake_case() {
     let cmds = rust_commands();
     // Con số này là chốt có chủ đích: thêm/bớt command phải sửa test, buộc
     // người sửa nhìn lại xem command mới đã đăng ký và đúng quy ước chưa.
+    // 46 = 42 + 4 lệnh preferences (get/toggle/reorder/set_pinned).
     assert_eq!(
         cmds.len(),
-        42,
+        46,
         "số command thay đổi ({}) — cập nhật test nếu thêm/bớt command có chủ đích",
         cmds.len()
     );

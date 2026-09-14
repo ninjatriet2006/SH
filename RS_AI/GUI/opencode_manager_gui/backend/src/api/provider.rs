@@ -9,7 +9,9 @@
   dạng file + client API), frontend `store/useProviderStore.ts`.
 */
 
-use crate::core::store::{build_views, detect_duplicate, is_builtin, load_merged, save_split, unique_id, ProviderView};
+use crate::core::store::{
+    build_views_with_catalog, detect_duplicate, is_builtin, load_merged, save_split, unique_id, ProviderView,
+};
 use crate::ipc::{from_string, respond, Empty, IpcError, IpcResult, Req};
 use opencode_manager::api::{ApiClient, ApiStatus};
 use opencode_manager::app::{App, DynamicPreset};
@@ -68,7 +70,13 @@ pub fn list_providers(request: Req<Empty>) -> IpcResult<Vec<ProviderView>> {
     let (request_id, _) = request.validate()?;
     let presets = presets();
     let (config, _auth) = load_merged(&presets).map_err(from_string)?;
-    Ok(respond(request_id, build_views(&config, &presets)))
+    // Built-in key-only không khai model trong config — đếm model từ catalogue
+    // models.dev (cache local của opencode, không gọi mạng) thay vì hiện 0.
+    let catalog = opencode_manager::model_knowledge::catalog_models_by_provider();
+    Ok(respond(
+        request_id,
+        build_views_with_catalog(&config, &presets, &catalog),
+    ))
 }
 
 /// Danh sách preset để chọn khi thêm provider.
@@ -123,11 +131,16 @@ pub fn get_provider_secret(request: Req<ProviderIdRequest>) -> IpcResult<String>
 }
 
 /// Kết quả lưu provider. `duplicate_of` != None nghĩa là CHƯA lưu — frontend
-/// phải hỏi người dùng có gộp vào provider trùng hay không.
+/// phải hỏi người dùng có gộp vào provider trùng hay không. `builtin_conflict`
+/// != None cũng vậy — endpoint trùng preset built-in, chờ người dùng xác nhận.
 #[derive(Debug, Clone, Serialize)]
 pub struct SaveResult {
     pub saved_id: Option<String>,
     pub duplicate_of: Option<DuplicateInfo>,
+    /// Endpoint trùng preset built-in (id khác preset) — CHƯA lưu, frontend
+    /// hỏi "vẫn lưu provider custom?" rồi gửi lại với
+    /// `acknowledge_builtin_conflict = true`.
+    pub builtin_conflict: Option<DuplicateInfo>,
     /// Base URL sau khi tự sửa (nếu khác bản người dùng nhập).
     pub normalized_base_url: Option<String>,
     /// Adapter Auto đã probe và chọn trước khi lưu.
@@ -153,6 +166,20 @@ pub struct SaveProviderRequest {
     pub npm: Option<String>,
     #[serde(deserialize_with = "crate::ipc::present_nullable")]
     pub custom_id: Option<String>,
+    /// Người dùng đã xác nhận "vẫn lưu dù endpoint trùng built-in" — bỏ qua
+    /// cổng hỏi xung đột. Mặc định false (chưa xác nhận thì phải hỏi).
+    #[serde(default)]
+    pub acknowledge_builtin_conflict: bool,
+}
+
+/// Tự thêm `https://` nếu URL không có scheme — tránh tạo provider với URL vô
+/// nghĩa khi người dùng quên gõ scheme.
+fn ensure_scheme(url: &str) -> String {
+    let trimmed = url.trim();
+    if trimmed.is_empty() || trimmed.contains("://") {
+        return trimmed.to_string();
+    }
+    format!("https://{trimmed}")
 }
 
 /// Ký tự an toàn cho id provider do người dùng tự đặt: chữ, số, `_`, `-`.
@@ -203,6 +230,7 @@ pub async fn save_provider(request: Req<SaveProviderRequest>) -> IpcResult<SaveR
             payload.force_overwrite_id,
             payload.npm,
             payload.custom_id,
+            payload.acknowledge_builtin_conflict,
         )
     })
     .await
@@ -221,9 +249,10 @@ fn save_provider_blocking(
     force_overwrite_id: Option<String>,
     npm: Option<String>,
     custom_id: Option<String>,
+    acknowledge_builtin_conflict: bool,
 ) -> Result<SaveResult, String> {
     let name = name.trim().to_string();
-    let raw_url = base_url.trim().to_string();
+    let raw_url = ensure_scheme(&base_url);
     let api_key = api_key.trim().to_string();
     // Tự sửa base_url nhập thừa path (vd `.../v1/chat/completions` → `.../v1`).
     let base_url = normalize_base_url(&raw_url);
@@ -249,6 +278,7 @@ fn save_provider_blocking(
                     id: dup_id,
                     name: dup_name,
                 }),
+                builtin_conflict: None,
                 normalized_base_url: normalized,
                 detected_npm: None,
             });
@@ -304,6 +334,35 @@ fn save_provider_blocking(
         }
     };
 
+    // Cổng hỏi xung đột endpoint với built-in: provider custom (id ≠ preset)
+    // trỏ đúng URL của một preset → trả về cho frontend hỏi "vẫn lưu?".
+    // Bỏ qua khi: người dùng đã xác nhận (`acknowledge_builtin_conflict`),
+    // đang gộp vào provider trùng (đã qua một lần hỏi), hoặc sửa provider
+    // mà KHÔNG đổi endpoint (xung đột tồn tại trước, hỏi lại chỉ phiền).
+    if !acknowledge_builtin_conflict && !merging {
+        let editing_same_endpoint = (!editing_id.is_empty())
+            .then(|| config.provider.get(&editing_id))
+            .flatten()
+            .is_some_and(|p| normalize_base_url(&p.options.base_url) == base_url);
+        if !editing_same_endpoint {
+            if let Some(preset) = presets
+                .iter()
+                .find(|p| p.id != "custom" && p.id != target_id && normalize_base_url(&p.base_url) == base_url)
+            {
+                return Ok(SaveResult {
+                    saved_id: None,
+                    duplicate_of: None,
+                    builtin_conflict: Some(DuplicateInfo {
+                        id: preset.id.clone(),
+                        name: preset.name.clone(),
+                    }),
+                    normalized_base_url: normalized,
+                    detected_npm: None,
+                });
+            }
+        }
+    }
+
     let requested_npm = npm.filter(|s| !s.trim().is_empty());
     let detected_npm = if requested_npm.as_deref() == Some("auto") {
         let client = ApiClient::new();
@@ -351,6 +410,7 @@ fn save_provider_blocking(
     Ok(SaveResult {
         saved_id: Some(target_id),
         duplicate_of: None,
+        builtin_conflict: None,
         normalized_base_url: normalized,
         detected_npm,
     })
@@ -405,7 +465,9 @@ pub fn test_connection(request: Req<TestConnectionRequest>) -> IpcResult<StatusV
         return Err(from_string("Cần cả Base URL và API Key để kiểm tra".to_string()));
     }
     let client = ApiClient::new();
-    let status = block_on(client.test_api(&normalize_base_url(&base_url), &api_key));
+    // Cùng chuẩn hoá như lúc lưu (kể cả tự thêm https://): kiểm tra phải đánh
+    // giá đúng URL sẽ được lưu, không phải bản người dùng gõ thiếu.
+    let status = block_on(client.test_api(&normalize_base_url(&ensure_scheme(&base_url)), &api_key));
     Ok(respond(request_id, status_view("", &status)))
 }
 
@@ -464,6 +526,8 @@ pub struct ScannedModel {
     /// Có trong config nhưng provider KHÔNG còn trả về nữa (model "chết").
     /// Đây là thứ bản TUI từng bỏ sót khiến config tích luỹ model không tồn tại.
     pub stale: bool,
+    /// Kết quả lấy từ API thật, không phải catalogue dự phòng.
+    pub from_api: bool,
     /// Khả năng model đang lưu trong config (nếu có) — để UI sửa lại thay vì
     /// mất khi lưu (case `hy3`: thiếu `tool_call`/`reasoning`/`interleaved` làm
     /// OpenCode gửi request sai shape cho model reasoning).
@@ -516,8 +580,8 @@ fn scan_provider_models_inner(provider_id: String) -> Result<Vec<ScannedModel>, 
     // đặc biệt cho provider BUILT-IN key-only vốn không có model trong
     // opencode.json của manager.
     let client = ApiClient::new();
-    let fetched: Vec<String> = match block_on(client.fetch_models(&p.options.base_url, &p.options.api_key)) {
-        Ok(list) => list,
+    let (fetched, from_api): (Vec<String>, bool) = match block_on(client.fetch_models(&p.options.base_url, &p.options.api_key)) {
+        Ok(list) => (list, true),
         Err(api_err) => {
             // Danh sách ĐẦY ĐỦ của provider (không lọc declared): lọc sẽ biến
             // model đã chọn thành "stale" và đồng bộ sau đó XOÁ nó khỏi config.
@@ -529,7 +593,7 @@ fn scan_provider_models_inner(provider_id: String) -> Result<Vec<ScannedModel>, 
                 // Catalogue không có provider này → lỗi API là lỗi thật.
                 return Err(api_err);
             }
-            catalog.into_iter().map(|(mid, _)| mid).collect()
+            (catalog.into_iter().map(|(mid, _)| mid).collect(), false)
         }
     };
 
@@ -541,6 +605,7 @@ fn scan_provider_models_inner(provider_id: String) -> Result<Vec<ScannedModel>, 
                 id: id.clone(),
                 in_config: entry.is_some(),
                 stale: false,
+                from_api,
                 caps: entry.and_then(caps_of_entry),
             }
         })
@@ -557,6 +622,7 @@ fn scan_provider_models_inner(provider_id: String) -> Result<Vec<ScannedModel>, 
             id: id.clone(),
             in_config: true,
             stale: true,
+            from_api,
             caps: caps_of_entry(entry),
         })
         .collect();
@@ -648,7 +714,10 @@ fn set_provider_models_inner(
 
     save_split(&config, &mut auth, &presets)?;
 
-    let views = build_views(&config, &presets);
+    // Đồng bộ xong có thể đổi vai trò provider (bỏ hết model của built-in →
+    // trở lại key-only) — đếm model theo catalogue cho khớp list_providers.
+    let catalog = opencode_manager::model_knowledge::catalog_models_by_provider();
+    let views = build_views_with_catalog(&config, &presets, &catalog);
     views
         .into_iter()
         .find(|v| v.id == provider_id)
@@ -782,6 +851,28 @@ mod integration_tests {
             None,
             None,
             custom_id.map(str::to_string),
+            false,
+        )
+    }
+
+    /// Như `save` nhưng đã xác nhận xung đột endpoint built-in.
+    fn save_confirmed(
+        editing: &str,
+        custom_id: Option<&str>,
+        name: &str,
+        url: &str,
+        key: &str,
+    ) -> Result<SaveResult, String> {
+        save_provider_blocking(
+            editing.to_string(),
+            "custom".to_string(),
+            name.to_string(),
+            url.to_string(),
+            key.to_string(),
+            None,
+            None,
+            custom_id.map(str::to_string),
+            true,
         )
     }
 
@@ -1007,5 +1098,128 @@ mod integration_tests {
         )
         .unwrap();
         assert_eq!(r.saved_id.as_deref(), Some("weird.id"));
+    }
+
+    #[test]
+    fn luu_custom_trung_endpoint_preset_hoi_xac_nhan() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
+        isolate_home("builtin_conflict_gate");
+        seed_preset("ckeyx", "CKey X", "https://api.ckeyx.example/v1");
+
+        // Thêm custom (id khác preset) trùng URL preset → trả conflict, CHƯA lưu.
+        let r = save("", Some("my_ckey"), "My CKey", "https://api.ckeyx.example/v1", "sk-1").unwrap();
+        assert_eq!(r.saved_id, None, "chưa xác nhận thì không lưu");
+        let conflict = r.builtin_conflict.expect("phải báo xung đột preset");
+        assert_eq!(conflict.id, "ckeyx");
+        assert_eq!(conflict.name, "CKey X");
+        let cfg = OpencodeConfig::load().unwrap();
+        assert!(cfg.provider.is_empty(), "không ghi gì khi chưa xác nhận");
+
+        // Xác nhận → lưu được và không hỏi lại.
+        let r = save_confirmed("", Some("my_ckey"), "My CKey", "https://api.ckeyx.example/v1", "sk-1").unwrap();
+        assert_eq!(r.saved_id.as_deref(), Some("my_ckey"));
+        assert!(r.builtin_conflict.is_none());
+        let cfg = OpencodeConfig::load().unwrap();
+        assert_eq!(cfg.provider.len(), 1);
+    }
+
+    #[test]
+    fn sua_khong_doi_endpoint_khong_hoi_lai_xung_dot() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
+        isolate_home("builtin_conflict_edit");
+        seed_preset("ckeyx", "CKey X", "https://api.ckeyx.example/v1");
+        save_confirmed("", Some("my_ckey"), "My CKey", "https://api.ckeyx.example/v1", "sk-1").unwrap();
+
+        // Sửa TÊN, endpoint giữ nguyên → không hỏi lại xung đột (không cần ack).
+        let r = save("my_ckey", None, "Renamed", "https://api.ckeyx.example/v1", "sk-1").unwrap();
+        assert_eq!(r.saved_id.as_deref(), Some("my_ckey"));
+        assert!(r.builtin_conflict.is_none(), "endpoint không đổi thì không hỏi lại");
+
+        // URL viết thừa path nhưng chuẩn hoá về CÙNG endpoint → vẫn "không đổi".
+        let r = save(
+            "my_ckey",
+            None,
+            "Renamed",
+            "https://api.ckeyx.example/v1/chat/completions",
+            "sk-1",
+        )
+        .unwrap();
+        assert!(
+            r.builtin_conflict.is_none(),
+            "endpoint chuẩn hoá trùng thì không hỏi lại"
+        );
+    }
+
+    #[test]
+    fn dung_id_va_url_preset_khong_bao_conflict() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
+        isolate_home("builtin_conflict_self");
+        seed_preset("ckeyx", "CKey X", "https://api.ckeyx.example/v1");
+
+        // Id = id preset + URL preset → đây chính là built-in, không xung đột.
+        let r = save("", Some("ckeyx"), "CKey X", "https://api.ckeyx.example/v1", "sk-1").unwrap();
+        assert_eq!(r.saved_id.as_deref(), Some("ckeyx"));
+        assert!(
+            r.builtin_conflict.is_none(),
+            "provider builtin không tự xung đột với chính nó"
+        );
+    }
+
+    /// Seed preset CÓ model trong catalogue — dùng chung file models.json cho
+    /// cả `load_dynamic_presets` (preset) lẫn `catalog_models_by_provider`.
+    fn seed_preset_with_models(id: &str, name: &str, url: &str) {
+        let home = opencode_manager::config::get_home_dir().unwrap();
+        let cache = home.join(".cache").join("opencode");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(
+            cache.join("models.json"),
+            format!(
+                r#"{{"{id}": {{"id": "{id}", "name": "{name}", "api": "{url}", "npm": "@ai-sdk/openai-compatible", "models": {{"m-alpha": {{"name": "Alpha"}}, "m-beta": {{"name": "Beta"}}}}}}}}"#
+            ),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn list_providers_dem_model_builtin_tu_catalogue() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
+        isolate_home("builtin_catalog_count");
+        seed_preset_with_models("ckeyx", "CKey X", "https://api.ckeyx.example/v1");
+
+        // Lưu built-in (id+URL preset) — key vào auth.json, không có model khai báo.
+        save("", Some("ckeyx"), "CKey X", "https://api.ckeyx.example/v1", "sk-1").unwrap();
+
+        let views = list_providers(Req {
+            schema_version: crate::ipc::SCHEMA_VERSION,
+            request_id: None,
+            payload: Empty {},
+        })
+        .unwrap()
+        .data;
+        let v = views.iter().find(|v| v.id == "ckeyx").expect("phải có provider ckeyx");
+        assert!(v.is_builtin);
+        assert_eq!(v.model_count, 2, "đếm từ catalogue, không phải 0");
+        assert_eq!(v.models, vec!["m-alpha".to_string(), "m-beta".to_string()]);
+        assert!(v.models_from_catalog, "UI cần biết danh sách tới từ catalogue");
+
+        // Lưu custom trùng endpoint (đã ack) → view phải gắn cờ xung đột.
+        save_confirmed("", Some("my_ckey"), "My CKey", "https://api.ckeyx.example/v1", "sk-2").unwrap();
+        let views = list_providers(Req {
+            schema_version: crate::ipc::SCHEMA_VERSION,
+            request_id: None,
+            payload: Empty {},
+        })
+        .unwrap()
+        .data;
+        let v = views
+            .iter()
+            .find(|v| v.id == "my_ckey")
+            .expect("phải có provider my_ckey");
+        assert!(!v.is_builtin);
+        assert!(!v.models_from_catalog);
+        assert_eq!(v.endpoint_conflict_preset.as_deref(), Some("ckeyx"));
+        // Builtin không tự gắn cờ xung đột với chính nó.
+        let v = views.iter().find(|v| v.id == "ckeyx").unwrap();
+        assert!(v.endpoint_conflict_preset.is_none());
     }
 }

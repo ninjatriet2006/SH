@@ -1,7 +1,7 @@
 ---
 description: Plan Splitter - Phân rã nhiệm vụ phức tạp thành các subtask rõ ràng, có thứ tự ưu tiên và quan hệ phụ thuộc.
 mode: subagent
-model: JustWoker/gpt-5.6-sol
+model: custom_11/anthropic/claude-opus-4-6-thinking
 temperature: 0.15
 permission:
   edit: deny

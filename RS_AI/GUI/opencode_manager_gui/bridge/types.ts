@@ -28,6 +28,10 @@ export interface ProviderView {
     is_builtin: boolean;
     /** Model đang là model chính (⭐ trong UI); null = chưa chọn. */
     primary_model: string | null;
+    /** `true` = models lấy từ catalogue models.dev (built-in chưa lưu model vào config). */
+    models_from_catalog: boolean;
+    /** Id preset có endpoint trùng provider này (custom trỏ URL built-in); null = không xung đột. */
+    endpoint_conflict_preset: string | null;
 }
 
 /** Mẫu provider có sẵn để chọn khi thêm. */
@@ -45,12 +49,16 @@ export interface DuplicateInfo {
 }
 
 /**
- * Kết quả lưu provider. `saved_id === null` và `duplicate_of !== null` nghĩa là
- * CHƯA lưu — phải hỏi người dùng có gộp vào provider trùng hay không.
+ * Kết quả lưu provider. `saved_id === null` kèm `duplicate_of !== null` nghĩa
+ * là CHƯA lưu — phải hỏi người dùng có gộp vào provider trùng hay không;
+ * `saved_id === null` kèm `builtin_conflict !== null` cũng CHƯA lưu — endpoint
+ * trùng preset built-in, chờ người dùng xác nhận "vẫn lưu".
  */
 export interface SaveResult {
     saved_id: string | null;
     duplicate_of: DuplicateInfo | null;
+    /** Endpoint trùng built-in — cần xác nhận trước khi lưu (xem node). */
+    builtin_conflict: DuplicateInfo | null;
     normalized_base_url: string | null;
     /** Adapter Auto đã probe và lưu; null nếu người dùng tự chọn. */
     detected_npm: string | null;
@@ -62,6 +70,8 @@ export interface ScannedModel {
     in_config: boolean;
     /** Còn trong config nhưng provider không còn hỗ trợ. */
     stale: boolean;
+    /** Có kết quả từ API provider thật, không phải catalogue dự phòng. */
+    from_api: boolean;
     /** Khả năng model đã lưu trong config (nếu có) — để UI sửa lại. */
     caps: ModelCapsView | null;
 }
@@ -107,6 +117,12 @@ export interface GuiSettings {
     language: string;
     theme_id: string;
     font_id: string;
+}
+
+export interface ProviderPreferences {
+    favorite_providers: string[];
+    pinned_models: Record<string, string>;
+    tracked_providers: string[];
 }
 
 export type WebState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
@@ -266,6 +282,7 @@ export interface ArbiterState {
     candidates: ArbiterCandidate[];
 }
 
+/** Preferences hiển thị provider (favorites + pinned models). */
 /** Kết quả thêm nhanh nhiều provider (backend `api/bulk.rs`). */
 export interface BulkAddResult {
     added: number;
@@ -273,6 +290,8 @@ export interface BulkAddResult {
     skipped_duplicate_input: number;
     created_ids: string[];
     normalized_endpoint: string;
+    /** Số provider vừa tạo ở endpoint trùng preset built-in (cảnh báo, không chặn). */
+    builtin_conflicts: number;
 }
 
 /** Một tài khoản CKey đã lưu (key đã che). */

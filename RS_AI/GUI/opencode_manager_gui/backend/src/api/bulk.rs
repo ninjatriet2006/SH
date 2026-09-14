@@ -31,6 +31,9 @@ pub struct BulkAddResult {
     pub created_ids: Vec<String>,
     /// Endpoint sau khi chuẩn hoá — hiện lại cho người dùng thấy nếu bị sửa.
     pub normalized_endpoint: String,
+    /// Số provider vừa tạo có endpoint TRÙNG một preset built-in — cảnh báo
+    /// (không chặn) để UI nhắc người dùng cân nhắc dùng built-in.
+    pub builtin_conflicts: usize,
 }
 
 /// Kiểm tra endpoint có dạng `scheme://host...`.
@@ -67,8 +70,17 @@ pub fn parse_keys(raw: &str) -> (Vec<String>, usize) {
 }
 
 /// Hàm THUẦN: thêm các key vào config, trả về báo cáo. Không chạm file.
+/// Tự thêm `https://` nếu URL không có scheme.
+fn ensure_scheme(url: &str) -> String {
+    let trimmed = url.trim();
+    if trimmed.is_empty() || trimmed.contains("://") {
+        return trimmed.to_string();
+    }
+    format!("https://{trimmed}")
+}
+
 pub fn bulk_add_into(config: &mut OpencodeConfig, endpoint_raw: &str, keys_raw: &str) -> Result<BulkAddResult, String> {
-    let endpoint = normalize_base_url(endpoint_raw.trim());
+    let endpoint = normalize_base_url(&ensure_scheme(endpoint_raw));
     if endpoint.is_empty() {
         return Err("Vui lòng nhập endpoint.".to_string());
     }
@@ -123,6 +135,9 @@ pub fn bulk_add_into(config: &mut OpencodeConfig, endpoint_raw: &str, keys_raw: 
         skipped_duplicate_input,
         created_ids,
         normalized_endpoint: endpoint,
+        // Pure function không biết preset — phát hiện ở lớp command
+        // (`bulk_add_providers_inner`).
+        builtin_conflicts: 0,
     })
 }
 
@@ -147,7 +162,19 @@ pub struct BulkAddProvidersRequest {
 fn bulk_add_providers_inner(endpoint: String, keys: Vec<String>) -> Result<BulkAddResult, String> {
     let presets = presets();
     let (mut config, mut auth) = load_merged(&presets)?;
-    let result = bulk_add_into(&mut config, &endpoint, &keys.join("\n"))?;
+    let mut result = bulk_add_into(&mut config, &endpoint, &keys.join("\n"))?;
+
+    // Phát hiện xung đột endpoint với preset built-in (cảnh báo, không chặn):
+    // mọi provider vừa tạo đều dùng chung endpoint này.
+    if result.added > 0 {
+        let clean = normalize_base_url(&result.normalized_endpoint);
+        if presets
+            .iter()
+            .any(|p| p.id != "custom" && normalize_base_url(&p.base_url) == clean)
+        {
+            result.builtin_conflicts = result.added;
+        }
+    }
 
     // Chỉ ghi file khi thật sự có thay đổi — tránh tạo bản backup vô ích của
     // `opencode.json` mỗi lần người dùng bấm nút mà mọi key đều trùng.
@@ -238,14 +265,23 @@ mod tests {
     }
 
     #[test]
-    fn tu_choi_input_rong_hoac_endpoint_sai() {
+    fn tu_choi_input_rong_va_tu_bu_scheme_https() {
         let mut config = empty_config();
         assert!(bulk_add_into(&mut config, "", "sk-1").is_err());
-        assert!(bulk_add_into(&mut config, "api.x.com/v1", "sk-1").is_err());
         assert!(bulk_add_into(&mut config, "https://api.x.com/v1", "").is_err());
         assert!(bulk_add_into(&mut config, "https://api.x.com/v1", "\n\n  \n").is_err());
         // Không được tạo gì khi lỗi.
         assert!(config.provider.is_empty());
+
+        // Thiếu scheme → tự thêm `https://` rồi thêm bình thường.
+        let r = bulk_add_into(&mut config, "api.x.com/v1", "sk-1").unwrap();
+        assert_eq!(r.added, 1);
+        assert_eq!(r.normalized_endpoint, "https://api.x.com/v1");
+
+        // Endpoint có scheme riêng (http) thì giữ nguyên, không ép thành https.
+        let r = bulk_add_into(&mut config, "http://api.y.com/v1", "sk-2").unwrap();
+        assert_eq!(r.added, 1);
+        assert_eq!(r.normalized_endpoint, "http://api.y.com/v1");
     }
 
     #[test]
@@ -257,5 +293,38 @@ mod tests {
             bulk_add_into(&mut config, "https://api.x.com/v1", &keys).unwrap();
         }
         assert_eq!(config.provider.len(), 20, "không được mất provider nào do id trùng");
+    }
+
+    /// Bulk add ở endpoint trùng preset built-in → kết quả phải báo số provider
+    /// tạo ra ở endpoint xung đột (cảnh báo, không chặn việc tạo).
+    #[test]
+    fn bulk_add_endpoint_trung_preset_bao_canh_bao() {
+        let _guard = crate::test_support::TEST_ENV_LOCK.lock().unwrap();
+        let home = crate::test_support::isolate_home("bulk_builtin_conflict");
+
+        // Seed preset "ckeyx" vào models.json — cách app thật nạp preset.
+        let cache = home.join(".cache").join("opencode");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(
+            cache.join("models.json"),
+            r#"{"ckeyx": {"id": "ckeyx", "name": "CKey X", "api": "https://api.ckeyx.example/v1", "npm": "@ai-sdk/openai-compatible"}}"#,
+        )
+        .unwrap();
+
+        // Endpoint trùng preset → cảnh báo số provider vừa tạo.
+        let r = bulk_add_providers_inner(
+            "https://api.ckeyx.example/v1".to_string(),
+            vec!["sk-1".to_string(), "sk-2".to_string()],
+        )
+        .unwrap();
+        assert_eq!(r.added, 2);
+        assert_eq!(r.builtin_conflicts, 2, "cả hai provider tạo ở endpoint trùng preset");
+
+        // Endpoint thường → không cảnh báo.
+        let r = bulk_add_providers_inner("https://api.other.example/v1".to_string(), vec!["sk-3".to_string()]).unwrap();
+        assert_eq!(r.added, 1);
+        assert_eq!(r.builtin_conflicts, 0);
+
+        let _ = std::fs::remove_dir_all(&home);
     }
 }

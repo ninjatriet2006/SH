@@ -40,7 +40,7 @@ interface ProviderModalProps {
 }
 
 /** Auto probe POST thực tế để tránh chọn endpoint bị WAF chặn. */
-export const NPM_OPTIONS = ['auto', '@ai-sdk/openai', '@ai-sdk/openai-compatible', '@ai-sdk/anthropic'] as const;
+export const NPM_OPTIONS = ['@ai-sdk/openai', '@ai-sdk/openai-compatible', '@ai-sdk/anthropic', 'auto'] as const;
 
 /** Bộ ký tự an toàn cho ID provider — phải khớp `validate_custom_id` backend. */
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;

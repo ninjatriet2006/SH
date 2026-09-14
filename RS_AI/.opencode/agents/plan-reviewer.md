@@ -1,7 +1,7 @@
 ---
 description: Plan Reviewer - Phản biện thiết kế, phát hiện rủi ro, lỗ hổng logic và inconsistency trong kế hoạch trước khi Dev triển khai.
 mode: subagent
-model: JustWoker/gpt-5.6-sol
+model: custom_11/anthropic/claude-opus-4-6-thinking
 temperature: 0.15
 permission:
   edit: deny

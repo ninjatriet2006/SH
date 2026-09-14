@@ -1,0 +1,16 @@
+{
+  "themes": [
+    { "id": "default", "name": "Default Dark", "path": "themes/default.json" },
+    { "id": "nordic", "name": "Nordic Frost", "path": "themes/nordic.json" }
+  ],
+  "variables": {
+    "--bg-dark": "#0f172a",
+    "--bg-panel": "rgba(30, 41, 59, 0.75)",
+    "--text-primary": "#f8fafc",
+    "--text-secondary": "#94a3b8",
+    "--primary": "#3b82f6",
+    "--primary-hover": "#60a5fa",
+    "--border": "rgba(255, 255, 255, 0.1)",
+    "--card-bg": "rgba(15, 23, 42, 0.6)"
+  }
+}

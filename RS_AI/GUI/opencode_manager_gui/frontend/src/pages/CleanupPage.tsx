@@ -1,8 +1,8 @@
 /*
 [INTEGRITY NOTES]
 - Mục đích: Dọn nhà cung cấp không hoạt động.
-- Trách nhiệm: Kiểm tra toàn bộ provider, liệt kê những mục lỗi kèm lý do, cho
-  chọn và xoá theo lô.
+- Trách nhiệm: Kiểm tra toàn bộ provider, liệt kê những mục lỗi kèm lý do (tách
+  hai nhóm Custom / Built-in giống trang Providers), cho chọn và xoá theo lô.
 - Tương tác: `bridge/provider_bridge.ts` (`findBadProviders`),
   `store/useProviderStore.ts` (`removeMany`).
 
@@ -10,7 +10,7 @@ Mặc định KHÔNG tick sẵn mục nào: xoá provider là thao tác không h
 "offline" có thể chỉ do mất mạng tạm thời — tick sẵn dễ dẫn tới xoá oan.
 */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Trash2, Search, ShieldAlert } from 'lucide-react';
 import type { BadProvider } from '../../../bridge/types';
 import { findBadProviders } from '../../../bridge/provider_bridge';
@@ -18,6 +18,26 @@ import { useProviderStore } from '../store/useProviderStore';
 import { useTranslation } from '../utils/i18n';
 import { StatusBadge } from '../components/StatusBadge';
 import { ConfirmModal } from '../components/ConfirmModal';
+
+/** Dòng phân nhóm trong bảng — chiếm trọn độ rộng, chỉ là nhãn. */
+const GroupRow = ({ label, count }: { label: string; count: number }) => (
+    <tr>
+        <td
+            colSpan={4}
+            style={{
+                background: 'rgba(99,102,241,0.08)',
+                color: 'var(--primary)',
+                fontWeight: 700,
+                fontSize: '0.78rem',
+                letterSpacing: '0.04em',
+                textTransform: 'uppercase',
+                padding: '0.45rem 0.75rem',
+            }}
+        >
+            {label} · {count}
+        </td>
+    </tr>
+);
 
 export function CleanupPage() {
     const { t } = useTranslation();
@@ -47,6 +67,42 @@ export function CleanupPage() {
         if (next.has(id)) next.delete(id); else next.add(id);
         setChecked(next);
     };
+
+    // Tách hai nhóm giống trang Providers để người dùng không phải đoán kind
+    // qua badge nhỏ khi dọn hàng loạt.
+    const { customBad, builtinBad } = useMemo(() => ({
+        customBad: (bad ?? []).filter(b => !b.is_builtin),
+        builtinBad: (bad ?? []).filter(b => b.is_builtin),
+    }), [bad]);
+
+    const renderRow = (b: BadProvider) => (
+        <tr key={b.id}>
+            <td>
+                <input
+                    type="checkbox"
+                    checked={checked.has(b.id)}
+                    onChange={() => toggle(b.id)}
+                    style={{ width: '15px', height: '15px', cursor: 'pointer' }}
+                />
+            </td>
+            <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                {b.id}
+                <br />
+                <span className="badge badge-inactive" style={{ fontSize: '0.65rem' }}>
+                    {b.is_builtin ? t('providers.builtin') : t('providers.custom')}
+                </span>
+            </td>
+            <td style={{ fontWeight: 600 }}>{b.name}</td>
+            <td>
+                <StatusBadge kind={b.kind} message={b.message} />
+                {b.message && (
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px', maxWidth: '320px' }}>
+                        {b.message}
+                    </div>
+                )}
+            </td>
+        </tr>
+    );
 
     const handleDelete = async () => {
         try {
@@ -110,34 +166,14 @@ export function CleanupPage() {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {bad.map(b => (
-                                                <tr key={b.id}>
-                                                    <td>
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={checked.has(b.id)}
-                                                            onChange={() => toggle(b.id)}
-                                                            style={{ width: '15px', height: '15px', cursor: 'pointer' }}
-                                                        />
-                                                    </td>
-                                                    <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                                                        {b.id}
-                                                        <br />
-                                                        <span className="badge badge-inactive" style={{ fontSize: '0.65rem' }}>
-                                                            {b.is_builtin ? t('providers.builtin') : t('providers.custom')}
-                                                        </span>
-                                                    </td>
-                                                    <td style={{ fontWeight: 600 }}>{b.name}</td>
-                                                    <td>
-                                                        <StatusBadge kind={b.kind} message={b.message} />
-                                                        {b.message && (
-                                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px', maxWidth: '320px' }}>
-                                                                {b.message}
-                                                            </div>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            ))}
+                                            {customBad.length > 0 && (
+                                                <GroupRow label={t('providers.group_custom')} count={customBad.length} />
+                                            )}
+                                            {customBad.map(b => renderRow(b))}
+                                            {builtinBad.length > 0 && (
+                                                <GroupRow label={t('providers.group_builtin')} count={builtinBad.length} />
+                                            )}
+                                            {builtinBad.map(b => renderRow(b))}
                                         </tbody>
                                     </table>
                                 </div>

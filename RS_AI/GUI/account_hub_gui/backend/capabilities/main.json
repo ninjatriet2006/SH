@@ -1,0 +1,11 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "main",
+  "description": "Default permissions for account hub gui",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "dialog:default"
+  ]
+}

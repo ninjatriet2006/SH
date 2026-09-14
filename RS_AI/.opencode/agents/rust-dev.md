@@ -1,7 +1,7 @@
 ---
 description: Rust Developer - Viết, sửa và refactor code Rust theo yêu cầu. Ưu tiên correctness, idiomatic Rust và minimal diff.
 mode: subagent
-model: JustWoker/gpt-5.6-sol
+model: custom_11/anthropic/claude-opus-4-6-thinking
 temperature: 0.15
 permission:
   edit: allow

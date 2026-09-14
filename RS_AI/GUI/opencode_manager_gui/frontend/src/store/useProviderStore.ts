@@ -35,6 +35,7 @@ interface ProviderState {
         forceOverwriteId?: string;
         npm?: string;
         customId?: string | null;
+        acknowledgeBuiltinConflict?: boolean;
     }) => Promise<SaveResult>;
     remove: (providerId: string) => Promise<void>;
     removeMany: (providerIds: string[]) => Promise<number>;

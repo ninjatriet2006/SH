@@ -1,0 +1,65 @@
+{
+    "sidebar": {
+        "dashboard": "Trang chính",
+        "accounts": "Tài khoản",
+        "scheduler": "Lịch trình",
+        "config": "Cấu hình",
+        "settings": "Cài đặt"
+    },
+    "common": {
+        "save": "Lưu",
+        "cancel": "Hủy",
+        "confirm": "Xác nhận",
+        "delete": "Xóa",
+        "close": "Đóng",
+        "loading": "Đang tải...",
+        "refresh": "Làm mới"
+    },
+    "dashboard": {
+        "title": "Trang chính",
+        "gateway_status": "Trạng thái Gateway",
+        "status": "Trạng thái",
+        "accounts": "Tài khoản (khỏe/tổng)",
+        "listen": "Địa chỉ lắng nghe",
+        "start": "Khởi động Gateway",
+        "stop": "Dừng Gateway",
+        "quick_actions": "Thao tác nhanh",
+        "checkin_now": "Điểm danh ngay",
+        "travel_now": "Du lịch ngay",
+        "activity_now": "Báo hoạt động ngay",
+        "keepalive_now": "Giữ token ngay"
+    },
+    "accounts": {
+        "title": "Quản lý tài khoản",
+        "count": "Tổng tài khoản",
+        "add": "Thêm tài khoản",
+        "none": "Chưa có tài khoản. Nhấn 'Thêm tài khoản' để nạp file auth.",
+        "col_uid": "UID",
+        "col_nickname": "Biệt danh",
+        "col_credits": "Số dư",
+        "col_status": "Trạng thái",
+        "col_inflight": "Đang xử lý",
+        "col_actions": "Thao tác"
+    },
+    "scheduler": {
+        "title": "Lịch trình",
+        "tasks": "Tác vụ định kỳ",
+        "col_task": "Tác vụ",
+        "col_hours": "Giờ chạy",
+        "col_enabled": "Bật",
+        "col_actions": "Thao tác",
+        "checkin": "Điểm danh hàng ngày",
+        "travel": "Mèo du lịch",
+        "activity": "Báo hoạt động",
+        "keepalive": "Giữ token",
+        "run_now": "Chạy ngay"
+    },
+    "config": {
+        "title": "Cấu hình Gateway",
+        "description": "Chỉnh sửa cấu hình gateway. Thay đổi có hiệu lực sau khi khởi động lại."
+    },
+    "settings": {
+        "title": "Cài đặt",
+        "description": "Cài đặt ngôn ngữ, giao diện và phông chữ cho GUI."
+    }
+}

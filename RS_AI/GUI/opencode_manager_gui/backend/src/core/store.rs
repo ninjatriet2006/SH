@@ -39,10 +39,17 @@ pub struct ProviderView {
     pub model_count: usize,
     /// Danh sách id model đã lưu trong config, đã sắp xếp.
     pub models: Vec<String>,
-    /// Model chính của provider (field `model` = "pid/mid" trùng provider).
+    /// Provider tích hợp (khoá nằm ở auth.json) hay tự thêm.
     pub is_builtin: bool,
     /// Model đang là model chính (⭐ trong UI) — None = chưa chọn.
     pub primary_model: Option<String>,
+    /// `true` khi `models` lấy từ catalogue models.dev (built-in key-only
+    /// không khai model trong config) — UI cần phân biệt "chưa lưu vào config"
+    /// với danh sách người dùng đã chọn.
+    pub models_from_catalog: bool,
+    /// Id của preset có endpoint TRÙNG provider này (provider custom trỏ URL
+    /// của built-in) — None = không xung đột.
+    pub endpoint_conflict_preset: Option<String>,
 }
 
 /// Che API key: giữ 4 ký tự đầu và 4 cuối để người dùng đối chiếu được mà không
@@ -216,7 +223,24 @@ pub fn save_split(config: &OpencodeConfig, auth: &mut AuthConfig, presets: &[Dyn
 }
 
 /// Dựng danh sách provider để hiển thị, đã sắp theo id.
+///
+/// Không có catalogue: built-in key-only sẽ hiện 0 model (giữ lại cho các
+/// call site/test không quan tâm catalogue).
 pub fn build_views(config: &OpencodeConfig, presets: &[DynamicPreset]) -> Vec<ProviderView> {
+    build_views_with_catalog(config, presets, &HashMap::new())
+}
+
+/// Như `build_views` nhưng đếm/lấy model của provider BUILT-IN KEY-ONLY từ
+/// catalogue models.dev (cache local của opencode — không gọi mạng).
+///
+/// Built-in không khai model trong opencode.json: opencode tự quét catalogue
+/// lúc chạy, nên "0 models" trên UI là sai sự thật. Catalogue thiếu provider
+/// thì giữ 0 (không chế số).
+pub fn build_views_with_catalog(
+    config: &OpencodeConfig,
+    presets: &[DynamicPreset],
+    catalog: &HashMap<String, Vec<(String, String)>>,
+) -> Vec<ProviderView> {
     // Field `model` = "provider_id/model_id" (tách ở "/" ĐẦU vì model id có
     // thể chứa "/" tiếp theo — vd model CKey dạng "vendor/tên model").
     let primary_pid = config
@@ -229,8 +253,35 @@ pub fn build_views(config: &OpencodeConfig, presets: &[DynamicPreset]) -> Vec<Pr
         .provider
         .iter()
         .map(|(id, p)| {
-            let mut models: Vec<String> = p.models.keys().cloned().collect();
-            models.sort();
+            let builtin = is_builtin(id, p, presets);
+            let (models, from_catalog) = if builtin {
+                match catalog.get(id) {
+                    Some(list) => {
+                        let mut models: Vec<String> = list.iter().map(|(m, _)| m.clone()).collect();
+                        models.sort();
+                        (models, true)
+                    }
+                    None => (Vec::new(), false),
+                }
+            } else {
+                let mut models: Vec<String> = p.models.keys().cloned().collect();
+                models.sort();
+                (models, false)
+            };
+            // Provider CUSTOM trỏ endpoint trùng preset (id khác preset) =
+            // nhân đôi endpoint của built-in — báo để UI cảnh báo.
+            let conflict_preset = (!builtin)
+                .then(|| {
+                    presets
+                        .iter()
+                        .find(|preset| {
+                            preset.id != "custom"
+                                && preset.id != *id
+                                && normalize_base_url(&preset.base_url) == normalize_base_url(&p.options.base_url)
+                        })
+                        .map(|preset| preset.id.clone())
+                })
+                .flatten();
             ProviderView {
                 id: id.clone(),
                 name: p.name.clone(),
@@ -240,7 +291,7 @@ pub fn build_views(config: &OpencodeConfig, presets: &[DynamicPreset]) -> Vec<Pr
                 npm: p.npm.clone(),
                 model_count: models.len(),
                 models,
-                is_builtin: is_builtin(id, p, presets),
+                is_builtin: builtin,
                 primary_model: primary_pid.filter(|pid| *pid == id.as_str()).and_then(|_| {
                     config
                         .model
@@ -248,6 +299,8 @@ pub fn build_views(config: &OpencodeConfig, presets: &[DynamicPreset]) -> Vec<Pr
                         .and_then(|s| s.split_once('/'))
                         .map(|(_, m)| m.to_string())
                 }),
+                models_from_catalog: from_catalog,
+                endpoint_conflict_preset: conflict_preset,
             }
         })
         .collect();
@@ -742,5 +795,91 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&test_dir);
+    }
+
+    /// Built-in key-only phải đếm model từ catalogue (cache models.dev) thay
+    /// vì hiện 0; custom trùng endpoint preset phải gắn cờ xung đột; built-in
+    /// CÓ danh sách model khai báo thì vẫn dùng danh sách đó.
+    #[test]
+    fn build_views_dien_model_builtin_va_canh_bao_conflict() {
+        let presets = vec![
+            preset("zenmux", "https://zen.example.com/v1"),
+            preset("other", "https://other.example.com/v1"),
+        ];
+        let mut config = empty_config();
+
+        // Built-in key-only: id + URL khớp preset, không có model khai báo.
+        config.provider.insert(
+            "zenmux".into(),
+            provider("Preset zenmux", "https://zen.example.com/v1", "k1"),
+        );
+        // Custom trỏ đúng endpoint của preset zenmux (id khác).
+        config
+            .provider
+            .insert("my_zen".into(), provider("My Zen", "https://zen.example.com/v1/", "k2"));
+        // Built-in CÓ model khai báo (người dùng đã chọn) — dùng danh sách này.
+        let mut chosen = provider("Preset other", "https://other.example.com/v1", "k3");
+        chosen.models.insert(
+            "only".into(),
+            opencode_manager::config::ModelEntry {
+                name: "only".into(),
+                ..Default::default()
+            },
+        );
+        config.provider.insert("other".into(), chosen);
+        // Custom sạch — không xung đột gì.
+        config
+            .provider
+            .insert("clean".into(), provider("Clean", "https://clean.example.com/v1", "k4"));
+
+        let mut catalog = std::collections::HashMap::new();
+        catalog.insert(
+            "zenmux".to_string(),
+            vec![
+                ("m-zeta".to_string(), "Zeta".to_string()),
+                ("m-alpha".to_string(), "Alpha".to_string()),
+            ],
+        );
+        // Catalogue có model cho "other" nhưng provider đã khai danh sách riêng
+        // → KHÔNG được đè.
+        catalog.insert(
+            "other".to_string(),
+            vec![("ghost-model".to_string(), "Ghost".to_string())],
+        );
+
+        let views = build_views_with_catalog(&config, &presets, &catalog);
+        let by_id = |id: &str| views.iter().find(|v| v.id == id).unwrap();
+
+        let zen = by_id("zenmux");
+        assert!(zen.is_builtin);
+        assert_eq!(zen.model_count, 2, "đếm từ catalogue, đã sắp theo id");
+        assert_eq!(zen.models, vec!["m-alpha".to_string(), "m-zeta".to_string()]);
+        assert!(zen.models_from_catalog);
+        assert!(zen.endpoint_conflict_preset.is_none(), "builtin không tự xung đột");
+
+        let my_zen = by_id("my_zen");
+        assert!(!my_zen.is_builtin);
+        assert_eq!(my_zen.endpoint_conflict_preset.as_deref(), Some("zenmux"));
+        assert!(!my_zen.models_from_catalog);
+        assert_eq!(my_zen.model_count, 0, "custom không khai model thì đếm config");
+
+        let other = by_id("other");
+        assert!(!other.is_builtin, "có model khai báo → không còn builtin thuần");
+        assert_eq!(
+            other.models,
+            vec!["only".to_string()],
+            "danh sách người dùng chọn thắng catalogue"
+        );
+        assert!(!other.models_from_catalog);
+        assert!(other.endpoint_conflict_preset.is_none(), "khớp chính preset của nó");
+
+        let clean = by_id("clean");
+        assert!(clean.endpoint_conflict_preset.is_none());
+        assert_eq!(clean.model_count, 0);
+
+        // Không có catalogue → built-in vẫn 0 model (hành vi cũ, không chế số).
+        let views = build_views(&config, &presets);
+        assert_eq!(views.iter().find(|v| v.id == "zenmux").unwrap().model_count, 0);
+        assert!(!views.iter().find(|v| v.id == "zenmux").unwrap().models_from_catalog);
     }
 }

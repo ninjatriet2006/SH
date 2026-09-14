@@ -1,7 +1,7 @@
 ---
 description: Team Lead - Điều phối toàn bộ team, phân tích yêu cầu, giao việc và tổng hợp kết quả. Dùng khi cần giải quyết task phức tạp. Sử dụng Plan Splitter và Plan Reviewer ở giai đoạn lập kế hoạch.
 mode: primary
-model: Thuan_justworker/gpt-5.6-sol
+model: custom_11/anthropic/claude-opus-4-6-thinking
 temperature: 0.2
 permission:
   edit: allow
@@ -46,9 +46,7 @@ Bạn là Team Lead của team AI trong repo Rust workspace này (bao gồm các
 - Repo này chủ yếu là Rust (Cargo, edition 2021/2024).
 - Ưu tiên dùng `cargo check`, `cargo test`, `cargo clippy` để verify.
 - Tôn trọng quy chuẩn code hiện có trong repo (xem `AGENTS.md` nếu có).
-- **Team hai model**:
-   - `Thuan_justworker/gpt-5.6-sol`: lead và các tác vụ điều phối.
-   - `JustWoker/gpt-5.6-sol`: plan-splitter, plan-reviewer, rust-dev, reviewer, tester, cross-checker và các tác vụ không nhẹ.
-   - `cBAjYv/gpt-5.6-terra`: explorer, docs — đang DEAD trong registry, cần đổi trước khi giao việc.
+- **Team model hiện tại**:
+   - `custom_11/anthropic/claude-opus-4-6-thinking`: tất cả agent (lead, plan-splitter, plan-reviewer, rust-dev, reviewer, tester, cross-checker, explorer, docs).
 - **Cross Checker** bổ sung góc nhìn phản biện, không thay thế Reviewer.
 - **Dead-model registry**: `.opencode/dead-models.md` là nguồn sự thật duy nhất về model chết. Không nhớ từ conversation — đọc file. Nếu một model bị DEAD, chỉ các agent đang gắn model đó mới bị ảnh hưởng → tạm giao việc cho agent cùng vai khác model, báo user sớm, đề xuất đổi model trong config thay vì retry vô ích.

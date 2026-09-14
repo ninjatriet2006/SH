@@ -242,6 +242,52 @@ th {
   font-weight: 500;
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border);
+  /* Nơi neo handle kéo đổi độ rộng cột (.col-resizer). */
+  position: relative;
+}
+
+/* ===== Handle kéo resize (cột bảng + sidebar) ===== */
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+   width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+.col-resizer::after {
+  content: '';
+  position: absolute;
+  inset: 25% 2px;
+  border-left: 1px solid rgba(148, 163, 184, 0.55);
+  transition: border-color 120ms ease, border-width 120ms ease;
+}
+
+.col-resizer:hover,
+.col-resizer:active {
+  background: rgba(99, 102, 241, 0.35);
+}
+
+.col-resizer:hover::after,
+.col-resizer:active::after {
+  border-left: 2px solid var(--primary);
+}
+
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 20;
+}
+
+.sidebar-resizer:hover,
+.sidebar-resizer:active {
+  background: rgba(99, 102, 241, 0.45);
 }
 
 td {
@@ -293,6 +339,7 @@ tbody tr:hover {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  position: relative;
 }
 
 .main-content {

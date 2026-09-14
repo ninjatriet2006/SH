@@ -51,11 +51,14 @@ export async function saveProvider(args: {
     npm?: string;
     /** ID provider do người dùng tự đặt (thay vì tự sinh `custom_2`…). */
     customId?: string | null;
+    /** Đã xác nhận "vẫn lưu dù endpoint trùng built-in" (bỏ qua cổng hỏi). */
+    acknowledgeBuiltinConflict?: boolean;
 }): Promise<SaveResult> {
     try {
         return await invokeIpc<SaveResult, {
             provider_id: string; preset_id: string; name: string; base_url: string; api_key: string;
             force_overwrite_id: string | null; npm: string | null; custom_id: string | null;
+            acknowledge_builtin_conflict: boolean;
         }>('save_provider', {
             provider_id: args.providerId ?? '',
             preset_id: args.presetId,
@@ -65,6 +68,7 @@ export async function saveProvider(args: {
             force_overwrite_id: args.forceOverwriteId ?? null,
             npm: args.npm ?? null,
             custom_id: args.customId ?? null,
+            acknowledge_builtin_conflict: args.acknowledgeBuiltinConflict ?? false,
         });
     } catch (error) {
         throw new Error(ipcErrorMessage(error));

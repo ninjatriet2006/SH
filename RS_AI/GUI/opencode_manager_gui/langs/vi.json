@@ -5,7 +5,8 @@
     "ckey": "CKey",
     "cleanup": "Dọn dẹp",
     "settings": "Cài đặt",
-    "models": "Model"
+    "models": "Model",
+    "resize_hint": "Kéo để đổi độ rộng thanh bên · Nhấn đúp để đặt lại"
   },
   "common": {
     "save": "Lưu lại",
@@ -43,12 +44,28 @@
     "col_url": "Base URL",
     "col_key": "API Key",
     "col_models": "Mô hình",
+    "col_pinned_model": "Model ghim",
+    "col_favorite": "Yêu thích",
     "col_status": "Trạng thái",
     "col_actions": "Thao tác",
+    "group_custom": "Provider tự thêm",
+    "group_builtin": "Provider tích hợp",
+    "favorite": "Đánh dấu yêu thích (ghim lên đầu)",
+    "unfavorite": "Bỏ đánh dấu",
+    "move_up": "Đưa lên trong nhóm yêu thích",
+    "move_down": "Đưa xuống trong nhóm yêu thích",
+    "pinned_none": "— chưa ghim —",
+    "pinned_hint": "Ghim model ưa thích từ danh sách model của provider",
+    "endpoint_conflict": "Endpoint trùng provider tích hợp",
+    "col_resize_hint": "Kéo để đổi độ rộng cột · Nhấn đúp để đặt lại",
+    "col_tracking": "Theo dõi",
+    "track": "Theo dõi model hồi phục",
+    "untrack": "Dừng theo dõi",
     "builtin": "Tích hợp",
     "custom": "Tự thêm",
     "no_key": "Chưa có key",
     "model_count": "mô hình",
+    "from_catalog": "từ catalogue — chưa lưu vào config",
     "scan_models": "Quét mô hình",
     "test_one": "Kiểm tra kết nối",
     "delete_confirm_title": "Xác nhận xoá nhà cung cấp",
@@ -64,6 +81,7 @@
     "result_added": "Đã thêm",
     "result_existing": "Trùng đã có",
     "result_dup": "Lặp trong danh sách",
+    "result_conflict": "provider tạo ở endpoint trùng tích hợp",
     "result_normalized": "Endpoint sau chuẩn hoá"
   },
   "ckey": {
@@ -155,6 +173,9 @@
     "dup_title": "Phát hiện trùng lặp",
     "dup_msg": "Đã có nhà cung cấp dùng cùng Base URL và API Key. Gộp vào nhà cung cấp đó?",
     "dup_merge": "Gộp vào",
+    "conflict_title": "Endpoint trùng provider tích hợp",
+    "conflict_msg": "Endpoint bạn nhập trùng với provider tích hợp bên dưới. Lưu riêng thành provider custom sẽ nhân đôi endpoint đó (cùng một API, hai entry). Vẫn lưu?",
+    "conflict_save": "Vẫn lưu",
     "keep_key": "Để trống nếu không đổi khoá hiện tại."
   },
   "models": {

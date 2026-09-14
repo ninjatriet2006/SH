@@ -1,7 +1,7 @@
 ---
 description: Cross Checker - Kiểm tra chéo kết quả của mọi agent trong team, phát hiện thiếu sót và inconsistency trước khi tổng hợp.
 mode: subagent
-model: JustWoker/gpt-5.6-sol
+model: custom_11/anthropic/claude-opus-4-6-thinking
 temperature: 0.1
 permission:
   edit: deny

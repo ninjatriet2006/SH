@@ -1,0 +1,71 @@
+{
+  "langs": [
+    { "id": "vi", "name": "Tiếng Việt" },
+    { "id": "en", "name": "English" }
+  ],
+  "app": {
+    "title": "Account Hub - Trình quản lý Email & Nền tảng Web",
+    "subtitle": "Theo dõi trạng thái đăng ký, điểm danh hàng ngày và tiêu chí web"
+  },
+  "nav": {
+    "dashboard": "Tổng quan",
+    "matrix": "Ma trận Đăng ký",
+    "emails": "Quản lý Gmail",
+    "websites": "Quản lý Web",
+    "settings": "Cài đặt"
+  },
+  "common": {
+    "add": "Thêm mới",
+    "edit": "Chỉnh sửa",
+    "delete": "Xóa",
+    "save": "Lưu thay đổi",
+    "cancel": "Hủy",
+    "search": "Tìm kiếm...",
+    "status": "Trạng thái",
+    "actions": "Thao tác",
+    "yes": "Có",
+    "no": "Không",
+    "notes": "Ghi chú",
+    "confirm_delete": "Bạn có chắc muốn xóa không?",
+    "registered": "Đã đăng ký",
+    "not_registered": "Chưa đăng ký",
+    "filter_all": "Tất cả",
+    "filter_registered": "Đã đăng ký",
+    "filter_unregistered": "Chưa đăng ký"
+  },
+  "matrix": {
+    "title": "Ma trận Tài khoản & Website",
+    "quick_toggle": "Nhấp vào ô để đổi trạng thái đăng ký",
+    "select_email": "Chọn Email",
+    "select_web": "Chọn Website",
+    "view_mode": "Chế độ xem",
+    "by_email": "Theo Email",
+    "by_web": "Theo Website"
+  },
+  "email": {
+    "title": "Danh sách Gmail",
+    "add_title": "Thêm Email mới",
+    "email_address": "Địa chỉ Email",
+    "owner": "Chủ sở hữu / Nhóm",
+    "recovery_email": "Email khôi phục",
+    "phone": "Số điện thoại",
+    "tags": "Nhãn (phân cách bằng dấu phẩy)",
+    "registered_count": "Web đã đăng ký",
+    "created_at": "Ngày tạo"
+  },
+  "website": {
+    "title": "Danh sách Nền tảng Web",
+    "add_title": "Thêm Website mới",
+    "name": "Tên website",
+    "url": "Đường dẫn (URL)",
+    "category": "Danh mục",
+    "daily_checkin": "Có điểm danh hàng ngày",
+    "cheat_account": "Hỗ trợ cheat/multi-acc",
+    "requires_kyc": "Yêu cầu xác minh KYC",
+    "requires_proxy": "Cần dùng Proxy/VPN",
+    "custom_criteria": "Tiêu chí tùy biến",
+    "criteria_name": "Tên tiêu chí",
+    "criteria_value": "Giá trị",
+    "add_criterion": "Thêm tiêu chí mới"
+  }
+}
