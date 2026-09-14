@@ -1,9 +1,0 @@
-[Desktop Entry]
-Categories=
-Comment=OpenCode Manager — GUI quản lý AI Provider cho OpenCode
-Exec=opencode_manager_gui
-StartupWMClass=opencode_manager_gui
-Icon=opencode_manager_gui
-Name=opencode_manager_gui
-Terminal=false
-Type=Application

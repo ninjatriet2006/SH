@@ -11,6 +11,7 @@ Code/lab3bai4c
 
 # === Rust build artifacts ===
 **/target/
+**/squashfs-root/
 
 # === Sensitive / Secret files ===
 Google APP ID.json
