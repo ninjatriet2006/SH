@@ -12,10 +12,11 @@ import { TrafficTab } from "./components/TrafficTab";
 import { RoutesTab } from "./components/RoutesTab";
 import { TunnelsTab } from "./components/TunnelsTab";
 import { FingerprintTab } from "./components/FingerprintTab";
+import { SettingsTab } from "./components/SettingsTab";
 import { Modals } from "./components/Modals";
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<"traffic" | "routes" | "tunnels" | "fingerprint">("traffic");
+  const [activeTab, setActiveTab] = useState<"traffic" | "routes" | "tunnels" | "fingerprint" | "settings">("traffic");
   const [config, setConfig] = useState<GatewayConfig | null>(null);
   const [trafficLogs, setTrafficLogs] = useState<RawTrafficLog[]>([]);
   const [selectedLog, setSelectedLog] = useState<RawTrafficLog | null>(null);
@@ -75,6 +76,7 @@ export function App() {
     try {
       const res = await invoke<TunnelTestResult>("test_single_tunnel", { tunnel });
       setTestResults((prev) => ({ ...prev, [tunnel.id]: res }));
+      await fetchConfig();
     } catch (err) {
       console.error(err);
     } finally {
@@ -96,6 +98,15 @@ export function App() {
   const handleDeleteRoute = async (id: string) => {
     try {
       await invoke("delete_route", { routeId: id });
+      await fetchConfig();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleToggleTunnel = async (tunnelId: string, enabled: boolean) => {
+    try {
+      await invoke("toggle_tunnel", { tunnelId, enabled });
       await fetchConfig();
     } catch (e) {
       console.error(e);
@@ -144,6 +155,12 @@ export function App() {
             selectedLog={selectedLog}
             setSelectedLog={setSelectedLog}
             onClearLogs={handleClearLogs}
+            maxLogEntries={config?.max_log_entries || 500}
+            onUpdateMaxLogEntries={async (count) => {
+              if (config) {
+                await handleSaveConfig({ ...config, max_log_entries: count });
+              }
+            }}
           />
         )}
 
@@ -162,7 +179,6 @@ export function App() {
                 target_base_url: "https://abc.xyz/v1",
                 tunnel_id: config.tunnels[0]?.id || "direct_bypass",
                 enabled: true,
-                strip_prefix: true,
                 key_manager: {
                   key_file_path: "",
                   current_key_index: 0,
@@ -179,6 +195,7 @@ export function App() {
             testResults={testResults}
             testingTunnelId={testingTunnelId}
             onTestTunnel={handleTestTunnel}
+            onToggleTunnel={handleToggleTunnel}
             onEditTunnel={(t) => setEditingTunnel({ ...t })}
             onDeleteTunnel={handleDeleteTunnel}
             onCreateTunnel={() =>
@@ -196,6 +213,13 @@ export function App() {
 
         {activeTab === "fingerprint" && config && (
           <FingerprintTab
+            config={config}
+            onSaveConfig={handleSaveConfig}
+          />
+        )}
+
+        {activeTab === "settings" && config && (
+          <SettingsTab
             config={config}
             onSaveConfig={handleSaveConfig}
           />

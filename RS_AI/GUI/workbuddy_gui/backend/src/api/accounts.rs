@@ -50,6 +50,12 @@ pub fn add_account(request: Req<AddAccountRequest>, state: State<'_, RuntimeStat
     let raw = fs::read(&payload.auth_file_path).map_err(|e| from_string(format!("Cannot read auth file: {e}")))?;
     let mut auth = parse_auth(&raw).map_err(from_string)?;
     auth.file_path = payload.auth_file_path;
+    // Persist credentials into SQLite (tokens stored AEAD-encrypted).
+    let store = state.storage().map_err(from_string)?;
+    store
+        .upsert_account(&auth.uid, &auth.domain, &auth.nickname, &auth.enterprise_id,
+                        &auth.access_token, &auth.refresh_token, auth.expires_at)
+        .map_err(from_string)?;
     state.pool.add(auth);
     Ok(respond(request_id, Empty {}))
 }
@@ -57,6 +63,7 @@ pub fn add_account(request: Req<AddAccountRequest>, state: State<'_, RuntimeStat
 #[tauri::command(rename_all = "snake_case")]
 pub fn remove_account(request: Req<AccountUidRequest>, state: State<'_, RuntimeState>) -> IpcResult<Empty> {
     let (request_id, payload) = request.validate()?;
+    if let Ok(store) = state.storage() { let _ = store.delete_account(&payload.uid); }
     state.pool.remove(&payload.uid);
     Ok(respond(request_id, Empty {}))
 }

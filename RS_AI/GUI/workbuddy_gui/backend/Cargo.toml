@@ -36,6 +36,10 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 bytes = "1"
 sha2 = "0.10"
 tokio-stream = "0.1"
+rusqlite = { version = "0.31", features = ["bundled"] }
+aes-gcm = "0.10"
+base64 = "0.22"
+keyring = "3"
 
 [target.'cfg(unix)'.dependencies]
 libc = "=0.2.189"

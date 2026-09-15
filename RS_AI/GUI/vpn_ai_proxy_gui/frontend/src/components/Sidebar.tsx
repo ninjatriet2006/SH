@@ -1,9 +1,9 @@
-import { Shield, Activity, Route, Network, Fingerprint } from "lucide-react";
+import { Shield, Activity, Route, Network, Fingerprint, Settings } from "lucide-react";
 import { GatewayConfig, RawTrafficLog } from "../types";
 
 interface SidebarProps {
-  activeTab: "traffic" | "routes" | "tunnels" | "fingerprint";
-  setActiveTab: (tab: "traffic" | "routes" | "tunnels" | "fingerprint") => void;
+  activeTab: "traffic" | "routes" | "tunnels" | "fingerprint" | "settings";
+  setActiveTab: (tab: "traffic" | "routes" | "tunnels" | "fingerprint" | "settings") => void;
   config: GatewayConfig | null;
   trafficLogs: RawTrafficLog[];
 }
@@ -104,6 +104,20 @@ export function Sidebar({
             <div className="flex items-center gap-2.5">
               <Fingerprint className="w-4 h-4" />
               <span>Fingerprint Cloaking</span>
+            </div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("settings")}
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-all ${
+              activeTab === "settings"
+                ? "bg-cyan-500/15 text-cyan-400 border border-cyan-500/30"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <Settings className="w-4 h-4" />
+              <span>System & Settings</span>
             </div>
           </button>
         </nav>

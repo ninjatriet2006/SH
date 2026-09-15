@@ -85,7 +85,8 @@ pub fn start_gateway(
             break;
         }
     }
-    let app_state = Arc::new(AppState { config: config.clone(), pool, session: session::SessionRouter::new(session_cfg), prompt_mode, degrade: crate::core::server::DegradeGate::new(), shutdown_tx: shutdown_tx.clone(), metrics: gateway.metrics.clone(), dynamic_models });
+    let storage = runtime.storage().ok();
+    let app_state = Arc::new(AppState { config: config.clone(), pool, session: session::SessionRouter::new(session_cfg), prompt_mode, degrade: crate::core::server::DegradeGate::new(), shutdown_tx: shutdown_tx.clone(), metrics: gateway.metrics.clone(), dynamic_models, storage });
     let task = tauri::async_runtime::block_on(start_server(app_state)).map_err(|e| { info.status = crate::core::gateway_state::GatewayStatus::Error; info.error = Some(e.to_string()); IpcError::new(IpcErrorCode::Unavailable, e.to_string()) })?;
     *gateway.server_task.lock().map_err(|_| IpcError::new(IpcErrorCode::Internal, "State lock poisoned"))? = Some(task);
     gateway.shutdown_tx.send(true).ok();
@@ -114,4 +115,20 @@ pub fn stop_gateway(
 fn load_config_path(path: &str) -> Result<Config, String> {
     let raw = std::fs::read_to_string(path).map_err(|e| format!("Cannot read config: {e}"))?;
     serde_json::from_str(&raw).map_err(|e| format!("Invalid config: {e}"))
+}
+
+/// Recent raw request/response traces for the Debug tab.
+#[tauri::command(rename_all = "snake_case")]
+pub fn get_debug_traces(
+    request: Req<Empty>,
+    gateway: State<'_, GatewayState>,
+) -> IpcResult<Vec<serde_json::Value>> {
+    let (request_id, _) = request.validate()?;
+    let traces = gateway
+        .metrics
+        .recent_traces()
+        .into_iter()
+        .filter_map(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .collect();
+    Ok(respond(request_id, traces))
 }

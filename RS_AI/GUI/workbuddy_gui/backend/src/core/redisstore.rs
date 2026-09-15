@@ -1,4 +1,6 @@
-//! Persistence mirror used by sticky sessions and pool state.
+//! Persistence mirror used by sticky sessions (interface only — the Redis/
+//! Upstash implementation was removed; durable state now lives in SQLite
+//! via [`crate::core::storage`]).
 
 use std::time::Duration;
 
@@ -9,9 +11,6 @@ pub trait Store: Send + Sync {
     fn save_state(&self, data: &[u8]);
     fn load_state(&self) -> Option<Vec<u8>>;
 }
-
-#[derive(Debug, Clone)]
-pub struct StoreConfig { pub url: String, pub token: String }
 
 #[derive(Debug, Default)]
 pub struct NoopStore;
@@ -27,33 +26,4 @@ impl Store for NoopStore {
 impl NoopStore {
     pub fn save_snapshot(&self, _: &[u8]) -> Result<(), String> { Ok(()) }
     pub fn load_snapshot(&self) -> Result<Option<Vec<u8>>, String> { Ok(None) }
-}
-
-pub struct RedisStore { config: StoreConfig }
-
-impl RedisStore {
-    pub fn new(config: StoreConfig) -> Option<Self> {
-        (!config.url.trim().is_empty()).then_some(Self { config })
-    }
-}
-
-impl Store for RedisStore {
-    fn set_bind(&self, key: &str, uid: &str, ttl: Duration) {
-        let _ = ureq::post(&self.config.url)
-            .set("Authorization", &format!("Bearer {}", self.config.token))
-            .send_json(serde_json::json!({"commands":[["SET", format!("wb2api:bind:{}", key), uid, "EX", ttl.as_secs().max(1)]]}));
-    }
-    fn del_bind(&self, key: &str) {
-        let _ = ureq::post(&self.config.url)
-            .set("Authorization", &format!("Bearer {}", self.config.token))
-            .send_json(serde_json::json!({"commands":[["DEL", format!("wb2api:bind:{}", key)]]}));
-    }
-    fn load_binds(&self) -> std::collections::HashMap<String, String> { Default::default() }
-    fn save_state(&self, data: &[u8]) {
-        let value = String::from_utf8_lossy(data);
-        let _ = ureq::post(&self.config.url)
-            .set("Authorization", &format!("Bearer {}", self.config.token))
-            .send_json(serde_json::json!({"commands":[["SET", "wb2api:state", value]]}));
-    }
-    fn load_state(&self) -> Option<Vec<u8>> { None }
 }

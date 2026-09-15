@@ -7,6 +7,8 @@ interface TrafficTabProps {
   selectedLog: RawTrafficLog | null;
   setSelectedLog: (log: RawTrafficLog | null) => void;
   onClearLogs: () => Promise<void>;
+  maxLogEntries?: number;
+  onUpdateMaxLogEntries?: (count: number) => Promise<void>;
 }
 
 export function TrafficTab({
@@ -14,6 +16,8 @@ export function TrafficTab({
   selectedLog,
   setSelectedLog,
   onClearLogs,
+  maxLogEntries = 500,
+  onUpdateMaxLogEntries,
 }: TrafficTabProps) {
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -44,6 +48,24 @@ export function TrafficTab({
               className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-2 py-1 text-xs font-mono text-slate-200 focus:outline-none focus:border-cyan-500"
             />
           </div>
+
+          {onUpdateMaxLogEntries && (
+            <div className="flex items-center gap-1 text-[11px] text-slate-400 font-mono">
+              <span>Max:</span>
+              <select
+                value={maxLogEntries}
+                onChange={(e) => onUpdateMaxLogEntries(Number(e.target.value))}
+                className="bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5 text-slate-300 text-xs focus:outline-none"
+              >
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={200}>200</option>
+                <option value={500}>500</option>
+                <option value={1000}>1000</option>
+              </select>
+            </div>
+          )}
+
           <button
             onClick={onClearLogs}
             className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-rose-400 transition"
@@ -130,15 +152,54 @@ export function TrafficTab({
             {/* Raw Request Headers */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <h4 className="text-xs font-semibold uppercase text-slate-400">Raw Request Headers</h4>
-                <span className="text-[10px] text-slate-500 font-mono">
-                  {selectedLog.raw_request_headers.length} headers
-                </span>
+                <h4 className="text-xs font-semibold uppercase text-slate-400">Raw Request Headers (From Client)</h4>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    {selectedLog.raw_request_headers.length} headers
+                  </span>
+                  <button
+                    onClick={() => {
+                      const text = selectedLog.raw_request_headers.map(([k, v]) => `${k}: ${v}`).join("\n");
+                      navigator.clipboard.writeText(text);
+                    }}
+                    className="text-[10px] text-cyan-400 hover:underline flex items-center gap-1"
+                  >
+                    <Copy className="w-3 h-3" /> Copy
+                  </button>
+                </div>
               </div>
               <div className="p-2.5 rounded bg-slate-900 border border-slate-800 font-mono text-[10px] space-y-1 max-h-36 overflow-y-auto select-text">
                 {selectedLog.raw_request_headers.map(([k, v], i) => (
                   <div key={i} className="truncate">
                     <span className="text-slate-500">{k}:</span> <span className="text-slate-300">{v}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Raw Forwarded Headers (Actual Wire Sent to Upstream) */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <h4 className="text-xs font-semibold uppercase text-indigo-400">Raw Forwarded Headers (Sent to Upstream)</h4>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    {selectedLog.raw_forwarded_headers.length} headers
+                  </span>
+                  <button
+                    onClick={() => {
+                      const text = selectedLog.raw_forwarded_headers.map(([k, v]) => `${k}: ${v}`).join("\n");
+                      navigator.clipboard.writeText(text);
+                    }}
+                    className="text-[10px] text-indigo-400 hover:underline flex items-center gap-1"
+                  >
+                    <Copy className="w-3 h-3" /> Copy
+                  </button>
+                </div>
+              </div>
+              <div className="p-2.5 rounded bg-slate-900 border border-indigo-950/80 font-mono text-[10px] space-y-1 max-h-36 overflow-y-auto select-text">
+                {selectedLog.raw_forwarded_headers.map(([k, v], i) => (
+                  <div key={i} className="truncate">
+                    <span className="text-indigo-400/80">{k}:</span> <span className="text-slate-300">{v}</span>
                   </div>
                 ))}
               </div>
@@ -164,9 +225,20 @@ export function TrafficTab({
             <div>
               <div className="flex items-center justify-between mb-1">
                 <h4 className="text-xs font-semibold uppercase text-slate-400">Raw Upstream Response Headers</h4>
-                <span className="text-[10px] text-slate-500 font-mono">
-                  {selectedLog.raw_response_headers.length} headers
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    {selectedLog.raw_response_headers.length} headers
+                  </span>
+                  <button
+                    onClick={() => {
+                      const text = selectedLog.raw_response_headers.map(([k, v]) => `${k}: ${v}`).join("\n");
+                      navigator.clipboard.writeText(text);
+                    }}
+                    className="text-[10px] text-cyan-400 hover:underline flex items-center gap-1"
+                  >
+                    <Copy className="w-3 h-3" /> Copy
+                  </button>
+                </div>
               </div>
               <div className="p-2.5 rounded bg-slate-900 border border-slate-800 font-mono text-[10px] space-y-1 max-h-36 overflow-y-auto select-text">
                 {selectedLog.raw_response_headers.map(([k, v], i) => (

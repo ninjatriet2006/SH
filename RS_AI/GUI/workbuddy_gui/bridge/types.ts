@@ -50,3 +50,50 @@ export interface ThemeInfo {
     type: string;
     colors: Record<string, string>;
 }
+
+export interface AccessKey {
+    id: number;
+    label: string;
+    prefix: string;
+    created_at: number;
+    last_used_at: number | null;
+    revoked: boolean;
+}
+
+export interface CreatedAccessKey {
+    key: AccessKey;
+    plaintext: string;
+}
+
+export interface UsageLog {
+    id: number;
+    access_key_prefix: string;
+    route: string;
+    model: string;
+    status: number;
+    tokens: number;
+    elapsed_ms: number;
+    created_at: number;
+}
+
+export interface UsageSummary {
+    access_key_prefix: string;
+    requests: number;
+    tokens: number;
+    errors: number;
+}
+
+export interface TraceRecord {
+    timestamp: number;
+    route: string;
+    model: string;
+    status: number;
+    tokens: number;
+    elapsed_ms: number;
+    detail?: {
+        req_bytes?: number;
+        req_preview?: string;
+        resp_preview?: string;
+        error?: string | null;
+    } | null;
+}

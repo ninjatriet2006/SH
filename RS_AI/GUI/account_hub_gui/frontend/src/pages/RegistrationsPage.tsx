@@ -5,14 +5,13 @@ import { Search, Globe, Mail, Sparkles, Trash2 } from 'lucide-react';
 import { CheckinButton, StatusButton } from '../components/CheckinControls';
 
 type StatusFilter = 'all' | 'live' | 'die';
-type CheckinFilter = 'all' | 'checked' | 'unchecked';
+type CheckinFilter = 'all' | 'checked' | 'unchecked' | 'site';
 
 export const RegistrationsPage: React.FC = () => {
   const { data, unlinkRegistration } = useAppStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [checkinFilter, setCheckinFilter] = useState<CheckinFilter>('all');
-  const [filterCheckinOnly, setFilterCheckinOnly] = useState(false);
 
   if (!data) return null;
 
@@ -27,8 +26,9 @@ export const RegistrationsPage: React.FC = () => {
   const liveCount = activeRegistrations.filter(r => (r.status || 'live') === 'live').length;
   const dieCount = activeRegistrations.length - liveCount;
   const onCheckinSite = (r: RegistrationRecord) => websiteMap.get(r.website_id)!.has_daily_checkin;
+  const checkinSiteCount = activeRegistrations.filter(onCheckinSite).length;
   const checkedInCount = activeRegistrations.filter(r => onCheckinSite(r) && r.is_checked_in).length;
-  const pendingCheckinCount = activeRegistrations.filter(r => onCheckinSite(r) && !r.is_checked_in).length;
+  const pendingCheckinCount = checkinSiteCount - checkedInCount;
 
   const filteredRegistrations = activeRegistrations.filter(r => {
     const email = emailMap.get(r.email_id)!;
@@ -41,13 +41,14 @@ export const RegistrationsPage: React.FC = () => {
       web.url.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchStatus = statusFilter === 'all' ? true : (r.status || 'live') === statusFilter;
-    const matchCheckinSite = filterCheckinOnly ? web.has_daily_checkin : true;
-    const matchAttendance =
+    const matchCheckin =
       checkinFilter === 'all'
         ? true
-        : web.has_daily_checkin && (checkinFilter === 'checked' ? r.is_checked_in : !r.is_checked_in);
+        : checkinFilter === 'site'
+          ? web.has_daily_checkin
+          : web.has_daily_checkin && (checkinFilter === 'checked' ? r.is_checked_in : !r.is_checked_in);
 
-    return matchSearch && matchStatus && matchCheckinSite && matchAttendance;
+    return matchSearch && matchStatus && matchCheckin;
   });
 
   const handleUnlink = async (emailId: string, webId: string) => {
@@ -75,63 +76,34 @@ export const RegistrationsPage: React.FC = () => {
           />
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button
-            className={`btn ${statusFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}
-            onClick={() => setStatusFilter('all')}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Trạng thái:</span>
+          <select
+            className="filter-select"
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value as StatusFilter)}
+            title="Lọc theo trạng thái tài khoản (Live / Die)"
           >
-            Tất cả ({activeRegistrations.length})
-          </button>
-          <button
-            className={`btn ${statusFilter === 'live' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}
-            onClick={() => setStatusFilter('live')}
-          >
-            🟢 Live ({liveCount})
-          </button>
-          <button
-            className={`btn ${statusFilter === 'die' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}
-            onClick={() => setStatusFilter('die')}
-          >
-            🔴 Die ({dieCount})
-          </button>
+            <option value="all">Tất cả ({activeRegistrations.length})</option>
+            <option value="live">🟢 Live ({liveCount})</option>
+            <option value="die">🔴 Die ({dieCount})</option>
+          </select>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Điểm danh hôm nay:</span>
-          <button
-            className={`btn ${checkinFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}
-            onClick={() => setCheckinFilter('all')}
+          <select
+            className="filter-select"
+            value={checkinFilter}
+            onChange={e => setCheckinFilter(e.target.value as CheckinFilter)}
+            title="Lọc theo tình trạng điểm danh hôm nay"
           >
-            Tất cả
-          </button>
-          <button
-            className={`btn ${checkinFilter === 'checked' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}
-            onClick={() => setCheckinFilter('checked')}
-          >
-            ✅ Đã điểm danh ({checkedInCount})
-          </button>
-          <button
-            className={`btn ${checkinFilter === 'unchecked' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}
-            onClick={() => setCheckinFilter('unchecked')}
-          >
-            ⏳ Chưa điểm danh ({pendingCheckinCount})
-          </button>
+            <option value="all">Tất cả</option>
+            <option value="checked">✅ Đã điểm danh ({checkedInCount})</option>
+            <option value="unchecked">⏳ Chưa điểm danh ({pendingCheckinCount})</option>
+            <option value="site">Web có điểm danh ({checkinSiteCount})</option>
+          </select>
         </div>
-
-        <label className="checkbox-label" style={{ background: 'rgba(255,255,255,0.05)', padding: '0.5rem 0.8rem', borderRadius: '6px' }}>
-          <input
-            type="checkbox"
-            checked={filterCheckinOnly}
-            onChange={e => setFilterCheckinOnly(e.target.checked)}
-          />
-          <span>Web có điểm danh</span>
-        </label>
       </div>
 
       <div className="glass-card" style={{ padding: 0, overflow: 'hidden' }}>

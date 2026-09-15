@@ -245,6 +245,32 @@ th {
   border-color: var(--primary);
 }
 
+/* Dropdown lọc dữ liệu (compact, khớp theme tối) */
+.filter-select {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.45rem 0.8rem;
+  color: #fff;
+  outline: none;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.filter-select:hover {
+  border-color: var(--primary);
+}
+
+.filter-select:focus {
+  border-color: var(--primary);
+}
+
+.filter-select option {
+  background: #0f172a;
+  color: #fff;
+}
+
 .checkbox-label {
   display: flex;
   align-items: center;

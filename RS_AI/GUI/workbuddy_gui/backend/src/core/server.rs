@@ -20,7 +20,7 @@ use axum::{
     response::{IntoResponse, Response, Sse, sse::Event},
     routing::{get, post},
 };
-use chrono::{Datelike, FixedOffset, Local, TimeZone, Utc};
+use chrono::{Datelike, FixedOffset, TimeZone, Utc};
 use log::{error, info, warn};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -28,11 +28,16 @@ use serde_json::{Value, json};
 use tokio::sync::watch;
 use tokio_stream::wrappers::ReceiverStream;
 
-use crate::core::auth::Auth;
 use crate::core::config::Config;
-use crate::core::pool::{self, Pool};
-use crate::core::prompt::{self, DEGRADED, PromptMode};
+use crate::core::pool::Pool;
+use crate::core::prompt::{DEGRADED, PromptMode};
+use crate::core::protocol::{
+    anthropic_content_block_delta, anthropic_content_block_start, anthropic_content_block_stop,
+    anthropic_message_delta, anthropic_message_start, anthropic_message_stop,
+    AnthropicMessagesRequest,
+};
 use crate::core::session::SessionRouter;
+use crate::core::storage::Storage;
 use crate::core::upstream::client::Client as UpstreamClient;
 use crate::core::runtime::Metrics;
 use parking_lot::RwLock as ParkingRwLock;
@@ -56,6 +61,7 @@ pub struct AppState {
     pub shutdown_tx: watch::Sender<bool>,
     pub metrics: Arc<Metrics>,
     pub dynamic_models: Arc<ParkingRwLock<Vec<Value>>>,
+    pub storage: Option<Arc<Storage>>,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -209,6 +215,7 @@ fn apply_prompt(mode: &PromptMode, messages: &mut Vec<ChatMessage>, degraded: bo
 pub fn build_router(state: SharedState) -> Router {
     let api_routes = Router::new()
         .route("/v1/chat/completions", post(handle_chat))
+        .route("/v1/messages", post(handle_messages))
         .route("/v1/models", get(handle_models))
         .route("/status", get(handle_status))
         .route("/metrics", get(handle_metrics))
@@ -268,29 +275,62 @@ pub async fn start_server(
 async fn auth_middleware(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    request: Request<Body>,
+    mut request: Request<Body>,
     next: Next,
 ) -> Response {
     let key = &state.config.api_key;
-    if key.is_empty() {
-        // No key configured → open access.
+    let provided = headers
+        .get("x-api-key")
+        .and_then(|v| v.to_str().ok())
+        .or_else(|| {
+            headers
+                .get("authorization")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.strip_prefix("Bearer "))
+        })
+        .unwrap_or("");
+
+    // 1. Direct config match (fast path)
+    if !key.is_empty() && provided == key {
+        request.extensions_mut().insert(ApiKeyContext {
+            prefix: "config_master".to_string(),
+        });
         return next.run(request).await;
     }
 
-    let provided = headers.get("x-api-key")
-        .and_then(|v| v.to_str().ok())
-        .or_else(|| headers.get("authorization").and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer ")))
-        .unwrap_or("");
-
-    if provided == key {
-        next.run(request).await
-    } else {
-        oai_error(
-            StatusCode::UNAUTHORIZED,
-            "missing or invalid API key",
-            "invalid_api_key",
-        )
+    // 2. Check local SQLite access keys (Feature 1 integration)
+    if let Some(store) = &state.storage {
+        if !provided.is_empty() {
+            if let Ok(true) = store.check_access_key(provided) {
+                let prefix = store
+                    .access_key_prefix(provided)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| "wbk-key".to_string());
+                request.extensions_mut().insert(ApiKeyContext { prefix });
+                return next.run(request).await;
+            }
+        }
     }
+
+    // 3. Open access if no master key is configured
+    if key.is_empty() {
+        request.extensions_mut().insert(ApiKeyContext {
+            prefix: "open_access".to_string(),
+        });
+        return next.run(request).await;
+    }
+
+    oai_error(
+        StatusCode::UNAUTHORIZED,
+        "missing or invalid API key",
+        "invalid_api_key",
+    )
+}
+
+#[derive(Clone)]
+pub struct ApiKeyContext {
+    pub prefix: String,
 }
 
 // ─── /v1/chat/completions ───────────────────────────────────────────────────
@@ -298,23 +338,27 @@ async fn auth_middleware(
 async fn handle_chat(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    body: axum::body::Bytes,
+    request: Request<Body>,
 ) -> Response {
-    let start = Instant::now();
-    let metrics = state.metrics.clone();
+    let key_prefix = request
+        .extensions()
+        .get::<ApiKeyContext>()
+        .map(|c| c.prefix.clone())
+        .unwrap_or_else(|| "anon".to_string());
 
-    // ── Body size check (413 if exceeded, no rotation) ──────────────────
-    let max_bytes = (state.config.server.max_body_mb as usize) * 1024 * 1024;
-    if max_bytes > 0 && body.len() > max_bytes {
-        return oai_error(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            &format!(
-                "Request body exceeds limit {} MB",
-                state.config.server.max_body_mb
-            ),
-            "request_body_too_large",
-        );
-    }
+    let body = match axum::body::to_bytes(request.into_body(), (state.config.server.max_body_mb as usize) * 1024 * 1024).await {
+        Ok(b) => b,
+        Err(_) => {
+            return oai_error(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                &format!(
+                    "Request body exceeds limit {} MB",
+                    state.config.server.max_body_mb
+                ),
+                "request_body_too_large",
+            );
+        }
+    };
 
     // ── Parse request ───────────────────────────────────────────────────
     let mut req: ChatRequest = match serde_json::from_slice(&body) {
@@ -339,45 +383,81 @@ async fn handle_chat(
     let degraded = state.degrade.is_active();
     apply_prompt(&state.prompt_mode, &mut req.messages, degraded);
 
-    // ── Pick account (sticky session) ───────────────────────────────────
-    let preferred = state.session.get(&uid);
-    let account = match state.pool.pick(preferred.as_deref()) {
-        Some(a) => a,
-        None => {
-            return oai_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "all accounts unavailable (cooling/disabled)",
-                "no_healthy_account",
-            );
-        }
-    };
-    let acct_uid = account.uid.clone();
-    let acct_email = account.email.clone();
-    let acct_auth = account.auth.clone();
-    let upstream_config = state.config.upstream.clone();
-    if !state.pool.acquire(&acct_uid) {
-        return oai_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "all accounts are at the in-flight limit",
-            "account_capacity_exhausted",
-        );
-    }
-    state.session.set(&uid, &acct_uid);
-
-    // ── Build upstream request body ─────────────────────────────────────
     let upstream_body = serde_json::to_vec(&req).unwrap_or_default();
     let model = req.model.clone();
     let stream = req.stream;
+    dispatch_upstream_stream(state, uid, key_prefix, "/v1/chat/completions", model, upstream_body, stream, false)
+}
 
-    // ── Forward to upstream (SSE streaming) ─────────────────────────────
+/// Anthropic `/v1/messages` endpoint — accepts Anthropic format, converts to
+/// OpenAI format for upstream forwarding, and translates SSE events back.
+async fn handle_messages(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    request: Request<Body>,
+) -> Response {
+    let key_prefix = request
+        .extensions()
+        .get::<ApiKeyContext>()
+        .map(|c| c.prefix.clone())
+        .unwrap_or_else(|| "anon".to_string());
+
+    let body = match axum::body::to_bytes(request.into_body(), (state.config.server.max_body_mb as usize) * 1024 * 1024).await {
+        Ok(b) => b,
+        Err(_) => {
+            return oai_error(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                &format!(
+                    "Request body exceeds limit {} MB",
+                    state.config.server.max_body_mb
+                ),
+                "request_body_too_large",
+            );
+        }
+    };
+
+    let req: AnthropicMessagesRequest = match serde_json::from_slice(&body) {
+        Ok(r) => r,
+        Err(e) => {
+            return oai_error(
+                StatusCode::BAD_REQUEST,
+                &format!("Invalid Anthropic JSON: {}", e),
+                "invalid_request",
+            );
+        }
+    };
+
+    let uid = headers
+        .get("x-user-id")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("anon")
+        .to_string();
+
+    let oai_req = req.to_openai();
+    let upstream_body = serde_json::to_vec(&oai_req).unwrap_or_default();
+    let model = req.model.clone();
+    let stream = req.stream;
+    dispatch_upstream_stream(state, uid, key_prefix, "/v1/messages", model, upstream_body, stream, true)
+}
+
+/// Core upstream dispatch with 429 Retry-Fallback load balancer.
+#[allow(clippy::too_many_arguments)]
+fn dispatch_upstream_stream(
+    state: SharedState,
+    uid: String,
+    key_prefix: String,
+    route: &'static str,
+    model: String,
+    upstream_body: Vec<u8>,
+    stream: bool,
+    is_anthropic: bool,
+) -> Response {
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, std::convert::Infallible>>(64);
-
+    let upstream_config = state.config.upstream.clone();
     let pool = state.pool.clone();
-
-    // Build a per-request upstream client from the picked account's auth.
-    let mut upstream_client = UpstreamClient::new(&upstream_config.proxy_url);
-    upstream_client.user_agent = upstream_config.user_agent.clone();
-    if !upstream_config.realm.is_empty() { upstream_client.realm = upstream_config.realm.clone(); }
+    let session = state.session.clone();
+    let metrics = state.metrics.clone();
+    let storage = state.storage.clone();
 
     tokio::task::spawn_blocking(move || {
         let relay_start = Instant::now();
@@ -386,90 +466,168 @@ async fn handle_chat(
         let mut total_tokens: u64 = 0;
         let mut final_status: u16 = 200;
         let mut err_msg = String::new();
+        let mut used_acct_email = String::new();
+        let mut resp_preview = String::new();
+        const PREVIEW_LIMIT: usize = 2000;
 
-        let mut acct_auth = acct_auth;
-        if acct_auth.needs_refresh(60) {
-            match upstream_client.refresh_token(&mut acct_auth) {
-                Ok(()) => { let _ = crate::core::auth::save_atomic(&acct_auth); let _ = pool.update_auth(acct_auth.clone()); }
-                Err(error) => warn!("token refresh failed for {}: {}", acct_uid, error),
+        // ─── 429 Retry-Fallback Loop (Max 3 attempts across pool) ───────────
+        const MAX_ATTEMPTS: usize = 3;
+        let mut attempts = 0;
+
+        while attempts < MAX_ATTEMPTS {
+            attempts += 1;
+
+            let preferred = session.get(&uid);
+            let account = match pool.pick(preferred.as_deref()) {
+                Some(a) => a,
+                None => {
+                    final_status = 503;
+                    err_msg = "all accounts unavailable".into();
+                    break;
+                }
+            };
+
+            let acct_uid = account.uid.clone();
+            let acct_email = account.email.clone();
+            used_acct_email = acct_email.clone();
+            let mut acct_auth = account.auth.clone();
+
+            if !pool.acquire(&acct_uid) {
+                final_status = 503;
+                err_msg = "account in-flight capacity exhausted".into();
+                continue;
             }
-        }
-        match upstream_client.chat_stream(&acct_auth, &upstream_body) {
-            Ok((body, _)) => {
-                if !stream {
-                    match aggregate(body) {
-                        Ok(completion) => {
-                            let payload = serde_json::to_string(&completion).unwrap_or_default();
-                            let _ = tx.blocking_send(Ok(Event::default().data(payload)));
-                            let _ = tx.blocking_send(Ok(Event::default().data("[DONE]")));
-                        }
-                        Err(e) => {
-                            final_status = 502;
-                            err_msg = e;
-                            let _ = tx.blocking_send(Ok(Event::default().data(
-                                "{\"error\":\"failed to aggregate upstream stream\"}",
-                            )));
-                        }
-                    }
-                    pool.note_success(&acct_uid);
-                } else {
-                    // Read the SSE stream line-by-line.
-                    let reader = std::io::BufReader::new(body);
-                    use std::io::BufRead;
-                    for line_result in reader.lines() {
-                    let line = match line_result {
-                        Ok(l) => l,
-                        Err(e) => {
-                            final_status = 502;
-                            err_msg = e.to_string();
-                            let _ = tx.blocking_send(Ok(
-                                Event::default().data(format!("{{\"error\":\"read: {}\"}}", e))
-                            ));
-                            break;
-                        }
-                    };
+            session.set(&uid, &acct_uid);
 
-                    if line.starts_with("data: ") {
-                        let payload = &line[6..];
-                        if !ttfb_recorded {
-                            ttfb_ms = relay_start.elapsed().as_millis() as u64;
-                            ttfb_recorded = true;
-                        }
-                        total_tokens += 1;
+            let mut upstream_client = UpstreamClient::new(&upstream_config.proxy_url);
+            upstream_client.user_agent = upstream_config.user_agent.clone();
+            if !upstream_config.realm.is_empty() {
+                upstream_client.realm = upstream_config.realm.clone();
+            }
 
-                        if payload == "[DONE]" {
-                            let _ = tx.blocking_send(Ok(Event::default().data("[DONE]")));
-                            break;
-                        }
-                        if tx.blocking_send(Ok(Event::default().data(payload.to_string()))).is_err() {
-                            break; // client disconnected
-                        }
+            if acct_auth.needs_refresh(60) {
+                match upstream_client.refresh_token(&mut acct_auth) {
+                    Ok(()) => {
+                        let _ = crate::core::auth::save_atomic(&acct_auth);
+                        let _ = pool.update_auth(acct_auth.clone());
                     }
-                    }
-                    pool.note_success(&acct_uid);
+                    Err(error) => warn!("token refresh failed for {}: {}", acct_uid, error),
                 }
             }
-            Err((status, _, e)) => {
-                final_status = if status == 0 { 502 } else { status };
-                err_msg = e.to_string();
 
-                if final_status == 429 {
-                    pool.cooldown(&acct_uid, Duration::from_secs(600));
-                    warn!("429 from upstream for {}, cooldown applied", acct_email);
-                } else if final_status >= 500 {
-                    pool.note_error(&acct_uid);
+            match upstream_client.chat_stream(&acct_auth, &upstream_body) {
+                Ok((body, _)) => {
+                    if is_anthropic {
+                        let msg_id = format!("msg_{}", relay_start.elapsed().as_nanos());
+                        let _ = tx.blocking_send(Ok(Event::default().event("message_start").data(anthropic_message_start(&msg_id, &model))));
+                        let _ = tx.blocking_send(Ok(Event::default().event("content_block_start").data(anthropic_content_block_start(0))));
+                    }
+
+                    if !stream {
+                        match aggregate(body) {
+                            Ok(completion) => {
+                                let payload = serde_json::to_string(&completion).unwrap_or_default();
+                                if resp_preview.len() < PREVIEW_LIMIT {
+                                    resp_preview.push_str(&payload.chars().take(PREVIEW_LIMIT - resp_preview.len()).collect::<String>());
+                                }
+                                let _ = tx.blocking_send(Ok(Event::default().data(payload)));
+                                let _ = tx.blocking_send(Ok(Event::default().data("[DONE]")));
+                            }
+                            Err(e) => {
+                                final_status = 502;
+                                err_msg = e;
+                                let _ = tx.blocking_send(Ok(Event::default().data(
+                                    "{\"error\":\"failed to aggregate upstream stream\"}",
+                                )));
+                            }
+                        }
+                    } else {
+                        let reader = std::io::BufReader::new(body);
+                        use std::io::BufRead;
+                        for line_result in reader.lines() {
+                            let line = match line_result {
+                                Ok(l) => l,
+                                Err(e) => {
+                                    final_status = 502;
+                                    err_msg = e.to_string();
+                                    let _ = tx.blocking_send(Ok(Event::default().data(format!("{{\"error\":\"read: {}\"}}", e))));
+                                    break;
+                                }
+                            };
+
+                            if line.starts_with("data: ") {
+                                let payload = &line[6..];
+                                if !ttfb_recorded {
+                                    ttfb_ms = relay_start.elapsed().as_millis() as u64;
+                                    ttfb_recorded = true;
+                                }
+                                total_tokens += 1;
+
+                                if resp_preview.len() < PREVIEW_LIMIT && payload != "[DONE]" {
+                                    resp_preview.push_str(&payload.chars().take(PREVIEW_LIMIT - resp_preview.len()).collect::<String>());
+                                    resp_preview.push('\n');
+                                }
+
+                                if payload == "[DONE]" {
+                                    if is_anthropic {
+                                        let _ = tx.blocking_send(Ok(Event::default().event("content_block_stop").data(anthropic_content_block_stop(0))));
+                                        let _ = tx.blocking_send(Ok(Event::default().event("message_delta").data(anthropic_message_delta(total_tokens))));
+                                        let _ = tx.blocking_send(Ok(Event::default().event("message_stop").data(anthropic_message_stop())));
+                                    } else {
+                                        let _ = tx.blocking_send(Ok(Event::default().data("[DONE]")));
+                                    }
+                                    break;
+                                }
+
+                                if is_anthropic {
+                                    // Extract delta text from OpenAI chunk JSON if possible
+                                    let chunk_text = serde_json::from_str::<Value>(payload)
+                                        .ok()
+                                        .and_then(|v| v.get("choices")?.get(0)?.get("delta")?.get("content")?.as_str().map(|s| s.to_string()))
+                                        .unwrap_or_default();
+                                    if !chunk_text.is_empty() {
+                                        let delta_event = anthropic_content_block_delta(0, &chunk_text);
+                                        if tx.blocking_send(Ok(Event::default().event("content_block_delta").data(delta_event))).is_err() {
+                                            break;
+                                        }
+                                    }
+                                } else if tx.blocking_send(Ok(Event::default().data(payload.to_string()))).is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    pool.note_success(&acct_uid);
+                    pool.release(&acct_uid);
+                    break; // Success -> exit retry loop
                 }
+                Err((status, _, e)) => {
+                    let s = if status == 0 { 502 } else { status };
+                    final_status = s;
+                    err_msg = e.to_string();
 
-                let _ = tx.blocking_send(Ok(
-                    Event::default().data(format!(
-                        "{{\"error\":\"upstream returned {}\"}}",
-                        final_status
-                    ))
-                ));
+                    if s == 429 {
+                        // Rate limited -> cooldown account and retry with another
+                        pool.cooldown(&acct_uid, Duration::from_secs(600));
+                        warn!("429 rate limit for account {}, cooling down and retrying attempt {}/{}", acct_email, attempts, MAX_ATTEMPTS);
+                        pool.release(&acct_uid);
+                        continue;
+                    } else {
+                        if s >= 500 {
+                            pool.note_error(&acct_uid);
+                        }
+                        pool.release(&acct_uid);
+                        let _ = tx.blocking_send(Ok(Event::default().data(format!(
+                            "{{\"error\":\"upstream returned {}\"}}",
+                            s
+                        ))));
+                        break;
+                    }
+                }
             }
         }
 
-        // Emit structured log row.
         let elapsed = relay_start.elapsed();
         if !ttfb_recorded {
             ttfb_ms = elapsed.as_millis() as u64;
@@ -480,18 +638,31 @@ async fn handle_chat(
             0.0
         };
         info!(
-            "[req] uid={} acct={} model={} status={} ttfb={}ms tokens={} speed={:.1}tok/s elapsed={}ms err={}",
-            uid, acct_email, model, final_status,
+            "[req] route={} key={} acct={} model={} status={} ttfb={}ms tokens={} speed={:.1}tok/s elapsed={}ms err={}",
+            route, key_prefix, used_acct_email, model, final_status,
             ttfb_ms, total_tokens, tok_speed, elapsed.as_millis(), err_msg
         );
 
-        metrics.trace("/v1/chat/completions", &model, final_status, total_tokens, elapsed.as_millis() as u64);
-        pool.release(&acct_uid);
+        metrics.trace_detail(
+            route,
+            &model,
+            final_status,
+            total_tokens,
+            elapsed.as_millis() as u64,
+            Some(json!({
+                "req_bytes": upstream_body.len(),
+                "req_preview": String::from_utf8_lossy(&upstream_body).chars().take(1000).collect::<String>(),
+                "resp_preview": resp_preview.chars().take(2000).collect::<String>(),
+                "error": if err_msg.is_empty() { Value::Null } else { Value::String(err_msg.clone()) },
+            })),
+        );
+        if let Some(s) = &storage {
+            let _ = s.log_usage(&key_prefix, route, &model, final_status, total_tokens, elapsed.as_millis() as u64);
+        }
     });
 
-    // Return SSE stream to client.
-    let stream = ReceiverStream::new(rx);
-    Sse::new(stream)
+    let stream_resp = ReceiverStream::new(rx);
+    Sse::new(stream_resp)
         .keep_alive(
             axum::response::sse::KeepAlive::new()
                 .interval(Duration::from_secs(15))

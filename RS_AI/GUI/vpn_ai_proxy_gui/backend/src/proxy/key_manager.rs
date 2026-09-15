@@ -6,6 +6,7 @@ use std::time::SystemTime;
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EndpointKeyManager {
     pub key_file_path: Option<String>,
+    pub failed_key_file_path: Option<String>,
     pub current_key_index: usize,
     pub total_keys: usize,
     pub current_key_preview: Option<String>,
@@ -17,6 +18,60 @@ pub struct EndpointKeyManager {
 }
 
 impl EndpointKeyManager {
+    /// Xóa 1 key lỗi (ví dụ 401 Unauthorized - key chết/thu hồi) khỏi file chính
+    pub fn remove_key_from_main_file(&mut self, key_to_remove: &str) -> Result<(), String> {
+        let path_str = match self.key_file_path.as_deref() {
+            Some(p) if !p.trim().is_empty() => p.trim(),
+            _ => return Ok(()),
+        };
+        let path = Path::new(path_str);
+        if !path.exists() {
+            return Ok(());
+        }
+
+        let content = fs::read_to_string(path).map_err(|e| format!("Failed to read key file: {}", e))?;
+        let filtered_lines: Vec<&str> = content
+            .lines()
+            .filter(|l| l.trim() != key_to_remove)
+            .collect();
+        let new_content = if filtered_lines.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n", filtered_lines.join("\n"))
+        };
+        fs::write(path, new_content).map_err(|e| format!("Failed to write key file: {}", e))?;
+
+        // Invalidate cache
+        self.cached_mtime = None;
+        self.refresh_metadata();
+        Ok(())
+    }
+
+    /// Di chuyển 1 key lỗi 403 (Forbidden / Insufficient Quota - hết tiền) sang file phụ
+    pub fn move_key_to_failed_file(&mut self, key_to_move: &str) -> Result<(), String> {
+        // 1. Ghi vào file phụ nếu có cấu hình hợp lệ (không rỗng)
+        if let Some(ref failed_path_str) = self.failed_key_file_path {
+            let clean_failed_path = failed_path_str.trim();
+            if !clean_failed_path.is_empty() {
+                let failed_path = Path::new(clean_failed_path);
+                if let Some(parent) = failed_path.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                use std::io::Write;
+                let mut file = fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(failed_path)
+                    .map_err(|e| format!("Failed to open failed key file: {}", e))?;
+                writeln!(file, "{}", key_to_move)
+                    .map_err(|e| format!("Failed to append to failed key file: {}", e))?;
+            }
+        }
+
+        // 2. Xóa khỏi file chính dù có hoặc không có file phụ
+        self.remove_key_from_main_file(key_to_move)
+    }
+
     /// Đọc danh sách key từ file được gắn với endpoint này (hỗ trợ .txt mỗi dòng 1 key hoặc .json mảng string)
     pub fn load_keys_from_file(file_path: &str) -> Result<Vec<String>, String> {
         let path = Path::new(file_path);

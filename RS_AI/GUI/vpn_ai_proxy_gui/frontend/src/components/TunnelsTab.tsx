@@ -6,6 +6,7 @@ interface TunnelsTabProps {
   testResults: Record<string, TunnelTestResult>;
   testingTunnelId: string | null;
   onTestTunnel: (tunnel: OutboundTunnel) => Promise<void>;
+  onToggleTunnel: (tunnelId: string, enabled: boolean) => Promise<void>;
   onEditTunnel: (tunnel: OutboundTunnel) => void;
   onDeleteTunnel: (id: string) => Promise<void>;
   onCreateTunnel: () => void;
@@ -16,6 +17,7 @@ export function TunnelsTab({
   testResults,
   testingTunnelId,
   onTestTunnel,
+  onToggleTunnel,
   onEditTunnel,
   onDeleteTunnel,
   onCreateTunnel,
@@ -50,13 +52,49 @@ export function TunnelsTab({
             >
               <div>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-200">{tunnel.name}</span>
-                  <span className="uppercase text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-indigo-500/20 text-indigo-400">
-                    {tunnel.protocol}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onToggleTunnel(tunnel.id, !tunnel.enabled)}
+                      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        tunnel.enabled ? "bg-emerald-500" : "bg-slate-700"
+                      }`}
+                      title={tunnel.enabled ? "Tunnel is Enabled (Click to turn Off)" : "Tunnel is Disabled (Click to turn On)"}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          tunnel.enabled ? "translate-x-4" : "translate-x-0"
+                        }`}
+                      />
+                    </button>
+                    <span className="text-xs font-bold text-slate-200">{tunnel.name}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`uppercase text-[10px] px-2 py-0.5 rounded font-mono font-bold ${
+                      tunnel.status === "online"
+                        ? "bg-emerald-500/20 text-emerald-400"
+                        : tunnel.status === "offline"
+                        ? "bg-rose-500/20 text-rose-400"
+                        : "bg-slate-700/40 text-slate-400"
+                    }`}>
+                      {tunnel.status || "unknown"}
+                    </span>
+                    <span className="uppercase text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-indigo-500/20 text-indigo-400">
+                      {tunnel.protocol}
+                    </span>
+                  </div>
                 </div>
                 <div className="text-xs font-mono text-slate-400 mt-1">
                   Endpoint: {tunnel.endpoint || "(Direct/Bypass)"}
+                  <span className="ml-2 text-indigo-400/80">
+                    Streams: {tunnel.max_concurrent_streams ? `${tunnel.max_concurrent_streams} max` : "unlimited"}
+                  </span>
+                  {!tunnel.enabled && (
+                    <span className="ml-2 text-rose-400 font-semibold">(Disabled)</span>
+                  )}
+                  {tunnel.last_checked_at && (
+                    <div className="text-[10px] text-slate-500 mt-0.5">Checked: {tunnel.last_checked_at}</div>
+                  )}
                 </div>
 
                 {testRes && (

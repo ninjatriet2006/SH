@@ -8,6 +8,7 @@ use axum::{
     response::IntoResponse,
 };
 use bytes::Bytes;
+use futures_util::StreamExt;
 use http_body_util::BodyExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -29,9 +30,90 @@ pub struct RouteRule {
     pub target_base_url: String, // Domain muốn chuyển tiếp: "https://abc.xyz/v1", "https://api.openai.com/v1"
     pub tunnel_id: String,       // Gán với OutboundTunnel ID nào (AdGuard SOCKS, WireGuard, Direct...)
     pub enabled: bool,
+    #[serde(default)]
     pub strip_prefix: bool,
     pub key_manager: EndpointKeyManager, // Quản lý file key riêng biệt cho endpoint này
     pub custom_auth_token: Option<String>,
+}
+
+/// Giới hạn độ dài chuỗi body lưu trong RAM buffer để chống OOM
+pub fn truncate_log_body(body: &str, max_chars: usize) -> String {
+    if body.chars().count() > max_chars {
+        let truncated: String = body.chars().take(max_chars).collect();
+        format!("{}... [Truncated {} chars]", truncated, body.len())
+    } else {
+        body.to_string()
+    }
+}
+
+/// Sniff & Format Response Body
+pub fn format_logged_body(resp_bytes: &[u8], headers: &reqwest::header::HeaderMap) -> String {
+    let content_encoding = headers
+        .get(reqwest::header::CONTENT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_lowercase());
+
+    if let Some(enc) = content_encoding {
+        if enc.contains("gzip") || enc.contains("br") || enc.contains("zstd") || enc.contains("deflate") {
+            return format!("[Compressed Data: {} | {} bytes]", enc, resp_bytes.len());
+        }
+    }
+
+    let content_type = headers
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_lowercase())
+        .unwrap_or_default();
+
+    if content_type.contains("image/")
+        || content_type.contains("audio/")
+        || content_type.contains("video/")
+        || content_type.contains("application/octet-stream")
+    {
+        return format!("[Binary Media: {} | {} bytes]", content_type, resp_bytes.len());
+    }
+
+    let text = String::from_utf8_lossy(resp_bytes);
+    truncate_log_body(&text, 2048)
+}
+
+/// Xây dựng URL đích thông minh (Auto-detect + Overlap Failsafe):
+/// Cắt bỏ `path_prefix` tương ứng nếu request path bắt đầu bằng prefix đó.
+/// Nếu segment cuối của `target_base_url` trùng với segment đầu của phần sub_path còn lại,
+/// loại bỏ đoạn trùng lặp đó để chống lỗi lặp /v1/v1.
+pub fn build_target_url(target_base_url: &str, path_prefix: &str, req_path: &str, query: &str) -> String {
+    let clean_base = target_base_url.trim_end_matches('/');
+    let clean_prefix = if path_prefix == "/" { "" } else { path_prefix.trim_end_matches('/') };
+    
+    let sub_path = if !clean_prefix.is_empty() && req_path.starts_with(clean_prefix) {
+        &req_path[clean_prefix.len()..]
+    } else {
+        req_path
+    };
+    
+    let mut clean_sub = sub_path.trim_start_matches('/');
+
+    // Overlap Failsafe: Trích xuất segment cuối của target_base_url (VD: "v1" trong "https://api.openai.com/v1")
+    if let Some(last_segment) = clean_base.rsplit('/').next() {
+        if !last_segment.is_empty() {
+            // Kiểm tra xem clean_sub có bắt đầu bằng segment đó không (VD: "v1/models" hoặc "v1")
+            if clean_sub == last_segment {
+                clean_sub = "";
+            } else if clean_sub.starts_with(&format!("{}/", last_segment)) {
+                clean_sub = &clean_sub[last_segment.len() + 1..];
+            }
+        }
+    }
+
+    if clean_sub.is_empty() {
+        format!("{}{}", clean_base, query)
+    } else {
+        format!("{}/{}{}", clean_base, clean_sub, query)
+    }
+}
+
+fn default_max_disk_log_entries() -> usize {
+    5000
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,12 +122,19 @@ pub struct GatewayConfig {
     pub routes: Vec<RouteRule>,
     pub fingerprint_profile: FingerprintProfile,
     pub max_log_entries: usize,
+    #[serde(default = "default_max_disk_log_entries")]
+    pub max_disk_log_entries: usize,
 }
 
 impl GatewayConfig {
     pub fn config_path() -> PathBuf {
         if let Ok(dir) = std::env::var("VPN_AI_PROXY_CONFIG_DIR") {
             return PathBuf::from(dir).join("config.json");
+        }
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(parent) = exe_path.parent() {
+                return parent.join("config.json");
+            }
         }
         if let Some(home) = std::env::var_os("HOME") {
             let path = PathBuf::from(home)
@@ -99,6 +188,10 @@ impl Default for GatewayConfig {
                     protocol: TunnelProtocol::Socks5,
                     endpoint: "127.0.0.1:1080".to_string(),
                     enabled: true,
+                    status: crate::vpn::TunnelStatus::Unknown,
+                    max_concurrent_streams: 0,
+                    last_checked_at: None,
+                    last_error: None,
                     last_exit_ip: None,
                     last_latency_ms: None,
                     tags: vec!["adguard".to_string(), "vpn".to_string()],
@@ -109,6 +202,10 @@ impl Default for GatewayConfig {
                     protocol: TunnelProtocol::Direct,
                     endpoint: "".to_string(),
                     enabled: true,
+                    status: crate::vpn::TunnelStatus::Unknown,
+                    max_concurrent_streams: 0,
+                    last_checked_at: None,
+                    last_error: None,
                     last_exit_ip: None,
                     last_latency_ms: None,
                     tags: vec!["direct".to_string()],
@@ -154,6 +251,7 @@ impl Default for GatewayConfig {
             ],
             fingerprint_profile: FingerprintProfile::default(),
             max_log_entries: 500,
+            max_disk_log_entries: 5000,
         }
     }
 }
@@ -162,6 +260,7 @@ pub struct AppState {
     pub config: parking_lot::RwLock<GatewayConfig>,
     pub logs: Arc<RingBufferLog>,
     pub client_cache: parking_lot::RwLock<HashMap<String, reqwest::Client>>,
+    pub tunnel_semaphores: parking_lot::RwLock<HashMap<String, Arc<tokio::sync::Semaphore>>>,
 }
 
 impl AppState {
@@ -169,15 +268,23 @@ impl AppState {
         let max_logs = config.max_log_entries;
         let logs = Arc::new(RingBufferLog::new(max_logs));
         let mut client_cache = HashMap::new();
+        let mut tunnel_semaphores = HashMap::new();
 
         for tunnel in &config.tunnels {
             client_cache.insert(tunnel.id.clone(), TunnelManager::build_client(tunnel));
+            if tunnel.max_concurrent_streams > 0 {
+                tunnel_semaphores.insert(
+                    tunnel.id.clone(),
+                    Arc::new(tokio::sync::Semaphore::new(tunnel.max_concurrent_streams)),
+                );
+            }
         }
 
         Self {
             config: parking_lot::RwLock::new(config),
             logs,
             client_cache: parking_lot::RwLock::new(client_cache),
+            tunnel_semaphores: parking_lot::RwLock::new(tunnel_semaphores),
         }
     }
 
@@ -202,10 +309,33 @@ impl AppState {
     pub fn refresh_clients(&self) {
         let conf = self.config.read();
         let mut write_cache = self.client_cache.write();
+        let mut semaphores = self.tunnel_semaphores.write();
         write_cache.clear();
+        semaphores.clear();
         for tunnel in &conf.tunnels {
             write_cache.insert(tunnel.id.clone(), TunnelManager::build_client(tunnel));
+            if tunnel.max_concurrent_streams > 0 {
+                semaphores.insert(
+                    tunnel.id.clone(),
+                    Arc::new(tokio::sync::Semaphore::new(tunnel.max_concurrent_streams)),
+                );
+            }
         }
+    }
+
+    pub fn get_semaphore(&self, tunnel_id: &str, limit: usize) -> Option<Arc<tokio::sync::Semaphore>> {
+        if limit == 0 {
+            return None;
+        }
+        let read = self.tunnel_semaphores.read();
+        if let Some(sem) = read.get(tunnel_id) {
+            return Some(Arc::clone(sem));
+        }
+        drop(read);
+        let mut write = self.tunnel_semaphores.write();
+        let sem = write.entry(tunnel_id.to_string())
+            .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(limit)));
+        Some(Arc::clone(sem))
     }
 
     pub fn advance_route_key(&self, route_id: &str) -> Option<String> {
@@ -215,6 +345,16 @@ impl AppState {
         } else {
             None
         }
+    }
+
+    pub fn record_log(&self, log: RawTrafficLog) {
+        let max_disk = {
+            let conf = self.config.read();
+            conf.max_disk_log_entries
+        };
+        let log_path = crate::monitor::get_traffic_log_path();
+        let _ = crate::monitor::append_disk_log(&log_path, &log, max_disk);
+        self.logs.push(log);
     }
 }
 
@@ -233,7 +373,7 @@ pub async fn handle_route_request(
     let query = uri.query().map(|q| format!("?{}", q)).unwrap_or_default();
 
     // Match route based on (port, path_prefix)
-    let (route_id, target_url, tunnel_id, resolved_key, profile) = {
+    let (route_id, target_url, tunnel_id, resolved_key, profile, max_streams) = {
         let conf = state.config.read();
         let matched = conf.routes.iter().find(|r| {
             r.enabled && r.port == port && path.starts_with(&r.path_prefix)
@@ -241,19 +381,40 @@ pub async fn handle_route_request(
 
         match matched {
             Some(rule) => {
-                let sub_path = if rule.strip_prefix && rule.path_prefix != "/" {
-                    path.strip_prefix(&rule.path_prefix).unwrap_or(&path)
-                } else {
-                    &path
-                };
-                let base = rule.target_base_url.trim_end_matches('/');
-                let sub = sub_path.trim_start_matches('/');
-                let full = if sub.is_empty() {
-                    format!("{}{}", base, query)
-                } else {
-                    format!("{}/{}{}", base, sub, query)
-                };
+                // Kiểm tra xem tunnel gán với route có tồn tại và đang enabled không
+                let tunnel_opt = conf.tunnels.iter().find(|t| t.id == rule.tunnel_id);
+                if let Some(t) = tunnel_opt {
+                    if !t.enabled {
+                        return Response::builder()
+                            .status(StatusCode::SERVICE_UNAVAILABLE)
+                            .body(Body::from(format!(
+                                "Assigned tunnel [{}] is disabled. Please enable it in Tunnels tab.",
+                                rule.tunnel_id
+                            )))
+                            .unwrap();
+                    }
+                    if t.status == crate::vpn::TunnelStatus::Offline {
+                        return Response::builder()
+                            .status(StatusCode::SERVICE_UNAVAILABLE)
+                            .body(Body::from(format!(
+                                "Assigned tunnel [{}] is Offline (reason: {}). Please check VPN connection.",
+                                rule.tunnel_id,
+                                t.last_error.as_deref().unwrap_or("Proxy unreachable")
+                            )))
+                            .unwrap();
+                    }
+                } else if rule.tunnel_id != "direct_bypass" {
+                    return Response::builder()
+                        .status(StatusCode::SERVICE_UNAVAILABLE)
+                        .body(Body::from(format!(
+                            "Assigned tunnel [{}] not found.",
+                            rule.tunnel_id
+                        )))
+                        .unwrap();
+                }
 
+                let max_streams = tunnel_opt.map(|t| t.max_concurrent_streams).unwrap_or(0);
+                let full = build_target_url(&rule.target_base_url, &rule.path_prefix, &path, &query);
                 let key = rule.key_manager.get_active_key().or_else(|| rule.custom_auth_token.clone());
 
                 (
@@ -262,6 +423,7 @@ pub async fn handle_route_request(
                     rule.tunnel_id.clone(),
                     key,
                     conf.fingerprint_profile.clone(),
+                    max_streams,
                 )
             }
             None => {
@@ -312,25 +474,6 @@ pub async fn handle_route_request(
         &target_url,
     );
 
-    let mut raw_forwarded_headers = Vec::new();
-    for (k, v) in clean_headers {
-        if k == "host" || k == "content-length" {
-            continue;
-        }
-        raw_forwarded_headers.push((k.clone(), v.clone()));
-        req_builder = req_builder.header(k, v);
-    }
-
-    if let Some(ref token) = resolved_key {
-        req_builder = req_builder.header("authorization", format!("Bearer {}", token));
-    }
-
-    req_builder = req_builder.body(body_bytes.clone());
-
-    // Send upstream request
-    let response_result = req_builder.send().await;
-    let duration_ms = start_time.elapsed().as_millis() as u64;
-
     let key_preview = resolved_key.as_ref().map(|k| {
         if k.len() > 10 {
             format!("{}...{}", &k[..6], &k[k.len() - 4..])
@@ -338,6 +481,82 @@ pub async fn handle_route_request(
             k.clone()
         }
     });
+
+    let mut raw_forwarded_headers = Vec::new();
+    for (k, v) in clean_headers {
+        let k_lower = k.to_lowercase();
+        // Loại bỏ các hop-by-hop headers có thể làm sập socket hoặc xung đột http parser
+        if k_lower == "host"
+            || k_lower == "content-length"
+            || k_lower == "connection"
+            || k_lower == "keep-alive"
+            || k_lower == "transfer-encoding"
+            || k_lower == "upgrade"
+        {
+            continue;
+        }
+
+        // Nếu Endpoint có cấu hình xoay Key (resolved_key), PHẢI loại bỏ authorization header cũ của client để không bị duplicate header -> 400 Bad Request
+        if resolved_key.is_some() && k_lower == "authorization" {
+            continue;
+        }
+
+        raw_forwarded_headers.push((k.clone(), v.clone()));
+        req_builder = req_builder.header(k, v);
+    }
+
+    if let Some(ref token) = resolved_key {
+        let auth_val = format!("Bearer {}", token);
+        raw_forwarded_headers.push(("authorization".to_string(), format!("Bearer {}", key_preview.as_deref().unwrap_or("sk-***"))));
+        req_builder = req_builder.header("authorization", auth_val);
+    }
+
+    // Tunnel Concurrency Limiter (Semaphore per tunnel)
+    let _permit = if max_streams > 0 {
+        if let Some(sem) = state.get_semaphore(&tunnel_id, max_streams) {
+            match sem.try_acquire_owned() {
+                Ok(permit) => Some(permit),
+                Err(_) => {
+                    let err_msg = format!("Tunnel [{}] concurrency limit ({}) exceeded", tunnel_id, max_streams);
+                    state.record_log(RawTrafficLog {
+                        id: req_id,
+                        timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+                        route_id,
+                        method: method.to_string(),
+                        port,
+                        path,
+                        target_url,
+                        tunnel_id,
+                        key_used_preview: key_preview,
+                        status_code: 429,
+                        duration_ms: start_time.elapsed().as_millis() as u64,
+                        is_streaming: false,
+                        raw_request_headers,
+                        raw_forwarded_headers: vec![],
+                        raw_request_body: truncate_log_body(&raw_request_body, 2048),
+                        raw_response_headers: vec![],
+                        raw_response_body: err_msg.clone(),
+                        leaked_findings: leaks,
+                    });
+                    return Response::builder()
+                        .status(StatusCode::TOO_MANY_REQUESTS)
+                        .header("retry-after", "2")
+                        .body(Body::from(err_msg))
+                        .unwrap();
+                }
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    req_builder = req_builder.body(body_bytes.clone());
+
+    // Send upstream request
+    let response_result = req_builder.send().await;
+    let duration_ms = start_time.elapsed().as_millis() as u64;
 
     match response_result {
         Ok(upstream_resp) => {
@@ -352,20 +571,75 @@ pub async fn handle_route_request(
 
             let mut resp_builder = Response::builder().status(status_code);
 
-            // 100% Raw Response Headers
+            // 100% Raw Response Headers (Lọc bỏ hop-by-hop headers nguy hiểm như transfer-encoding khi trả về Axum body)
             let mut raw_response_headers = Vec::new();
             for (k, v) in upstream_resp.headers() {
                 let v_str = v.to_str().unwrap_or("").to_string();
+                let k_lower = k.as_str().to_lowercase();
                 raw_response_headers.push((k.as_str().to_string(), v_str));
+
+                // Bỏ qua các hop-by-hop headers tránh làm sập parser HTTP của client
+                if k_lower == "transfer-encoding" || k_lower == "content-length" || k_lower == "connection" || k_lower == "keep-alive" {
+                    continue;
+                }
                 resp_builder = resp_builder.header(k.as_str(), v.as_bytes());
             }
 
             if is_streaming {
                 let stream = upstream_resp.bytes_stream();
-                let body = Body::from_stream(stream);
+                let accumulated = Arc::new(parking_lot::Mutex::new(Vec::<u8>::new()));
+                let acc_clone = Arc::clone(&accumulated);
+                let state_clone = Arc::clone(&state);
+                let req_id_clone = req_id.clone();
+
+                let teed_stream = stream.map(move |chunk_res| {
+                    if let Ok(ref chunk) = chunk_res {
+                        let mut acc = acc_clone.lock();
+                        if acc.len() < 4096 {
+                            let remain = 4096 - acc.len();
+                            let to_take = chunk.len().min(remain);
+                            acc.extend_from_slice(&chunk[..to_take]);
+                        }
+                    }
+                    chunk_res
+                });
+
+                // Wrap stream drop or completion to update log
+                struct StreamGuard {
+                    req_id: String,
+                    accumulated: Arc<parking_lot::Mutex<Vec<u8>>>,
+                    state: Arc<AppState>,
+                }
+                impl Drop for StreamGuard {
+                    fn drop(&mut self) {
+                        let bytes = self.accumulated.lock().clone();
+                        let text = String::from_utf8_lossy(&bytes);
+                        let final_str = if bytes.is_empty() {
+                            "[Streaming SSE Completed - Empty Response]".to_string()
+                        } else {
+                            truncate_log_body(&text, 2048)
+                        };
+                        self.state.logs.update_response_body(&self.req_id, final_str);
+                    }
+                }
+
+                let guard = Arc::new(StreamGuard {
+                    req_id: req_id_clone,
+                    accumulated,
+                    state: state_clone,
+                });
+
+                let guarded_stream = teed_stream.map(move |item| {
+                    let _g = &guard;
+                    item
+                });
+
+                let body = Body::from_stream(guarded_stream);
+
+                let truncated_req_body = truncate_log_body(&raw_request_body, 2048);
 
                 // Ghi nhận đầy đủ dữ liệu cho SSE stream
-                state.logs.push(RawTrafficLog {
+                state.record_log(RawTrafficLog {
                     id: req_id,
                     timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
                     route_id,
@@ -380,7 +654,7 @@ pub async fn handle_route_request(
                     is_streaming: true,
                     raw_request_headers,
                     raw_forwarded_headers,
-                    raw_request_body,
+                    raw_request_body: truncated_req_body,
                     raw_response_headers,
                     raw_response_body: "[Streaming SSE Response Live Flow]".to_string(),
                     leaked_findings: leaks,
@@ -389,13 +663,15 @@ pub async fn handle_route_request(
                 resp_builder.body(body).unwrap()
             } else {
                 // 100% Raw Response Body (Cho cả 200 OK lẫn 4xx, 5xx hoàn toàn nguyên vẹn)
+                let resp_headers = upstream_resp.headers().clone();
                 let resp_bytes = upstream_resp.bytes().await.unwrap_or_else(|_| Bytes::new());
-                let raw_response_body = String::from_utf8_lossy(&resp_bytes).to_string();
+                let truncated_resp_body = format_logged_body(&resp_bytes, &resp_headers);
+                let truncated_req_body = truncate_log_body(&raw_request_body, 2048);
 
-                state.logs.push(RawTrafficLog {
+                state.record_log(RawTrafficLog {
                     id: req_id,
                     timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
-                    route_id,
+                    route_id: route_id.clone(),
                     method: method.to_string(),
                     port,
                     path,
@@ -407,11 +683,30 @@ pub async fn handle_route_request(
                     is_streaming: false,
                     raw_request_headers,
                     raw_forwarded_headers,
-                    raw_request_body,
+                    raw_request_body: truncated_req_body,
                     raw_response_headers,
-                    raw_response_body,
+                    raw_response_body: truncated_resp_body,
                     leaked_findings: leaks,
                 });
+
+                // Xử lý vòng đời key (Feature Key Filtering):
+                // - 401 Unauthorized: key sai/thu hồi -> tự động xóa vĩnh viễn khỏi file chính
+                // - 403 Forbidden: key hết quota -> chuyển sang file failed_key_file_path
+                if let Some(ref key_used) = resolved_key {
+                    if status_code == 401 {
+                        let mut conf = state.config.write();
+                        if let Some(r) = conf.routes.iter_mut().find(|r| r.id == route_id) {
+                            let _ = r.key_manager.remove_key_from_main_file(key_used);
+                            let _ = conf.save_to_disk();
+                        }
+                    } else if status_code == 403 {
+                        let mut conf = state.config.write();
+                        if let Some(r) = conf.routes.iter_mut().find(|r| r.id == route_id) {
+                            let _ = r.key_manager.move_key_to_failed_file(key_used);
+                            let _ = conf.save_to_disk();
+                        }
+                    }
+                }
 
                 resp_builder.body(Body::from(resp_bytes)).unwrap()
             }
@@ -419,7 +714,7 @@ pub async fn handle_route_request(
         Err(err) => {
             let err_msg = format!("Tunnel [{}] upstream connection error: {}", tunnel_id, err);
 
-            state.logs.push(RawTrafficLog {
+            state.record_log(RawTrafficLog {
                 id: req_id,
                 timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
                 route_id,
@@ -434,7 +729,7 @@ pub async fn handle_route_request(
                 is_streaming: false,
                 raw_request_headers,
                 raw_forwarded_headers,
-                raw_request_body,
+                raw_request_body: truncate_log_body(&raw_request_body, 2048),
                 raw_response_headers: vec![],
                 raw_response_body: err_msg.clone(),
                 leaked_findings: leaks,

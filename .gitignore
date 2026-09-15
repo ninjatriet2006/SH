@@ -52,4 +52,6 @@ RS_AI/.opencode/evidence/*
 !RS_AI/.opencode/evidence/gui/
 !RS_AI/.opencode/evidence/gui/**
 !RS_AI/.opencode/evidence/f3-opencode-command-matrix.md
+# === Third-party / embedded repos (never commit as gitlink) ===
+RS_AI/tmp/codebuddy2api/
 .gitnexus

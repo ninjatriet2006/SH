@@ -2,6 +2,7 @@
     "sidebar": {
         "dashboard": "Trang chính",
         "accounts": "Tài khoản",
+        "admin": "Quản trị",
         "scheduler": "Lịch trình",
         "config": "Cấu hình",
         "settings": "Cài đặt"
@@ -61,5 +62,38 @@
     "settings": {
         "title": "Cài đặt",
         "description": "Cài đặt ngôn ngữ, giao diện và phông chữ cho GUI."
+    },
+    "admin": {
+        "title": "Bảng quản trị",
+        "tab_credentials": "Tài khoản gốc",
+        "tab_keys": "Khóa truy cập",
+        "tab_usage": "Thống kê sử dụng",
+        "tab_status": "Trạng thái tài khoản",
+        "tab_debug": "Gỡ lỗi / Trace",
+        "disabled": "Đã tắt",
+        "enable": "Bật",
+        "disable": "Tắt",
+        "keys_label": "Nhãn",
+        "keys_prefix": "Tiền tố khóa",
+        "keys_last_used": "Dùng lần cuối",
+        "keys_status": "Trạng thái",
+        "keys_label_placeholder": "Nhãn khóa, ví dụ Cursor laptop",
+        "keys_label_required": "Vui lòng nhập nhãn cho khóa mới",
+        "keys_create": "Tạo khóa",
+        "keys_created": "Khóa mới (sao chép ngay, chỉ hiện một lần)",
+        "active": "Đang dùng",
+        "revoked": "Đã thu hồi",
+        "revoke": "Thu hồi",
+        "usage_summary": "Tổng hợp theo khóa",
+        "usage_recent": "Request gần đây",
+        "usage_requests": "Số request",
+        "usage_tokens": "Token",
+        "usage_errors": "Số lỗi",
+        "status_live": "Sống/Chết",
+        "debug_title": "Trace Request/Response thô",
+        "debug_detail": "Chi tiết Request / Response",
+        "debug_request": "Request",
+        "debug_response": "Response",
+        "debug_error": "Lỗi"
     }
 }

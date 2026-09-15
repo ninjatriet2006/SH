@@ -50,6 +50,7 @@ pub fn run() {
             api::gateway::get_gateway_status,
             api::gateway::start_gateway,
             api::gateway::stop_gateway,
+            api::gateway::get_debug_traces,
             // ==================
             // ACCOUNTS API
             // ==================
@@ -59,6 +60,17 @@ pub fn run() {
             api::accounts::remove_account,
             api::accounts::disable_account,
             api::accounts::enable_account,
+            // ==================
+            // ACCESS KEYS API
+            // ==================
+            api::access_keys::list_access_keys,
+            api::access_keys::create_access_key,
+            api::access_keys::revoke_access_key,
+            // ==================
+            // USAGE API
+            // ==================
+            api::usage::list_usage_logs,
+            api::usage::get_usage_summary,
             // ==================
             // CONFIG API
             // ==================

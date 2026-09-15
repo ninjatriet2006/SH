@@ -1,8 +1,9 @@
 import { Routes, Route, NavLink } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { Users, Settings as SettingsIcon, Clock, Shield, Activity } from 'lucide-react';
+import { Users, Settings as SettingsIcon, Clock, Shield, Activity, LayoutDashboard } from 'lucide-react';
 import { DashboardPage } from './pages/DashboardPage';
 import { AccountsPage } from './pages/AccountsPage';
+import { AdminPage } from './pages/AdminPage';
 import { ConfigPage } from './pages/ConfigPage';
 import { SchedulerPage } from './pages/SchedulerPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -57,6 +58,9 @@ function App() {
                 <NavLink to="/accounts" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                     <Users size={20} /> {t('sidebar.accounts')}
                 </NavLink>
+                <NavLink to="/admin" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                    <LayoutDashboard size={20} /> {t('sidebar.admin')}
+                </NavLink>
                 <NavLink to="/scheduler" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                     <Clock size={20} /> {t('sidebar.scheduler')}
                 </NavLink>
@@ -71,6 +75,7 @@ function App() {
                 <Routes>
                     <Route path="/" element={<DashboardPage />} />
                     <Route path="/accounts" element={<AccountsPage />} />
+                    <Route path="/admin" element={<AdminPage />} />
                     <Route path="/scheduler" element={<SchedulerPage />} />
                     <Route path="/config" element={<ConfigPage />} />
                     <Route path="/settings" element={<SettingsPage />} />

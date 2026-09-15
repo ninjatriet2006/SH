@@ -1,4 +1,5 @@
 export type TunnelProtocol = "socks5" | "http" | "direct";
+export type TunnelStatus = "online" | "offline" | "unknown";
 
 export interface OutboundTunnel {
   id: string;
@@ -6,6 +7,10 @@ export interface OutboundTunnel {
   protocol: TunnelProtocol;
   endpoint: string;
   enabled: boolean;
+  status?: TunnelStatus;
+  max_concurrent_streams?: number;
+  last_checked_at?: string;
+  last_error?: string;
   last_exit_ip?: string;
   last_latency_ms?: number;
   tags: string[];
@@ -21,6 +26,7 @@ export interface TunnelTestResult {
 
 export interface EndpointKeyManager {
   key_file_path?: string;
+  failed_key_file_path?: string;
   current_key_index: number;
   total_keys: number;
   current_key_preview?: string;
@@ -35,7 +41,7 @@ export interface RouteRule {
   target_base_url: string;
   tunnel_id: string;
   enabled: boolean;
-  strip_prefix: boolean;
+  strip_prefix?: boolean;
   key_manager: EndpointKeyManager;
   custom_auth_token?: string;
 }
@@ -55,6 +61,7 @@ export interface GatewayConfig {
   routes: RouteRule[];
   fingerprint_profile: FingerprintProfile;
   max_log_entries: number;
+  max_disk_log_entries?: number;
 }
 
 export interface LeakFinding {

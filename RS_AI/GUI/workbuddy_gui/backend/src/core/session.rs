@@ -21,6 +21,7 @@ pub struct Config {
 }
 
 /// Sticky session router.
+#[derive(Clone)]
 pub struct SessionRouter {
     inner: Arc<RwLock<Inner>>,
 }

@@ -59,6 +59,21 @@ mod commands {
     }
 
     #[tauri::command]
+    pub fn toggle_tunnel(tunnel_id: String, enabled: bool, ctx: State<'_, ServerContext>) -> Result<(), String> {
+        {
+            let mut conf = ctx.app_state.config.write();
+            if let Some(pos) = conf.tunnels.iter().position(|t| t.id == tunnel_id) {
+                conf.tunnels[pos].enabled = enabled;
+                let _ = conf.save_to_disk();
+            } else {
+                return Err(format!("Tunnel [{}] not found", tunnel_id));
+            }
+        }
+        ctx.app_state.refresh_clients();
+        Ok(())
+    }
+
+    #[tauri::command]
     pub fn delete_tunnel(tunnel_id: String, ctx: State<'_, ServerContext>) -> Result<(), String> {
         {
             let mut conf = ctx.app_state.config.write();
@@ -102,8 +117,27 @@ mod commands {
     }
 
     #[tauri::command]
-    pub async fn test_single_tunnel(tunnel: OutboundTunnel) -> Result<TunnelTestResult, String> {
-        Ok(TunnelManager::test_tunnel(&tunnel).await)
+    pub async fn test_single_tunnel(tunnel: OutboundTunnel, ctx: State<'_, ServerContext>) -> Result<TunnelTestResult, String> {
+        let res = TunnelManager::test_tunnel(&tunnel).await;
+        // Persist kết quả test vào config state & file json
+        {
+            let mut conf = ctx.app_state.config.write();
+            if let Some(t) = conf.tunnels.iter_mut().find(|t| t.id == tunnel.id) {
+                t.status = if res.success {
+                    crate::vpn::TunnelStatus::Online
+                } else {
+                    crate::vpn::TunnelStatus::Offline
+                };
+                t.last_checked_at = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+                t.last_error = res.error.clone();
+                if res.success {
+                    t.last_exit_ip = res.exit_ip.clone();
+                    t.last_latency_ms = res.latency_ms;
+                }
+                let _ = conf.save_to_disk();
+            }
+        }
+        Ok(res)
     }
 
     #[tauri::command]
@@ -114,6 +148,60 @@ mod commands {
     #[tauri::command]
     pub fn clear_logs(ctx: State<'_, ServerContext>) {
         ctx.app_state.logs.clear();
+    }
+
+    #[tauri::command]
+    pub fn generate_key_file(endpoint_name: String) -> Result<String, String> {
+        let base_dir = if let Some(home) = std::env::var_os("HOME") {
+            std::path::PathBuf::from(home)
+                .join(".config")
+                .join("vpn_ai_proxy_gui")
+                .join("keys")
+        } else {
+            std::path::PathBuf::from("keys")
+        };
+
+        std::fs::create_dir_all(&base_dir)
+            .map_err(|e| format!("Failed to create keys directory: {}", e))?;
+
+        let safe_name: String = endpoint_name
+            .chars()
+            .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+            .collect();
+        let file_name = format!("{}_keys.txt", if safe_name.is_empty() { "default" } else { &safe_name });
+        let file_path = base_dir.join(file_name);
+
+        if !file_path.exists() {
+            std::fs::write(&file_path, "# Paste API keys here, one per line\n")
+                .map_err(|e| format!("Failed to write key file: {}", e))?;
+        }
+
+        Ok(file_path.to_string_lossy().to_string())
+    }
+
+    #[tauri::command]
+    pub fn open_key_file(file_path: String) -> Result<(), String> {
+        let p = std::path::Path::new(&file_path);
+        if !p.exists() {
+            return Err(format!("File does not exist: {}", file_path));
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            let _ = std::process::Command::new("xdg-open").arg(&file_path).spawn()
+                .map_err(|e| format!("Failed to open file with xdg-open: {}", e))?;
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let _ = std::process::Command::new("cmd").args(["/C", "start", "", &file_path]).spawn()
+                .map_err(|e| format!("Failed to open file with cmd start: {}", e))?;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let _ = std::process::Command::new("open").arg(&file_path).spawn()
+                .map_err(|e| format!("Failed to open file with open: {}", e))?;
+        }
+        Ok(())
     }
 }
 
@@ -146,6 +234,7 @@ pub fn run() {
             commands::get_config,
             commands::save_config,
             commands::add_or_update_tunnel,
+            commands::toggle_tunnel,
             commands::delete_tunnel,
             commands::add_or_update_route,
             commands::delete_route,
@@ -153,6 +242,8 @@ pub fn run() {
             commands::test_single_tunnel,
             commands::get_raw_traffic,
             commands::clear_logs,
+            commands::generate_key_file,
+            commands::open_key_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

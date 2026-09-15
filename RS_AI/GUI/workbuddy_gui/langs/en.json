@@ -2,6 +2,7 @@
     "sidebar": {
         "dashboard": "Dashboard",
         "accounts": "Accounts",
+        "admin": "Admin Console",
         "scheduler": "Scheduler",
         "config": "Configuration",
         "settings": "Settings"
@@ -61,5 +62,38 @@
     "settings": {
         "title": "Settings",
         "description": "Language, theme, and font settings for the GUI."
+    },
+    "admin": {
+        "title": "Admin Console",
+        "tab_credentials": "Credentials",
+        "tab_keys": "Access Keys",
+        "tab_usage": "Usage & Analytics",
+        "tab_status": "Account Status",
+        "tab_debug": "Debug / Raw Traces",
+        "disabled": "Disabled",
+        "enable": "Enable",
+        "disable": "Disable",
+        "keys_label": "Label",
+        "keys_prefix": "Key Prefix",
+        "keys_last_used": "Last Used",
+        "keys_status": "Status",
+        "keys_label_placeholder": "Key label, e.g. Cursor laptop",
+        "keys_label_required": "Please enter a label for the new key",
+        "keys_create": "Create Key",
+        "keys_created": "New key (copy now, shown only once)",
+        "active": "Active",
+        "revoked": "Revoked",
+        "revoke": "Revoke",
+        "usage_summary": "Usage Summary per Key",
+        "usage_recent": "Recent Requests",
+        "usage_requests": "Requests",
+        "usage_tokens": "Tokens",
+        "usage_errors": "Errors",
+        "status_live": "Live/Die",
+        "debug_title": "Raw Request/Response Traces",
+        "debug_detail": "Request / Response Detail",
+        "debug_request": "Request",
+        "debug_response": "Response",
+        "debug_error": "Error"
     }
 }

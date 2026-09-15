@@ -15,7 +15,6 @@ pub struct Config {
     pub upstream: UpstreamConfig,
     pub features: FeaturesConfig,
     pub prompt: PromptConfig,
-    pub upstash: UpstashConfig,
     pub pool: PoolConfig,
     pub session_sticky: SessionStickyConfig,
     pub vpn: VpnConfig,
@@ -57,10 +56,6 @@ impl Default for Config {
             prompt: PromptConfig {
                 mode: "custom".to_string(),
                 file: String::new(),
-            },
-            upstash: UpstashConfig {
-                url: String::new(),
-                token: String::new(),
             },
             pool: PoolConfig {
                 max_in_flight: 3,
@@ -122,12 +117,6 @@ pub struct FeaturesConfig {
 pub struct PromptConfig {
     pub mode: String,
     pub file: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpstashConfig {
-    pub url: String,
-    pub token: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
