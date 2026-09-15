@@ -13,6 +13,7 @@ interface AppStore {
   deleteWebsite: (id: string) => Promise<void>;
   toggleRegistration: (emailId: string, websiteId: string) => Promise<void>;
   setRegistrationStatus: (emailId: string, websiteId: string, status: AccountStatus) => Promise<void>;
+  toggleCheckin: (emailId: string, websiteId: string) => Promise<void>;
   unlinkRegistration: (emailId: string, websiteId: string) => Promise<void>;
   updateRegistration: (record: RegistrationRecord) => Promise<void>;
   saveSettings: (settings: AppSettings) => Promise<void>;
@@ -81,6 +82,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setRegistrationStatus: async (emailId: string, websiteId: string, status: AccountStatus) => {
     try {
       await accountHubApi.setRegistrationStatus(emailId, websiteId, status);
+      await get().loadData();
+    } catch (err: any) {
+      set({ error: err.toString() });
+    }
+  },
+
+  toggleCheckin: async (emailId: string, websiteId: string) => {
+    try {
+      await accountHubApi.toggleCheckin(emailId, websiteId);
       await get().loadData();
     } catch (err: any) {
       set({ error: err.toString() });

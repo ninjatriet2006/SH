@@ -55,6 +55,7 @@ pub struct RegistrationRecord {
     pub website_id: String,
     pub is_registered: bool,
     pub status: AccountStatus, // Live / Die
+    pub is_checked_in: bool,   // Đã điểm danh HÔM NAY chưa (tự reset khi sang ngày mới)
     pub registered_at: Option<String>,
     pub checkin_streak: u32,
     pub last_checkin_at: Option<String>,

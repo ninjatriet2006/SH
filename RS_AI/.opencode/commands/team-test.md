@@ -1,7 +1,6 @@
 ---
 description: Chạy full test & lint cho toàn bộ repo hoặc workspace cụ thể.
 agent: lead
-model: opencode/deepseek-v4-flash-free
 ---
 
 # Teamwork Test Command

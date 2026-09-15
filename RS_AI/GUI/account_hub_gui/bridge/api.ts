@@ -23,6 +23,9 @@ export const accountHubApi = {
   setRegistrationStatus: async (emailId: string, websiteId: string, status: AccountStatus): Promise<RegistrationRecord> => {
     return await invoke('set_registration_status', { emailId, websiteId, status });
   },
+  toggleCheckin: async (emailId: string, websiteId: string): Promise<RegistrationRecord> => {
+    return await invoke('toggle_checkin', { emailId, websiteId });
+  },
   unlinkRegistration: async (emailId: string, websiteId: string): Promise<void> => {
     return await invoke('unlink_registration', { emailId, websiteId });
   },

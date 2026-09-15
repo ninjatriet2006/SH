@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../store';
 import { Website, EmailAccount, RegistrationRecord } from '../../../bridge/types';
-import { Mail, Plus, Trash2, Search, Check, ExternalLink } from 'lucide-react';
+import { Mail, Plus, Trash2, Search, Check } from 'lucide-react';
+import { CheckinButton, StatusButton } from './CheckinControls';
 
 interface WebsiteEmailsModalProps {
   website: Website;
@@ -9,7 +10,7 @@ interface WebsiteEmailsModalProps {
 }
 
 export const WebsiteEmailsModal: React.FC<WebsiteEmailsModalProps> = ({ website, onClose }) => {
-  const { data, toggleRegistration, setRegistrationStatus, unlinkRegistration } = useAppStore();
+  const { data, toggleRegistration, unlinkRegistration } = useAppStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddSection, setShowAddSection] = useState(false);
 
@@ -30,11 +31,6 @@ export const WebsiteEmailsModal: React.FC<WebsiteEmailsModalProps> = ({ website,
 
   const getRecord = (emailId: string): RegistrationRecord | undefined => {
     return siteRegistrations.find(r => r.email_id === emailId);
-  };
-
-  const handleToggleStatus = async (emailId: string, currentStatus: string) => {
-    const nextStatus = currentStatus === 'live' ? 'die' : 'live';
-    await setRegistrationStatus(emailId, website.id, nextStatus as any);
   };
 
   const handleLinkEmail = async (emailId: string) => {
@@ -113,7 +109,6 @@ export const WebsiteEmailsModal: React.FC<WebsiteEmailsModalProps> = ({ website,
           <div style={{ maxHeight: '350px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
             {registeredEmails.map(e => {
               const rec = getRecord(e.id);
-              const isLive = (rec?.status || 'live') === 'live';
               return (
                 <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.04)', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
                   <div>
@@ -129,22 +124,22 @@ export const WebsiteEmailsModal: React.FC<WebsiteEmailsModalProps> = ({ website,
                     )}
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={() => handleToggleStatus(e.id, rec?.status || 'live')}
-                      style={{
-                        padding: '0.35rem 0.8rem',
-                        fontSize: '0.8rem',
-                        background: isLive ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-                        color: isLive ? '#10b981' : '#ef4444',
-                        border: `1px solid ${isLive ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)'}`
-                      }}
-                      title="Click để chuyển trạng thái Live <-> Die"
-                    >
-                      {isLive ? '🟢 LIVE' : '🔴 DIE'}
-                    </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    {/* Nút toggle điểm danh nếu web này có tính năng điểm danh */}
+                    {website.has_daily_checkin && (
+                      <CheckinButton
+                        emailId={e.id}
+                        websiteId={website.id}
+                        checkedIn={!!rec?.is_checked_in}
+                        streak={rec?.checkin_streak ?? 0}
+                      />
+                    )}
+
+                    <StatusButton
+                      emailId={e.id}
+                      websiteId={website.id}
+                      status={rec?.status}
+                    />
 
                     <button
                       type="button"

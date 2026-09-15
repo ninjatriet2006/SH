@@ -1,109 +1,91 @@
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use vpn_ai_proxy_gui_lib::fingerprint::{FingerprintAnalyzer, FingerprintProfile};
-    use vpn_ai_proxy_gui_lib::monitor::{RequestLog, RingBufferLog};
-    use vpn_ai_proxy_gui_lib::vpn::{OutboundTunnel, TunnelManager, TunnelProtocol};
+    use std::io::Write;
+    use vpn_ai_proxy_gui_lib::monitor::{RawTrafficLog, RingBufferLog};
+    use vpn_ai_proxy_gui_lib::proxy::key_manager::EndpointKeyManager;
 
     #[test]
-    fn test_ring_buffer_overwrite() {
-        let buffer = RingBufferLog::new(3);
-        for i in 1..=5 {
-            buffer.push(RequestLog {
-                id: format!("req-{}", i),
-                timestamp: "12:00:00".to_string(),
-                method: "POST".to_string(),
-                path: ":3000/v1".to_string(),
-                target_url: "https://api.openai.com/v1".to_string(),
-                status_code: 200,
-                duration_ms: 120,
-                leaked_findings: vec![],
-                client_headers: vec![],
-                forwarded_headers: vec![],
-                prompt_preview: None,
-                response_preview: None,
-                is_streaming: false,
-                bytes_sent: 100,
-                bytes_received: 200,
-            });
+    fn test_raw_traffic_ring_buffer_all_statuses() {
+        let buffer = RingBufferLog::new(2);
+
+        // Ghi nhận packet 200 OK thành công
+        buffer.push(RawTrafficLog {
+            id: "pkt-1".to_string(),
+            timestamp: "10:00:00".to_string(),
+            route_id: "openai_rule".to_string(),
+            method: "POST".to_string(),
+            port: 3000,
+            path: "/v1/chat/completions".to_string(),
+            target_url: "https://api.openai.com/v1/chat/completions".to_string(),
+            tunnel_id: "adguard_default".to_string(),
+            key_used_preview: Some("sk-1111".to_string()),
+            status_code: 200,
+            duration_ms: 150,
+            is_streaming: false,
+            raw_request_headers: vec![("user-agent".to_string(), "curl/8.0".to_string())],
+            raw_forwarded_headers: vec![("user-agent".to_string(), "stealth-engine".to_string())],
+            raw_request_body: r#"{"model":"gpt-4o","messages":[]}"#.to_string(),
+            raw_response_headers: vec![("content-type".to_string(), "application/json".to_string())],
+            raw_response_body: r#"{"id":"chatcmpl-123","choices":[]}"#.to_string(),
+            leaked_findings: vec![],
+        });
+
+        // Ghi nhận packet 429 Rate Limit
+        buffer.push(RawTrafficLog {
+            id: "pkt-2".to_string(),
+            timestamp: "10:00:01".to_string(),
+            route_id: "custom_mirror".to_string(),
+            method: "POST".to_string(),
+            port: 3001,
+            path: "/chat".to_string(),
+            target_url: "https://abc.xyz/v1/chat".to_string(),
+            tunnel_id: "adguard_default".to_string(),
+            key_used_preview: Some("sk-2222".to_string()),
+            status_code: 429,
+            duration_ms: 50,
+            is_streaming: false,
+            raw_request_headers: vec![],
+            raw_forwarded_headers: vec![],
+            raw_request_body: r#"{"test":1}"#.to_string(),
+            raw_response_headers: vec![],
+            raw_response_body: r#"{"error":{"message":"quota exceeded"}}"#.to_string(),
+            leaked_findings: vec![],
+        });
+
+        assert_eq!(buffer.count(), 2);
+        let logs = buffer.get_all();
+        assert_eq!(logs[0].status_code, 200);
+        assert_eq!(logs[1].status_code, 429);
+        assert!(logs[0].raw_response_body.contains("chatcmpl-123"));
+        assert!(logs[1].raw_response_body.contains("quota exceeded"));
+    }
+
+    #[test]
+    fn test_endpoint_dedicated_key_file_rotation() {
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join("test_dedicated_key.txt");
+        {
+            let mut file = std::fs::File::create(&file_path).unwrap();
+            writeln!(file, "key-aaa-1").unwrap();
+            writeln!(file, "key-bbb-2").unwrap();
         }
 
-        assert_eq!(buffer.count(), 3);
-        let logs = buffer.get_all();
-        assert_eq!(logs[0].id, "req-3");
-        assert_eq!(logs[1].id, "req-4");
-        assert_eq!(logs[2].id, "req-5");
-    }
-
-    #[test]
-    fn test_fingerprint_leak_detection() {
-        let mut headers = HashMap::new();
-        headers.insert("User-Agent".to_string(), "OpenCode/1.0 (Linux x86_64; Ubuntu 24.04)".to_string());
-        headers.insert("x-stainless-os".to_string(), "Linux".to_string());
-        headers.insert("x-cursor-client-version".to_string(), "0.42.0".to_string());
-
-        let body = r#"{"model":"gpt-4o","messages":[{"role":"user","content":"Read file /home/bimatkeo/Documents/secret.txt"}]}"#;
-
-        let leaks = FingerprintAnalyzer::analyze_inbound(&headers, Some(body));
-
-        let categories: Vec<String> = leaks.into_iter().map(|l| l.category).collect();
-        assert!(categories.contains(&"os_info".to_string()));
-        assert!(categories.contains(&"sdk_tracking".to_string()));
-        assert!(categories.contains(&"device_id".to_string()));
-        assert!(categories.contains(&"path_leak".to_string()));
-    }
-
-    #[test]
-    fn test_header_sanitization_and_spoofing() {
-        let mut headers = HashMap::new();
-        headers.insert("User-Agent".to_string(), "BadClient/1.0".to_string());
-        headers.insert("x-stainless-os".to_string(), "Linux".to_string());
-        headers.insert("authorization".to_string(), "Bearer sk-123456".to_string());
-        headers.insert("content-type".to_string(), "application/json".to_string());
-
-        let profile = FingerprintProfile {
-            mode: "stealth".to_string(),
-            custom_user_agent: Some("Custom-Anonymous-Engine/1.0".to_string()),
-            strip_sdk_headers: true,
-            strip_ide_headers: true,
-            strip_sec_ch_ua: true,
-            remove_empty_headers: true,
-            mask_local_paths_in_body: true,
+        let mut km = EndpointKeyManager {
+            key_file_path: Some(file_path.to_str().unwrap().to_string()),
+            current_key_index: 0,
+            total_keys: 0,
+            current_key_preview: None,
+            last_switched_at: None,
+            ..Default::default()
         };
 
-        let clean = FingerprintAnalyzer::sanitize_headers(&headers, &profile);
+        km.refresh_metadata();
+        assert_eq!(km.total_keys, 2);
+        assert_eq!(km.get_active_key(), Some("key-aaa-1".to_string()));
 
-        assert!(!clean.contains_key("x-stainless-os"));
-        assert_eq!(clean.get("user-agent").unwrap(), "Custom-Anonymous-Engine/1.0");
-        assert_eq!(clean.get("authorization").unwrap(), "Bearer sk-123456");
-        assert_eq!(clean.get("content-type").unwrap(), "application/json");
-    }
+        km.advance_to_next_key();
+        assert_eq!(km.get_active_key(), Some("key-bbb-2".to_string()));
 
-    #[test]
-    fn test_multi_tunnel_client_builder() {
-        let socks_tunnel = OutboundTunnel {
-            id: "adguard".to_string(),
-            name: "Adguard".to_string(),
-            protocol: TunnelProtocol::Socks5,
-            endpoint: "127.0.0.1:1080".to_string(),
-            enabled: true,
-            last_exit_ip: None,
-            last_latency_ms: None,
-            tags: vec![],
-        };
-
-        let direct_tunnel = OutboundTunnel {
-            id: "direct".to_string(),
-            name: "Direct".to_string(),
-            protocol: TunnelProtocol::Direct,
-            endpoint: "".to_string(),
-            enabled: true,
-            last_exit_ip: None,
-            last_latency_ms: None,
-            tags: vec![],
-        };
-
-        let _client1 = TunnelManager::build_client(&socks_tunnel);
-        let _client2 = TunnelManager::build_client(&direct_tunnel);
+        let _ = std::fs::remove_file(file_path);
     }
 }

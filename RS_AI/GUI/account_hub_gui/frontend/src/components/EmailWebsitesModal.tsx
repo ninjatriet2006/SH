@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../store';
 import { EmailAccount, Website, RegistrationRecord } from '../../../bridge/types';
-import { Globe, Plus, Trash2, Search, ExternalLink, Sparkles, CheckSquare, ShieldAlert, Check } from 'lucide-react';
+import { Globe, Plus, Trash2, Search, ExternalLink, Sparkles, CheckSquare, Check } from 'lucide-react';
+import { CheckinButton, StatusButton } from './CheckinControls';
 
 interface EmailWebsitesModalProps {
   email: EmailAccount;
@@ -9,7 +10,7 @@ interface EmailWebsitesModalProps {
 }
 
 export const EmailWebsitesModal: React.FC<EmailWebsitesModalProps> = ({ email, onClose }) => {
-  const { data, toggleRegistration, setRegistrationStatus, unlinkRegistration } = useAppStore();
+  const { data, toggleRegistration, unlinkRegistration } = useAppStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddSection, setShowAddSection] = useState(false);
   const [filterCheckinOnly, setFilterCheckinOnly] = useState(false);
@@ -35,11 +36,6 @@ export const EmailWebsitesModal: React.FC<EmailWebsitesModalProps> = ({ email, o
 
   const getRecord = (webId: string): RegistrationRecord | undefined => {
     return emailRegistrations.find(r => r.website_id === webId);
-  };
-
-  const handleToggleStatus = async (webId: string, currentStatus: string) => {
-    const nextStatus = currentStatus === 'live' ? 'die' : 'live';
-    await setRegistrationStatus(email.id, webId, nextStatus as any);
   };
 
   const handleLinkWeb = async (webId: string) => {
@@ -138,7 +134,6 @@ export const EmailWebsitesModal: React.FC<EmailWebsitesModalProps> = ({ email, o
           <div style={{ maxHeight: '350px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
             {registeredWebsites.map(web => {
               const rec = getRecord(web.id);
-              const isLive = (rec?.status || 'live') === 'live';
               return (
                 <div key={web.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.04)', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
                   <div>
@@ -160,23 +155,23 @@ export const EmailWebsitesModal: React.FC<EmailWebsitesModalProps> = ({ email, o
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    {/* Nút Điểm danh nếu web có tiêu chí điểm danh */}
+                    {web.has_daily_checkin && (
+                      <CheckinButton
+                        emailId={email.id}
+                        websiteId={web.id}
+                        checkedIn={!!rec?.is_checked_in}
+                        streak={rec?.checkin_streak ?? 0}
+                      />
+                    )}
+
                     {/* Trạng thái tài khoản Live / Die */}
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={() => handleToggleStatus(web.id, rec?.status || 'live')}
-                      style={{
-                        padding: '0.35rem 0.8rem',
-                        fontSize: '0.8rem',
-                        background: isLive ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-                        color: isLive ? '#10b981' : '#ef4444',
-                        border: `1px solid ${isLive ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)'}`
-                      }}
-                      title="Click để chuyển trạng thái Live <-> Die"
-                    >
-                      {isLive ? '🟢 LIVE' : '🔴 DIE'}
-                    </button>
+                    <StatusButton
+                      emailId={email.id}
+                      websiteId={web.id}
+                      status={rec?.status}
+                    />
 
                     {/* Nút hủy liên kết */}
                     <button

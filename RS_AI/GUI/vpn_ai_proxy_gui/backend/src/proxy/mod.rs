@@ -1,3 +1,4 @@
+pub mod key_manager;
 pub mod manager;
 
 use axum::{
@@ -10,11 +11,13 @@ use bytes::Bytes;
 use http_body_util::BodyExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
 use crate::fingerprint::{FingerprintAnalyzer, FingerprintProfile};
-use crate::monitor::{RequestLog, RingBufferLog};
+use crate::monitor::{RawTrafficLog, RingBufferLog};
+use crate::proxy::key_manager::EndpointKeyManager;
 use crate::vpn::{OutboundTunnel, TunnelManager, TunnelProtocol};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +30,7 @@ pub struct RouteRule {
     pub tunnel_id: String,       // Gán với OutboundTunnel ID nào (AdGuard SOCKS, WireGuard, Direct...)
     pub enabled: bool,
     pub strip_prefix: bool,
+    pub key_manager: EndpointKeyManager, // Quản lý file key riêng biệt cho endpoint này
     pub custom_auth_token: Option<String>,
 }
 
@@ -36,6 +40,53 @@ pub struct GatewayConfig {
     pub routes: Vec<RouteRule>,
     pub fingerprint_profile: FingerprintProfile,
     pub max_log_entries: usize,
+}
+
+impl GatewayConfig {
+    pub fn config_path() -> PathBuf {
+        if let Ok(dir) = std::env::var("VPN_AI_PROXY_CONFIG_DIR") {
+            return PathBuf::from(dir).join("config.json");
+        }
+        if let Some(home) = std::env::var_os("HOME") {
+            let path = PathBuf::from(home)
+                .join(".config")
+                .join("vpn_ai_proxy_gui");
+            let _ = std::fs::create_dir_all(&path);
+            return path.join("config.json");
+        }
+        PathBuf::from("vpn_ai_proxy_config.json")
+    }
+
+    pub fn load_or_default() -> Self {
+        let p = Self::config_path();
+        if p.exists() {
+            if let Ok(data) = std::fs::read_to_string(&p) {
+                if let Ok(mut cfg) = serde_json::from_str::<GatewayConfig>(&data) {
+                    for r in &mut cfg.routes {
+                        r.key_manager.refresh_metadata();
+                    }
+                    return cfg;
+                }
+            }
+        }
+        let mut def = Self::default();
+        for r in &mut def.routes {
+            r.key_manager.refresh_metadata();
+        }
+        def
+    }
+
+    pub fn save_to_disk(&self) -> Result<(), String> {
+        let p = Self::config_path();
+        if let Some(parent) = p.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|e| format!("Failed to serialize config: {}", e))?;
+        std::fs::write(&p, json)
+            .map_err(|e| format!("Failed to write config file {:?}: {}", p, e))?;
+        Ok(())
+    }
 }
 
 impl Default for GatewayConfig {
@@ -73,6 +124,7 @@ impl Default for GatewayConfig {
                     tunnel_id: "adguard_default".to_string(),
                     enabled: true,
                     strip_prefix: true,
+                    key_manager: EndpointKeyManager::default(),
                     custom_auth_token: None,
                 },
                 RouteRule {
@@ -84,6 +136,7 @@ impl Default for GatewayConfig {
                     tunnel_id: "adguard_default".to_string(),
                     enabled: true,
                     strip_prefix: true,
+                    key_manager: EndpointKeyManager::default(),
                     custom_auth_token: None,
                 },
                 RouteRule {
@@ -95,6 +148,7 @@ impl Default for GatewayConfig {
                     tunnel_id: "adguard_default".to_string(),
                     enabled: true,
                     strip_prefix: false,
+                    key_manager: EndpointKeyManager::default(),
                     custom_auth_token: None,
                 },
             ],
@@ -134,7 +188,6 @@ impl AppState {
         }
         drop(cache);
 
-        // Fallback: build or return direct
         let conf = self.config.read();
         if let Some(tunnel) = conf.tunnels.iter().find(|t| t.id == tunnel_id) {
             let client = TunnelManager::build_client(tunnel);
@@ -154,6 +207,15 @@ impl AppState {
             write_cache.insert(tunnel.id.clone(), TunnelManager::build_client(tunnel));
         }
     }
+
+    pub fn advance_route_key(&self, route_id: &str) -> Option<String> {
+        let mut conf = self.config.write();
+        if let Some(r) = conf.routes.iter_mut().find(|r| r.id == route_id) {
+            r.key_manager.advance_to_next_key()
+        } else {
+            None
+        }
+    }
 }
 
 pub async fn handle_route_request(
@@ -171,7 +233,7 @@ pub async fn handle_route_request(
     let query = uri.query().map(|q| format!("?{}", q)).unwrap_or_default();
 
     // Match route based on (port, path_prefix)
-    let (target_url, tunnel_id, custom_token, profile) = {
+    let (route_id, target_url, tunnel_id, resolved_key, profile) = {
         let conf = state.config.read();
         let matched = conf.routes.iter().find(|r| {
             r.enabled && r.port == port && path.starts_with(&r.path_prefix)
@@ -191,15 +253,18 @@ pub async fn handle_route_request(
                 } else {
                     format!("{}/{}{}", base, sub, query)
                 };
+
+                let key = rule.key_manager.get_active_key().or_else(|| rule.custom_auth_token.clone());
+
                 (
+                    rule.id.clone(),
                     full,
                     rule.tunnel_id.clone(),
-                    rule.custom_auth_token.clone(),
+                    key,
                     conf.fingerprint_profile.clone(),
                 )
             }
             None => {
-                // If not matched directly on custom port, fallback error
                 return Response::builder()
                     .status(StatusCode::NOT_FOUND)
                     .body(Body::from(format!(
@@ -211,7 +276,7 @@ pub async fn handle_route_request(
         }
     };
 
-    // Read inbound request body
+    // 100% Raw Inbound Request Body
     let body_bytes = match request.into_body().collect().await {
         Ok(collected) => collected.to_bytes(),
         Err(e) => {
@@ -222,31 +287,24 @@ pub async fn handle_route_request(
         }
     };
 
-    let body_str = String::from_utf8_lossy(&body_bytes);
-    let prompt_preview = if body_str.len() > 300 {
-        Some(format!("{}...", &body_str[..300]))
-    } else if !body_str.is_empty() {
-        Some(body_str.to_string())
-    } else {
-        None
-    };
+    let raw_request_body = String::from_utf8_lossy(&body_bytes).to_string();
 
-    // Map headers for inspection
+    // 100% Raw Inbound Headers
     let mut header_map_for_audit = HashMap::new();
-    let mut client_headers_vec = Vec::new();
+    let mut raw_request_headers = Vec::new();
     for (k, v) in &headers {
         let val_str = v.to_str().unwrap_or("<binary>").to_string();
         header_map_for_audit.insert(k.as_str().to_string(), val_str.clone());
-        client_headers_vec.push((k.as_str().to_string(), val_str));
+        raw_request_headers.push((k.as_str().to_string(), val_str));
     }
 
-    // 1. Analyze Inbound Fingerprint Leaks
-    let leaks = FingerprintAnalyzer::analyze_inbound(&header_map_for_audit, Some(&body_str));
+    // Leak analysis
+    let leaks = FingerprintAnalyzer::analyze_inbound(&header_map_for_audit, Some(&raw_request_body));
 
-    // 2. Sanitize & Spoof Outbound Headers
+    // Sanitized headers
     let clean_headers = FingerprintAnalyzer::sanitize_headers(&header_map_for_audit, &profile);
 
-    // Pick client corresponding to assigned tunnel
+    // Tunnel client
     let client = state.get_client(&tunnel_id);
 
     let mut req_builder = client.request(
@@ -254,17 +312,16 @@ pub async fn handle_route_request(
         &target_url,
     );
 
-    // Insert sanitized headers
-    let mut forwarded_headers_vec = Vec::new();
+    let mut raw_forwarded_headers = Vec::new();
     for (k, v) in clean_headers {
         if k == "host" || k == "content-length" {
             continue;
         }
-        forwarded_headers_vec.push((k.clone(), v.clone()));
+        raw_forwarded_headers.push((k.clone(), v.clone()));
         req_builder = req_builder.header(k, v);
     }
 
-    if let Some(token) = custom_token {
+    if let Some(ref token) = resolved_key {
         req_builder = req_builder.header("authorization", format!("Bearer {}", token));
     }
 
@@ -273,6 +330,14 @@ pub async fn handle_route_request(
     // Send upstream request
     let response_result = req_builder.send().await;
     let duration_ms = start_time.elapsed().as_millis() as u64;
+
+    let key_preview = resolved_key.as_ref().map(|k| {
+        if k.len() > 10 {
+            format!("{}...{}", &k[..6], &k[k.len() - 4..])
+        } else {
+            k.clone()
+        }
+    });
 
     match response_result {
         Ok(upstream_resp) => {
@@ -287,7 +352,11 @@ pub async fn handle_route_request(
 
             let mut resp_builder = Response::builder().status(status_code);
 
+            // 100% Raw Response Headers
+            let mut raw_response_headers = Vec::new();
             for (k, v) in upstream_resp.headers() {
+                let v_str = v.to_str().unwrap_or("").to_string();
+                raw_response_headers.push((k.as_str().to_string(), v_str));
                 resp_builder = resp_builder.header(k.as_str(), v.as_bytes());
             }
 
@@ -295,73 +364,80 @@ pub async fn handle_route_request(
                 let stream = upstream_resp.bytes_stream();
                 let body = Body::from_stream(stream);
 
-                state.logs.push(RequestLog {
+                // Ghi nhận đầy đủ dữ liệu cho SSE stream
+                state.logs.push(RawTrafficLog {
                     id: req_id,
                     timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+                    route_id,
                     method: method.to_string(),
-                    path: format!(":{}{}", port, path),
+                    port,
+                    path,
                     target_url,
+                    tunnel_id,
+                    key_used_preview: key_preview,
                     status_code,
                     duration_ms,
-                    leaked_findings: leaks,
-                    client_headers: client_headers_vec,
-                    forwarded_headers: forwarded_headers_vec,
-                    prompt_preview,
-                    response_preview: Some("[Streaming SSE Response]".to_string()),
                     is_streaming: true,
-                    bytes_sent: body_bytes.len(),
-                    bytes_received: 0,
+                    raw_request_headers,
+                    raw_forwarded_headers,
+                    raw_request_body,
+                    raw_response_headers,
+                    raw_response_body: "[Streaming SSE Response Live Flow]".to_string(),
+                    leaked_findings: leaks,
                 });
 
                 resp_builder.body(body).unwrap()
             } else {
+                // 100% Raw Response Body (Cho cả 200 OK lẫn 4xx, 5xx hoàn toàn nguyên vẹn)
                 let resp_bytes = upstream_resp.bytes().await.unwrap_or_else(|_| Bytes::new());
-                let resp_str = String::from_utf8_lossy(&resp_bytes);
-                let response_preview = if resp_str.len() > 300 {
-                    Some(format!("{}...", &resp_str[..300]))
-                } else {
-                    Some(resp_str.to_string())
-                };
+                let raw_response_body = String::from_utf8_lossy(&resp_bytes).to_string();
 
-                state.logs.push(RequestLog {
+                state.logs.push(RawTrafficLog {
                     id: req_id,
                     timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+                    route_id,
                     method: method.to_string(),
-                    path: format!(":{}{}", port, path),
+                    port,
+                    path,
                     target_url,
+                    tunnel_id,
+                    key_used_preview: key_preview,
                     status_code,
                     duration_ms,
-                    leaked_findings: leaks,
-                    client_headers: client_headers_vec,
-                    forwarded_headers: forwarded_headers_vec,
-                    prompt_preview,
-                    response_preview,
                     is_streaming: false,
-                    bytes_sent: body_bytes.len(),
-                    bytes_received: resp_bytes.len(),
+                    raw_request_headers,
+                    raw_forwarded_headers,
+                    raw_request_body,
+                    raw_response_headers,
+                    raw_response_body,
+                    leaked_findings: leaks,
                 });
 
                 resp_builder.body(Body::from(resp_bytes)).unwrap()
             }
         }
         Err(err) => {
-            let err_msg = format!("Tunnel [{}] upstream error: {}", tunnel_id, err);
-            state.logs.push(RequestLog {
+            let err_msg = format!("Tunnel [{}] upstream connection error: {}", tunnel_id, err);
+
+            state.logs.push(RawTrafficLog {
                 id: req_id,
                 timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+                route_id,
                 method: method.to_string(),
-                path: format!(":{}{}", port, path),
+                port,
+                path,
                 target_url,
+                tunnel_id,
+                key_used_preview: key_preview,
                 status_code: 502,
                 duration_ms,
-                leaked_findings: leaks,
-                client_headers: client_headers_vec,
-                forwarded_headers: forwarded_headers_vec,
-                prompt_preview,
-                response_preview: Some(err_msg.clone()),
                 is_streaming: false,
-                bytes_sent: body_bytes.len(),
-                bytes_received: 0,
+                raw_request_headers,
+                raw_forwarded_headers,
+                raw_request_body,
+                raw_response_headers: vec![],
+                raw_response_body: err_msg.clone(),
+                leaked_findings: leaks,
             });
 
             Response::builder()

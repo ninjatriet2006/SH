@@ -4,7 +4,7 @@ export interface OutboundTunnel {
   id: string;
   name: string;
   protocol: TunnelProtocol;
-  endpoint: string; // e.g. "127.0.0.1:1080"
+  endpoint: string;
   enabled: boolean;
   last_exit_ip?: string;
   last_latency_ms?: number;
@@ -19,15 +19,24 @@ export interface TunnelTestResult {
   error?: string;
 }
 
+export interface EndpointKeyManager {
+  key_file_path?: string;
+  current_key_index: number;
+  total_keys: number;
+  current_key_preview?: string;
+  last_switched_at?: string;
+}
+
 export interface RouteRule {
   id: string;
   name: string;
-  port: number; // Distinct local port (e.g. 3000, 3001, 3002...)
-  path_prefix: string; // e.g. "/v1", "/mirror", "/"
-  target_base_url: string; // "https://abc.xyz/v1", "https://api.openai.com/v1"
-  tunnel_id: string; // Foreign key to OutboundTunnel
+  port: number;
+  path_prefix: string;
+  target_base_url: string;
+  tunnel_id: string;
   enabled: boolean;
   strip_prefix: boolean;
+  key_manager: EndpointKeyManager;
   custom_auth_token?: string;
 }
 
@@ -56,20 +65,24 @@ export interface LeakFinding {
   description: string;
 }
 
-export interface RequestLog {
+// 100% Full Raw Wire Traffic Log
+export interface RawTrafficLog {
   id: string;
   timestamp: string;
+  route_id: string;
   method: string;
+  port: number;
   path: string;
   target_url: string;
+  tunnel_id: string;
+  key_used_preview?: string;
   status_code: number;
   duration_ms: number;
-  leaked_findings: LeakFinding[];
-  client_headers: [string, string][];
-  forwarded_headers: [string, string][];
-  prompt_preview?: string;
-  response_preview?: string;
   is_streaming: boolean;
-  bytes_sent: number;
-  bytes_received: number;
+  raw_request_headers: [string, string][];
+  raw_forwarded_headers: [string, string][];
+  raw_request_body: string;
+  raw_response_headers: [string, string][];
+  raw_response_body: string;
+  leaked_findings: LeakFinding[];
 }

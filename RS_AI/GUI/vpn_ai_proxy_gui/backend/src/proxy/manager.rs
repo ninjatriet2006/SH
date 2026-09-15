@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::task::JoinHandle;
+use tauri::async_runtime::JoinHandle;
 
 use crate::proxy::{handle_route_request, AppState};
 
@@ -30,7 +30,7 @@ impl ListenerManager {
 
         for port in ports {
             let state_clone = Arc::clone(&app_state);
-            let handle = tokio::spawn(async move {
+            let handle = tauri::async_runtime::spawn(async move {
                 let app = axum::Router::new()
                     .fallback({
                         let state = Arc::clone(&state_clone);

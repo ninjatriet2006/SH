@@ -25,7 +25,7 @@ reqwest = { version = "0.12", default-features = false, features = ["socks", "ru
 parking_lot = "0.12"
 chrono = { version = "0.4", features = ["serde"] }
 regex = "1"
-tauri = { version = "2.11.3" }
+tauri = { version = "2.11.3", features = [] }
 tauri-plugin-dialog = "2"
 log = "0.4"
 futures-util = "0.3"

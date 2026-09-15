@@ -1,36 +1,40 @@
 ---
-description: Khởi chạy full teamwork multi-agent để giải quyết một task phức tạp. Team Lead sẽ điều phối Plan Splitter, Plan Reviewer, Explorer, Rust Dev, Tester, Reviewer, Docs.
+description: Chạy teamwork 4 vai (Lead/Dev/Check/Test). Lead tự phân loại S0/S1/S2, chỉ gọi Test/Check khi ma trận và gate cho phép.
 agent: lead
-model: opencode/mimo-v2.5-free
 ---
 
-# Teamwork Multi-Agent Mode
+# Teamwork 4 vai (Lead / Dev / Check / Test)
 
-Bạn đang ở chế độ Teamwork. Hãy thực hiện task sau theo quy trình multi-agent:
+Bạn là Lead. Thực hiện task sau theo mode linh hoạt — **cấm full pipeline mặc định**:
 
 $ARGUMENTS
 
-## Quy trình bắt buộc
+## Bước 0 — Phân loại (bắt buộc)
 
-### Phase 1 — Lập kế hoạch
-1. **Tạo todo list** (dùng `todowrite`).
-2. **Giao Plan Splitter** phân rã task thành subtask.
-3. **Giao Plan Reviewer** phản biện bản phân rã. Nếu REQUEST_CHANGES → quay lại bước 2.
+- **S0 Direct** (≤ 2 file, rõ, risk thấp): tự làm, `cargo check -p <pkg>` hẹp, xong. Không delegate.
+- **S1 Light** (1 workspace, cục bộ, không IPC/security/packaging): giao Dev → Test/Check có điều kiện.
+- **S2 Full** (multi-workspace, IPC/contract/security/packaging, hoặc rất lớn): checkpoint plan → Dev theo phase → Test + Check mỗi gate.
 
-### Phase 2 — Thực thi
-4. **Giao Explorer** khảo sát codebase (nếu cần hiểu code hiện tại).
-5. **Giao Rust Dev** thực hiện code change.
-6. **Giao Tester** chạy test / verify build (`cargo check`, `cargo test`, `cargo clippy`).
-7. **Giao Reviewer** review diff trước khi kết thúc.
-8. **Giao Docs Manager** cập nhật tài liệu nếu có thay đổi đáng kể.
+## Bước 1 — Thực thi
 
-### Phase 3 — Tổng kết
-9. **Tổng hợp kết quả** và báo cáo cho user.
+1. Tạo todo list (dùng `todowrite`) nếu > 3 step.
+2. Nếu yêu cầu mơ hồ → hỏi user 1 lượt trước khi giao Dev.
+3. Giao **Dev** (prompt ≤ 12 dòng: scope file, acceptance, lệnh verify hẹp). Dev tự explore trong scope + docs nhỏ đi kèm.
+4. Giao **Test** — trích ma trận từ `tester.md`, luôn ghi rõ mức + lệnh:
+   - Docs-only / hỏi-đáp → **SKIP**, không gọi Test.
+   - Logic pure → **TARGETED** (`cargo test -p <pkg> <filter>`).
+   - IPC/contract → **CONTRACT** (+ test integration liên quan, Check bắt buộc).
+   - Filesystem/unsafe/TUI/security → **ADVERSARIAL** (+ edge test, Check bắt buộc).
+   - Packaging/release → **SMOKE** (build release + smoke ngoài CWD).
+   - Sắp merge lớn → **FULL** (mở rộng dần, không full repo ngay).
+5. Giao **Check** (`reviewer.md`) — chọn mức theo risk, không so model:
+   - Mọi code change tối thiểu **LIGHT** (checklist cơ khí). Ngang model cũng không skip.
+   - CONTRACT/ADVERSARIAL/S2 → **DEEP** + paste giao thức chống khen suông (cấm nhận xét chung chung, bắt trace edge + tự chạy verify, APPROVE phải có bằng chứng từng mục).
+   - Check khác họ model với Dev → chỉ giao xác minh logic/edge, không giao nhận xét thiết kế.
 
-## Quy tắc
-- Các subtask độc lập thì chạy song song.
-- Subtask phụ thuộc thì chờ đợi.
-- Luôn verify bằng `cargo check` / `cargo test` trước khi hoàn thành.
-- Nếu task đơn giản (ví dụ chỉ 1 file 1 dòng), có thể tự xử lý nhưng vẫn phải tạo todo và verify.
+## Bước 2 — Tổng kết
+
+- Tổng hợp kết quả, báo 3-8 dòng: làm gì, file nào, verify + kết quả, risk còn lại.
+- Ghi dead-model nếu agent fail do model (lần 1 `WATCH`, lần 2 liên tiếp `DEAD`).
 
 Bắt đầu ngay bây giờ.

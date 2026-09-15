@@ -38,6 +38,7 @@ export interface RegistrationRecord {
   website_id: string;
   is_registered: boolean;
   status: AccountStatus; // 'live' | 'die'
+  is_checked_in: boolean; // Đã điểm danh HÔM NAY chưa (tự reset khi sang ngày mới)
   registered_at?: string;
   checkin_streak: number;
   last_checkin_at?: string;
