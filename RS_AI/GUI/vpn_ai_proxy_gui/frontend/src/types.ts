@@ -56,6 +56,7 @@ export interface FingerprintProfile {
   strip_sec_ch_ua: boolean;
   remove_empty_headers: boolean;
   mask_local_paths_in_body: boolean;
+  spoof_headers?: Record<string, string>;
 }
 
 export interface GatewayConfig {

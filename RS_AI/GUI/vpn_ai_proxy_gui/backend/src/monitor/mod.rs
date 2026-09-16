@@ -12,10 +12,13 @@ pub fn get_logs_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("VPN_AI_PROXY_CONFIG_DIR") {
         return PathBuf::from(dir).join("logs");
     }
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(parent) = exe_path.parent() {
-            return parent.join("logs");
-        }
+    if let Some(home) = std::env::var_os("HOME") {
+        let path = PathBuf::from(home)
+            .join(".config")
+            .join("vpn_ai_proxy_gui")
+            .join("logs");
+        let _ = std::fs::create_dir_all(&path);
+        return path;
     }
     PathBuf::from("logs")
 }

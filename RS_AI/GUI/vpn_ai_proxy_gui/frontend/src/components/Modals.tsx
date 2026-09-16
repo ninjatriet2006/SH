@@ -1,5 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
-import { Sparkles, ExternalLink } from "lucide-react";
 import { GatewayConfig, RouteRule, OutboundTunnel } from "../types";
 
 interface ModalsProps {
