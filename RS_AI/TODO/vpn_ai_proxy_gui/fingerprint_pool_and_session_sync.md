@@ -1,24 +1,34 @@
-# Feature: Fingerprint Pool & Unified Session Rotation (Đồng bộ danh tính)
+# Fix & Feature: Fingerprint Pool UI (Giao diện quản lý mảng Hồ sơ ẩn danh) & Vá lỗi Path của Log File
 
-## Hiện trạng & Phân tích từ User
-1. **Tính cứng nhắc của Fingerprint hiện tại:** Các ô tick hiện nay chỉ mang tính chất "Cắt bỏ" (Strip) một cách tiêu cực. Nếu Cloudflare hoặc máy chủ API yêu cầu bắt buộc phải có header `x-stainless-os` mới cho qua (để chống bot), thì việc xóa nó đi lại tác dụng ngược.
-2. **Định danh rời rạc (Identity Leakage):** Hiện tại hệ thống xoay Key (Key Rotation) hoạt động độc lập. Nếu Key A bị block (403/401), Proxy lấy Key B ra xài tiếp. NHƯNG nếu lúc đó Proxy VẪN DÙNG chung địa chỉ IP cũ (VPN cũ) và chung một Fingerprint cũ, máy chủ API sẽ dễ dàng nhận ra "À, thằng xài Key B này vẫn chính là cái thằng vừa xài Key A", và nó sẽ block nốt Key B.
+## Hiện trạng & Vấn đề từ User
+1. **Fingerprint Pool UI:** `Opencode` đã hoàn thiện rất tốt logic Backend cho Fingerprint Pool (quay vòng `mod len()`). Tuy nhiên, `Opencode` đã **quên hoàn toàn việc xây dựng Giao diện (Frontend UI)** cho tính năng này! Hiện tại tab `FingerprintTab.tsx` vẫn là giao diện cũ kĩ, chỉ cho phép sửa một profile tĩnh duy nhất.
+2. **Lỗi Path của JSONL Log:** `Opencode` đã thông minh khi dùng `.jsonl` thay vì `SQLite` để lưu log siêu nhẹ (Disk Log Storage). Rất xuất sắc! Tuy nhiên, hàm `get_logs_dir()` ở `backend/src/monitor/mod.rs` lại đang dùng `std::env::current_exe().parent()`. Việc lưu log chung với thư mục `.exe` sẽ gây lỗi sập App (Permission Denied) trên Linux/macOS khi đóng gói bản Release. Cần chuyển nó về chung nhà với `config.json` ở `~/.config`.
 
-Giải pháp mà bạn đề xuất là một kiến trúc đỉnh cao trong lĩnh vực Anti-Detect (Chống dò thám): **Đồng bộ vòng đời (Unified Session Rotation)**. Khi một yếu tố "chết", toàn bộ "vỏ bọc" phải thay mới!
+## Nhiệm vụ (Task List) Dành riêng cho Opencode Agent (Mức độ Code chi tiết)
 
-## Nhiệm vụ (Task List)
-- [ ] **Nâng cấp Fingerprint thành Dạng Pool (Hồ chứa Profile):**
-  - Đập bỏ giao diện tick tĩnh hiện tại. Thay bằng bảng danh sách "Fingerprint Profiles".
-  - Mỗi Profile cho phép người dùng tự cấu hình `User-Agent` và một bộ cấu hình `Custom Headers Spoofing` (Ví dụ điền: `x-stainless-os: Mac`, `machine-id: abc-123`).
-  - Logic: Thay vì chỉ xóa (Strip), nếu người dùng có điền giá trị Spoof, Proxy sẽ **GHI ĐÈ (Overwrite)** giá trị thật bằng giá trị giả. Nếu người dùng để trống, Proxy mới dùng lệnh xóa (Strip).
-- [ ] **Xây dựng Thuật toán Unified Session Rotation (Đồng bộ Xoay Danh Tính):**
-  - Sửa đổi cơ chế tại `backend/src/proxy/key_manager.rs` và `vpn/mod.rs`.
-  - Khai báo một khái niệm `Current_Session`. Một Session bao gồm tổ hợp: `[1 Key + 1 VPN Tunnel + 1 Fingerprint Profile]`.
-  - **Sự kiện Kích hoạt (Trigger):** Nếu Key báo lỗi 403/401 -> Key Manager vứt Key đó đi -> Báo tín hiệu (Event) cho Session Manager.
-  - **Hành động:** Session Manager lập tức quay vòng: Rút một Key mới + Đổi sang VPN Tunnel mới (nếu VPN đang bật) + Đổi sang Fingerprint Profile mới.
-  - Kết quả: Request tiếp theo bắn lên sẽ là một con người hoàn toàn khác (IP khác, Máy tính khác, Key khác), ngắt đứt hoàn toàn dấu vết với Key cũ bị ban.
+### Bước 1: Đại tu toàn diện File `FingerprintTab.tsx`
+- **Vị trí:** `frontend/src/components/FingerprintTab.tsx`
+- **Hành động:** 
+  - Xây dựng một giao diện dạng **Danh sách (List)**. Mảng dữ liệu nguồn là: `config.fingerprint_pool`.
+  - Bổ sung nút **"Add New Fingerprint Profile"** ở góc trên.
+  - Mỗi phần tử trong danh sách cần hiển thị:
+    - User-Agent (rút gọn nếu quá dài).
+    - Các cờ (Flags) dưới dạng các Tag nhỏ.
+    - Nút **Edit** và **Delete** bên cạnh mỗi phần tử.
 
-## ⚠️ Yêu cầu bắt buộc: Kế hoạch AI tự kiểm chứng độc lập (Self-Verification)
-1. **Kiểm chứng Spoofing (Ghi đè):** Truyền header `cursor-version: 1.0` vào. Cấu hình Profile giả mạo thành `cursor-version: 9.9`. Đảm bảo Proxy bắn ra ngoài `9.9` chứ không phải xóa trắng nó.
-2. **Kiểm chứng Sync Rotation:** Bắn request giả lập lỗi 401. Log phải ghi nhận đồng thời 3 hành động: Đổi Key, Chuyển Tunnel, và Đổi Fingerprint Profile thành công trước khi gửi Request tiếp theo.
-3. **Ghi nhận:** Báo cáo chi tiết vào cuối file.
+### Bước 2: Tạo Modal Thêm/Sửa Fingerprint Profile
+- **Hành động:**
+  - Viết một form (Modal) cho phép nhập: `custom_user_agent`, `strip_sdk_headers`, `strip_ide_headers`, `strip_sec_ch_ua`, `remove_empty_headers`, `mask_local_paths_in_body`.
+  - Khi lưu, đẩy đối tượng này vào mảng `config.fingerprint_pool` và gọi `onSaveConfig`.
+  - Đồng bộ logic Backend: Đảm bảo Backend thực sự dùng mảng `fingerprint_pool` thay vì `fingerprint_profile` tĩnh. Nếu mảng rỗng, Backend có thể fallback về `fingerprint_profile` tĩnh để không bị lỗi.
+
+### Bước 3: Sửa đường dẫn lưu File Log (Fix Permission Denied)
+- **Vị trí:** File `backend/src/monitor/mod.rs` (hàm `get_logs_dir`).
+- **Hành động:**
+  - Sao chép nguyên xi logic tìm thư mục `.config` của hàm `config_path()` trong `backend/src/proxy/mod.rs`.
+  - Ghi đè hàm `get_logs_dir()`: Nếu có biến môi trường `VPN_AI_PROXY_CONFIG_DIR`, dùng nó. Nếu không, lấy `HOME/.config/vpn_ai_proxy_gui/logs`.
+  - Xóa sạch đoạn code dùng `current_exe()`.
+
+## ⚠️ Yêu cầu bắt buộc: Kế hoạch tự kiểm chứng độc lập (Self-Verification)
+1. Bấm vào tab "Fingerprint Cloaking". Add profile mới `TEST_AGENT_1`. Tắt App mở lại vẫn còn nguyên.
+2. Mở terminal, gọi proxy. Kiểm tra thư mục `~/.config/vpn_ai_proxy_gui/logs/` có xuất hiện file `traffic_log.jsonl` không. Đảm bảo nó KHÔNG CÒN lưu ở thư mục chứa file `.exe` nữa.

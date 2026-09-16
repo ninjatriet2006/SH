@@ -1,9 +1,12 @@
-import { Plus, Trash2, KeyRound, RotateCw } from "lucide-react";
+import { useState } from "react";
+import { Plus, Trash2, KeyRound, RotateCw, ChevronDown, ChevronUp, Sparkles, ExternalLink, Key } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { GatewayConfig, RouteRule } from "../types";
 
 interface RoutesTabProps {
   config: GatewayConfig;
   onEditRoute: (route: RouteRule) => void;
+  onSaveRouteDirect?: (route: RouteRule) => Promise<void>;
   onDeleteRoute: (id: string) => Promise<void>;
   onAdvanceKey: (routeId: string) => Promise<void>;
   onCreateRoute: () => void;
@@ -12,10 +15,12 @@ interface RoutesTabProps {
 export function RoutesTab({
   config,
   onEditRoute,
+  onSaveRouteDirect,
   onDeleteRoute,
   onAdvanceKey,
   onCreateRoute,
 }: RoutesTabProps) {
+  const [expandedRouteId, setExpandedRouteId] = useState<string | null>(null);
   return (
     <div className="p-6 overflow-y-auto max-w-5xl space-y-6">
       <div className="flex items-center justify-between">
@@ -64,6 +69,22 @@ export function RoutesTab({
 
                 <div className="flex items-center gap-2">
                   <button
+                    onClick={() => setExpandedRouteId(expandedRouteId === route.id ? null : route.id)}
+                    className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center gap-1 transition ${
+                      expandedRouteId === route.id
+                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                        : "bg-slate-800 hover:bg-slate-700 text-slate-300"
+                    }`}
+                  >
+                    <Key className="w-3.5 h-3.5" />
+                    Manage Keys
+                    {expandedRouteId === route.id ? (
+                      <ChevronUp className="w-3 h-3" />
+                    ) : (
+                      <ChevronDown className="w-3 h-3" />
+                    )}
+                  </button>
+                  <button
                     onClick={() => onEditRoute(route)}
                     className="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition"
                   >
@@ -92,6 +113,163 @@ export function RoutesTab({
                   </span>
                 </div>
               </div>
+
+              {/* Expandable Key Management Panel (Accordion) */}
+              {expandedRouteId === route.id && (
+                <div className="p-4 rounded-xl bg-slate-950 border border-amber-500/30 space-y-4 shadow-inner">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                      <Key className="w-4 h-4" />
+                      Dedicated Key Storage for {route.name}
+                    </span>
+                    <span className="text-[11px] text-slate-500 font-mono">
+                      Changes auto-sync to backend
+                    </span>
+                  </div>
+
+                  <div className="space-y-3 text-xs">
+                    {/* Dedicated Key File Path */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-400">Dedicated Key File Path (.txt)</label>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const path = await invoke<string>("generate_key_file", {
+                                  endpointName: route.name || "endpoint",
+                                });
+                                const updated = {
+                                  ...route,
+                                  key_manager: {
+                                    ...route.key_manager,
+                                    key_file_path: path,
+                                  },
+                                };
+                                if (onSaveRouteDirect) await onSaveRouteDirect(updated);
+                              } catch (err) {
+                                console.error("Auto generate key file error:", err);
+                              }
+                            }}
+                            className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 bg-cyan-950/50 hover:bg-cyan-900/50 border border-cyan-800/60 px-2 py-0.5 rounded transition"
+                            title="Auto-create a new key file on disk"
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            Auto Generate
+                          </button>
+
+                          {km.key_file_path && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await invoke("open_key_file", {
+                                    filePath: km.key_file_path,
+                                  });
+                                } catch (err) {
+                                  console.error("Open key file error:", err);
+                                }
+                              }}
+                              className="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 bg-indigo-950/50 hover:bg-indigo-900/50 border border-indigo-800/60 px-2 py-0.5 rounded transition"
+                              title="Open file in OS default editor"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              Open File
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="/path/to/endpoint_keys.txt"
+                        value={km.key_file_path || ""}
+                        onChange={async (e) => {
+                          const updated = {
+                            ...route,
+                            key_manager: {
+                              ...route.key_manager,
+                              key_file_path: e.target.value,
+                            },
+                          };
+                          if (onSaveRouteDirect) await onSaveRouteDirect(updated);
+                        }}
+                        className="w-full bg-slate-900 border border-slate-800 rounded px-3 py-1.5 font-mono text-slate-200"
+                      />
+                    </div>
+
+                    {/* Failed Key File Path */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-400">Failed Key File Path (403 Quota Error)</label>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const path = await invoke<string>("generate_key_file", {
+                                  endpointName: `${route.name || "endpoint"}_failed_403`,
+                                });
+                                const updated = {
+                                  ...route,
+                                  key_manager: {
+                                    ...route.key_manager,
+                                    failed_key_file_path: path,
+                                  },
+                                };
+                                if (onSaveRouteDirect) await onSaveRouteDirect(updated);
+                              } catch (err) {
+                                console.error("Auto generate failed key file error:", err);
+                              }
+                            }}
+                            className="text-[11px] text-rose-400 hover:text-rose-300 flex items-center gap-1 bg-rose-950/50 hover:bg-rose-900/50 border border-rose-800/60 px-2 py-0.5 rounded transition"
+                            title="Auto-create a failed keys file on disk"
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            Auto Generate
+                          </button>
+
+                          {km.failed_key_file_path && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await invoke("open_key_file", {
+                                    filePath: km.failed_key_file_path,
+                                  });
+                                } catch (err) {
+                                  console.error("Open failed key file error:", err);
+                                }
+                              }}
+                              className="text-[11px] text-slate-400 hover:text-slate-300 flex items-center gap-1 bg-slate-800/50 hover:bg-slate-750/50 border border-slate-700 px-2 py-0.5 rounded transition"
+                              title="Open failed key file in OS editor"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              Open File
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="/path/to/endpoint_failed_403.txt"
+                        value={km.failed_key_file_path || ""}
+                        onChange={async (e) => {
+                          const updated = {
+                            ...route,
+                            key_manager: {
+                              ...route.key_manager,
+                              failed_key_file_path: e.target.value,
+                            },
+                          };
+                          if (onSaveRouteDirect) await onSaveRouteDirect(updated);
+                        }}
+                        className="w-full bg-slate-900 border border-slate-800 rounded px-3 py-1.5 font-mono text-slate-200"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="p-3 rounded-lg bg-slate-950/80 border border-slate-800/80 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
                 <div className="space-y-1 flex-1">

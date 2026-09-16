@@ -19,7 +19,7 @@ use std::time::Instant;
 use crate::fingerprint::{FingerprintAnalyzer, FingerprintProfile};
 use crate::monitor::{RawTrafficLog, RingBufferLog};
 use crate::proxy::key_manager::EndpointKeyManager;
-use crate::vpn::{OutboundTunnel, TunnelManager, TunnelProtocol};
+use crate::vpn::{OutboundTunnel, TunnelManager};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RouteRule {
@@ -116,25 +116,38 @@ fn default_max_disk_log_entries() -> usize {
     5000
 }
 
+fn default_config_version() -> u32 {
+    1
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatewayConfig {
+    #[serde(default = "default_config_version")]
+    pub config_version: u32,
     pub tunnels: Vec<OutboundTunnel>,
     pub routes: Vec<RouteRule>,
     pub fingerprint_profile: FingerprintProfile,
+    #[serde(default)]
+    pub fingerprint_pool: Vec<FingerprintProfile>,
+    #[serde(default)]
+    pub active_fingerprint_index: usize,
     pub max_log_entries: usize,
     #[serde(default = "default_max_disk_log_entries")]
     pub max_disk_log_entries: usize,
 }
 
 impl GatewayConfig {
+    pub fn get_active_fingerprint(&self) -> FingerprintProfile {
+        if !self.fingerprint_pool.is_empty() {
+            self.fingerprint_pool[self.active_fingerprint_index % self.fingerprint_pool.len()].clone()
+        } else {
+            self.fingerprint_profile.clone()
+        }
+    }
+
     pub fn config_path() -> PathBuf {
         if let Ok(dir) = std::env::var("VPN_AI_PROXY_CONFIG_DIR") {
             return PathBuf::from(dir).join("config.json");
-        }
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(parent) = exe_path.parent() {
-                return parent.join("config.json");
-            }
         }
         if let Some(home) = std::env::var_os("HOME") {
             let path = PathBuf::from(home)
@@ -150,11 +163,41 @@ impl GatewayConfig {
         let p = Self::config_path();
         if p.exists() {
             if let Ok(data) = std::fs::read_to_string(&p) {
-                if let Ok(mut cfg) = serde_json::from_str::<GatewayConfig>(&data) {
-                    for r in &mut cfg.routes {
-                        r.key_manager.refresh_metadata();
+                // Auto-Migration Pipeline: Parse thành Value để kiểm tra version
+                match serde_json::from_str::<serde_json::Value>(&data) {
+                    Ok(mut val) => {
+                        let version = val.get("config_version").and_then(|v| v.as_u64()).unwrap_or(0);
+                        if version < 1 {
+                            // Cập nhật schema lên v1
+                            if let Some(map) = val.as_object_mut() {
+                                map.entry("config_version".to_string()).or_insert(serde_json::json!(1));
+                                map.entry("fingerprint_pool".to_string()).or_insert(serde_json::json!([]));
+                                map.entry("active_fingerprint_index".to_string()).or_insert(serde_json::json!(0));
+                                map.entry("max_disk_log_entries".to_string()).or_insert(serde_json::json!(5000));
+                            }
+                        }
+
+                        match serde_json::from_value::<GatewayConfig>(val) {
+                            Ok(mut cfg) => {
+                                for r in &mut cfg.routes {
+                                    r.key_manager.refresh_metadata();
+                                }
+                                return cfg;
+                            }
+                            Err(e) => {
+                                eprintln!("Error deserializing migrated config: {}. Creating backup.", e);
+                                let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+                                let bak_path = p.with_file_name(format!("config.json.bak.{}", timestamp));
+                                let _ = std::fs::rename(&p, &bak_path);
+                            }
+                        }
                     }
-                    return cfg;
+                    Err(e) => {
+                        eprintln!("Corrupt config file: {}. Creating backup.", e);
+                        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+                        let bak_path = p.with_file_name(format!("config.json.bak.{}", timestamp));
+                        let _ = std::fs::rename(&p, &bak_path);
+                    }
                 }
             }
         }
@@ -181,75 +224,12 @@ impl GatewayConfig {
 impl Default for GatewayConfig {
     fn default() -> Self {
         Self {
-            tunnels: vec![
-                OutboundTunnel {
-                    id: "adguard_default".to_string(),
-                    name: "AdGuard VPN (Local SOCKS)".to_string(),
-                    protocol: TunnelProtocol::Socks5,
-                    endpoint: "127.0.0.1:1080".to_string(),
-                    enabled: true,
-                    status: crate::vpn::TunnelStatus::Unknown,
-                    max_concurrent_streams: 0,
-                    last_checked_at: None,
-                    last_error: None,
-                    last_exit_ip: None,
-                    last_latency_ms: None,
-                    tags: vec!["adguard".to_string(), "vpn".to_string()],
-                },
-                OutboundTunnel {
-                    id: "direct_bypass".to_string(),
-                    name: "Direct Internet (No VPN)".to_string(),
-                    protocol: TunnelProtocol::Direct,
-                    endpoint: "".to_string(),
-                    enabled: true,
-                    status: crate::vpn::TunnelStatus::Unknown,
-                    max_concurrent_streams: 0,
-                    last_checked_at: None,
-                    last_error: None,
-                    last_exit_ip: None,
-                    last_latency_ms: None,
-                    tags: vec!["direct".to_string()],
-                },
-            ],
-            routes: vec![
-                RouteRule {
-                    id: "openai_rule".to_string(),
-                    name: "OpenAI Proxy (Port 3000)".to_string(),
-                    port: 3000,
-                    path_prefix: "/v1".to_string(),
-                    target_base_url: "https://api.openai.com/v1".to_string(),
-                    tunnel_id: "adguard_default".to_string(),
-                    enabled: true,
-                    strip_prefix: true,
-                    key_manager: EndpointKeyManager::default(),
-                    custom_auth_token: None,
-                },
-                RouteRule {
-                    id: "anthropic_rule".to_string(),
-                    name: "Anthropic Proxy (Port 3000)".to_string(),
-                    port: 3000,
-                    path_prefix: "/anthropic".to_string(),
-                    target_base_url: "https://api.anthropic.com".to_string(),
-                    tunnel_id: "adguard_default".to_string(),
-                    enabled: true,
-                    strip_prefix: true,
-                    key_manager: EndpointKeyManager::default(),
-                    custom_auth_token: None,
-                },
-                RouteRule {
-                    id: "custom_mirror_rule".to_string(),
-                    name: "Custom Mirror (Port 3001)".to_string(),
-                    port: 3001,
-                    path_prefix: "/".to_string(),
-                    target_base_url: "https://abc.xyz/v1".to_string(),
-                    tunnel_id: "adguard_default".to_string(),
-                    enabled: true,
-                    strip_prefix: false,
-                    key_manager: EndpointKeyManager::default(),
-                    custom_auth_token: None,
-                },
-            ],
+            config_version: 1,
+            tunnels: vec![],
+            routes: vec![],
             fingerprint_profile: FingerprintProfile::default(),
+            fingerprint_pool: vec![],
+            active_fingerprint_index: 0,
             max_log_entries: 500,
             max_disk_log_entries: 5000,
         }
@@ -422,7 +402,7 @@ pub async fn handle_route_request(
                     full,
                     rule.tunnel_id.clone(),
                     key,
-                    conf.fingerprint_profile.clone(),
+                    conf.get_active_fingerprint(),
                     max_streams,
                 )
             }
@@ -706,6 +686,28 @@ pub async fn handle_route_request(
                             let _ = conf.save_to_disk();
                         }
                     }
+                }
+
+                // Unified Session Rotation on 401/403: Rotate key, rotate tunnel (if multiple enabled tunnels exist), rotate fingerprint profile
+                if status_code == 401 || status_code == 403 {
+                    let mut conf = state.config.write();
+                    let enabled_tunnel_ids: Vec<String> = conf.tunnels.iter().filter(|t| t.enabled).map(|t| t.id.clone()).collect();
+                    // 1. Advance route key
+                    if let Some(r) = conf.routes.iter_mut().find(|r| r.id == route_id) {
+                        r.key_manager.advance_to_next_key();
+                        // Also switch assigned tunnel if there are other enabled tunnels
+                        if enabled_tunnel_ids.len() > 1 {
+                            if let Some(curr_idx) = enabled_tunnel_ids.iter().position(|id| id == &r.tunnel_id) {
+                                let next_idx = (curr_idx + 1) % enabled_tunnel_ids.len();
+                                r.tunnel_id = enabled_tunnel_ids[next_idx].clone();
+                            }
+                        }
+                    }
+                    // 2. Rotate fingerprint profile
+                    if !conf.fingerprint_pool.is_empty() {
+                        conf.active_fingerprint_index = (conf.active_fingerprint_index + 1) % conf.fingerprint_pool.len();
+                    }
+                    let _ = conf.save_to_disk();
                 }
 
                 resp_builder.body(Body::from(resp_bytes)).unwrap()

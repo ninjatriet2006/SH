@@ -19,6 +19,8 @@ pub struct FingerprintProfile {
     pub strip_sec_ch_ua: bool,
     pub remove_empty_headers: bool,
     pub mask_local_paths_in_body: bool,
+    #[serde(default)]
+    pub spoof_headers: HashMap<String, String>, // Custom headers to spoof / overwrite
 }
 
 impl Default for FingerprintProfile {
@@ -31,6 +33,32 @@ impl Default for FingerprintProfile {
             strip_sec_ch_ua: true,
             remove_empty_headers: true,
             mask_local_paths_in_body: true,
+            spoof_headers: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FingerprintPool {
+    pub profiles: Vec<FingerprintProfile>,
+    pub active_index: usize,
+}
+
+impl FingerprintPool {
+    pub fn get_active_profile(&self) -> Option<FingerprintProfile> {
+        if self.profiles.is_empty() {
+            None
+        } else {
+            Some(self.profiles[self.active_index % self.profiles.len()].clone())
+        }
+    }
+
+    pub fn rotate_next(&mut self) -> Option<FingerprintProfile> {
+        if self.profiles.is_empty() {
+            None
+        } else {
+            self.active_index = (self.active_index + 1) % self.profiles.len();
+            Some(self.profiles[self.active_index].clone())
         }
     }
 }
@@ -187,6 +215,16 @@ impl FingerprintAnalyzer {
         // Ensure User-Agent is set if custom_user_agent exists and wasn't in original headers
         if let Some(ref ua) = profile.custom_user_agent {
             clean.entry("user-agent".to_string()).or_insert_with(|| ua.clone());
+        }
+
+        // Spoof headers: overwrite or remove empty/stripped headers
+        for (spoof_k, spoof_v) in &profile.spoof_headers {
+            let k_lower = spoof_k.to_lowercase();
+            if !spoof_v.is_empty() {
+                clean.insert(k_lower, spoof_v.clone());
+            } else {
+                clean.remove(&k_lower);
+            }
         }
 
         clean

@@ -9,6 +9,8 @@ export interface OutboundTunnel {
   enabled: boolean;
   status?: TunnelStatus;
   max_concurrent_streams?: number;
+  start_command?: string;
+  stop_command?: string;
   last_checked_at?: string;
   last_error?: string;
   last_exit_ip?: string;
@@ -57,9 +59,12 @@ export interface FingerprintProfile {
 }
 
 export interface GatewayConfig {
+  config_version?: number;
   tunnels: OutboundTunnel[];
   routes: RouteRule[];
   fingerprint_profile: FingerprintProfile;
+  fingerprint_pool?: FingerprintProfile[];
+  active_fingerprint_index?: number;
   max_log_entries: number;
   max_disk_log_entries?: number;
 }

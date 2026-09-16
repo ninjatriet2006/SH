@@ -1,4 +1,4 @@
-import { Plus, Zap, Trash2, Check } from "lucide-react";
+import { Plus, Zap, Trash2, Check, Play, Square } from "lucide-react";
 import { GatewayConfig, OutboundTunnel, TunnelTestResult } from "../types";
 
 interface TunnelsTabProps {
@@ -7,6 +7,8 @@ interface TunnelsTabProps {
   testingTunnelId: string | null;
   onTestTunnel: (tunnel: OutboundTunnel) => Promise<void>;
   onToggleTunnel: (tunnelId: string, enabled: boolean) => Promise<void>;
+  onStartProcess?: (tunnelId: string) => Promise<void>;
+  onStopProcess?: (tunnelId: string) => Promise<void>;
   onEditTunnel: (tunnel: OutboundTunnel) => void;
   onDeleteTunnel: (id: string) => Promise<void>;
   onCreateTunnel: () => void;
@@ -18,6 +20,8 @@ export function TunnelsTab({
   testingTunnelId,
   onTestTunnel,
   onToggleTunnel,
+  onStartProcess,
+  onStopProcess,
   onEditTunnel,
   onDeleteTunnel,
   onCreateTunnel,
@@ -115,14 +119,38 @@ export function TunnelsTab({
               </div>
 
               <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
-                <button
-                  disabled={isTesting}
-                  onClick={() => onTestTunnel(tunnel)}
-                  className="px-2.5 py-1.5 rounded bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 text-xs font-semibold flex items-center gap-1 transition disabled:opacity-50"
-                >
-                  <Zap className="w-3.5 h-3.5" />
-                  {isTesting ? "Testing..." : "Test Exit IP"}
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    disabled={isTesting}
+                    onClick={() => onTestTunnel(tunnel)}
+                    className="px-2.5 py-1.5 rounded bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 text-xs font-semibold flex items-center gap-1 transition disabled:opacity-50"
+                  >
+                    <Zap className="w-3.5 h-3.5" />
+                    {isTesting ? "Testing..." : "Test Exit IP"}
+                  </button>
+
+                  {tunnel.start_command && onStartProcess && (
+                    <button
+                      onClick={() => onStartProcess(tunnel.id)}
+                      className="px-2.5 py-1.5 rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 text-xs font-semibold flex items-center gap-1 transition"
+                      title={`Run: ${tunnel.start_command}`}
+                    >
+                      <Play className="w-3 h-3 fill-current" />
+                      Run VPN
+                    </button>
+                  )}
+
+                  {tunnel.stop_command && onStopProcess && (
+                    <button
+                      onClick={() => onStopProcess(tunnel.id)}
+                      className="px-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-rose-400 text-xs font-semibold flex items-center gap-1 transition"
+                      title={`Stop: ${tunnel.stop_command}`}
+                    >
+                      <Square className="w-3 h-3 fill-current" />
+                      Stop
+                    </button>
+                  )}
+                </div>
 
                 <div className="flex items-center gap-2">
                   <button

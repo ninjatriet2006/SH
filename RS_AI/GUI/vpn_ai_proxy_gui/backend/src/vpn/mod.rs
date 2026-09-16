@@ -41,6 +41,10 @@ pub struct OutboundTunnel {
     pub status: TunnelStatus,
     #[serde(default = "default_concurrency_limit")]
     pub max_concurrent_streams: usize, // 0 = unlimited
+    #[serde(default)]
+    pub start_command: Option<String>,
+    #[serde(default)]
+    pub stop_command: Option<String>,
     pub last_checked_at: Option<String>,
     pub last_error: Option<String>,
     pub last_exit_ip: Option<String>,
@@ -174,6 +178,34 @@ impl TunnelManager {
             exit_ip: None,
             latency_ms: None,
             error: Some(if last_err.is_empty() { "Failed to resolve external exit IP".to_string() } else { last_err }),
+        }
+    }
+
+    /// Chạy lệnh khởi động hoặc dừng tiến trình VPN
+    pub fn run_tunnel_command(cmd_str: &str) -> Result<String, String> {
+        let trimmed = cmd_str.trim();
+        if trimmed.is_empty() {
+            return Err("Command is empty".to_string());
+        }
+
+        #[cfg(target_os = "windows")]
+        let output = std::process::Command::new("cmd")
+            .args(["/C", trimmed])
+            .output()
+            .map_err(|e| format!("Failed to run command: {}", e))?;
+
+        #[cfg(not(target_os = "windows"))]
+        let output = std::process::Command::new("sh")
+            .args(["-c", trimmed])
+            .output()
+            .map_err(|e| format!("Failed to run command: {}", e))?;
+
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            Ok(stdout)
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            Err(format!("Command failed with status {}: {}", output.status, stderr))
         }
     }
 }

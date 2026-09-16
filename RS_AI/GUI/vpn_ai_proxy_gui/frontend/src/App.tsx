@@ -113,6 +113,24 @@ export function App() {
     }
   };
 
+  const handleStartTunnelProcess = async (tunnelId: string) => {
+    try {
+      await invoke("start_tunnel_process", { tunnelId });
+      await fetchConfig();
+    } catch (e) {
+      console.error("Start tunnel process error:", e);
+    }
+  };
+
+  const handleStopTunnelProcess = async (tunnelId: string) => {
+    try {
+      await invoke("stop_tunnel_process", { tunnelId });
+      await fetchConfig();
+    } catch (e) {
+      console.error("Stop tunnel process error:", e);
+    }
+  };
+
   const handleAddOrUpdateTunnel = async () => {
     if (!editingTunnel) return;
     try {
@@ -168,6 +186,14 @@ export function App() {
           <RoutesTab
             config={config}
             onEditRoute={(r) => setEditingRoute({ ...r })}
+            onSaveRouteDirect={async (route) => {
+              try {
+                await invoke("add_or_update_route", { route });
+                await fetchConfig();
+              } catch (e) {
+                console.error(e);
+              }
+            }}
             onDeleteRoute={handleDeleteRoute}
             onAdvanceKey={handleAdvanceKey}
             onCreateRoute={() =>
@@ -196,6 +222,8 @@ export function App() {
             testingTunnelId={testingTunnelId}
             onTestTunnel={handleTestTunnel}
             onToggleTunnel={handleToggleTunnel}
+            onStartProcess={handleStartTunnelProcess}
+            onStopProcess={handleStopTunnelProcess}
             onEditTunnel={(t) => setEditingTunnel({ ...t })}
             onDeleteTunnel={handleDeleteTunnel}
             onCreateTunnel={() =>

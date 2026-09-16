@@ -71,140 +71,6 @@ export function Modals({
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-slate-400">Dedicated Key File Path (.txt)</label>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          const path = await invoke<string>("generate_key_file", {
-                            endpointName: editingRoute.name || "endpoint",
-                          });
-                          setEditingRoute({
-                            ...editingRoute,
-                            key_manager: {
-                              ...editingRoute.key_manager,
-                              key_file_path: path,
-                            },
-                          });
-                        } catch (err) {
-                          console.error("Auto generate key file error:", err);
-                        }
-                      }}
-                      className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 bg-cyan-950/50 hover:bg-cyan-900/50 border border-cyan-800/60 px-2 py-0.5 rounded transition"
-                      title="Auto-create a new key file on disk"
-                    >
-                      <Sparkles className="w-3 h-3" />
-                      Auto Generate
-                    </button>
-
-                    {editingRoute.key_manager.key_file_path && (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            await invoke("open_key_file", {
-                              filePath: editingRoute.key_manager.key_file_path,
-                            });
-                          } catch (err) {
-                            console.error("Open key file error:", err);
-                          }
-                        }}
-                        className="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 bg-indigo-950/50 hover:bg-indigo-900/50 border border-indigo-800/60 px-2 py-0.5 rounded transition"
-                        title="Open file in OS default editor"
-                      >
-                        <ExternalLink className="w-3 h-3" />
-                        Open File
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <input
-                  type="text"
-                  placeholder="/path/to/endpoint_keys.txt"
-                  value={editingRoute.key_manager.key_file_path || ""}
-                  onChange={(e) =>
-                    setEditingRoute({
-                      ...editingRoute,
-                      key_manager: {
-                        ...editingRoute.key_manager,
-                        key_file_path: e.target.value,
-                      },
-                    })
-                  }
-                  className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 font-mono text-slate-200"
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-slate-400">Failed Key File Path (403 Quota Error)</label>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          const path = await invoke<string>("generate_key_file", {
-                            endpointName: `${editingRoute.name || "endpoint"}_failed_403`,
-                          });
-                          setEditingRoute({
-                            ...editingRoute,
-                            key_manager: {
-                              ...editingRoute.key_manager,
-                              failed_key_file_path: path,
-                            },
-                          });
-                        } catch (err) {
-                          console.error("Auto generate failed key file error:", err);
-                        }
-                      }}
-                      className="text-[11px] text-rose-400 hover:text-rose-300 flex items-center gap-1 bg-rose-950/50 hover:bg-rose-900/50 border border-rose-800/60 px-2 py-0.5 rounded transition"
-                      title="Auto-create a failed keys file on disk"
-                    >
-                      <Sparkles className="w-3 h-3" />
-                      Auto Generate
-                    </button>
-
-                    {editingRoute.key_manager.failed_key_file_path && (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            await invoke("open_key_file", {
-                              filePath: editingRoute.key_manager.failed_key_file_path,
-                            });
-                          } catch (err) {
-                            console.error("Open failed key file error:", err);
-                          }
-                        }}
-                        className="text-[11px] text-slate-400 hover:text-slate-300 flex items-center gap-1 bg-slate-800/50 hover:bg-slate-750/50 border border-slate-700 px-2 py-0.5 rounded transition"
-                        title="Open failed key file in OS editor"
-                      >
-                        <ExternalLink className="w-3 h-3" />
-                        Open File
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <input
-                  type="text"
-                  placeholder="/path/to/endpoint_failed_403.txt"
-                  value={editingRoute.key_manager.failed_key_file_path || ""}
-                  onChange={(e) =>
-                    setEditingRoute({
-                      ...editingRoute,
-                      key_manager: {
-                        ...editingRoute.key_manager,
-                        failed_key_file_path: e.target.value,
-                      },
-                    })
-                  }
-                  className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 font-mono text-slate-200"
-                />
-              </div>
-
-              <div>
                 <label className="text-slate-400 block mb-1">Assigned Outbound Tunnel</label>
                 <select
                   value={editingRoute.tunnel_id}
@@ -308,6 +174,63 @@ export function Modals({
                   }
                   className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 font-mono"
                 />
+              </div>
+
+              {/* Start/Stop Commands */}
+              <div className="space-y-2 pt-1 border-t border-slate-800/80">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400 font-medium">CLI Process Manager</span>
+                  <div className="flex items-center gap-1.5 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditingTunnel({
+                          ...editingTunnel,
+                          start_command: "adguardvpn-cli connect",
+                          stop_command: "adguardvpn-cli disconnect",
+                        })
+                      }
+                      className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-400"
+                    >
+                      +AdGuard
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditingTunnel({
+                          ...editingTunnel,
+                          start_command: "warp-cli connect",
+                          stop_command: "warp-cli disconnect",
+                        })
+                      }
+                      className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-indigo-400"
+                    >
+                      +WARP
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-slate-400 block mb-1">Start Command (CLI)</label>
+                  <input
+                    type="text"
+                    value={editingTunnel.start_command || ""}
+                    onChange={(e) => setEditingTunnel({ ...editingTunnel, start_command: e.target.value })}
+                    placeholder="e.g. adguardvpn-cli connect"
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-slate-400 block mb-1">Stop Command (CLI)</label>
+                  <input
+                    type="text"
+                    value={editingTunnel.stop_command || ""}
+                    onChange={(e) => setEditingTunnel({ ...editingTunnel, stop_command: e.target.value })}
+                    placeholder="e.g. adguardvpn-cli disconnect"
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 font-mono"
+                  />
+                </div>
               </div>
 
               <label className="flex items-center gap-2 cursor-pointer pt-2">

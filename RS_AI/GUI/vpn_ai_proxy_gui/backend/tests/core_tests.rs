@@ -190,6 +190,8 @@ mod tests {
             enabled: true,
             status: vpn_ai_proxy_gui_lib::vpn::TunnelStatus::Unknown,
             max_concurrent_streams: 0,
+            start_command: None,
+            stop_command: None,
             last_checked_at: None,
             last_error: None,
             last_exit_ip: None,
@@ -358,5 +360,163 @@ mod tests {
         // Non-existent id does nothing
         buffer.update_response_body("non-existent-id", "test".to_string());
         assert_eq!(buffer.get_all()[0].raw_response_body, "data: {\"done\": true}\n\n");
+    }
+
+    #[test]
+    fn test_fingerprint_header_spoofing() {
+        use std::collections::HashMap;
+        use vpn_ai_proxy_gui_lib::fingerprint::{FingerprintAnalyzer, FingerprintProfile};
+
+        let mut headers = HashMap::new();
+        headers.insert("cursor-version".to_string(), "1.0".to_string());
+        headers.insert("content-type".to_string(), "application/json".to_string());
+
+        let mut spoof_headers = HashMap::new();
+        spoof_headers.insert("cursor-version".to_string(), "9.9".to_string());
+
+        let profile = FingerprintProfile {
+            strip_ide_headers: true, // normally strips cursor
+            spoof_headers,
+            ..Default::default()
+        };
+
+        let cleaned = FingerprintAnalyzer::sanitize_headers(&headers, &profile);
+
+        // cursor-version must be spoofed to 9.9
+        assert_eq!(cleaned.get("cursor-version"), Some(&"9.9".to_string()));
+        assert_eq!(cleaned.get("content-type"), Some(&"application/json".to_string()));
+
+        // Test empty spoof header removal
+        let mut empty_spoof = HashMap::new();
+        empty_spoof.insert("content-type".to_string(), "".to_string());
+        let profile_remove = FingerprintProfile {
+            spoof_headers: empty_spoof,
+            ..Default::default()
+        };
+        let cleaned_removed = FingerprintAnalyzer::sanitize_headers(&headers, &profile_remove);
+        assert!(!cleaned_removed.contains_key("content-type"));
+    }
+
+    #[test]
+    fn test_unified_session_rotation() {
+        use vpn_ai_proxy_gui_lib::fingerprint::FingerprintProfile;
+        use vpn_ai_proxy_gui_lib::proxy::key_manager::EndpointKeyManager;
+        use vpn_ai_proxy_gui_lib::proxy::{GatewayConfig, RouteRule};
+        use vpn_ai_proxy_gui_lib::vpn::{OutboundTunnel, TunnelProtocol, TunnelStatus};
+
+        let temp_dir = std::env::temp_dir();
+        let key_file = temp_dir.join(format!("test_rotation_keys_{}.txt", uuid::Uuid::new_v4()));
+        std::fs::write(&key_file, "key-1\nkey-2\nkey-3\n").unwrap();
+
+        let mut km = EndpointKeyManager {
+            key_file_path: Some(key_file.to_str().unwrap().to_string()),
+            ..Default::default()
+        };
+        km.refresh_metadata();
+        assert_eq!(km.get_active_key(), Some("key-1".to_string()));
+
+        let mut config = GatewayConfig {
+            config_version: 1,
+            tunnels: vec![
+                OutboundTunnel {
+                    id: "tunnel-a".to_string(),
+                    name: "Tunnel A".to_string(),
+                    protocol: TunnelProtocol::Direct,
+                    endpoint: "".to_string(),
+                    enabled: true,
+                    status: TunnelStatus::Online,
+                    max_concurrent_streams: 0,
+                    start_command: None,
+                    stop_command: None,
+                    last_checked_at: None,
+                    last_error: None,
+                    last_exit_ip: None,
+                    last_latency_ms: None,
+                    tags: vec![],
+                },
+                OutboundTunnel {
+                    id: "tunnel-b".to_string(),
+                    name: "Tunnel B".to_string(),
+                    protocol: TunnelProtocol::Direct,
+                    endpoint: "".to_string(),
+                    enabled: true,
+                    status: TunnelStatus::Online,
+                    max_concurrent_streams: 0,
+                    start_command: None,
+                    stop_command: None,
+                    last_checked_at: None,
+                    last_error: None,
+                    last_exit_ip: None,
+                    last_latency_ms: None,
+                    tags: vec![],
+                },
+            ],
+            routes: vec![RouteRule {
+                id: "route-1".to_string(),
+                name: "Route 1".to_string(),
+                port: 3000,
+                path_prefix: "/v1".to_string(),
+                target_base_url: "https://api.openai.com/v1".to_string(),
+                tunnel_id: "tunnel-a".to_string(),
+                enabled: true,
+                strip_prefix: false,
+                key_manager: km,
+                custom_auth_token: None,
+            }],
+            fingerprint_profile: FingerprintProfile::default(),
+            fingerprint_pool: vec![
+                FingerprintProfile {
+                    mode: "stealth-1".to_string(),
+                    ..Default::default()
+                },
+                FingerprintProfile {
+                    mode: "stealth-2".to_string(),
+                    ..Default::default()
+                },
+            ],
+            active_fingerprint_index: 0,
+            max_log_entries: 100,
+            max_disk_log_entries: 1000,
+        };
+
+        // Simulating Unified Session Rotation logic
+        let enabled_tunnel_ids: Vec<String> = config
+            .tunnels
+            .iter()
+            .filter(|t| t.enabled)
+            .map(|t| t.id.clone())
+            .collect();
+
+        // Step 1: Advance key & rotate tunnel
+        if let Some(r) = config.routes.iter_mut().find(|r| r.id == "route-1") {
+            r.key_manager.advance_to_next_key();
+            if enabled_tunnel_ids.len() > 1 {
+                if let Some(curr_idx) = enabled_tunnel_ids.iter().position(|id| id == &r.tunnel_id) {
+                    let next_idx = (curr_idx + 1) % enabled_tunnel_ids.len();
+                    r.tunnel_id = enabled_tunnel_ids[next_idx].clone();
+                }
+            }
+        }
+        // Step 2: Rotate fingerprint index
+        if !config.fingerprint_pool.is_empty() {
+            config.active_fingerprint_index =
+                (config.active_fingerprint_index + 1) % config.fingerprint_pool.len();
+        }
+
+        // Verify rotations:
+        let route = &config.routes[0];
+        assert_eq!(route.key_manager.get_active_key(), Some("key-2".to_string()));
+        assert_eq!(route.tunnel_id, "tunnel-b");
+        assert_eq!(config.active_fingerprint_index, 1);
+        assert_eq!(config.get_active_fingerprint().mode, "stealth-2");
+
+        let _ = std::fs::remove_file(key_file);
+    }
+
+    #[test]
+    fn test_run_tunnel_command() {
+        use vpn_ai_proxy_gui_lib::vpn::TunnelManager;
+        let out = TunnelManager::run_tunnel_command("echo hello_vpn_manager").unwrap();
+        assert!(out.contains("hello_vpn_manager"));
     }
 }

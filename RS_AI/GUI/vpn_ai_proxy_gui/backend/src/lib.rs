@@ -74,6 +74,68 @@ mod commands {
     }
 
     #[tauri::command]
+    pub async fn start_tunnel_process(tunnel_id: String, ctx: State<'_, ServerContext>) -> Result<String, String> {
+        let (cmd_opt, tunnel_clone) = {
+            let conf = ctx.app_state.config.read();
+            let t = conf.tunnels.iter().find(|t| t.id == tunnel_id).cloned();
+            match t {
+                Some(tunnel) => (tunnel.start_command.clone(), tunnel),
+                None => return Err(format!("Tunnel [{}] not found", tunnel_id)),
+            }
+        };
+
+        let cmd = cmd_opt.ok_or_else(|| "No start command configured for this tunnel".to_string())?;
+        let output = TunnelManager::run_tunnel_command(&cmd)?;
+
+        // Chờ 500ms để process bind cổng rồi test kết nối
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let test_res = TunnelManager::test_tunnel(&tunnel_clone).await;
+
+        {
+            let mut conf = ctx.app_state.config.write();
+            if let Some(t) = conf.tunnels.iter_mut().find(|t| t.id == tunnel_id) {
+                t.status = if test_res.success {
+                    crate::vpn::TunnelStatus::Online
+                } else {
+                    crate::vpn::TunnelStatus::Offline
+                };
+                t.last_checked_at = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+                t.last_error = test_res.error.clone();
+                if test_res.success {
+                    t.last_exit_ip = test_res.exit_ip;
+                    t.last_latency_ms = test_res.latency_ms;
+                }
+                let _ = conf.save_to_disk();
+            }
+        }
+
+        Ok(format!("Command executed. Result: {}", output.trim()))
+    }
+
+    #[tauri::command]
+    pub async fn stop_tunnel_process(tunnel_id: String, ctx: State<'_, ServerContext>) -> Result<String, String> {
+        let cmd_opt = {
+            let conf = ctx.app_state.config.read();
+            conf.tunnels.iter().find(|t| t.id == tunnel_id).and_then(|t| t.stop_command.clone())
+        };
+
+        let cmd = cmd_opt.ok_or_else(|| "No stop command configured for this tunnel".to_string())?;
+        let output = TunnelManager::run_tunnel_command(&cmd)?;
+
+        {
+            let mut conf = ctx.app_state.config.write();
+            if let Some(t) = conf.tunnels.iter_mut().find(|t| t.id == tunnel_id) {
+                t.status = crate::vpn::TunnelStatus::Offline;
+                t.last_checked_at = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+                t.last_error = Some("Stopped by user".to_string());
+                let _ = conf.save_to_disk();
+            }
+        }
+
+        Ok(format!("Command executed. Result: {}", output.trim()))
+    }
+
+    #[tauri::command]
     pub fn delete_tunnel(tunnel_id: String, ctx: State<'_, ServerContext>) -> Result<(), String> {
         {
             let mut conf = ctx.app_state.config.write();
@@ -240,6 +302,8 @@ pub fn run() {
             commands::delete_route,
             commands::advance_endpoint_key,
             commands::test_single_tunnel,
+            commands::start_tunnel_process,
+            commands::stop_tunnel_process,
             commands::get_raw_traffic,
             commands::clear_logs,
             commands::generate_key_file,
