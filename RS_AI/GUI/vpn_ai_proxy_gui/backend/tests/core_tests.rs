@@ -116,6 +116,34 @@ mod tests {
             build_target_url("https://api.openai.com/v1/", "/v1", "/v1/chat/completions", "?stream=true"),
             "https://api.openai.com/v1/chat/completions?stream=true"
         );
+
+        // Case 5: Segment boundary protection (prefix /v1 must not strip from /v1beta/test)
+        assert_eq!(
+            build_target_url("https://api.openai.com/v1", "/v1", "/v1beta/test", ""),
+            "https://api.openai.com/v1/v1beta/test"
+        );
+    }
+
+    #[test]
+    fn test_prefix_matches_segment_boundary() {
+        use vpn_ai_proxy_gui_lib::proxy::routing::prefix_matches;
+
+        // Root prefix matches everything
+        assert!(prefix_matches("/", "/"));
+        assert!(prefix_matches("/anything", "/"));
+        assert!(prefix_matches("/anything", ""));
+
+        // Exact match
+        assert!(prefix_matches("/v1", "/v1"));
+
+        // Segment boundary match
+        assert!(prefix_matches("/v1/chat/completions", "/v1"));
+        assert!(prefix_matches("/v1/models", "/v1"));
+
+        // Non-segment boundaries must NOT match
+        assert!(!prefix_matches("/v1beta/chat", "/v1"));
+        assert!(!prefix_matches("/v10/chat", "/v1"));
+        assert!(!prefix_matches("/v1_extra", "/v1"));
     }
 
     #[test]

@@ -128,7 +128,11 @@ export function TunnelsTab({
 
                 {(tunnel.last_exit_ip || tunnel.last_error) && (
                   <div className="mt-3 p-2 rounded bg-slate-950 border border-slate-800 text-[11px] font-mono space-y-0.5">
-                    {tunnel.last_exit_ip ? (
+                    {tunnel.last_error ? (
+                      <div className="text-rose-400 font-semibold break-all">
+                        Error: {tunnel.last_error}
+                      </div>
+                    ) : tunnel.last_exit_ip ? (
                       <>
                         <div className="text-emerald-400 flex items-center gap-1 font-semibold">
                           <Check className="w-3.5 h-3.5" />
@@ -138,9 +142,7 @@ export function TunnelsTab({
                           <div className="text-slate-500">Latency: {tunnel.last_latency_ms}ms</div>
                         )}
                       </>
-                    ) : (
-                      <div className="text-rose-400">Error: {tunnel.last_error}</div>
-                    )}
+                    ) : null}
                   </div>
                 )}
               </div>
@@ -148,7 +150,7 @@ export function TunnelsTab({
               <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <button
-                    disabled={isTesting}
+                    disabled={isTesting || !tunnel.enabled}
                     onClick={async () => {
                       setTestingId(tunnel.id);
                       try {
@@ -157,7 +159,8 @@ export function TunnelsTab({
                         setTestingId(null);
                       }
                     }}
-                    className="px-2.5 py-1.5 rounded bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 text-xs font-semibold flex items-center gap-1 transition disabled:opacity-50"
+                    className="px-2.5 py-1.5 rounded bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 text-xs font-semibold flex items-center gap-1 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                    title={!tunnel.enabled ? "Enable tunnel first before testing" : "Test Exit IP"}
                   >
                     <Zap className="w-3.5 h-3.5" />
                     {isTesting ? "Testing..." : "Test Exit IP"}
