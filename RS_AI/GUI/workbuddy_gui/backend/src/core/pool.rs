@@ -13,6 +13,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::auth::Auth;
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct FingerprintConfig {
+    #[serde(default)]
+    pub user_agent: Option<String>,
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+}
+
 const DEFAULT_BREAKER_THRESHOLD: i32 = 3;
 const DEFAULT_BREAKER_COOLDOWN: Duration = Duration::from_secs(30 * 60);
 const DEFAULT_BREAKER_MAX: Duration = Duration::from_secs(6 * 60 * 60);
@@ -41,6 +49,8 @@ pub struct AccountStatus {
     pub email: String,
     pub nickname: String,
     pub domain: String,
+    pub proxy_url: Option<String>,
+    pub fingerprint_profile: Option<FingerprintConfig>,
     pub healthy: bool,
     pub disabled: bool,
     pub cooling: bool,
@@ -63,11 +73,15 @@ pub struct PickedAccount {
     pub email: String,
     pub token: String,
     pub auth: Auth,
+    pub proxy_url: Option<String>,
+    pub fingerprint_profile: Option<FingerprintConfig>,
 }
 
 #[derive(Debug)]
 struct Entry {
     auth: Auth,
+    proxy_url: Option<String>,
+    fingerprint_profile: Option<FingerprintConfig>,
     credits: i64,
     success_count: i64,
     err_total: i64,
@@ -116,6 +130,10 @@ struct PersistedAccount {
     last_err: i64,
     #[serde(default)]
     soft_streak: i32,
+    #[serde(default)]
+    proxy_url: Option<String>,
+    #[serde(default)]
+    fingerprint_profile: Option<FingerprintConfig>,
 }
 
 #[derive(Clone)]
@@ -153,6 +171,8 @@ impl Pool {
                 for (uid, value) in state.accounts {
                     inner.entries.insert(uid.clone(), Entry {
                         auth: placeholder_auth(uid),
+                        proxy_url: value.proxy_url,
+                        fingerprint_profile: value.fingerprint_profile,
                         credits: value.credits,
                         success_count: value.success_count,
                         err_total: value.err_total.max(value.err_count),
@@ -190,10 +210,36 @@ impl Pool {
     }
 
     pub fn add(&self, auth: Auth) {
+        self.add_with_routing(auth, None, None);
+    }
+
+    pub fn add_with_routing(&self, auth: Auth, proxy_url: Option<String>, fingerprint_profile: Option<FingerprintConfig>) {
         let mut p = self.inner.write();
         let uid = auth.uid.clone();
-        if let Some(entry) = p.entries.get_mut(&uid) { entry.auth = auth; } else { p.entries.insert(uid, new_entry(auth)); }
+        if let Some(entry) = p.entries.get_mut(&uid) {
+            entry.auth = auth;
+            if proxy_url.is_some() {
+                entry.proxy_url = proxy_url;
+            }
+            if fingerprint_profile.is_some() {
+                entry.fingerprint_profile = fingerprint_profile;
+            }
+        } else {
+            let mut entry = new_entry(auth);
+            entry.proxy_url = proxy_url;
+            entry.fingerprint_profile = fingerprint_profile;
+            p.entries.insert(uid, entry);
+        }
         persist_locked(&p);
+    }
+
+    pub fn update_routing(&self, uid: &str, proxy_url: Option<String>, fingerprint_profile: Option<FingerprintConfig>) -> bool {
+        let mut p = self.inner.write();
+        let Some(entry) = p.entries.get_mut(uid) else { return false; };
+        entry.proxy_url = proxy_url;
+        entry.fingerprint_profile = fingerprint_profile;
+        persist_locked(&p);
+        true
     }
 
     pub fn update_auth(&self, auth: Auth) -> bool {
@@ -298,15 +344,15 @@ impl Pool {
     pub fn set_credits(&self, uid: &str, credits: i64) { let mut p = self.inner.write(); if let Some(e) = p.entries.get_mut(uid) { e.credits = credits; persist_locked(&p); } }
 }
 
-fn new_entry(auth: Auth) -> Entry { Entry { auth, credits: 0, success_count: 0, err_total: 0, last_success: 0, last_error: 0, cool_kind: CoolKind::HardCredit, until: 0, disabled: false, reason: String::new(), last_used: 0, breaker_until: 0, breaker_fails: 0, retry_count: 0, soft_streak: 0, session_dead_fails: 0, in_flight: AtomicI64::new(0) } }
+fn new_entry(auth: Auth) -> Entry { Entry { auth, proxy_url: None, fingerprint_profile: None, credits: 0, success_count: 0, err_total: 0, last_success: 0, last_error: 0, cool_kind: CoolKind::HardCredit, until: 0, disabled: false, reason: String::new(), last_used: 0, breaker_until: 0, breaker_fails: 0, retry_count: 0, soft_streak: 0, session_dead_fails: 0, in_flight: AtomicI64::new(0) } }
 fn placeholder_auth(uid: String) -> Auth { Auth { access_token: String::new(), refresh_token: String::new(), expires_at: 0, domain: String::new(), uid, enterprise_id: String::new(), nickname: String::new(), file_path: String::new() } }
 fn now_secs() -> i64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64 }
 fn healthy(e: &Entry, now: i64) -> bool { !e.disabled && (e.until == 0 || e.until <= now) && (e.breaker_until == 0 || e.breaker_until <= now) }
 fn full(e: &Entry, limit: i64) -> bool { limit > 0 && e.in_flight.load(Ordering::Acquire) >= limit }
-fn picked(e: &Entry) -> PickedAccount { PickedAccount { uid: e.auth.uid.clone(), email: e.auth.nickname.clone(), token: e.auth.access_token.clone(), auth: e.auth.clone() } }
+fn picked(e: &Entry) -> PickedAccount { PickedAccount { uid: e.auth.uid.clone(), email: e.auth.nickname.clone(), token: e.auth.access_token.clone(), auth: e.auth.clone(), proxy_url: e.proxy_url.clone(), fingerprint_profile: e.fingerprint_profile.clone() } }
 fn weight(e: &Entry, now: i64, idle_per_hour: f64, idle_max: f64) -> f64 { let credit = e.credits.max(0) as f64; let idle = if e.last_used == 0 { idle_max } else { ((now - e.last_used) as f64 / 3600.0 * idle_per_hour).clamp(0.0, idle_max) }; let success = if e.success_count + e.err_total == 0 { 1.5 } else { e.success_count as f64 / (e.success_count + e.err_total) as f64 * 3.0 }; 1.0 + credit + idle + success }
 fn weighted_uid(items: &[(String, f64)]) -> Option<(String, f64)> { let total: f64 = items.iter().map(|(_, w)| *w).sum(); if total <= 0.0 { return items.first().cloned(); } let target = rand::thread_rng().gen_range(0.0..total); let mut sum = 0.0; for item in items { sum += item.1; if target < sum { return Some(item.clone()); } } items.last().cloned() }
 fn fallback(p: &mut PoolInner, now: i64) -> Option<PickedAccount> { let uid = p.entries.iter().filter(|(_, e)| !e.disabled && e.cool_kind != CoolKind::HardCredit && !full(e, p.max_in_flight) && e.until.max(e.breaker_until) > now).min_by_key(|(_, e)| e.until.max(e.breaker_until)).map(|(uid, _)| uid.clone())?; let e = p.entries.get_mut(&uid)?; e.last_used = now; Some(picked(e)) }
 fn breaker_failure(e: &mut Entry, threshold: i32, base: Duration, max: Duration) { e.breaker_fails += 1; if e.breaker_fails >= threshold { e.breaker_fails = 0; e.retry_count += 1; let d = base.checked_mul(1u32 << e.retry_count.saturating_sub(1).min(8)).unwrap_or(max).min(max); e.breaker_until = now_secs().saturating_add(d.as_secs() as i64); } }
-fn status(uid: &str, e: &Entry, now: i64) -> AccountStatus { let until = e.until.max(e.breaker_until); AccountStatus { uid: uid.into(), email: e.auth.nickname.clone(), nickname: e.auth.nickname.clone(), domain: e.auth.domain.clone(), healthy: healthy(e, now), disabled: e.disabled, cooling: until > now, cool_kind: (until > now).then(|| if e.breaker_until > e.until { "breaker".into() } else { e.cool_kind.as_str().into() }), cool_remaining_sec: (until > now).then_some(until - now), until: (until > now).then_some(until), reason: (!e.reason.is_empty()).then(|| e.reason.clone()), disabled_reason: e.disabled.then(|| e.reason.clone()), success_count: e.success_count, err_total: e.err_total, in_flight: e.in_flight.load(Ordering::Acquire), credits: e.credits, breaker_fails: e.breaker_fails, breaker_until: (e.breaker_until > now).then_some(e.breaker_until) } }
-fn persist_locked(p: &PoolInner) { if p.state_path.is_empty() { return; } let state = PersistedState { accounts: p.entries.iter().map(|(uid, e)| (uid.clone(), PersistedAccount { credits: e.credits, disabled: e.disabled, reason: e.reason.clone(), until: e.until, cool_kind: e.cool_kind, success_count: e.success_count, err_total: e.err_total, err_count: 0, last_success: e.last_success, last_err: e.last_error, soft_streak: e.soft_streak })).collect() }; if let Ok(raw) = serde_json::to_vec_pretty(&state) { let path = Path::new(&p.state_path); if let Some(parent) = path.parent() { let _ = fs::create_dir_all(parent); } let tmp = path.with_extension("tmp"); if fs::write(&tmp, raw).is_ok() { let _ = fs::rename(tmp, path); } } }
+fn status(uid: &str, e: &Entry, now: i64) -> AccountStatus { let until = e.until.max(e.breaker_until); AccountStatus { uid: uid.into(), email: e.auth.nickname.clone(), nickname: e.auth.nickname.clone(), domain: e.auth.domain.clone(), proxy_url: e.proxy_url.clone(), fingerprint_profile: e.fingerprint_profile.clone(), healthy: healthy(e, now), disabled: e.disabled, cooling: until > now, cool_kind: (until > now).then(|| if e.breaker_until > e.until { "breaker".into() } else { e.cool_kind.as_str().into() }), cool_remaining_sec: (until > now).then_some(until - now), until: (until > now).then_some(until), reason: (!e.reason.is_empty()).then(|| e.reason.clone()), disabled_reason: e.disabled.then(|| e.reason.clone()), success_count: e.success_count, err_total: e.err_total, in_flight: e.in_flight.load(Ordering::Acquire), credits: e.credits, breaker_fails: e.breaker_fails, breaker_until: (e.breaker_until > now).then_some(e.breaker_until) } }
+fn persist_locked(p: &PoolInner) { if p.state_path.is_empty() { return; } let state = PersistedState { accounts: p.entries.iter().map(|(uid, e)| (uid.clone(), PersistedAccount { credits: e.credits, disabled: e.disabled, reason: e.reason.clone(), until: e.until, cool_kind: e.cool_kind, success_count: e.success_count, err_total: e.err_total, err_count: 0, last_success: e.last_success, last_err: e.last_error, soft_streak: e.soft_streak, proxy_url: e.proxy_url.clone(), fingerprint_profile: e.fingerprint_profile.clone() })).collect() }; if let Ok(raw) = serde_json::to_vec_pretty(&state) { let path = Path::new(&p.state_path); if let Some(parent) = path.parent() { let _ = fs::create_dir_all(parent); } let tmp = path.with_extension("tmp"); if fs::write(&tmp, raw).is_ok() { let _ = fs::rename(tmp, path); } } }

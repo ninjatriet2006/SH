@@ -2,6 +2,7 @@
     "sidebar": {
         "dashboard": "Dashboard",
         "accounts": "Accounts",
+        "traffic": "Traffic Audit",
         "admin": "Admin Console",
         "scheduler": "Scheduler",
         "config": "Configuration",

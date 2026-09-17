@@ -2,6 +2,7 @@ pub mod gateway_state;
 pub mod resources;
 pub mod upstream;
 pub mod auth;
+pub mod audit;
 pub mod config;
 pub mod crypto;
 pub mod pool;

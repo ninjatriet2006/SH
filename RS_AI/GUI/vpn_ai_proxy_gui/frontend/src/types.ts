@@ -43,7 +43,8 @@ export interface RouteRule {
   target_base_url: string;
   tunnel_id: string;
   enabled: boolean;
-  strip_prefix?: boolean;
+  status?: "Active" | "Inactive" | "Unknown";
+  last_error?: string;
   key_manager: EndpointKeyManager;
   custom_auth_token?: string;
 }

@@ -1,12 +1,13 @@
 import { Routes, Route, NavLink } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { Users, Settings as SettingsIcon, Clock, Shield, Activity, LayoutDashboard } from 'lucide-react';
+import { Users, Settings as SettingsIcon, Clock, Shield, Activity, LayoutDashboard, Radio } from 'lucide-react';
 import { DashboardPage } from './pages/DashboardPage';
 import { AccountsPage } from './pages/AccountsPage';
 import { AdminPage } from './pages/AdminPage';
 import { ConfigPage } from './pages/ConfigPage';
 import { SchedulerPage } from './pages/SchedulerPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { TrafficLogsPage } from './pages/TrafficLogsPage';
 import { useSettingsStore } from './store/useSettingsStore';
 import { useThemeStore } from './store/useThemeStore';
 import { useFontStore } from './store/useFontStore';
@@ -58,6 +59,9 @@ function App() {
                 <NavLink to="/accounts" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                     <Users size={20} /> {t('sidebar.accounts')}
                 </NavLink>
+                <NavLink to="/traffic" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                    <Radio size={20} /> {t('sidebar.traffic')}
+                </NavLink>
                 <NavLink to="/admin" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                     <LayoutDashboard size={20} /> {t('sidebar.admin')}
                 </NavLink>
@@ -75,6 +79,7 @@ function App() {
                 <Routes>
                     <Route path="/" element={<DashboardPage />} />
                     <Route path="/accounts" element={<AccountsPage />} />
+                    <Route path="/traffic" element={<TrafficLogsPage />} />
                     <Route path="/admin" element={<AdminPage />} />
                     <Route path="/scheduler" element={<SchedulerPage />} />
                     <Route path="/config" element={<ConfigPage />} />

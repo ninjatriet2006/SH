@@ -60,6 +60,7 @@ pub fn run() {
             api::accounts::remove_account,
             api::accounts::disable_account,
             api::accounts::enable_account,
+            api::accounts::update_account_routing,
             // ==================
             // ACCESS KEYS API
             // ==================
@@ -71,6 +72,11 @@ pub fn run() {
             // ==================
             api::usage::list_usage_logs,
             api::usage::get_usage_summary,
+            // ==================
+            // AUDIT LOG API
+            // ==================
+            api::audit_api::get_traffic_logs,
+            api::audit_api::clear_traffic_logs,
             // ==================
             // CONFIG API
             // ==================

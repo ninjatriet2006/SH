@@ -86,7 +86,8 @@ pub fn start_gateway(
         }
     }
     let storage = runtime.storage().ok();
-    let app_state = Arc::new(AppState { config: config.clone(), pool, session: session::SessionRouter::new(session_cfg), prompt_mode, degrade: crate::core::server::DegradeGate::new(), shutdown_tx: shutdown_tx.clone(), metrics: gateway.metrics.clone(), dynamic_models, storage });
+    let audit = runtime.audit.clone();
+    let app_state = Arc::new(AppState { config: config.clone(), pool, session: session::SessionRouter::new(session_cfg), prompt_mode, degrade: crate::core::server::DegradeGate::new(), shutdown_tx: shutdown_tx.clone(), metrics: gateway.metrics.clone(), dynamic_models, storage, audit });
     let task = tauri::async_runtime::block_on(start_server(app_state)).map_err(|e| { info.status = crate::core::gateway_state::GatewayStatus::Error; info.error = Some(e.to_string()); IpcError::new(IpcErrorCode::Unavailable, e.to_string()) })?;
     *gateway.server_task.lock().map_err(|_| IpcError::new(IpcErrorCode::Internal, "State lock poisoned"))? = Some(task);
     gateway.shutdown_tx.send(true).ok();

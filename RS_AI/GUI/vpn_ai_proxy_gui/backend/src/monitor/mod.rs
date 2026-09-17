@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use crate::fingerprint::LeakFinding;
@@ -27,7 +28,9 @@ pub fn get_traffic_log_path() -> PathBuf {
     get_logs_dir().join("traffic_log.jsonl")
 }
 
-/// Ghi một bản ghi RawTrafficLog xuống file disk log (JSONL) kèm cơ chế xoay vòng (rotation)
+/// Ghi một bản ghi RawTrafficLog xuống file disk log (JSONL) kèm cơ chế xoay vòng (rotation).
+/// Rotation check KHÔNG chạy mỗi request (đọc cả file rất tốn kém) mà chỉ mỗi
+/// ROTATE_CHECK_EVERY lần append — đủ để giữ giới hạn với chi phí O(1) amortized.
 pub fn append_disk_log(log_path: &Path, log: &RawTrafficLog, max_disk_entries: usize) -> std::io::Result<()> {
     if let Some(parent) = log_path.parent() {
         create_dir_all(parent)?;
@@ -45,7 +48,12 @@ pub fn append_disk_log(log_path: &Path, log: &RawTrafficLog, max_disk_entries: u
     }
 
     if max_disk_entries > 0 {
-        rotate_disk_log_if_needed(log_path, max_disk_entries)?;
+        static APPEND_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        const ROTATE_CHECK_EVERY: usize = 64;
+        let n = APPEND_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if n % ROTATE_CHECK_EVERY == 0 {
+            rotate_disk_log_if_needed(log_path, max_disk_entries)?;
+        }
     }
 
     Ok(())
@@ -112,21 +120,21 @@ pub struct RawTrafficLog {
 }
 
 pub struct RingBufferLog {
-    max_entries: usize,
+    max_entries: AtomicUsize,
     entries: RwLock<VecDeque<RawTrafficLog>>,
 }
 
 impl RingBufferLog {
     pub fn new(max_entries: usize) -> Self {
         Self {
-            max_entries,
+            max_entries: AtomicUsize::new(max_entries),
             entries: RwLock::new(VecDeque::with_capacity(max_entries)),
         }
     }
 
     pub fn push(&self, log: RawTrafficLog) {
         let mut queue = self.entries.write();
-        if queue.len() >= self.max_entries {
+        if queue.len() >= self.max_entries.load(Ordering::Relaxed) {
             queue.pop_front(); // Tự động dọn dẹp ghi đè bản ghi cũ nhất
         }
         queue.push_back(log);
@@ -140,6 +148,16 @@ impl RingBufferLog {
     pub fn clear(&self) {
         let mut queue = self.entries.write();
         queue.clear();
+    }
+
+    /// Đổi giới hạn entries lúc runtime (khi user đổi max_log_entries trong Settings).
+    /// Trước đây setting này là no-op cho tới khi restart app vì capacity chỉ set ở new().
+    pub fn set_max_entries(&self, max_entries: usize) {
+        self.max_entries.store(max_entries, Ordering::Relaxed);
+        let mut queue = self.entries.write();
+        while queue.len() > max_entries {
+            queue.pop_front();
+        }
     }
 
     pub fn count(&self) -> usize {

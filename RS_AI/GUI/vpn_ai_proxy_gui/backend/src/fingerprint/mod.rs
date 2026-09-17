@@ -1,5 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::LazyLock;
+
+/// Regex phát hiện path local — biên dịch 1 lần, dùng chung mọi request
+/// (trước đây `Regex::new()` chạy mỗi request: tốn CPU).
+static LOCAL_PATH_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(/home/[a-zA-Z0-9_-]+|[A-Za-z]:\\[a-zA-Z0-9_\\]+)")
+        .expect("LOCAL_PATH_REGEX must compile")
+});
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LeakFinding {
@@ -38,30 +46,8 @@ impl Default for FingerprintProfile {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct FingerprintPool {
-    pub profiles: Vec<FingerprintProfile>,
-    pub active_index: usize,
-}
-
-impl FingerprintPool {
-    pub fn get_active_profile(&self) -> Option<FingerprintProfile> {
-        if self.profiles.is_empty() {
-            None
-        } else {
-            Some(self.profiles[self.active_index % self.profiles.len()].clone())
-        }
-    }
-
-    pub fn rotate_next(&mut self) -> Option<FingerprintProfile> {
-        if self.profiles.is_empty() {
-            None
-        } else {
-            self.active_index = (self.active_index + 1) % self.profiles.len();
-            Some(self.profiles[self.active_index].clone())
-        }
-    }
-}
+// NOTE: struct FingerprintPool cũ đã xóa — GatewayConfig dùng trực tiếp
+// `fingerprint_pool: Vec<FingerprintProfile>` + `active_fingerprint_index`.
 
 pub struct FingerprintAnalyzer;
 
@@ -152,8 +138,7 @@ impl FingerprintAnalyzer {
 
         // 5. Body Inspection: check for local filesystem paths
         if let Some(body) = body_sample {
-            let path_regex = regex::Regex::new(r"(/home/[a-zA-Z0-9_-]+|[A-Za-z]:\\[a-zA-Z0-9_\\]+)").unwrap();
-            if let Some(mat) = path_regex.find(body) {
+            if let Some(mat) = LOCAL_PATH_REGEX.find(body) {
                 findings.push(LeakFinding {
                     category: "path_leak".to_string(),
                     field: "Body: Prompt/Payload".to_string(),

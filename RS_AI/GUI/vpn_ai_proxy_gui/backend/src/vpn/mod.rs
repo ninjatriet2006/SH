@@ -30,6 +30,9 @@ pub fn default_concurrency_limit() -> usize {
     0
 }
 
+/// Timeout mặc định cho lệnh CLI tunnel — chống deadlock khi tiến trình con bị kẹt (VD: prompt Y/N).
+pub const TUNNEL_CMD_TIMEOUT_SECS: u64 = 30;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutboundTunnel {
     pub id: String,
@@ -181,31 +184,119 @@ impl TunnelManager {
         }
     }
 
-    /// Chạy lệnh khởi động hoặc dừng tiến trình VPN
-    pub fn run_tunnel_command(cmd_str: &str) -> Result<String, String> {
+    /// Trích xuất địa chỉ IP:Port từ endpoint (bỏ qua scheme/path) để làm pre-flight port check.
+    /// Hỗ trợ cả hostname (VD: localhost:1080) qua ToSocketAddrs — trước đây parse thất bại
+    /// là bỏ qua check trong im lặng, tạo lỗ hổng cho trường hợp cổng bị chiếm.
+    pub fn endpoint_addr(endpoint: &str) -> Option<std::net::SocketAddr> {
+        use std::net::ToSocketAddrs;
+        let clean = endpoint
+            .trim_start_matches("socks5://")
+            .trim_start_matches("socks5h://")
+            .trim_start_matches("http://")
+            .trim_start_matches("https://");
+        let host_port = clean.split('/').next().unwrap_or(clean);
+        if host_port.is_empty() {
+            return None;
+        }
+        if let Ok(addr) = host_port.parse::<std::net::SocketAddr>() {
+            return Some(addr);
+        }
+        host_port.to_socket_addrs().ok()?.next()
+    }
+
+    /// Chọn tunnel khỏe nhất cho route: ưu tiên tunnel được gán nếu enabled & không Offline,
+    /// ngược lại failover sang tunnel enabled khác (ưu tiên Online trước Unknown).
+    /// Trả None khi không còn tunnel nào dùng được (caller sẽ báo 503).
+    pub fn select_healthy_tunnel_id(tunnels: &[OutboundTunnel], assigned_id: &str) -> Option<String> {
+        if assigned_id == "direct_bypass" {
+            return Some("direct_bypass".to_string());
+        }
+        let is_usable = |t: &&OutboundTunnel| t.enabled && t.status != TunnelStatus::Offline;
+        if let Some(t) = tunnels
+            .iter()
+            .find(|t| t.id == assigned_id)
+            .filter(|t| is_usable(t))
+        {
+            return Some(t.id.clone());
+        }
+        tunnels
+            .iter()
+            .filter(is_usable)
+            .max_by_key(|t| match t.status {
+                TunnelStatus::Online => 2,
+                TunnelStatus::Unknown => 1,
+                TunnelStatus::Offline => 0,
+            })
+            .map(|t| t.id.clone())
+    }
+
+    // NOTE: bản sync cũ (std::process::Command, block vô thời hạn) đã xóa —
+    // toàn bộ production dùng run_tunnel_command_timeout bên dưới.
+
+    /// Chạy lệnh CLI với timeout — chống deadlock khi tiến trình con bị kẹt (VD: VPN prompt hỏi Y/N
+    /// làm treo thread vô thời hạn). Hết timeout sẽ kill tiến trình con để tránh orphan process giữ cổng.
+    pub async fn run_tunnel_command_timeout(cmd_str: &str, timeout_secs: u64) -> Result<String, String> {
         let trimmed = cmd_str.trim();
         if trimmed.is_empty() {
             return Err("Command is empty".to_string());
         }
 
         #[cfg(target_os = "windows")]
-        let output = std::process::Command::new("cmd")
+        let mut child = tokio::process::Command::new("cmd")
             .args(["/C", trimmed])
-            .output()
-            .map_err(|e| format!("Failed to run command: {}", e))?;
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Failed to spawn command: {}", e))?;
 
         #[cfg(not(target_os = "windows"))]
-        let output = std::process::Command::new("sh")
+        let mut child = tokio::process::Command::new("sh")
             .args(["-c", trimmed])
-            .output()
-            .map_err(|e| format!("Failed to run command: {}", e))?;
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Failed to spawn command: {}", e))?;
 
-        if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-            Ok(stdout)
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            Err(format!("Command failed with status {}: {}", output.status, stderr))
+        // Tách pipe ra trước để đọc sau khi tiến trình thoát (tránh move child vào wait_with_output)
+        let mut stdout = child.stdout.take();
+        let mut stderr = child.stderr.take();
+
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(timeout_secs),
+            child.wait(),
+        )
+        .await
+        {
+            Ok(Ok(status)) => {
+                // Tiến trình đã thoát — đọc nốt stdout/stderr còn lại trong pipe
+                use tokio::io::AsyncReadExt;
+                let mut out_buf = Vec::new();
+                let mut err_buf = Vec::new();
+                if let Some(mut out) = stdout.take() {
+                    let _ = out.read_to_end(&mut out_buf).await;
+                }
+                if let Some(mut err_pipe) = stderr.take() {
+                    let _ = err_pipe.read_to_end(&mut err_buf).await;
+                }
+                if status.success() {
+                    Ok(String::from_utf8_lossy(&out_buf).to_string())
+                } else {
+                    Err(format!(
+                        "Command failed with status {}: {}",
+                        status,
+                        String::from_utf8_lossy(&err_buf)
+                    ))
+                }
+            }
+            Ok(Err(e)) => Err(format!("Failed to wait for command: {}", e)),
+            Err(_) => {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                Err(format!(
+                    "Command timed out after {}s and was killed: {}",
+                    timeout_secs, trimmed
+                ))
+            }
         }
     }
 }

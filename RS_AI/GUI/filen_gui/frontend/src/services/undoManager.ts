@@ -1,5 +1,18 @@
 import { logActivity } from '../store';
-import { rename, remove, copy, move, cpLocal, moveLocal } from './fileOps';
+
+/**
+ * File-operation facade được inject từ tầng bootstrap (main.ts).
+ * undoManager KHÔNG import trực tiếp fileOps để tránh circular import
+ * fileOps ⇄ undoManager — xem TODO filen_gui_circular_import_todo.
+ */
+export interface UndoFileOps {
+  rename(path: string, newName: string, account?: string): Promise<void>;
+  remove(path: string, account?: string): Promise<void>;
+  copy(src: string, dest: string, account?: string): Promise<void>;
+  move(src: string, dest: string, account?: string): Promise<void>;
+  cpLocal(from: string, to: string, overwrite?: boolean): Promise<void>;
+  moveLocal(from: string, to: string): Promise<void>;
+}
 
 export type UndoActionType = 'rename' | 'copy' | 'move' | 'delete';
 
@@ -14,6 +27,12 @@ export interface UndoAction {
 class UndoManager {
   private undoStack: UndoAction[] = [];
   private redoStack: UndoAction[] = [];
+  private ops?: UndoFileOps;
+
+  /** Inject file-ops từ bootstrap (main.ts). Phải gọi trước khi undo/redo lần đầu. */
+  public setFileOps(ops: UndoFileOps) {
+    this.ops = ops;
+  }
 
   /** Record a completed action so it can be undone later */
   public push(action: UndoAction) {
@@ -40,19 +59,25 @@ class UndoManager {
       logActivity('Undo', 'Không có thao tác nào để hoàn tác.');
       return;
     }
+    if (!this.ops) {
+      logActivity('Lỗi Hoàn tác', 'UndoManager chưa được khởi tạo file-ops.');
+      this.undoStack.push(action);
+      return;
+    }
+    const ops = this.ops;
 
     try {
       switch (action.type) {
         case 'rename':
           // Undo rename: rename dest back to src
-          await rename(action.dest, this.basename(action.src), action.account);
+          await ops.rename(action.dest, this.basename(action.src), action.account);
           break;
         case 'copy':
           // Undo copy: delete the destination file
           if (!confirm(`Xoá ${this.basename(action.dest)} để hoàn tác thao tác sao chép?`)) {
             throw new Error('Đã huỷ hoàn tác sao chép.');
           }
-          await remove(action.dest, action.account);
+          await ops.remove(action.dest, action.account);
           break;
         case 'move':
           // Undo move: move the destination back to the source
@@ -60,9 +85,9 @@ class UndoManager {
             throw new Error('Đã huỷ hoàn tác di chuyển.');
           }
           if (action.isLocal) {
-            await moveLocal(action.dest, action.src);
+            await ops.moveLocal(action.dest, action.src);
           } else {
-            await move(action.dest, action.src, action.account);
+            await ops.move(action.dest, action.src, action.account);
           }
           break;
         case 'delete':
@@ -84,6 +109,12 @@ class UndoManager {
       logActivity('Redo', 'Không có thao tác nào để làm lại.');
       return;
     }
+    if (!this.ops) {
+      logActivity('Lỗi Làm lại', 'UndoManager chưa được khởi tạo file-ops.');
+      this.redoStack.push(action);
+      return;
+    }
+    const ops = this.ops;
 
     try {
       switch (action.type) {
@@ -91,16 +122,16 @@ class UndoManager {
           if (!confirm(`Thực hiện lại việc đổi tên ${this.basename(action.src)}?`)) {
             throw new Error('Đã huỷ làm lại thao tác đổi tên.');
           }
-          await rename(action.src, this.basename(action.dest), action.account);
+          await ops.rename(action.src, this.basename(action.dest), action.account);
           break;
         case 'copy':
           if (!confirm(`Thực hiện lại việc sao chép ${this.basename(action.src)}?`)) {
             throw new Error('Đã huỷ làm lại thao tác sao chép.');
           }
           if (action.isLocal) {
-            await cpLocal(action.src, action.dest, true);
+            await ops.cpLocal(action.src, action.dest, true);
           } else {
-            await copy(action.src, action.dest, action.account);
+            await ops.copy(action.src, action.dest, action.account);
           }
           break;
         case 'move':
@@ -108,16 +139,16 @@ class UndoManager {
             throw new Error('Đã huỷ làm lại thao tác di chuyển.');
           }
           if (action.isLocal) {
-            await moveLocal(action.src, action.dest);
+            await ops.moveLocal(action.src, action.dest);
           } else {
-            await move(action.src, action.dest, action.account);
+            await ops.move(action.src, action.dest, action.account);
           }
           break;
         case 'delete':
           if (!confirm(`Xoá lại ${this.basename(action.src)}?`)) {
             throw new Error('Đã huỷ làm lại thao tác xoá.');
           }
-          await remove(action.src, action.account);
+          await ops.remove(action.src, action.account);
           break;
       }
       this.undoStack.push(action);

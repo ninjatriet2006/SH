@@ -21,6 +21,19 @@ use crate::monitor::{RawTrafficLog, RingBufferLog};
 use crate::proxy::key_manager::EndpointKeyManager;
 use crate::vpn::{OutboundTunnel, TunnelManager};
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum RouteStatus {
+    Active,
+    Inactive,
+    Unknown,
+}
+
+impl Default for RouteStatus {
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RouteRule {
     pub id: String,
@@ -31,16 +44,22 @@ pub struct RouteRule {
     pub tunnel_id: String,       // Gán với OutboundTunnel ID nào (AdGuard SOCKS, WireGuard, Direct...)
     pub enabled: bool,
     #[serde(default)]
-    pub strip_prefix: bool,
+    pub status: RouteStatus,
+    #[serde(default)]
+    pub last_error: Option<String>,
     pub key_manager: EndpointKeyManager, // Quản lý file key riêng biệt cho endpoint này
     pub custom_auth_token: Option<String>,
 }
 
+// NOTE: field `strip_prefix` cũ đã xóa — build_target_url luôn strip prefix theo
+// ranh giới segment (prefix_matches), không còn cấu hình nào đọc field đó.
+
 /// Giới hạn độ dài chuỗi body lưu trong RAM buffer để chống OOM
 pub fn truncate_log_body(body: &str, max_chars: usize) -> String {
-    if body.chars().count() > max_chars {
+    let total_chars = body.chars().count();
+    if total_chars > max_chars {
         let truncated: String = body.chars().take(max_chars).collect();
-        format!("{}... [Truncated {} chars]", truncated, body.len())
+        format!("{}... [Truncated {} chars]", truncated, total_chars - max_chars)
     } else {
         body.to_string()
     }
@@ -77,6 +96,18 @@ pub fn format_logged_body(resp_bytes: &[u8], headers: &reqwest::header::HeaderMa
     truncate_log_body(&text, 2048)
 }
 
+/// So khớp prefix theo ranh giới segment: "/v1" khớp "/v1/models" nhưng KHÔNG khớp "/v1beta/x".
+/// Dùng cho cả route matching và strip prefix để tránh nuốt nhầm route.
+pub fn prefix_matches(path: &str, prefix: &str) -> bool {
+    if prefix == "/" || prefix.is_empty() {
+        return true;
+    }
+    if !path.starts_with(prefix) {
+        return false;
+    }
+    matches!(path.as_bytes().get(prefix.len()), None | Some(b'/'))
+}
+
 /// Xây dựng URL đích thông minh (Auto-detect + Overlap Failsafe):
 /// Cắt bỏ `path_prefix` tương ứng nếu request path bắt đầu bằng prefix đó.
 /// Nếu segment cuối của `target_base_url` trùng với segment đầu của phần sub_path còn lại,
@@ -85,7 +116,10 @@ pub fn build_target_url(target_base_url: &str, path_prefix: &str, req_path: &str
     let clean_base = target_base_url.trim_end_matches('/');
     let clean_prefix = if path_prefix == "/" { "" } else { path_prefix.trim_end_matches('/') };
     
-    let sub_path = if !clean_prefix.is_empty() && req_path.starts_with(clean_prefix) {
+    let sub_path = if !clean_prefix.is_empty()
+        && (req_path == clean_prefix
+            || req_path.as_bytes().get(clean_prefix.len()) == Some(&b'/'))
+    {
         &req_path[clean_prefix.len()..]
     } else {
         req_path
@@ -241,6 +275,7 @@ pub struct AppState {
     pub logs: Arc<RingBufferLog>,
     pub client_cache: parking_lot::RwLock<HashMap<String, reqwest::Client>>,
     pub tunnel_semaphores: parking_lot::RwLock<HashMap<String, Arc<tokio::sync::Semaphore>>>,
+    pub app_handle: parking_lot::RwLock<Option<tauri::AppHandle>>,
 }
 
 impl AppState {
@@ -265,6 +300,7 @@ impl AppState {
             logs,
             client_cache: parking_lot::RwLock::new(client_cache),
             tunnel_semaphores: parking_lot::RwLock::new(tunnel_semaphores),
+            app_handle: parking_lot::RwLock::new(None),
         }
     }
 
@@ -333,8 +369,12 @@ impl AppState {
             conf.max_disk_log_entries
         };
         let log_path = crate::monitor::get_traffic_log_path();
-        let _ = crate::monitor::append_disk_log(&log_path, &log, max_disk);
-        self.logs.push(log);
+        self.logs.push(log.clone());
+        // Chạy I/O ghi file disk trong background thread pool (spawn_blocking)
+        // để không bao giờ block tokio worker thread của async HTTP request path
+        tokio::task::spawn_blocking(move || {
+            let _ = crate::monitor::append_disk_log(&log_path, &log, max_disk);
+        });
     }
 }
 
@@ -353,54 +393,52 @@ pub async fn handle_route_request(
     let query = uri.query().map(|q| format!("?{}", q)).unwrap_or_default();
 
     // Match route based on (port, path_prefix)
+    // Ưu tiên path_prefix DÀI NHẤT khớp được: nếu route "/" khai báo trước route "/v1",
+    // dùng find() sẽ match "/" và đẩy request /v1/* sai target.
+    // Khớp theo ranh giới segment (prefix_matches) để "/v1" không nuốt "/v1beta".
+    // Dùng write-lock (block này không có .await nên an toàn): cho phép refresh key cache
+    // từ đĩa ngay trong request, key sửa ngoài file có hiệu lực tức thì thay vì stale.
     let (route_id, target_url, tunnel_id, resolved_key, profile, max_streams) = {
-        let conf = state.config.read();
-        let matched = conf.routes.iter().find(|r| {
-            r.enabled && r.port == port && path.starts_with(&r.path_prefix)
-        });
+        let mut conf = state.config.write();
+        let matched = conf
+            .routes
+            .iter_mut()
+            .filter(|r| r.enabled && r.port == port && prefix_matches(&path, &r.path_prefix))
+            .max_by_key(|r| r.path_prefix.len());
 
         match matched {
             Some(rule) => {
-                // Kiểm tra xem tunnel gán với route có tồn tại và đang enabled không
-                let tunnel_opt = conf.tunnels.iter().find(|t| t.id == rule.tunnel_id);
-                if let Some(t) = tunnel_opt {
-                    if !t.enabled {
-                        return Response::builder()
-                            .status(StatusCode::SERVICE_UNAVAILABLE)
-                            .body(Body::from(format!(
-                                "Assigned tunnel [{}] is disabled. Please enable it in Tunnels tab.",
-                                rule.tunnel_id
-                            )))
-                            .unwrap();
-                    }
-                    if t.status == crate::vpn::TunnelStatus::Offline {
-                        return Response::builder()
-                            .status(StatusCode::SERVICE_UNAVAILABLE)
-                            .body(Body::from(format!(
-                                "Assigned tunnel [{}] is Offline (reason: {}). Please check VPN connection.",
-                                rule.tunnel_id,
-                                t.last_error.as_deref().unwrap_or("Proxy unreachable")
-                            )))
-                            .unwrap();
-                    }
-                } else if rule.tunnel_id != "direct_bypass" {
-                    return Response::builder()
-                        .status(StatusCode::SERVICE_UNAVAILABLE)
-                        .body(Body::from(format!(
-                            "Assigned tunnel [{}] not found.",
-                            rule.tunnel_id
-                        )))
-                        .unwrap();
-                }
+                // Clone dữ liệu cần thiết ra trước để nhả borrow &mut rule,
+                // cho phép đọc conf.tunnels / fingerprint ngay sau đó.
+                let rule_id = rule.id.clone();
+                let rule_target = rule.target_base_url.clone();
+                let rule_prefix = rule.path_prefix.clone();
+                let rule_tunnel = rule.tunnel_id.clone();
+                let rule_auth = rule.custom_auth_token.clone();
+                let key = rule.key_manager.resolve_active_key().or_else(|| rule_auth);
 
-                let max_streams = tunnel_opt.map(|t| t.max_concurrent_streams).unwrap_or(0);
-                let full = build_target_url(&rule.target_base_url, &rule.path_prefix, &path, &query);
-                let key = rule.key_manager.get_active_key().or_else(|| rule.custom_auth_token.clone());
+                // Failover chọn tunnel: tunnel được gán mà bị tắt/rớt/không tồn tại
+                // → tự động nhảy sang tunnel khỏe nhất còn lại trong pool thay vì 503 chết đứng.
+                let selected_id = match TunnelManager::select_healthy_tunnel_id(&conf.tunnels, &rule_tunnel) {
+                    Some(id) => id,
+                    None => {
+                        return Response::builder()
+                            .status(StatusCode::SERVICE_UNAVAILABLE)
+                            .body(Body::from(format!(
+                                "No healthy tunnel available: assigned tunnel [{}] is disabled/offline and no other enabled tunnel exists.",
+                                rule_tunnel
+                            )))
+                            .unwrap();
+                    }
+                };
+
+                let max_streams = conf.tunnels.iter().find(|t| t.id == selected_id).map(|t| t.max_concurrent_streams).unwrap_or(0);
+                let full = build_target_url(&rule_target, &rule_prefix, &path, &query);
 
                 (
-                    rule.id.clone(),
+                    rule_id,
                     full,
-                    rule.tunnel_id.clone(),
+                    selected_id,
                     key,
                     conf.get_active_fingerprint(),
                     max_streams,
@@ -584,11 +622,14 @@ pub async fn handle_route_request(
                     chunk_res
                 });
 
-                // Wrap stream drop or completion to update log
+                // Wrap stream drop or completion to update log.
+                // Giữ semaphore permit trong guard: với SSE, body truyền SAU khi handler return,
+                // nếu permit drop ở cuối hàm thì giới hạn concurrency vô hiệu với streaming.
                 struct StreamGuard {
                     req_id: String,
                     accumulated: Arc<parking_lot::Mutex<Vec<u8>>>,
                     state: Arc<AppState>,
+                    _permit: Option<tokio::sync::OwnedSemaphorePermit>,
                 }
                 impl Drop for StreamGuard {
                     fn drop(&mut self) {
@@ -603,11 +644,12 @@ pub async fn handle_route_request(
                     }
                 }
 
-                let guard = Arc::new(StreamGuard {
+                let guard = StreamGuard {
                     req_id: req_id_clone,
                     accumulated,
                     state: state_clone,
-                });
+                    _permit,
+                };
 
                 let guarded_stream = teed_stream.map(move |item| {
                     let _g = &guard;
@@ -672,29 +714,46 @@ pub async fn handle_route_request(
                 // Xử lý vòng đời key (Feature Key Filtering):
                 // - 401 Unauthorized: key sai/thu hồi -> tự động xóa vĩnh viễn khỏi file chính
                 // - 403 Forbidden: key hết quota -> chuyển sang file failed_key_file_path
+                let mut key_was_removed = false;
                 if let Some(ref key_used) = resolved_key {
                     if status_code == 401 {
                         let mut conf = state.config.write();
                         if let Some(r) = conf.routes.iter_mut().find(|r| r.id == route_id) {
-                            let _ = r.key_manager.remove_key_from_main_file(key_used);
+                            if let Ok(removed) = r.key_manager.remove_key_from_main_file(key_used) {
+                                key_was_removed = removed;
+                            }
                             let _ = conf.save_to_disk();
                         }
                     } else if status_code == 403 {
                         let mut conf = state.config.write();
                         if let Some(r) = conf.routes.iter_mut().find(|r| r.id == route_id) {
-                            let _ = r.key_manager.move_key_to_failed_file(key_used);
+                            if let Ok(removed) = r.key_manager.move_key_to_failed_file(key_used) {
+                                key_was_removed = removed;
+                            }
                             let _ = conf.save_to_disk();
+                        }
+                    }
+
+                    // Phát sóng sự kiện IPC báo cho Frontend cập nhật UI Real-time nếu danh sách Key có biến động
+                    if key_was_removed {
+                        if let Some(ref handle) = *state.app_handle.read() {
+                            use tauri::Emitter;
+                            let _ = handle.emit("route-keys-updated", serde_json::json!({ "route_id": route_id }));
                         }
                     }
                 }
 
+                // CRITICAL: Đổi Key đồng nghĩa với việc đổi Account. Bắt buộc phải xoay đồng bộ cả Fingerprint và Tunnel (IP VPN) để tạo một Identity hoàn toàn mới. Nếu không, hệ thống Anti-fraud của AI (OpenAI/Anthropic) sẽ truy vết được IP cũ và Shadowban toàn bộ pool keys!
                 // Unified Session Rotation on 401/403: Rotate key, rotate tunnel (if multiple enabled tunnels exist), rotate fingerprint profile
                 if status_code == 401 || status_code == 403 {
                     let mut conf = state.config.write();
                     let enabled_tunnel_ids: Vec<String> = conf.tunnels.iter().filter(|t| t.enabled).map(|t| t.id.clone()).collect();
-                    // 1. Advance route key
+                    // 1. Advance route key:
+                    // TUYỆT ĐỐI KHÔNG gọi advance_to_next_key() nếu key đã bị xóa (key kế tiếp đã tự động trượt vào slot hiện tại)
                     if let Some(r) = conf.routes.iter_mut().find(|r| r.id == route_id) {
-                        r.key_manager.advance_to_next_key();
+                        if !key_was_removed {
+                            r.key_manager.advance_to_next_key();
+                        }
                         // Also switch assigned tunnel if there are other enabled tunnels
                         if enabled_tunnel_ids.len() > 1 {
                             if let Some(curr_idx) = enabled_tunnel_ids.iter().position(|id| id == &r.tunnel_id) {
@@ -715,6 +774,22 @@ pub async fn handle_route_request(
         }
         Err(err) => {
             let err_msg = format!("Tunnel [{}] upstream connection error: {}", tunnel_id, err);
+
+            // Failover bền vững: đánh dấu tunnel rớt mạng để request kế tiếp tự nhảy
+            // sang tunnel khỏe (selection-time failover), đồng thời báo UI cập nhật.
+            {
+                let mut conf = state.config.write();
+                if let Some(t) = conf.tunnels.iter_mut().find(|t| t.id == tunnel_id) {
+                    t.status = crate::vpn::TunnelStatus::Offline;
+                    t.last_checked_at = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+                    t.last_error = Some(format!("Upstream connection error: {}", err));
+                    let _ = conf.save_to_disk();
+                }
+            }
+            if let Some(ref handle) = *state.app_handle.read() {
+                use tauri::Emitter;
+                let _ = handle.emit("tunnel-status-changed", serde_json::json!({ "tunnel_id": tunnel_id, "success": false }));
+            }
 
             state.record_log(RawTrafficLog {
                 id: req_id,

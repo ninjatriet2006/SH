@@ -34,6 +34,7 @@ pub struct Client {
     pub sanitize_fingerprints: bool,
     pub user_agent: String,
     pub realm: String,
+    pub custom_headers: HashMap<String, String>,
 }
 
 pub type UpstreamClient = Client;
@@ -57,6 +58,7 @@ impl Client {
             sanitize_fingerprints: true,
             user_agent: String::new(),
             realm: realms::REALM_CN.to_string(),
+            custom_headers: HashMap::new(),
         }
     }
 
@@ -188,14 +190,18 @@ impl Client {
         Ok(())
     }
 
-    /// Send chat SSE request. Returns (reader, status) on success,
+    /// Send chat SSE request. Returns (reader, status, final_headers) on success,
     /// or (status, raw_body, error) on failure.
     pub fn chat_stream(
         &self, auth: &Auth, body: &[u8],
-    ) -> Result<(Box<dyn Read + Send + Sync>, u16), (u16, Vec<u8>, UpstreamError)> {
+    ) -> Result<(Box<dyn Read + Send + Sync>, u16, Vec<(String, String)>), (u16, Vec<u8>, UpstreamError)> {
         let url = format!("{}/v2/chat/completions", self.chat_base(auth));
         let prepared = self.prepare_body(body);
-        let hdrs = headers::chat_headers(auth, self.ua());
+        let mut hdrs = headers::chat_headers(auth, self.ua());
+        for (k, v) in &self.custom_headers {
+            hdrs.pairs_mut().push((k.clone(), v.clone()));
+        }
+        let sent_headers: Vec<(String, String)> = hdrs.iter().cloned().collect();
         let mut req = self.chat_agent.post(&url);
         for (k, v) in hdrs.iter() {
             req = req.set(k.as_str(), v.as_str());
@@ -214,7 +220,7 @@ impl Client {
                 auth.uid, status, kind, errors::truncate_str(&body_str, 200));
             return Err((status, raw, UpstreamError::new(kind, status, "upstream error")));
         }
-        Ok((Box::new(resp.into_reader()), status))
+        Ok((Box::new(resp.into_reader()), status, sent_headers))
     }
 
     pub fn fetch_models(&self, auth: &Auth) -> Result<Vec<ModelInfo>, UpstreamError> {

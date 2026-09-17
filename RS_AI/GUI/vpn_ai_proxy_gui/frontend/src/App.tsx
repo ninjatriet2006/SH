@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { AlertTriangle, X } from "lucide-react";
 import {
   GatewayConfig,
   OutboundTunnel,
   RouteRule,
   RawTrafficLog,
-  TunnelTestResult,
 } from "./types";
 import { Sidebar } from "./components/Sidebar";
 import { TrafficTab } from "./components/TrafficTab";
@@ -20,16 +21,25 @@ export function App() {
   const [config, setConfig] = useState<GatewayConfig | null>(null);
   const [trafficLogs, setTrafficLogs] = useState<RawTrafficLog[]>([]);
   const [selectedLog, setSelectedLog] = useState<RawTrafficLog | null>(null);
-  const [testingTunnelId, setTestingTunnelId] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<Record<string, TunnelTestResult>>({});
 
   const [editingTunnel, setEditingTunnel] = useState<OutboundTunnel | null>(null);
   const [editingRoute, setEditingRoute] = useState<RouteRule | null>(null);
+  const [activeCliTunnelId, setActiveCliTunnelId] = useState<string | null>(null);
+  const [bindError, setBindError] = useState<{ port: number; error: string } | null>(null);
 
   const fetchConfig = useCallback(async () => {
     try {
       const cfg = await invoke<GatewayConfig>("get_config");
       setConfig(cfg);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const fetchActiveCliTunnel = useCallback(async () => {
+    try {
+      const id = await invoke<string | null>("get_active_cli_tunnel");
+      setActiveCliTunnelId(id);
     } catch (e) {
       console.error(e);
     }
@@ -47,11 +57,41 @@ export function App() {
   useEffect(() => {
     fetchConfig();
     fetchTraffic();
+    fetchActiveCliTunnel();
     const interval = setInterval(() => {
-      fetchTraffic();
+      // Chỉ poll traffic khi user đang mở tab traffic để tiết kiệm IPC serialization
+      if (activeTab === "traffic") {
+        fetchTraffic();
+      }
+      fetchActiveCliTunnel();
     }, 1500);
-    return () => clearInterval(interval);
-  }, [fetchConfig, fetchTraffic]);
+
+    const unlistenPromise = listen<{ port: number; error: string }>(
+      "endpoint-bind-error",
+      async (event) => {
+        const { port, error } = event.payload;
+        setBindError({ port, error });
+        fetchConfig(); // Reload config to get the updated status and last_error
+      }
+    );
+
+    // Lắng nghe sự kiện cập nhật Key Real-time khi key bị xóa do 401/403
+    const unlistenKeysPromise = listen("route-keys-updated", () => {
+      fetchConfig();
+    });
+
+    // Lắng nghe sự kiện định kỳ kiểm tra sức khỏe Tunnel (Proactive VPN check)
+    const unlistenTunnelPromise = listen("tunnel-status-changed", () => {
+      fetchConfig();
+    });
+
+    return () => {
+      clearInterval(interval);
+      unlistenPromise.then((unlisten) => unlisten());
+      unlistenKeysPromise.then((unlisten) => unlisten());
+      unlistenTunnelPromise.then((unlisten) => unlisten());
+    };
+  }, [fetchConfig, fetchTraffic, fetchActiveCliTunnel, activeTab]);
 
   const handleSaveConfig = async (newConfig: GatewayConfig) => {
     try {
@@ -71,16 +111,14 @@ export function App() {
     }
   };
 
+  // Kết quả test đọc trực tiếp từ tunnel.last_exit_ip/last_error (backend đã persist vào config),
+  // không giữ bản sao testResults riêng (tránh Trùng lặp State React vs Rust).
   const handleTestTunnel = async (tunnel: OutboundTunnel) => {
-    setTestingTunnelId(tunnel.id);
     try {
-      const res = await invoke<TunnelTestResult>("test_single_tunnel", { tunnel });
-      setTestResults((prev) => ({ ...prev, [tunnel.id]: res }));
+      await invoke("test_single_tunnel", { tunnel });
       await fetchConfig();
     } catch (err) {
       console.error(err);
-    } finally {
-      setTestingTunnelId(null);
     }
   };
 
@@ -104,30 +142,40 @@ export function App() {
     }
   };
 
+  // Backend toggle_tunnel đã ôm toàn bộ vòng đời process (start/test/stop) —
+  // Frontend chỉ gọi đúng 1 IPC duy nhất, không gọi rời rạc start/stop nữa.
   const handleToggleTunnel = async (tunnelId: string, enabled: boolean) => {
     try {
       await invoke("toggle_tunnel", { tunnelId, enabled });
       await fetchConfig();
+      await fetchActiveCliTunnel();
     } catch (e) {
-      console.error(e);
+      console.error("Toggle tunnel error:", e);
+      await fetchConfig();
+      await fetchActiveCliTunnel();
+      window.alert(String(e));
     }
   };
 
-  const handleStartTunnelProcess = async (tunnelId: string) => {
+  const handleToggleRoute = async (routeId: string, enabled: boolean) => {
     try {
-      await invoke("start_tunnel_process", { tunnelId });
+      setBindError(null);
+      await invoke("toggle_route", { routeId, enabled });
       await fetchConfig();
     } catch (e) {
-      console.error("Start tunnel process error:", e);
+      console.error("Toggle route error:", e);
+      window.alert(String(e));
     }
   };
 
-  const handleStopTunnelProcess = async (tunnelId: string) => {
+  const handleForceStopTunnel = async (tunnelId: string) => {
     try {
-      await invoke("stop_tunnel_process", { tunnelId });
+      await invoke("force_stop_tunnel", { tunnelId });
       await fetchConfig();
+      await fetchActiveCliTunnel();
     } catch (e) {
-      console.error("Stop tunnel process error:", e);
+      console.error("Force stop tunnel error:", e);
+      window.alert(String(e));
     }
   };
 
@@ -185,6 +233,7 @@ export function App() {
         {activeTab === "routes" && config && (
           <RoutesTab
             config={config}
+            onToggleRoute={handleToggleRoute}
             onEditRoute={(r) => setEditingRoute({ ...r })}
             onSaveRouteDirect={async (route) => {
               try {
@@ -218,12 +267,10 @@ export function App() {
         {activeTab === "tunnels" && config && (
           <TunnelsTab
             config={config}
-            testResults={testResults}
-            testingTunnelId={testingTunnelId}
+            activeCliTunnelId={activeCliTunnelId}
             onTestTunnel={handleTestTunnel}
             onToggleTunnel={handleToggleTunnel}
-            onStartProcess={handleStartTunnelProcess}
-            onStopProcess={handleStopTunnelProcess}
+            onForceStop={handleForceStopTunnel}
             onEditTunnel={(t) => setEditingTunnel({ ...t })}
             onDeleteTunnel={handleDeleteTunnel}
             onCreateTunnel={() =>
@@ -263,6 +310,62 @@ export function App() {
         onSaveTunnel={handleAddOrUpdateTunnel}
         config={config}
       />
+
+      {/* MODAL CẢNH BÁO ĐỤNG CỔNG ENDPOINT */}
+      {bindError && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border-2 border-rose-500 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl shadow-rose-950/50">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-rose-500/20 border border-rose-500/40 rounded-xl text-rose-400">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-rose-400 tracking-wide uppercase">
+                    ⚠️ Lỗi Chiếm Dụng Cổng Endpoint
+                  </h3>
+                  <p className="text-xs text-slate-300 font-mono mt-0.5">
+                    Port: <span className="text-rose-300 font-bold">{bindError.port}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setBindError(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2.5 text-xs text-slate-300 bg-slate-950 p-4 rounded-xl border border-slate-800/80">
+              <p>
+                Không thể khởi động Proxy Server tại cổng{" "}
+                <strong className="text-rose-400 font-mono">{bindError.port}</strong>!
+              </p>
+              <p className="text-[11px] font-mono text-rose-300/80 bg-rose-950/30 p-2 rounded border border-rose-900/50 break-all">
+                {bindError.error}
+              </p>
+              <div className="pt-1 text-[11px] text-slate-400 space-y-1">
+                <p>
+                  <strong className="text-slate-200">Nguyên nhân:</strong> Có thể bạn đang mở nhiều cửa sổ App cùng lúc, hoặc phần mềm khác đang chiếm cổng này.
+                </p>
+                <p>
+                  <strong className="text-slate-200">Cách xử lý:</strong> Tắt các app/cửa sổ trùng lặp hoặc đổi sang Port khác trong tab Endpoints.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setBindError(null)}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white transition shadow-lg shadow-rose-900/40"
+              >
+                Đã hiểu & Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

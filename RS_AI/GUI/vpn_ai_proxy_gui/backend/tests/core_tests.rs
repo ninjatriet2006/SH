@@ -127,7 +127,8 @@ mod tests {
 
         let large = "a".repeat(3000);
         let truncated = truncate_log_body(&large, 2048);
-        assert!(truncated.contains("... [Truncated 3000 chars]"));
+        // 3000 chars, giữ 2048 → cắt 952 chars (báo đúng số chars, không phải bytes)
+        assert!(truncated.contains("... [Truncated 952 chars]"));
         assert_eq!(truncated.chars().take(2048).count(), 2048);
     }
 
@@ -238,7 +239,7 @@ mod tests {
     #[test]
     fn test_disk_log_rotation_and_append() {
         use std::io::BufRead;
-        use vpn_ai_proxy_gui_lib::monitor::{append_disk_log, RawTrafficLog};
+        use vpn_ai_proxy_gui_lib::monitor::{append_disk_log, rotate_disk_log_if_needed, RawTrafficLog};
 
         let temp_dir = std::env::temp_dir().join(format!("test_disk_log_{}", uuid::Uuid::new_v4()));
         let log_file = temp_dir.join("traffic_log.jsonl");
@@ -268,6 +269,10 @@ mod tests {
         for i in 1..=60 {
             append_disk_log(&log_file, &make_log(i), 50).unwrap();
         }
+
+        // Rotation check trong append_disk_log chạy theo chu kỳ (không mỗi lần ghi),
+        // nên gọi trực tiếp để kiểm tra logic xoay vòng một cách xác định
+        rotate_disk_log_if_needed(&log_file, 50).unwrap();
 
         // Kiểm tra file tồn tại và đếm số dòng
         let file = std::fs::File::open(&log_file).unwrap();
@@ -459,7 +464,8 @@ mod tests {
                 target_base_url: "https://api.openai.com/v1".to_string(),
                 tunnel_id: "tunnel-a".to_string(),
                 enabled: true,
-                strip_prefix: false,
+                status: vpn_ai_proxy_gui_lib::proxy::RouteStatus::Active,
+                last_error: None,
                 key_manager: km,
                 custom_auth_token: None,
             }],
@@ -513,10 +519,166 @@ mod tests {
         let _ = std::fs::remove_file(key_file);
     }
 
-    #[test]
-    fn test_run_tunnel_command() {
+    #[tokio::test]
+    async fn test_run_tunnel_command() {
         use vpn_ai_proxy_gui_lib::vpn::TunnelManager;
-        let out = TunnelManager::run_tunnel_command("echo hello_vpn_manager").unwrap();
+        let out = TunnelManager::run_tunnel_command_timeout("echo hello_vpn_manager", 10)
+            .await
+            .unwrap();
         assert!(out.contains("hello_vpn_manager"));
+    }
+
+    #[test]
+    fn test_endpoint_addr_parsing() {
+        use vpn_ai_proxy_gui_lib::vpn::TunnelManager;
+        assert_eq!(
+            TunnelManager::endpoint_addr("127.0.0.1:1090"),
+            Some("127.0.0.1:1090".parse().unwrap())
+        );
+        assert_eq!(
+            TunnelManager::endpoint_addr("socks5h://127.0.0.1:1080"),
+            Some("127.0.0.1:1080".parse().unwrap())
+        );
+        assert_eq!(
+            TunnelManager::endpoint_addr("http://127.0.0.1:3128/path"),
+            Some("127.0.0.1:3128".parse().unwrap())
+        );
+        assert_eq!(TunnelManager::endpoint_addr(""), None);
+        // Hostname resolve được (localhost) → Some để pre-flight check hoạt động
+        assert!(TunnelManager::endpoint_addr("localhost:9999").is_some());
+        // Hostname không resolve được → None (bỏ qua check, không crash)
+        assert_eq!(TunnelManager::endpoint_addr("nonexistent.invalid:9999"), None);
+    }
+
+    #[test]
+    fn test_skip_key_bug() {
+        use vpn_ai_proxy_gui_lib::proxy::key_manager::EndpointKeyManager;
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join(format!("test_skip_key_{}.txt", uuid::Uuid::new_v4()));
+        let file_str = file_path.to_str().unwrap().to_string();
+
+        // Chuẩn bị 3 key theo thứ tự: key1, key2, key3
+        std::fs::write(&file_path, "sk-key1\nsk-key2\nsk-key3\n").unwrap();
+
+        let mut km = EndpointKeyManager {
+            key_file_path: Some(file_str.clone()),
+            current_key_index: 0,
+            ..Default::default()
+        };
+        km.refresh_metadata();
+        assert_eq!(km.total_keys, 3);
+        assert_eq!(km.current_key_preview.as_deref(), Some("sk-key1"));
+
+        // Giả lập key1 bị 401 Unauthorized và bị gỡ khỏi file
+        let removed = km.remove_key_from_main_file("sk-key1").unwrap();
+        assert!(removed);
+        assert_eq!(km.total_keys, 2);
+
+        // Con trỏ current_key_index phải vẫn giữ nguyên là 0 vì key2 đã trượt lên vị trí 0
+        assert_eq!(km.current_key_index, 0);
+        assert_eq!(km.current_key_preview.as_deref(), Some("sk-key2"));
+
+        // Khi request tiếp theo sử dụng, key2 được chọn đúng mà KHÔNG bị skip sang key3!
+        let current_key = km.get_active_key();
+        assert_eq!(current_key.as_deref(), Some("sk-key2"));
+
+        let _ = std::fs::remove_file(file_path);
+    }
+
+    #[test]
+    fn test_select_healthy_tunnel_failover() {
+        use vpn_ai_proxy_gui_lib::vpn::{OutboundTunnel, TunnelManager, TunnelProtocol, TunnelStatus};
+
+        fn mk(id: &str, enabled: bool, status: TunnelStatus) -> OutboundTunnel {
+            OutboundTunnel {
+                id: id.to_string(),
+                name: id.to_string(),
+                protocol: TunnelProtocol::Socks5,
+                endpoint: "127.0.0.1:1080".to_string(),
+                enabled,
+                status,
+                max_concurrent_streams: 0,
+                start_command: None,
+                stop_command: None,
+                last_checked_at: None,
+                last_error: None,
+                last_exit_ip: None,
+                last_latency_ms: None,
+                tags: vec![],
+            }
+        }
+
+        let pool = vec![
+            mk("assigned", true, TunnelStatus::Online),
+            mk("backup_online", true, TunnelStatus::Online),
+            mk("backup_unknown", true, TunnelStatus::Unknown),
+            mk("dead", true, TunnelStatus::Offline),
+            mk("paused", false, TunnelStatus::Online),
+        ];
+
+        // Tunnel gán còn khỏe → giữ nguyên
+        assert_eq!(
+            TunnelManager::select_healthy_tunnel_id(&pool, "assigned"),
+            Some("assigned".to_string())
+        );
+        // direct_bypass luôn đi thẳng
+        assert_eq!(
+            TunnelManager::select_healthy_tunnel_id(&pool, "direct_bypass"),
+            Some("direct_bypass".to_string())
+        );
+        // Tunnel gán bị tắt → failover sang Online (không chọn Unknown/Offline/paused)
+        // (max_by_key trả Online đứng sau cùng khi hòa điểm → backup_online, vẫn đúng)
+        assert_eq!(
+            TunnelManager::select_healthy_tunnel_id(&pool, "paused"),
+            Some("backup_online".to_string())
+        );
+        // Tunnel gán rớt mạng → failover
+        assert_eq!(
+            TunnelManager::select_healthy_tunnel_id(&pool, "dead"),
+            Some("backup_online".to_string())
+        );
+        // Tunnel gán không tồn tại → failover thay vì 503 chết đứng
+        assert_eq!(
+            TunnelManager::select_healthy_tunnel_id(&pool, "ghost_id"),
+            Some("backup_online".to_string())
+        );
+        // Tất cả đều chết/tắt → None (caller báo 503)
+        let all_bad = vec![
+            mk("a", false, TunnelStatus::Online),
+            mk("b", true, TunnelStatus::Offline),
+        ];
+        assert_eq!(TunnelManager::select_healthy_tunnel_id(&all_bad, "a"), None);
+        assert_eq!(TunnelManager::select_healthy_tunnel_id(&[], "a"), None);
+    }
+
+    #[tokio::test]
+    async fn test_run_tunnel_command_timeout() {
+        use vpn_ai_proxy_gui_lib::vpn::TunnelManager;
+
+        // Lệnh nhanh → Ok bình thường
+        let ok = TunnelManager::run_tunnel_command_timeout("echo hello_timeout", 5)
+            .await
+            .unwrap();
+        assert!(ok.contains("hello_timeout"));
+
+        // Lệnh rỗng → Err ngay
+        assert!(TunnelManager::run_tunnel_command_timeout("   ", 5)
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    #[cfg(not(target_os = "windows"))]
+    async fn test_run_tunnel_command_timeout_kills_hang() {
+        use vpn_ai_proxy_gui_lib::vpn::TunnelManager;
+        use std::time::Instant;
+
+        // Lệnh treo (sleep 30) với timeout 1s → phải Err timeout, không treo test
+        let start = Instant::now();
+        let err = TunnelManager::run_tunnel_command_timeout("sleep 30", 1)
+            .await
+            .unwrap_err();
+        assert!(err.contains("timed out"), "unexpected error: {}", err);
+        assert!(start.elapsed().as_secs() < 10, "timeout did not fire promptly");
     }
 }

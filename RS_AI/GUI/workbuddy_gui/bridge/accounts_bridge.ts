@@ -16,3 +16,16 @@ export async function disableAccount(uid: string): Promise<void> {
 export async function enableAccount(uid: string): Promise<void> {
   await invokeIpc<Record<string, never>>('enable_account', { uid });
 }
+export async function updateAccountRouting(
+  uid: string,
+  proxyUrl?: string | null,
+  userAgent?: string | null,
+  customHeaders?: Record<string, string> | null
+): Promise<void> {
+  await invokeIpc<Record<string, never>>('update_account_routing', {
+    uid,
+    proxy_url: proxyUrl,
+    user_agent: userAgent,
+    custom_headers: customHeaders,
+  });
+}

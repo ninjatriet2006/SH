@@ -1,11 +1,20 @@
 import { invoke } from '../ipc';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { appState } from '../store';
-import { undoManager } from '../services/undoManager';
 import { joinPath } from './dragDrop';
 
 export type TransferKind = 'upload' | 'download' | 'copy' | 'move';
 export type TransferStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled';
+
+export interface TransferFinishedHookPayload {
+  kind: TransferKind;
+  src: string;
+  dest: string;
+  account?: string;
+  isLocal: boolean;
+}
+
+type OnTransferFinishedCallback = (payload: TransferFinishedHookPayload) => void;
 
 export interface TransferTask {
   id: number;
@@ -30,6 +39,11 @@ class TransferManager {
   private unlistenProgress?: UnlistenFn;
   private unlistenFinished?: UnlistenFn;
   public onUpdate?: () => void;
+  private onTransferFinishedHooks: OnTransferFinishedCallback[] = [];
+
+  public onTransferFinished(cb: OnTransferFinishedCallback) {
+    this.onTransferFinishedHooks.push(cb);
+  }
 
   async init() {
     this.unlistenProgress = await listen<{
@@ -74,13 +88,20 @@ class TransferManager {
           
           if (task.kind === 'move' || task.kind === 'copy') {
             const destPath = joinPath(task.dst, task.name);
-            undoManager.push({
-              type: task.kind,
+            const hookPayload: TransferFinishedHookPayload = {
+              kind: task.kind,
               src: task.src,
               dest: destPath,
               account: (task.srcLocal && task.dstLocal) ? undefined : appState.auth?.user,
               isLocal: task.srcLocal && task.dstLocal
-            });
+            };
+            for (const hook of this.onTransferFinishedHooks) {
+              try {
+                hook(hookPayload);
+              } catch (e) {
+                console.error("Error running transfer finished hook:", e);
+              }
+            }
           }
         } else {
           task.status = payload.error === 'Đã huỷ' ? 'cancelled' : 'error';

@@ -1,5 +1,6 @@
 pub mod accounts;
 pub mod access_keys;
+pub mod audit_api;
 pub mod config_api;
 pub mod font;
 pub mod gateway;

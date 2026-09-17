@@ -1,4 +1,5 @@
 use crate::core::auth::parse_auth;
+use crate::core::pool::FingerprintConfig;
 use crate::core::runtime::RuntimeState;
 use crate::ipc::{from_string, respond, Empty, IpcResult, Req};
 use serde::{Deserialize, Serialize};
@@ -10,6 +11,8 @@ pub struct AccountInfo {
     pub uid: String,
     pub nickname: String,
     pub domain: String,
+    pub proxy_url: Option<String>,
+    pub fingerprint_profile: Option<FingerprintConfig>,
     pub credits: i64,
     pub healthy: bool,
     pub cooling: bool,
@@ -88,10 +91,54 @@ pub fn enable_account(request: Req<AccountUidRequest>, state: State<'_, RuntimeS
     Ok(respond(request_id, Empty {}))
 }
 
+#[derive(Deserialize)]
+pub struct UpdateAccountRoutingRequest {
+    pub uid: String,
+    pub proxy_url: Option<String>,
+    pub user_agent: Option<String>,
+    pub custom_headers: Option<std::collections::HashMap<String, String>>,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn update_account_routing(
+    request: Req<UpdateAccountRoutingRequest>,
+    state: State<'_, RuntimeState>,
+) -> IpcResult<Empty> {
+    let (request_id, payload) = request.validate()?;
+    let fp = if payload.user_agent.is_some() || payload.custom_headers.is_some() {
+        Some(FingerprintConfig {
+            user_agent: payload.user_agent.filter(|s| !s.trim().is_empty()),
+            headers: payload.custom_headers.unwrap_or_default(),
+        })
+    } else {
+        None
+    };
+    let proxy = payload.proxy_url.and_then(|p| {
+        let trimmed = p.trim().to_string();
+        if trimmed.is_empty() { None } else { Some(trimmed) }
+    });
+    if !state.pool.update_routing(&payload.uid, proxy, fp) {
+        return Err(from_string(format!("Account not found: {}", payload.uid)));
+    }
+    Ok(respond(request_id, Empty {}))
+}
+
 fn to_info(a: crate::core::pool::AccountStatus) -> AccountInfo {
-    AccountInfo { uid: a.uid, nickname: a.nickname, domain: a.domain, credits: a.credits,
-        healthy: a.healthy, cooling: a.cooling, cool_kind: a.cool_kind,
-        cool_remaining_sec: a.cool_remaining_sec, disabled: a.disabled,
-        disabled_reason: a.disabled_reason, success_count: a.success_count,
-        err_total: a.err_total, in_flight: a.in_flight as i32 }
+    AccountInfo {
+        uid: a.uid,
+        nickname: a.nickname,
+        domain: a.domain,
+        proxy_url: a.proxy_url,
+        fingerprint_profile: a.fingerprint_profile,
+        credits: a.credits,
+        healthy: a.healthy,
+        cooling: a.cooling,
+        cool_kind: a.cool_kind,
+        cool_remaining_sec: a.cool_remaining_sec,
+        disabled: a.disabled,
+        disabled_reason: a.disabled_reason,
+        success_count: a.success_count,
+        err_total: a.err_total,
+        in_flight: a.in_flight as i32,
+    }
 }

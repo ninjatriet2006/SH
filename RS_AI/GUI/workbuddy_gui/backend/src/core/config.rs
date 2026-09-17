@@ -100,10 +100,14 @@ pub struct ScheduleConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpstreamConfig {
+    /// Deprecated: Prefer per-account proxy_url in pool/accounts. Kept as fallback.
+    #[serde(default)]
     pub proxy_url: String,
     pub timeout_seconds: i32,
     pub header_timeout_seconds: i32,
     pub idle_timeout_seconds: i32,
+    /// Deprecated: Prefer per-account fingerprint_profile.user_agent in pool/accounts. Kept as fallback.
+    #[serde(default)]
     pub user_agent: String,
     pub realm: String,
 }

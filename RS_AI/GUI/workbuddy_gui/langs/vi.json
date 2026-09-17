@@ -1,9 +1,10 @@
 {
     "sidebar": {
-        "dashboard": "Trang chính",
+        "dashboard": "Bảng điều khiển",
         "accounts": "Tài khoản",
+        "traffic": "Kiểm toán Traffic",
         "admin": "Quản trị",
-        "scheduler": "Lịch trình",
+        "scheduler": "Lập lịch",
         "config": "Cấu hình",
         "settings": "Cài đặt"
     },

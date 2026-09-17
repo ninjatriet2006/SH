@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::path::PathBuf;
 
+use crate::core::audit::AuditBuffer;
 use crate::core::config::Config;
 use crate::core::pool::Pool;
 use crate::core::storage::Storage;
@@ -11,6 +12,7 @@ pub struct RuntimeState {
     pub config: Mutex<Config>,
     pub pool: Pool,
     pub storage: Mutex<Option<std::sync::Arc<Storage>>>,
+    pub audit: std::sync::Arc<AuditBuffer>,
 }
 
 #[derive(Debug)]
@@ -198,6 +200,11 @@ impl Default for RuntimeState {
     fn default() -> Self {
         let config = Config::default();
         let pool = Pool::new(&config.state_file);
-        Self { config: Mutex::new(config), pool, storage: Mutex::new(None) }
+        Self {
+            config: Mutex::new(config),
+            pool,
+            storage: Mutex::new(None),
+            audit: std::sync::Arc::new(AuditBuffer::default()),
+        }
     }
 }

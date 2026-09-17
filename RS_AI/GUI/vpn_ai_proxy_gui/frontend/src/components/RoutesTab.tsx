@@ -5,6 +5,7 @@ import { GatewayConfig, RouteRule } from "../types";
 
 interface RoutesTabProps {
   config: GatewayConfig;
+  onToggleRoute: (routeId: string, enabled: boolean) => Promise<void>;
   onEditRoute: (route: RouteRule) => void;
   onSaveRouteDirect?: (route: RouteRule) => Promise<void>;
   onDeleteRoute: (id: string) => Promise<void>;
@@ -14,6 +15,7 @@ interface RoutesTabProps {
 
 export function RoutesTab({
   config,
+  onToggleRoute,
   onEditRoute,
   onSaveRouteDirect,
   onDeleteRoute,
@@ -51,6 +53,20 @@ export function RoutesTab({
             >
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 pb-2 border-b border-slate-800/60">
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onToggleRoute(route.id, !route.enabled)}
+                    className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      route.enabled ? "bg-emerald-500" : "bg-slate-700"
+                    }`}
+                    title={route.enabled ? "Route is Active (Click to Pause)" : "Route is Disabled (Click to Activate)"}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                        route.enabled ? "translate-x-4" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
                   <span className="text-sm font-bold text-white">{route.name}</span>
                   <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-400 font-mono text-[11px] font-bold">
                     Port {route.port}
@@ -58,13 +74,22 @@ export function RoutesTab({
                   <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[11px]">
                     {route.path_prefix}
                   </span>
-                  <span
-                    className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                      route.enabled ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-800 text-slate-500"
-                    }`}
-                  >
-                    {route.enabled ? "Active" : "Disabled"}
-                  </span>
+                  {route.status === "Inactive" && route.enabled ? (
+                    <span 
+                      className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-rose-500/20 text-rose-400 cursor-help"
+                      title={route.last_error || "Failed to bind port"}
+                    >
+                      Inactive
+                    </span>
+                  ) : route.enabled ? (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-emerald-500/20 text-emerald-400">
+                      Active
+                    </span>
+                  ) : (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-slate-800 text-slate-500">
+                      Inactive
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2">

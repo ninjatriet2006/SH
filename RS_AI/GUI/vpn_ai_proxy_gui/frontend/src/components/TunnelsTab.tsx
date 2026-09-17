@@ -1,14 +1,13 @@
-import { Plus, Zap, Trash2, Check, Play, Square } from "lucide-react";
-import { GatewayConfig, OutboundTunnel, TunnelTestResult } from "../types";
+import { useState } from "react";
+import { Plus, Zap, Trash2, Check } from "lucide-react";
+import { GatewayConfig, OutboundTunnel } from "../types";
 
 interface TunnelsTabProps {
   config: GatewayConfig;
-  testResults: Record<string, TunnelTestResult>;
-  testingTunnelId: string | null;
+  activeCliTunnelId: string | null;
   onTestTunnel: (tunnel: OutboundTunnel) => Promise<void>;
   onToggleTunnel: (tunnelId: string, enabled: boolean) => Promise<void>;
-  onStartProcess?: (tunnelId: string) => Promise<void>;
-  onStopProcess?: (tunnelId: string) => Promise<void>;
+  onForceStop?: (tunnelId: string) => Promise<void>;
   onEditTunnel: (tunnel: OutboundTunnel) => void;
   onDeleteTunnel: (id: string) => Promise<void>;
   onCreateTunnel: () => void;
@@ -16,16 +15,18 @@ interface TunnelsTabProps {
 
 export function TunnelsTab({
   config,
-  testResults,
-  testingTunnelId,
+  activeCliTunnelId,
   onTestTunnel,
   onToggleTunnel,
-  onStartProcess,
-  onStopProcess,
+  onForceStop,
   onEditTunnel,
   onDeleteTunnel,
   onCreateTunnel,
 }: TunnelsTabProps) {
+  // Busy flag cục bộ cho nút Test (kết quả đọc từ tunnel.last_exit_ip, không duplicate state)
+  const [testingId, setTestingId] = useState<string | null>(null);
+  // Loading state cho Toggle: Backend block vài giây chạy CLI + test, hiển thị CONNECTING... ngay khi bấm
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   return (
     <div className="p-6 overflow-y-auto max-w-5xl space-y-6">
       <div className="flex items-center justify-between">
@@ -46,8 +47,8 @@ export function TunnelsTab({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {config.tunnels.map((tunnel) => {
-          const testRes = testResults[tunnel.id];
-          const isTesting = testingTunnelId === tunnel.id;
+          const isTesting = testingId === tunnel.id;
+          const isToggling = togglingId === tunnel.id;
 
           return (
             <div
@@ -59,11 +60,25 @@ export function TunnelsTab({
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => onToggleTunnel(tunnel.id, !tunnel.enabled)}
-                      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      disabled={isToggling}
+                      onClick={async () => {
+                        setTogglingId(tunnel.id);
+                        try {
+                          await onToggleTunnel(tunnel.id, !tunnel.enabled);
+                        } finally {
+                          setTogglingId(null);
+                        }
+                      }}
+                      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none disabled:cursor-wait ${
                         tunnel.enabled ? "bg-emerald-500" : "bg-slate-700"
-                      }`}
-                      title={tunnel.enabled ? "Tunnel is Enabled (Click to turn Off)" : "Tunnel is Disabled (Click to turn On)"}
+                      } ${isToggling ? "opacity-50 animate-pulse" : ""}`}
+                      title={
+                        isToggling
+                          ? "Connecting... please wait"
+                          : tunnel.enabled
+                            ? "Tunnel is Enabled (Click to turn Off)"
+                            : "Tunnel is Disabled (Click to turn On)"
+                      }
                     >
                       <span
                         className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
@@ -72,8 +87,18 @@ export function TunnelsTab({
                       />
                     </button>
                     <span className="text-xs font-bold text-slate-200">{tunnel.name}</span>
+                    {isToggling && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-amber-500/20 text-amber-300 animate-pulse">
+                        CONNECTING...
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-1.5">
+                    {activeCliTunnelId === tunnel.id && (
+                      <span className="uppercase text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-emerald-500 text-slate-950 animate-pulse">
+                        ▶ RUNNING
+                      </span>
+                    )}
                     <span className={`uppercase text-[10px] px-2 py-0.5 rounded font-mono font-bold ${
                       tunnel.status === "online"
                         ? "bg-emerald-500/20 text-emerald-400"
@@ -101,18 +126,20 @@ export function TunnelsTab({
                   )}
                 </div>
 
-                {testRes && (
+                {(tunnel.last_exit_ip || tunnel.last_error) && (
                   <div className="mt-3 p-2 rounded bg-slate-950 border border-slate-800 text-[11px] font-mono space-y-0.5">
-                    {testRes.success ? (
+                    {tunnel.last_exit_ip ? (
                       <>
                         <div className="text-emerald-400 flex items-center gap-1 font-semibold">
                           <Check className="w-3.5 h-3.5" />
-                          Exit IP: {testRes.exit_ip}
+                          Exit IP: {tunnel.last_exit_ip}
                         </div>
-                        <div className="text-slate-500">Latency: {testRes.latency_ms}ms</div>
+                        {tunnel.last_latency_ms !== undefined && (
+                          <div className="text-slate-500">Latency: {tunnel.last_latency_ms}ms</div>
+                        )}
                       </>
                     ) : (
-                      <div className="text-rose-400">Error: {testRes.error}</div>
+                      <div className="text-rose-400">Error: {tunnel.last_error}</div>
                     )}
                   </div>
                 )}
@@ -122,32 +149,31 @@ export function TunnelsTab({
                 <div className="flex items-center gap-1.5">
                   <button
                     disabled={isTesting}
-                    onClick={() => onTestTunnel(tunnel)}
+                    onClick={async () => {
+                      setTestingId(tunnel.id);
+                      try {
+                        await onTestTunnel(tunnel);
+                      } finally {
+                        setTestingId(null);
+                      }
+                    }}
                     className="px-2.5 py-1.5 rounded bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 text-xs font-semibold flex items-center gap-1 transition disabled:opacity-50"
                   >
                     <Zap className="w-3.5 h-3.5" />
                     {isTesting ? "Testing..." : "Test Exit IP"}
                   </button>
 
-                  {tunnel.start_command && onStartProcess && (
+                  {(tunnel.start_command || tunnel.stop_command) && onForceStop && (
                     <button
-                      onClick={() => onStartProcess(tunnel.id)}
-                      className="px-2.5 py-1.5 rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 text-xs font-semibold flex items-center gap-1 transition"
-                      title={`Run: ${tunnel.start_command}`}
+                      onClick={async () => {
+                        if (window.confirm(`Force kill VPN process of "${tunnel.name}"? This bypasses the safety lock.`)) {
+                          await onForceStop(tunnel.id);
+                        }
+                      }}
+                      className="px-2 py-1.5 rounded bg-rose-600/20 hover:bg-rose-600/40 text-rose-400 text-xs font-semibold flex items-center gap-1 transition"
+                      title="Force Stop / Kill: fire stop_command + killall to free a stuck port"
                     >
-                      <Play className="w-3 h-3 fill-current" />
-                      Run VPN
-                    </button>
-                  )}
-
-                  {tunnel.stop_command && onStopProcess && (
-                    <button
-                      onClick={() => onStopProcess(tunnel.id)}
-                      className="px-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-rose-400 text-xs font-semibold flex items-center gap-1 transition"
-                      title={`Stop: ${tunnel.stop_command}`}
-                    >
-                      <Square className="w-3 h-3 fill-current" />
-                      Stop
+                      Force Kill
                     </button>
                   )}
                 </div>

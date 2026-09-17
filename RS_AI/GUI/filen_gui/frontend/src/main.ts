@@ -5,6 +5,8 @@ import { t, setLanguage, applyLanguage, getLanguage } from "./i18n";
 import { applyFont, applyTheme, discoverAppearance } from "./appearance";
 import { appState, saveSettings } from "./store";
 import { transferManager } from "./features/transferManager";
+import { undoManager } from "./services/undoManager";
+import { rename, remove, copy, move, cpLocal, moveLocal } from "./services/fileOps";
 import { TransferDrawer } from "./components/TransferDrawer";
 
 // ── Runtime i18n (docs/i18n-and-themes.md §2) ─────────────────────────────
@@ -399,6 +401,20 @@ async function main(): Promise<void> {
   }
 
   // Khởi tạo Transfer Manager và Drawer
+  // Inject file-ops vào undoManager (tránh circular import fileOps ⇄ undoManager)
+  undoManager.setFileOps({ rename, remove, copy, move, cpLocal, moveLocal });
+  // Đăng ký hook undo qua pub/sub — tránh import trực tiếp undoManager bên trong transferManager (gỡ circular import)
+  transferManager.onTransferFinished((payload) => {
+    if (payload.kind === 'copy' || payload.kind === 'move') {
+      undoManager.push({
+        type: payload.kind,
+        src: payload.src,
+        dest: payload.dest,
+        account: payload.account,
+        isLocal: payload.isLocal,
+      });
+    }
+  });
   transferManager.init();
   new TransferDrawer();
 

@@ -1,5 +1,18 @@
 import { GatewayConfig, RouteRule, OutboundTunnel } from "../types";
 
+function portFromEndpoint(ep: string): string {
+  const match = ep.replace(/^(socks5h?|http|https):\/\//, "").match(/:(\d+)/);
+  return match ? match[1] : "";
+}
+
+function adguardTemplate(port: string) {
+  const p = port || "1080";
+  return {
+    start_command: `adguardvpn-cli config set-socks-port ${p} && adguardvpn-cli config set-mode socks && adguardvpn-cli connect`,
+    stop_command: "adguardvpn-cli disconnect",
+  };
+}
+
 interface ModalsProps {
   editingRoute: RouteRule | null;
   setEditingRoute: (route: RouteRule | null) => void;
@@ -119,6 +132,35 @@ export function Modals({
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-5 space-y-4 shadow-2xl">
             <h3 className="text-sm font-bold text-white">Configure Outbound VPN Tunnel</h3>
+
+            {/* ON / OFF config toggle (prominent, top of modal) */}
+            <div
+              className="p-3 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between cursor-pointer"
+              title="ON/OFF chỉ mang ý nghĩa cho phép Tunnel tiếp nhận & chuyển tiếp Traffic. Nó KHÔNG đồng nghĩa tiến trình phần mềm VPN bên dưới đang thực sự chạy (trạng thái Active)."
+            >
+              <div>
+                <div className="text-xs font-bold text-slate-200">Tunnel Status</div>
+                <div className="text-[10px] text-slate-500">
+                  {editingTunnel.enabled
+                    ? "ON — Allow this tunnel to route traffic"
+                    : "OFF — Pause traffic routing through this tunnel"}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingTunnel({ ...editingTunnel, enabled: !editingTunnel.enabled })}
+                className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  editingTunnel.enabled ? "bg-emerald-500" : "bg-slate-700"
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    editingTunnel.enabled ? "translate-x-4" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+
             <div className="space-y-3 text-xs">
               <div>
                 <label className="text-slate-400 block mb-1">Tunnel Name</label>
@@ -184,11 +226,11 @@ export function Modals({
                       onClick={() =>
                         setEditingTunnel({
                           ...editingTunnel,
-                          start_command: "adguardvpn-cli connect",
-                          stop_command: "adguardvpn-cli disconnect",
+                          ...adguardTemplate(portFromEndpoint(editingTunnel.endpoint)),
                         })
                       }
                       className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-400"
+                      title="Generate AdGuard SOCKS5 commands using the current endpoint port"
                     >
                       +AdGuard
                     </button>
@@ -231,15 +273,6 @@ export function Modals({
                 </div>
               </div>
 
-              <label className="flex items-center gap-2 cursor-pointer pt-2">
-                <input
-                  type="checkbox"
-                  checked={editingTunnel.enabled}
-                  onChange={(e) => setEditingTunnel({ ...editingTunnel, enabled: e.target.checked })}
-                  className="accent-cyan-500"
-                />
-                <span>Enabled</span>
-              </label>
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
@@ -248,6 +281,18 @@ export function Modals({
                 className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300"
               >
                 Cancel
+              </button>
+              <button
+                onClick={() =>
+                  setEditingTunnel({
+                    ...editingTunnel,
+                    ...adguardTemplate(portFromEndpoint(editingTunnel.endpoint)),
+                  })
+                }
+                className="px-3 py-1.5 rounded bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 text-xs font-semibold transition"
+                title="Reset to standard AdGuard SOCKS5 commands matching the current endpoint port"
+              >
+                Reset to Defaults
               </button>
               <button
                 onClick={onSaveTunnel}

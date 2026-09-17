@@ -16,10 +16,17 @@ export interface GatewayInfo {
     tokens_total: number;
 }
 
+export interface FingerprintConfig {
+    user_agent?: string | null;
+    headers?: Record<string, string>;
+}
+
 export interface AccountInfo {
     uid: string;
     nickname: string;
     domain: string;
+    proxy_url?: string | null;
+    fingerprint_profile?: FingerprintConfig | null;
     credits: number;
     healthy: boolean;
     cooling: boolean;
@@ -30,6 +37,21 @@ export interface AccountInfo {
     success_count: number;
     err_total: number;
     in_flight: number;
+}
+
+export interface TrafficAuditLog {
+    id: string;
+    timestamp: string;
+    route: string;
+    model: string;
+    status_code: number;
+    duration_ms: number;
+    account_uid: string;
+    proxy_used?: string | null;
+    raw_request_headers: [string, string][];
+    raw_forwarded_headers: [string, string][];
+    raw_request_body: string;
+    raw_response_preview: string;
 }
 
 export interface TaskResult {

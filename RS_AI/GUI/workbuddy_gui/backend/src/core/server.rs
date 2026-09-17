@@ -62,6 +62,7 @@ pub struct AppState {
     pub metrics: Arc<Metrics>,
     pub dynamic_models: Arc<ParkingRwLock<Vec<Value>>>,
     pub storage: Option<Arc<Storage>>,
+    pub audit: Arc<crate::core::audit::AuditBuffer>,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -384,9 +385,25 @@ async fn handle_chat(
     apply_prompt(&state.prompt_mode, &mut req.messages, degraded);
 
     let upstream_body = serde_json::to_vec(&req).unwrap_or_default();
+    let raw_request_headers: Vec<(String, String)> = headers
+        .iter()
+        .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
+        .collect();
+    let raw_request_body = String::from_utf8_lossy(&body).to_string();
     let model = req.model.clone();
     let stream = req.stream;
-    dispatch_upstream_stream(state, uid, key_prefix, "/v1/chat/completions", model, upstream_body, stream, false)
+    dispatch_upstream_stream(
+        state,
+        uid,
+        key_prefix,
+        "/v1/chat/completions",
+        model,
+        upstream_body,
+        raw_request_headers,
+        raw_request_body,
+        stream,
+        false,
+    )
 }
 
 /// Anthropic `/v1/messages` endpoint — accepts Anthropic format, converts to
@@ -435,9 +452,25 @@ async fn handle_messages(
 
     let oai_req = req.to_openai();
     let upstream_body = serde_json::to_vec(&oai_req).unwrap_or_default();
+    let raw_request_headers: Vec<(String, String)> = headers
+        .iter()
+        .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
+        .collect();
+    let raw_request_body = String::from_utf8_lossy(&body).to_string();
     let model = req.model.clone();
     let stream = req.stream;
-    dispatch_upstream_stream(state, uid, key_prefix, "/v1/messages", model, upstream_body, stream, true)
+    dispatch_upstream_stream(
+        state,
+        uid,
+        key_prefix,
+        "/v1/messages",
+        model,
+        upstream_body,
+        raw_request_headers,
+        raw_request_body,
+        stream,
+        true,
+    )
 }
 
 /// Core upstream dispatch with 429 Retry-Fallback load balancer.
@@ -449,6 +482,8 @@ fn dispatch_upstream_stream(
     route: &'static str,
     model: String,
     upstream_body: Vec<u8>,
+    raw_request_headers: Vec<(String, String)>,
+    raw_request_body: String,
     stream: bool,
     is_anthropic: bool,
 ) -> Response {
@@ -457,6 +492,7 @@ fn dispatch_upstream_stream(
     let pool = state.pool.clone();
     let session = state.session.clone();
     let metrics = state.metrics.clone();
+    let audit = state.audit.clone();
     let storage = state.storage.clone();
 
     tokio::task::spawn_blocking(move || {
@@ -468,6 +504,9 @@ fn dispatch_upstream_stream(
         let mut err_msg = String::new();
         let mut used_acct_email = String::new();
         let mut resp_preview = String::new();
+        let mut final_forwarded_headers: Vec<(String, String)> = Vec::new();
+        let mut final_acct_uid = String::new();
+        let mut final_proxy_used: Option<String> = None;
         const PREVIEW_LIMIT: usize = 2000;
 
         // ─── 429 Retry-Fallback Loop (Max 3 attempts across pool) ───────────
@@ -499,8 +538,16 @@ fn dispatch_upstream_stream(
             }
             session.set(&uid, &acct_uid);
 
-            let mut upstream_client = UpstreamClient::new(&upstream_config.proxy_url);
-            upstream_client.user_agent = upstream_config.user_agent.clone();
+            let chosen_proxy = account.proxy_url.as_deref().unwrap_or(&upstream_config.proxy_url);
+            let mut upstream_client = UpstreamClient::new(chosen_proxy);
+            let chosen_ua = account.fingerprint_profile.as_ref()
+                .and_then(|fp| fp.user_agent.as_ref())
+                .cloned()
+                .unwrap_or_else(|| upstream_config.user_agent.clone());
+            upstream_client.user_agent = chosen_ua;
+            if let Some(fp) = &account.fingerprint_profile {
+                upstream_client.custom_headers = fp.headers.clone();
+            }
             if !upstream_config.realm.is_empty() {
                 upstream_client.realm = upstream_config.realm.clone();
             }
@@ -516,7 +563,14 @@ fn dispatch_upstream_stream(
             }
 
             match upstream_client.chat_stream(&acct_auth, &upstream_body) {
-                Ok((body, _)) => {
+                Ok((body, _, forwarded_hdrs)) => {
+                    final_forwarded_headers = forwarded_hdrs;
+                    final_acct_uid = acct_uid.clone();
+                    final_proxy_used = if !chosen_proxy.trim().is_empty() {
+                        Some(chosen_proxy.to_string())
+                    } else {
+                        None
+                    };
                     if is_anthropic {
                         let msg_id = format!("msg_{}", relay_start.elapsed().as_nanos());
                         let _ = tx.blocking_send(Ok(Event::default().event("message_start").data(anthropic_message_start(&msg_id, &model))));
@@ -659,6 +713,23 @@ fn dispatch_upstream_stream(
         if let Some(s) = &storage {
             let _ = s.log_usage(&key_prefix, route, &model, final_status, total_tokens, elapsed.as_millis() as u64);
         }
+
+        let now_str = chrono::Utc::now().to_rfc3339();
+        let log_id = format!("req_{}", relay_start.elapsed().as_nanos());
+        audit.push(crate::core::audit::TrafficAuditLog {
+            id: log_id,
+            timestamp: now_str,
+            route: route.to_string(),
+            model: model.clone(),
+            status_code: final_status,
+            duration_ms: elapsed.as_millis() as u64,
+            account_uid: final_acct_uid,
+            proxy_used: final_proxy_used,
+            raw_request_headers,
+            raw_forwarded_headers: final_forwarded_headers,
+            raw_request_body,
+            raw_response_preview: resp_preview,
+        });
     });
 
     let stream_resp = ReceiverStream::new(rx);
