@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
-use crate::models::{AppDatabase, EmailAccount, Website, RegistrationRecord, AppSettings};
+use crate::models::{legacy_v1, AppDatabase, AppSettings, Criterion, EmailAccount, LoginMethod, RegistrationRecord, Website, CURRENT_SCHEMA_VERSION};
 
 static DB_INSTANCE: Mutex<Option<AppDatabase>> = Mutex::new(None);
 static RESOURCE_BASE: OnceLock<PathBuf> = OnceLock::new();
@@ -57,6 +57,21 @@ fn db_file_path() -> PathBuf {
     storage_dir.join("accounts_data.json")
 }
 
+fn seed_criteria(now: &str) -> Vec<Criterion> {
+    vec![
+        Criterion { id: "crit-cheat".to_string(), name: "Cheat / Multi-acc".to_string(), description: None, created_at: now.to_string() },
+        Criterion { id: "crit-kyc".to_string(), name: "KYC".to_string(), description: None, created_at: now.to_string() },
+        Criterion { id: "crit-proxy".to_string(), name: "Proxy".to_string(), description: None, created_at: now.to_string() },
+    ]
+}
+
+fn seed_login_methods(now: &str) -> Vec<LoginMethod> {
+    vec![
+        LoginMethod { id: "lm-email".to_string(), name: "Email + Password".to_string(), description: None, created_at: now.to_string() },
+        LoginMethod { id: "lm-wallet".to_string(), name: "Wallet Connect".to_string(), description: None, created_at: now.to_string() },
+    ]
+}
+
 fn init_sample_data() -> AppDatabase {
     let now = chrono::Local::now().to_rfc3339();
     let yesterday = (chrono::Local::now() - chrono::Duration::days(1)).to_rfc3339();
@@ -98,19 +113,10 @@ fn init_sample_data() -> AppDatabase {
             id: "web-1".to_string(),
             name: "Binance Web3".to_string(),
             url: "https://binance.com".to_string(),
-            category: "Crypto / Exchange".to_string(),
+            tags: vec!["Crypto / Exchange".to_string(), "Hạng tài khoản: VIP 1".to_string()],
             has_daily_checkin: true,
-            can_cheat_account: false,
-            requires_kyc: true,
-            requires_proxy: false,
-            custom_criteria: vec![
-                crate::models::CustomCriterion {
-                    key: "tier".to_string(),
-                    label: "Hạng tài khoản".to_string(),
-                    value_type: "text".to_string(),
-                    value: "VIP 1".to_string(),
-                }
-            ],
+            criterion_ids: vec!["crit-kyc".to_string()],
+            login_method_ids: vec![],
             notes: "Điểm danh Task Center hàng ngày".to_string(),
             created_at: now.clone(),
         },
@@ -118,19 +124,10 @@ fn init_sample_data() -> AppDatabase {
             id: "web-2".to_string(),
             name: "Grass Network".to_string(),
             url: "https://app.getgrass.io".to_string(),
-            category: "DePIN / Bandwidth".to_string(),
+            tags: vec!["DePIN / Bandwidth".to_string(), "Số node tối đa: 5".to_string()],
             has_daily_checkin: true,
-            can_cheat_account: true,
-            requires_kyc: false,
-            requires_proxy: true,
-            custom_criteria: vec![
-                crate::models::CustomCriterion {
-                    key: "node_count".to_string(),
-                    label: "Số node tối đa".to_string(),
-                    value_type: "text".to_string(),
-                    value: "5".to_string(),
-                }
-            ],
+            criterion_ids: vec!["crit-cheat".to_string(), "crit-proxy".to_string()],
+            login_method_ids: vec![],
             notes: "Treo máy lấy point, cần proxy sạch".to_string(),
             created_at: now.clone(),
         },
@@ -138,12 +135,10 @@ fn init_sample_data() -> AppDatabase {
             id: "web-3".to_string(),
             name: "Discord".to_string(),
             url: "https://discord.com".to_string(),
-            category: "Social / Community".to_string(),
+            tags: vec!["Social / Community".to_string()],
             has_daily_checkin: false,
-            can_cheat_account: true,
-            requires_kyc: false,
-            requires_proxy: false,
-            custom_criteria: vec![],
+            criterion_ids: vec!["crit-cheat".to_string()],
+            login_method_ids: vec![],
             notes: "Tham gia các server dự án".to_string(),
             created_at: now.clone(),
         },
@@ -181,6 +176,9 @@ fn init_sample_data() -> AppDatabase {
         websites: sample_websites,
         registrations: sample_regs,
         settings: AppSettings::default(),
+        criteria: seed_criteria(&now),
+        login_methods: seed_login_methods(&now),
+        schema_version: CURRENT_SCHEMA_VERSION,
     }
 }
 
@@ -204,6 +202,140 @@ pub fn normalize_checkins(db: &mut AppDatabase) {
     }
 }
 
+/// Version declared in file; missing `schema_version` means v1 (back-compat).
+pub fn schema_version_of(raw: &serde_json::Value) -> u32 {
+    raw.get("schema_version")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32)
+        .unwrap_or(1)
+}
+
+/// Enforce loader window [CURRENT-2, CURRENT]; newer/older → explicit Err.
+pub fn check_version_window(version: u32) -> Result<(), String> {
+    if version > CURRENT_SCHEMA_VERSION {
+        return Err(format!(
+            "File dữ liệu schema v{version} mới hơn app (hỗ trợ tới v{CURRENT_SCHEMA_VERSION}). Hãy cập nhật app rồi mở lại."
+        ));
+    }
+    if version + 2 < CURRENT_SCHEMA_VERSION {
+        return Err(format!(
+            "File dữ liệu schema v{version} quá cũ (app hỗ trợ từ v{}). Hãy migrate thủ công hoặc tạo dữ liệu mới.",
+            CURRENT_SCHEMA_VERSION - 2
+        ));
+    }
+    Ok(())
+}
+
+/// Migrate a parsed v1 document to v2 (pure, no FS side effects).
+/// Transform: category→tag; custom entry→tag "label: value";
+/// cheat/kyc/proxy flags → seed criteria + assignment; login_method_ids=[].
+pub fn migrate_v1_value(raw: &serde_json::Value) -> Result<AppDatabase, String> {
+    let v1: legacy_v1::DatabaseV1 =
+        serde_json::from_value(raw.clone()).map_err(|e| format!("File v1 không đúng định dạng: {e}"))?;
+    let now = chrono::Local::now().to_rfc3339();
+    let mut criteria = seed_criteria(&now);
+    // Only keep seeds actually referenced? Contract seeds all 3; keep all for stable ids.
+    let _ = &mut criteria;
+    let websites: Vec<Website> = v1
+        .websites
+        .into_iter()
+        .map(|w| {
+            let mut tags: Vec<String> = Vec::new();
+            if !w.category.trim().is_empty() {
+                tags.push(w.category.trim().to_string());
+            }
+            for c in &w.custom_criteria {
+                let label = c.label.trim();
+                let value = c.value.trim();
+                if label.is_empty() && value.is_empty() {
+                    continue;
+                }
+                tags.push(format!("{label}: {value}"));
+            }
+            let mut criterion_ids: Vec<String> = Vec::new();
+            if w.can_cheat_account {
+                criterion_ids.push("crit-cheat".to_string());
+            }
+            if w.requires_kyc {
+                criterion_ids.push("crit-kyc".to_string());
+            }
+            if w.requires_proxy {
+                criterion_ids.push("crit-proxy".to_string());
+            }
+            Website {
+                id: w.id,
+                name: w.name,
+                url: w.url,
+                tags,
+                has_daily_checkin: w.has_daily_checkin,
+                criterion_ids,
+                login_method_ids: vec![],
+                notes: w.notes,
+                created_at: w.created_at,
+            }
+        })
+        .collect();
+    Ok(AppDatabase {
+        emails: v1.emails,
+        websites,
+        registrations: v1.registrations,
+        settings: v1.settings.unwrap_or_default(),
+        criteria,
+        login_methods: seed_login_methods(&now),
+        schema_version: CURRENT_SCHEMA_VERSION,
+    })
+}
+
+/// Copy `file_path` to `accounts_data.json.bak.YYYYMMDD-HHMMSS` BEFORE migrate.
+/// Returns the backup path. Pure FS helper — unit-testable without global cache.
+pub fn backup_file_before_migrate(file_path: &Path) -> Result<PathBuf, String> {
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let file_name = file_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("accounts_data.json");
+    let backup = file_path.with_file_name(format!("{file_name}.bak.{stamp}"));
+    fs::copy(file_path, &backup)
+        .map_err(|e| format!("Không tạo được backup {}: {e}", backup.display()))?;
+    Ok(backup)
+}
+
+fn parse_versioned_content(content: &str, file_path: &Path) -> Result<AppDatabase, String> {
+    // Re-parse with proper error path for corrupt files (keep .corrupt flow).
+    let raw: serde_json::Value = match serde_json::from_str(content) {
+        Ok(v) => v,
+        Err(e) => {
+            let backup = file_path.with_extension("json.corrupt");
+            let _ = fs::copy(file_path, &backup);
+            log::error!("Database file is corrupt, backed up to {}", backup.display());
+            return Err(format!(
+                "File dữ liệu bị hỏng ({e}). Bản gốc đã được sao lưu sang {}. Hãy khôi phục hoặc xóa file này rồi khởi động lại app.",
+                backup.display()
+            ));
+        }
+    };
+    let version = schema_version_of(&raw);
+    check_version_window(version)?;
+    if version == CURRENT_SCHEMA_VERSION {
+        let mut parsed: AppDatabase =
+            serde_json::from_value(raw).map_err(|e| format!("File dữ liệu v{version} không đúng định dạng: {e}"))?;
+        parsed.schema_version = CURRENT_SCHEMA_VERSION;
+        normalize_checkins(&mut parsed);
+        return Ok(parsed);
+    }
+    // v1 → v2 migration (backup BEFORE write).
+    backup_file_before_migrate(file_path)?;
+    let mut migrated = migrate_v1_value(&raw)?;
+    normalize_checkins(&mut migrated);
+    let json = serde_json::to_string_pretty(&migrated).map_err(|e| e.to_string())?;
+    let tmp_path = file_path.with_extension("json.tmp");
+    fs::write(&tmp_path, &json)
+        .map_err(|e| format!("Không ghi được file tạm {}: {e}", tmp_path.display()))?;
+    fs::rename(&tmp_path, file_path)
+        .map_err(|e| format!("Không lưu được {}: {e}", file_path.display()))?;
+    Ok(migrated)
+}
+
 pub fn load_db() -> Result<AppDatabase, String> {
     let mut guard = DB_INSTANCE.lock().unwrap();
     if let Some(db) = &*guard {
@@ -214,22 +346,7 @@ pub fn load_db() -> Result<AppDatabase, String> {
     let db = if file_path.exists() {
         let content = fs::read_to_string(&file_path)
             .map_err(|e| format!("Không đọc được file dữ liệu {}: {e}", file_path.display()))?;
-        match serde_json::from_str::<AppDatabase>(&content) {
-            Ok(mut parsed) => {
-                normalize_checkins(&mut parsed);
-                parsed
-            }
-            Err(e) => {
-                // Giữ lại bản gốc để người dùng khôi phục thay vì mất dữ liệu âm thầm
-                let backup = file_path.with_extension("json.corrupt");
-                let _ = fs::copy(&file_path, &backup);
-                log::error!("Database file is corrupt, backed up to {}", backup.display());
-                return Err(format!(
-                    "File dữ liệu bị hỏng ({e}). Bản gốc đã được sao lưu sang {}. Hãy khôi phục hoặc xóa file này rồi khởi động lại app.",
-                    backup.display()
-                ));
-            }
-        }
+        parse_versioned_content(&content, &file_path)?
     } else {
         let default_db = init_sample_data();
         let _ = fs::write(&file_path, serde_json::to_string_pretty(&default_db).unwrap_or_default());
@@ -242,15 +359,17 @@ pub fn load_db() -> Result<AppDatabase, String> {
 
 pub fn save_db(db: &AppDatabase) -> Result<(), String> {
     let mut guard = DB_INSTANCE.lock().unwrap();
+    let mut to_save = db.clone();
+    to_save.schema_version = CURRENT_SCHEMA_VERSION;
     let file_path = db_file_path();
-    let json = serde_json::to_string_pretty(db).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string_pretty(&to_save).map_err(|e| e.to_string())?;
     // Ghi file tạm rồi rename để tránh hỏng file dữ liệu nếu app crash giữa chừng
     let tmp_path = file_path.with_extension("json.tmp");
     fs::write(&tmp_path, &json)
         .map_err(|e| format!("Không ghi được file tạm {}: {e}", tmp_path.display()))?;
     fs::rename(&tmp_path, &file_path)
         .map_err(|e| format!("Không lưu được {}: {e}", file_path.display()))?;
-    *guard = Some(db.clone());
+    *guard = Some(to_save);
     Ok(())
 }
 

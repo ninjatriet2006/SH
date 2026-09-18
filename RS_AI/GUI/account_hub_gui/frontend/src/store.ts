@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { AppDatabase, EmailAccount, Website, RegistrationRecord, AppSettings, AccountStatus } from '../../bridge/types';
+import { AppDatabase, EmailAccount, Website, RegistrationRecord, AppSettings, AccountStatus, Criterion, LoginMethod } from '../../bridge/types';
 import { accountHubApi } from '../../bridge/api';
 
 interface AppStore {
@@ -11,6 +11,10 @@ interface AppStore {
   deleteEmail: (id: string) => Promise<void>;
   saveWebsite: (website: Website) => Promise<void>;
   deleteWebsite: (id: string) => Promise<void>;
+  saveCriterion: (criterion: Criterion) => Promise<void>;
+  deleteCriterion: (id: string) => Promise<void>;
+  saveLoginMethod: (loginMethod: LoginMethod) => Promise<void>;
+  deleteLoginMethod: (id: string) => Promise<void>;
   toggleRegistration: (emailId: string, websiteId: string) => Promise<void>;
   setRegistrationStatus: (emailId: string, websiteId: string, status: AccountStatus) => Promise<void>;
   toggleCheckin: (emailId: string, websiteId: string) => Promise<void>;
@@ -64,6 +68,42 @@ export const useAppStore = create<AppStore>((set, get) => ({
   deleteWebsite: async (id: string) => {
     try {
       await accountHubApi.deleteWebsite(id);
+      await get().loadData();
+    } catch (err: any) {
+      set({ error: err.toString() });
+    }
+  },
+
+  saveCriterion: async (criterion: Criterion) => {
+    try {
+      await accountHubApi.saveCriterion(criterion);
+      await get().loadData();
+    } catch (err: any) {
+      set({ error: err.toString() });
+    }
+  },
+
+  deleteCriterion: async (id: string) => {
+    try {
+      await accountHubApi.deleteCriterion(id);
+      await get().loadData();
+    } catch (err: any) {
+      set({ error: err.toString() });
+    }
+  },
+
+  saveLoginMethod: async (loginMethod: LoginMethod) => {
+    try {
+      await accountHubApi.saveLoginMethod(loginMethod);
+      await get().loadData();
+    } catch (err: any) {
+      set({ error: err.toString() });
+    }
+  },
+
+  deleteLoginMethod: async (id: string) => {
+    try {
+      await accountHubApi.deleteLoginMethod(id);
       await get().loadData();
     } catch (err: any) {
       set({ error: err.toString() });

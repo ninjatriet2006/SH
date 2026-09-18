@@ -1,6 +1,7 @@
 ---
 description: Rust Developer - Viết, sửa và refactor code Rust theo yêu cầu. Ưu tiên correctness, idiomatic Rust và minimal diff.
 mode: subagent
+model: opencode/muse-spark-1.3-contributor-free
 temperature: 0.15
 permission:
   edit: allow

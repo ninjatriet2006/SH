@@ -15,6 +15,9 @@ export const RegistrationsPage: React.FC = () => {
 
   if (!data) return null;
 
+  const criteriaMap = new Map((data.criteria || []).map(c => [c.id, c.name]));
+  const loginMap = new Map((data.login_methods || []).map(m => [m.id, m.name]));
+
   const emailMap = new Map(data.emails.map(e => [e.id, e]));
   const websiteMap = new Map(data.websites.map(w => [w.id, w]));
 
@@ -153,10 +156,15 @@ export const RegistrationsPage: React.FC = () => {
                       </td>
                       <td>
                         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                          {web.has_daily_checkin && <span className="badge badge-warning" style={{ fontSize: '10px' }}><Sparkles size={10} /> Điểm danh</span>}
-                          {web.can_cheat_account && <span className="badge badge-success" style={{ fontSize: '10px' }}>Cheat</span>}
-                          {web.requires_kyc && <span className="badge badge-gray" style={{ color: '#ec4899', fontSize: '10px' }}>KYC</span>}
-                          {web.requires_proxy && <span className="badge badge-gray" style={{ color: '#38bdf8', fontSize: '10px' }}>Proxy</span>}
+                          {(web.criterion_ids || []).map(id => (
+                            <span key={id} className="badge badge-success" style={{ fontSize: '10px' }}>{criteriaMap.get(id) || id}</span>
+                          ))}
+                          {(web.login_method_ids || []).map(id => (
+                            <span key={id} className="badge badge-warning" style={{ fontSize: '10px' }}>{loginMap.get(id) || id}</span>
+                          ))}
+                          {(web.criterion_ids || []).length === 0 && (web.login_method_ids || []).length === 0 && (
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>—</span>
+                          )}
                         </div>
                       </td>
                       <td>

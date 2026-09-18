@@ -27,8 +27,9 @@ $ARGUMENTS
    - Filesystem/unsafe/TUI/security → **ADVERSARIAL** (+ edge test, Check bắt buộc).
    - Packaging/release → **SMOKE** (build release + smoke ngoài CWD).
    - Sắp merge lớn → **FULL** (mở rộng dần, không full repo ngay).
-5. Giao **Check** (`reviewer.md`) — chọn mức theo risk, không so model:
-   - Mọi code change tối thiểu **LIGHT** (checklist cơ khí). Ngang model cũng không skip.
+5. Giao **Check** (`reviewer.md`) — review chéo đối ứng với Dev (chi tiết `lead.md` mục 6):
+    - Pairing mặc định: Dev = Muse Spark, Check = SeekAI GLM flash. Task S2 luân phiên đảo vai mỗi phase (phase lẻ: Dev = GLM, Check = Muse Spark) — model nào làm thì model kia duyệt, cấm tự approve.
+    - Mọi code change tối thiểu **LIGHT** (checklist cơ khí).
    - CONTRACT/ADVERSARIAL/S2 → **DEEP** + paste giao thức chống khen suông (cấm nhận xét chung chung, bắt trace edge + tự chạy verify, APPROVE phải có bằng chứng từng mục).
    - Check khác họ model với Dev → chỉ giao xác minh logic/edge, không giao nhận xét thiết kế.
 

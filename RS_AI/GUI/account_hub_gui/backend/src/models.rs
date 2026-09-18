@@ -1,11 +1,30 @@
 use serde::{Deserialize, Serialize};
 
+/// Current schema version (v2 per plan-criteria-refactor Contract).
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+
+fn default_schema_version_v1() -> u32 {
+    1
+}
+
+/// A reusable criterion that can be assigned to websites (e.g. KYC, Proxy).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CustomCriterion {
-    pub key: String,
-    pub label: String,
-    pub value_type: String, // "boolean" | "text"
-    pub value: String,       // "true"/"false" or custom text
+pub struct Criterion {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    pub created_at: String,
+}
+
+/// A login method that can be assigned to websites (e.g. Email, Wallet).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoginMethod {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -13,12 +32,13 @@ pub struct Website {
     pub id: String,
     pub name: String,
     pub url: String,
-    pub category: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
     pub has_daily_checkin: bool,
-    pub can_cheat_account: bool,
-    pub requires_kyc: bool,
-    pub requires_proxy: bool,
-    pub custom_criteria: Vec<CustomCriterion>,
+    #[serde(default)]
+    pub criterion_ids: Vec<String>,
+    #[serde(default)]
+    pub login_method_ids: Vec<String>,
     pub notes: String,
     pub created_at: String,
 }
@@ -79,10 +99,81 @@ impl Default for AppSettings {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppDatabase {
     pub emails: Vec<EmailAccount>,
     pub websites: Vec<Website>,
     pub registrations: Vec<RegistrationRecord>,
     pub settings: AppSettings,
+    #[serde(default)]
+    pub criteria: Vec<Criterion>,
+    #[serde(default)]
+    pub login_methods: Vec<LoginMethod>,
+    #[serde(default = "default_schema_version_v1")]
+    pub schema_version: u32,
+}
+
+impl Default for AppDatabase {
+    fn default() -> Self {
+        Self {
+            emails: vec![],
+            websites: vec![],
+            registrations: vec![],
+            settings: AppSettings::default(),
+            criteria: vec![],
+            login_methods: vec![],
+            schema_version: CURRENT_SCHEMA_VERSION,
+        }
+    }
+}
+
+/// Legacy v1 shapes — ONLY used by the v1→v2 migration.
+/// A5 exception: old field names may appear here and in `storage::migrate_*`.
+pub mod legacy_v1 {
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct CustomCriterionV1 {
+        pub key: String,
+        pub label: String,
+        pub value_type: String,
+        pub value: String,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct WebsiteV1 {
+        pub id: String,
+        #[serde(default)]
+        pub name: String,
+        #[serde(default)]
+        pub url: String,
+        #[serde(default)]
+        pub category: String,
+        #[serde(default)]
+        pub has_daily_checkin: bool,
+        #[serde(default)]
+        pub can_cheat_account: bool,
+        #[serde(default)]
+        pub requires_kyc: bool,
+        #[serde(default)]
+        pub requires_proxy: bool,
+        #[serde(default)]
+        pub custom_criteria: Vec<CustomCriterionV1>,
+        #[serde(default)]
+        pub notes: String,
+        #[serde(default)]
+        pub created_at: String,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct DatabaseV1 {
+        #[serde(default)]
+        pub emails: Vec<crate::models::EmailAccount>,
+        #[serde(default)]
+        pub websites: Vec<WebsiteV1>,
+        #[serde(default)]
+        pub registrations: Vec<crate::models::RegistrationRecord>,
+        #[serde(default)]
+        pub settings: Option<crate::models::AppSettings>,
+    }
 }

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../store';
 import { EmailAccount, Website, RegistrationRecord } from '../../../bridge/types';
-import { Globe, Plus, Trash2, Search, ExternalLink, Sparkles, CheckSquare, Check } from 'lucide-react';
+import { Globe, Plus, Trash2, Search, ExternalLink, Sparkles, Check } from 'lucide-react';
 import { CheckinButton, StatusButton } from './CheckinControls';
 
 interface EmailWebsitesModalProps {
@@ -14,9 +14,11 @@ export const EmailWebsitesModal: React.FC<EmailWebsitesModalProps> = ({ email, o
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddSection, setShowAddSection] = useState(false);
   const [filterCheckinOnly, setFilterCheckinOnly] = useState(false);
-  const [filterCheatOnly, setFilterCheatOnly] = useState(false);
 
   if (!data) return null;
+
+  const criteriaMap = new Map((data.criteria || []).map(c => [c.id, c.name]));
+  const loginMap = new Map((data.login_methods || []).map(m => [m.id, m.name]));
 
   // Lấy các đăng ký của email này
   const emailRegistrations = data.registrations.filter(r => r.email_id === email.id && r.is_registered);
@@ -30,8 +32,7 @@ export const EmailWebsitesModal: React.FC<EmailWebsitesModalProps> = ({ email, o
     if (registeredWebIds.has(w.id)) return false;
     const matchSearch = w.name.toLowerCase().includes(searchTerm.toLowerCase()) || w.url.toLowerCase().includes(searchTerm.toLowerCase());
     const matchCheckin = filterCheckinOnly ? w.has_daily_checkin : true;
-    const matchCheat = filterCheatOnly ? w.can_cheat_account : true;
-    return matchSearch && matchCheckin && matchCheat;
+    return matchSearch && matchCheckin;
   });
 
   const getRecord = (webId: string): RegistrationRecord | undefined => {
@@ -85,15 +86,6 @@ export const EmailWebsitesModal: React.FC<EmailWebsitesModalProps> = ({ email, o
                 />
                 <span>Có Điểm danh</span>
               </label>
-
-              <label className="checkbox-label" style={{ fontSize: '0.8rem' }}>
-                <input
-                  type="checkbox"
-                  checked={filterCheatOnly}
-                  onChange={e => setFilterCheatOnly(e.target.checked)}
-                />
-                <span>Hỗ trợ Cheat</span>
-              </label>
             </div>
 
             <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
@@ -109,7 +101,7 @@ export const EmailWebsitesModal: React.FC<EmailWebsitesModalProps> = ({ email, o
                       <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{w.name}</span>
                       <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{w.url}</span>
                       {w.has_daily_checkin && <span className="badge badge-warning" style={{ fontSize: '10px' }}>Điểm danh</span>}
-                      {w.can_cheat_account && <span className="badge badge-success" style={{ fontSize: '10px' }}>Cheat</span>}
+                      {(w.criterion_ids || []).map(id => <span key={id} className="badge badge-success" style={{ fontSize: '10px' }}>{criteriaMap.get(id) || id}</span>)}
                     </div>
                     <button className="btn btn-secondary" style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }} onClick={() => handleLinkWeb(w.id)}>
                       <Check size={14} /> Gán đăng ký
@@ -147,11 +139,10 @@ export const EmailWebsitesModal: React.FC<EmailWebsitesModalProps> = ({ email, o
                       )}
                     </div>
                     <div style={{ display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
-                      <span className="badge badge-gray">{web.category || 'General'}</span>
+                      {(web.tags || []).map(tag => <span key={tag} className="badge badge-gray">{tag || 'General'}</span>)}
                       {web.has_daily_checkin && <span className="badge badge-warning" style={{ fontSize: '10px' }}><Sparkles size={10} /> Điểm danh</span>}
-                      {web.can_cheat_account && <span className="badge badge-success" style={{ fontSize: '10px' }}><CheckSquare size={10} /> Cheat Acc</span>}
-                      {web.requires_kyc && <span className="badge badge-gray" style={{ color: '#ec4899', fontSize: '10px' }}>KYC</span>}
-                      {web.requires_proxy && <span className="badge badge-gray" style={{ color: '#38bdf8', fontSize: '10px' }}>Proxy</span>}
+                      {(web.criterion_ids || []).map(id => <span key={id} className="badge badge-success" style={{ fontSize: '10px' }}>{criteriaMap.get(id) || id}</span>)}
+                      {(web.login_method_ids || []).map(id => <span key={id} className="badge badge-warning" style={{ fontSize: '10px' }}>{loginMap.get(id) || id}</span>)}
                     </div>
                   </div>
 

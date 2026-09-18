@@ -1,20 +1,25 @@
-export interface CustomCriterion {
-  key: string;
-  label: string;
-  value_type: 'boolean' | 'text';
-  value: string;
+export interface Criterion {
+  id: string;
+  name: string;
+  description?: string;
+  created_at: string;
+}
+
+export interface LoginMethod {
+  id: string;
+  name: string;
+  description?: string;
+  created_at: string;
 }
 
 export interface Website {
   id: string;
   name: string;
   url: string;
-  category: string;
+  tags: string[];
   has_daily_checkin: boolean;
-  can_cheat_account: boolean;
-  requires_kyc: boolean;
-  requires_proxy: boolean;
-  custom_criteria: CustomCriterion[];
+  criterion_ids: string[];
+  login_method_ids: string[];
   notes: string;
   created_at: string;
 }
@@ -56,4 +61,7 @@ export interface AppDatabase {
   websites: Website[];
   registrations: RegistrationRecord[];
   settings: AppSettings;
+  criteria: Criterion[];
+  login_methods: LoginMethod[];
+  schema_version: number;
 }

@@ -14,9 +14,9 @@ members = [
     "GUI/universal_converter_gui/bridge",
     "GUI/subscription_manager_gui/backend",
     "GUI/rclone_gui/backend",
-    "GUI/workbuddy_gui/backend",
+    "GUI/universal_api/backend",
     "GUI/account_hub_gui/backend",
-    "GUI/vpn_ai_proxy_gui/backend",
+    "GUI/gateway_filter/backend",
     "tools/gui_builder",
 ]
 exclude = ["GUI/universe_manager_gui", "GUI/img_splt_gui", "GUI/universal_converter_gui"]

@@ -1,10 +1,12 @@
 import React, { useEffect } from 'react';
 import { Routes, Route, NavLink } from 'react-router-dom';
-import { LayoutDashboard, CheckCircle2, Mail, Globe, Settings as SettingsIcon } from 'lucide-react';
+import { LayoutDashboard, CheckCircle2, Mail, Globe, Settings as SettingsIcon, Sliders, KeyRound } from 'lucide-react';
 import { DashboardPage } from './pages/DashboardPage';
 import { RegistrationsPage } from './pages/RegistrationsPage';
 import { EmailsPage } from './pages/EmailsPage';
 import { WebsitesPage } from './pages/WebsitesPage';
+import { CriteriaPage } from './pages/CriteriaPage';
+import { LoginMethodsPage } from './pages/LoginMethodsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { useAppStore } from './store';
 import { useTranslation } from './i18n';
@@ -50,6 +52,14 @@ export const App: React.FC = () => {
           <Globe size={18} /> {t('nav.websites')}
         </NavLink>
 
+        <NavLink to="/criteria" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <Sliders size={18} /> Tiêu chí
+        </NavLink>
+
+        <NavLink to="/login-methods" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <KeyRound size={18} /> Đăng nhập
+        </NavLink>
+
         <div style={{ flex: 1 }} />
 
         <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
@@ -69,6 +79,8 @@ export const App: React.FC = () => {
           <Route path="/registrations" element={<RegistrationsPage />} />
           <Route path="/emails" element={<EmailsPage />} />
           <Route path="/websites" element={<WebsitesPage />} />
+          <Route path="/criteria" element={<CriteriaPage />} />
+          <Route path="/login-methods" element={<LoginMethodsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </main>

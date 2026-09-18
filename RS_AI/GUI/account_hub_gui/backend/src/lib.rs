@@ -1,7 +1,7 @@
 pub mod models;
 pub mod storage;
 
-use models::{AppDatabase, AppSettings, EmailAccount, RegistrationRecord, Website};
+use models::{AppDatabase, AppSettings, Criterion, EmailAccount, LoginMethod, RegistrationRecord, Website};
 use std::fs;
 
 #[tauri::command]
@@ -207,6 +207,66 @@ fn save_settings(settings: AppSettings) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn save_criterion(criterion: Criterion) -> Result<Criterion, String> {
+    let mut db = storage::load_db()?;
+    let mut saved = criterion.clone();
+    if saved.id.is_empty() {
+        saved.id = format!("crit-{}", uuid::Uuid::new_v4().to_string()[..8].to_string());
+        saved.created_at = chrono::Local::now().to_rfc3339();
+        db.criteria.push(saved.clone());
+    } else {
+        if let Some(pos) = db.criteria.iter().position(|c| c.id == saved.id) {
+            db.criteria[pos] = saved.clone();
+        } else {
+            db.criteria.push(saved.clone());
+        }
+    }
+    storage::save_db(&db)?;
+    Ok(saved)
+}
+
+#[tauri::command]
+fn delete_criterion(id: String) -> Result<(), String> {
+    let mut db = storage::load_db()?;
+    db.criteria.retain(|c| c.id != id);
+    for w in db.websites.iter_mut() {
+        w.criterion_ids.retain(|cid| cid != &id);
+    }
+    storage::save_db(&db)?;
+    Ok(())
+}
+
+#[tauri::command]
+fn save_login_method(login_method: LoginMethod) -> Result<LoginMethod, String> {
+    let mut db = storage::load_db()?;
+    let mut saved = login_method.clone();
+    if saved.id.is_empty() {
+        saved.id = format!("lm-{}", uuid::Uuid::new_v4().to_string()[..8].to_string());
+        saved.created_at = chrono::Local::now().to_rfc3339();
+        db.login_methods.push(saved.clone());
+    } else {
+        if let Some(pos) = db.login_methods.iter().position(|m| m.id == saved.id) {
+            db.login_methods[pos] = saved.clone();
+        } else {
+            db.login_methods.push(saved.clone());
+        }
+    }
+    storage::save_db(&db)?;
+    Ok(saved)
+}
+
+#[tauri::command]
+fn delete_login_method(id: String) -> Result<(), String> {
+    let mut db = storage::load_db()?;
+    db.login_methods.retain(|m| m.id != id);
+    for w in db.websites.iter_mut() {
+        w.login_method_ids.retain(|mid| mid != &id);
+    }
+    storage::save_db(&db)?;
+    Ok(())
+}
+
+#[tauri::command]
 fn get_available_languages() -> Result<Vec<serde_json::Value>, String> {
     let base = storage::resource_base();
     let langs_dir = base.join("langs");
@@ -259,6 +319,10 @@ pub fn run() {
             toggle_checkin,
             unlink_registration,
             update_registration,
+            save_criterion,
+            delete_criterion,
+            save_login_method,
+            delete_login_method,
             get_settings,
             save_settings,
             get_available_languages,
@@ -341,6 +405,58 @@ mod tests {
         assert!(err.contains("hỏng"));
         assert!(dir.join("storage/accounts_data.json.corrupt").exists());
 
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_migrate_v1_to_v2_tags_and_backup() {
+        // v1 doc without schema_version: category, flags, custom entries.
+        let v1 = serde_json::json!({
+            "emails": [],
+            "websites": [{
+                "id": "web-1", "name": "W", "url": "https://x.io",
+                "category": "Crypto",
+                "has_daily_checkin": true,
+                "can_cheat_account": true,
+                "requires_kyc": true,
+                "requires_proxy": false,
+                "custom_criteria": [
+                    {"key": "tier", "label": "Hạng", "value_type": "text", "value": "VIP 1"}
+                ],
+                "notes": "", "created_at": "2024-01-01T00:00:00+07:00"
+            }],
+            "registrations": [],
+            "settings": {"lang": "vi", "theme": "default", "font": "DejaVuSans"}
+        });
+        assert_eq!(storage::schema_version_of(&v1), 1);
+
+        let db = storage::migrate_v1_value(&v1).unwrap();
+        assert_eq!(db.schema_version, models::CURRENT_SCHEMA_VERSION);
+        let w = &db.websites[0];
+        // category → tag, custom entry → tag "label: value"
+        assert!(w.tags.contains(&"Crypto".to_string()));
+        assert!(w.tags.contains(&"Hạng: VIP 1".to_string()));
+        // flags → seed criteria + assignment
+        assert!(w.criterion_ids.contains(&"crit-cheat".to_string()));
+        assert!(w.criterion_ids.contains(&"crit-kyc".to_string()));
+        assert!(!w.criterion_ids.contains(&"crit-proxy".to_string()));
+        assert!(db.criteria.iter().any(|c| c.id == "crit-cheat"));
+        // has_daily_checkin preserved, login methods empty assignment
+        assert!(w.has_daily_checkin);
+        assert!(w.login_method_ids.is_empty());
+
+        // version window: newer → Err
+        assert!(storage::check_version_window(models::CURRENT_SCHEMA_VERSION + 1).is_err());
+        assert!(storage::check_version_window(models::CURRENT_SCHEMA_VERSION).is_ok());
+
+        // backup helper creates .bak.TIMESTAMP file
+        let dir = std::env::temp_dir().join(format!("account_hub_mig_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("accounts_data.json");
+        std::fs::write(&f, serde_json::to_string(&v1).unwrap()).unwrap();
+        let bak = storage::backup_file_before_migrate(&f).unwrap();
+        assert!(bak.exists());
+        assert!(bak.to_string_lossy().contains(".bak."));
         std::fs::remove_dir_all(&dir).ok();
     }
 }

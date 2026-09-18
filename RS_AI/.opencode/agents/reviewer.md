@@ -1,6 +1,7 @@
 ---
 description: Check - Cổng kiểm tra duy nhất của team (gộp plan-review + code-review + cross-check). Tìm lỗi bằng bằng chứng, cấm khen suông.
 mode: subagent
+model: custom_3/glm-5.3-flash
 temperature: 0.1
 permission:
   edit: deny

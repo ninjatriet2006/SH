@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { AppDatabase, EmailAccount, Website, RegistrationRecord, AppSettings, AccountStatus } from './types';
+import { AppDatabase, EmailAccount, Website, RegistrationRecord, AppSettings, AccountStatus, Criterion, LoginMethod } from './types';
 
 export const accountHubApi = {
   getAllData: async (): Promise<AppDatabase> => {
@@ -16,6 +16,18 @@ export const accountHubApi = {
   },
   deleteWebsite: async (id: string): Promise<void> => {
     return await invoke('delete_website', { id });
+  },
+  saveCriterion: async (criterion: Criterion): Promise<Criterion> => {
+    return await invoke('save_criterion', { criterion });
+  },
+  deleteCriterion: async (id: string): Promise<void> => {
+    return await invoke('delete_criterion', { id });
+  },
+  saveLoginMethod: async (loginMethod: LoginMethod): Promise<LoginMethod> => {
+    return await invoke('save_login_method', { loginMethod });
+  },
+  deleteLoginMethod: async (id: string): Promise<void> => {
+    return await invoke('delete_login_method', { id });
   },
   toggleRegistration: async (emailId: string, websiteId: string): Promise<RegistrationRecord> => {
     return await invoke('toggle_registration', { emailId, websiteId });

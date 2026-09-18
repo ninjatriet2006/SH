@@ -16,7 +16,7 @@ export const DashboardPage: React.FC = () => {
   const regPercent = totalPossible > 0 ? Math.round((registeredCount / totalPossible) * 100) : 0;
 
   const checkinWebsites = data.websites.filter(w => w.has_daily_checkin).length;
-  const cheatWebsites = data.websites.filter(w => w.can_cheat_account).length;
+  const criteriaCount = (data.criteria || []).length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -92,13 +92,19 @@ export const DashboardPage: React.FC = () => {
         </div>
 
         <div className="glass-card">
-          <h3 style={{ marginBottom: '1rem' }}>Web Hỗ Trợ Multi-Account / Cheat</h3>
-          {data.websites.filter(w => w.can_cheat_account).map(w => (
-            <div key={w.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.6rem 0', borderBottom: '1px solid var(--border)' }}>
-              <span>{w.name}</span>
-              <span className="badge badge-success">Cho phép tạo nhiều acc</span>
-            </div>
-          ))}
+          <h3 style={{ marginBottom: '1rem' }}>Tổng quan tiêu chí ({criteriaCount})</h3>
+          {(data.criteria || []).map(c => {
+            const n = data.websites.filter(w => (w.criterion_ids || []).includes(c.id)).length;
+            return (
+              <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.6rem 0', borderBottom: '1px solid var(--border)' }}>
+                <span>{c.name}</span>
+                <span className="badge badge-success">{n} web</span>
+              </div>
+            );
+          })}
+          {(data.criteria || []).length === 0 && (
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Chưa có tiêu chí nào.</div>
+          )}
         </div>
       </div>
     </div>

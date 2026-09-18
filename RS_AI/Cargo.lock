@@ -2686,6 +2686,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "gateway_filter"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "bytes",
+ "chrono",
+ "futures-util",
+ "http-body-util",
+ "parking_lot",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "gdk"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8518,6 +8538,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "universal_api"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "http-body-util",
+ "hyper 1.11.0",
+ "hyper-util",
+ "keyring",
+ "libc",
+ "log",
+ "parking_lot",
+ "rand 0.8.7",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-log",
+ "tokio",
+ "tokio-stream",
+ "tower",
+ "ureq",
+]
+
+[[package]]
 name = "universal_converter"
 version = "0.1.0"
 dependencies = [
@@ -8682,26 +8734,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "vpn_ai_proxy_gui"
-version = "0.1.0"
-dependencies = [
- "axum",
- "bytes",
- "chrono",
- "futures-util",
- "http-body-util",
- "parking_lot",
- "regex",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tokio",
- "uuid",
-]
 
 [[package]]
 name = "vswhom"
@@ -10004,38 +10036,6 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
-
-[[package]]
-name = "workbuddy_gui"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "axum",
- "base64 0.22.1",
- "bytes",
- "chrono",
- "http-body-util",
- "hyper 1.11.0",
- "hyper-util",
- "keyring",
- "libc",
- "log",
- "parking_lot",
- "rand 0.8.7",
- "regex",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-log",
- "tokio",
- "tokio-stream",
- "tower",
- "ureq",
-]
 
 [[package]]
 name = "writeable"
