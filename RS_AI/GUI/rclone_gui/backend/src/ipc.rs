@@ -121,11 +121,6 @@ payload!(ChownPayload {
     uid: u32,
     gid: u32
 });
-payload!(ReadTextPayload { path: String, max_bytes: Option<u64> });
-payload!(WriteTextPayload {
-    path: String,
-    content: String
-});
 payload!(OpenWithPayload { path: String, exec_cmd: Option<String>, app: Option<String> });
 payload!(ClipboardSetPayload { items: Vec<core::sys::OSClipboardItem>, is_cut: bool });
 payload!(FilesPayload { files: Vec<core::sys::SimpleFileItem> });
@@ -298,20 +293,6 @@ async_command!(
 );
 async_command!(fs_chmod, ChmodPayload, (), api::files::fs_chmod, (path, mode));
 async_command!(fs_chown, ChownPayload, (), api::files::fs_chown, (path, uid, gid));
-async_command!(
-    fs_read_text,
-    ReadTextPayload,
-    String,
-    api::files::fs_read_text,
-    (path, max_bytes)
-);
-async_command!(
-    fs_write_text,
-    WriteTextPayload,
-    (),
-    api::files::fs_write_text,
-    (path, content)
-);
 
 #[tauri::command]
 pub fn fs_temp_dir(request: Req<Empty>) -> IpcResult<String> {

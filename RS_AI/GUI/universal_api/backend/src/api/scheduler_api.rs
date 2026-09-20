@@ -13,24 +13,6 @@ pub struct TaskResult {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn run_checkin_now(request: Req<Empty>, state: State<'_, RuntimeState>) -> IpcResult<TaskResult> {
-    let (request_id, _) = request.validate()?;
-    Ok(respond(request_id, run_task(&state, "checkin", |client, auth| client.daily_checkin(auth))))
-}
-
-#[tauri::command(rename_all = "snake_case")]
-pub fn run_travel_now(request: Req<Empty>, state: State<'_, RuntimeState>) -> IpcResult<TaskResult> {
-    let (request_id, _) = request.validate()?;
-    Ok(respond(request_id, run_task(&state, "travel", |client, auth| client.travel_status(auth).map(|_| ()))))
-}
-
-#[tauri::command(rename_all = "snake_case")]
-pub fn run_activity_now(request: Req<Empty>, state: State<'_, RuntimeState>) -> IpcResult<TaskResult> {
-    let (request_id, _) = request.validate()?;
-    Ok(respond(request_id, run_task(&state, "activity", |client, auth| client.report_chat_activity(auth, &format!("wb2api-{}", chrono::Utc::now().timestamp_millis())))))
-}
-
-#[tauri::command(rename_all = "snake_case")]
 pub fn run_keepalive_now(request: Req<Empty>, state: State<'_, RuntimeState>) -> IpcResult<TaskResult> {
     let (request_id, _) = request.validate()?;
     Ok(respond(request_id, run_task(&state, "keepalive", |client, auth| client.user_resource(auth).map(|_| ()))))
@@ -72,19 +54,15 @@ pub fn save_schedule(request: Req<SaveScheduleRequest>, state: State<'_, Runtime
 }
 
 fn validate_schedule(s: &ScheduleConfig) -> Result<(), String> {
-    for (name, hours) in [
-        ("checkin_hours", &s.checkin_hours),
-        ("travel_hours", &s.travel_hours),
-        ("activity_hours", &s.activity_hours),
-        ("keepalive_hours", &s.keepalive_hours),
-    ] {
-        if hours.len() > 24 {
-            return Err(format!("{name} has too many entries (max 24)"));
-        }
-        for h in hours {
-            if *h < 0 || *h > 23 {
-                return Err(format!("{name} contains invalid hour {h} (must be 0..23)"));
-            }
+    // Chỉ còn keepalive (bản intl không có checkin/travel/activity).
+    // Field cũ trong file vẫn parse (serde bỏ qua) — không cần migrate.
+    let hours = &s.keepalive_hours;
+    if hours.len() > 24 {
+        return Err("keepalive_hours has too many entries (max 24)".into());
+    }
+    for h in hours {
+        if *h < 0 || *h > 23 {
+            return Err(format!("keepalive_hours contains invalid hour {h} (must be 0..23)"));
         }
     }
     Ok(())

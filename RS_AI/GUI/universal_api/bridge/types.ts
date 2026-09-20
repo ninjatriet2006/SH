@@ -140,6 +140,25 @@ export interface ExternalConfig {
     auto_fallback: boolean;
 }
 
+/// Một provider ngoài: Account (trạng thái/models/login) + Configuration
+/// (endpoint/key/timeouts/ports/prefixes). KHÔNG scheduler, KHÔNG quick actions
+/// (2 thứ đó là đặc thù CodeBuddy: tasks bảo trì account + chạy tay).
+export interface ProviderEntry {
+    name: string;
+    kind: string;
+    model_prefixes: string;
+    config: ExternalConfig;
+}
+
+export interface ProviderStatus {
+    name: string;
+    enabled: boolean;
+    reachable: boolean;
+    http_status: number | null;
+    latency_ms: number | null;
+    error: string | null;
+}
+
 export interface ExternalStatus {
     reachable: boolean;
     http_status: number | null;
@@ -163,12 +182,6 @@ export interface PortCheck {
 }
 
 export interface ScheduleConfig {
-    checkin_hours: number[];
-    travel_hours: number[];
-    activity_hours: number[];
     keepalive_hours: number[];
-    checkin_enabled: boolean;
-    travel_enabled: boolean;
-    activity_enabled: boolean;
     keepalive_enabled: boolean;
 }

@@ -12,7 +12,7 @@ Registry ghi nhận các model bị coi là "chết" (không phản hồi / lỗ
 ## Registry (mới nhất ở trên)
 
 | model | trạng thái | fail_count | phát hiện lúc | triệu chứng | ghi chú |
-|-------|-----------|------------|---------------|-------------|---------|
+| custom_3/glm-5.3-flash | WATCH | 1 | 2026-09-20 | Reviewer LIGHT copy/delete fail `无权访问 svip 分组` | Lần 1, vẫn dùng được; Lead tự check LIGHT thay ở phase này ||-------|-----------|------------|---------------|-------------|---------|
 | cBAjYv/gpt-5.6-sol | DEAD | 3 | 2026-09-12 | Filen lần đầu và cả Filen/OpenCode retry bị từ chối do provider precharge quota còn `$0.019756` | Đã reroute: lead → `Thuan_justworker/gpt-5.6-sol`, 6 agent vai nặng → `JustWoker/gpt-5.6-sol` theo yêu cầu user 2026-09-12 |
 | cBAjYv/gpt-5.6-sol | RECOVERED | 2 | 2026-09-10 | Reviewer rồi Rust Dev Phase 6 lỗi protocol `message_start`; phiên sau phản hồi lại và user yêu cầu tiếp tục | Có thể tiếp tục dùng; theo dõi nếu tái phát |
 | cBAjYv/gpt-5.6-sol | RECOVERED | 1 | 2026-09-09 | Rust Dev task 5.4 lần đầu trả `<none>`; retry hoàn tất 8/8 tests | Có thể tiếp tục dùng; theo dõi nếu tái phát |

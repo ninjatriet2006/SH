@@ -9,7 +9,9 @@
         "providers": "Nhà cung cấp",
         "scheduler": "Lập lịch",
         "config": "Cấu hình",
-        "settings": "Cài đặt"
+        "settings": "Cài đặt",
+        "zed": "Zed",
+        "group_zed": "Zed"
     },
     "common": {
         "save": "Lưu",
@@ -40,7 +42,9 @@
         "checkin_now": "Điểm danh ngay",
         "travel_now": "Du lịch ngay",
         "activity_now": "Báo hoạt động ngay",
-        "keepalive_now": "Giữ token ngay"
+        "keepalive_now": "Giữ token ngay",
+        "bridge_providers": "Providers (bật/tổng)",
+        "endpoints": "Endpoint theo provider"
     },
     "accounts": {
         "title": "Quản lý tài khoản",
@@ -69,7 +73,9 @@
         "col_credits": "Số dư",
         "col_status": "Trạng thái",
         "col_inflight": "Đang xử lý",
-        "col_actions": "Thao tác"
+        "col_actions": "Thao tác",
+        "enable": "Bật",
+        "disable": "Tắt"
     },
     "scheduler": {
         "title": "Lịch trình",
@@ -79,9 +85,6 @@
         "col_hours": "Giờ chạy",
         "col_enabled": "Bật",
         "col_actions": "Thao tác",
-        "checkin": "Điểm danh hàng ngày",
-        "travel": "Mèo du lịch",
-        "activity": "Báo hoạt động",
         "keepalive": "Giữ token",
         "run_now": "Chạy ngay"
     },
@@ -102,7 +105,7 @@
     "providers": {
         "title": "Nhà cung cấp ngoài (cầu anti-api)",
         "description": "Kết nối tới service tương thích anti-api (Antigravity / Codex / Copilot / Zed / Kiro / Grok) đang chạy riêng bằng Docker hoặc binary. Universal API vẫn là gateway thống nhất: model nội bộ dùng pool local, model ngoài được forward.",
-        "enabled": "Bật định tuyến ngoài",
+        "enabled": "Bật",
         "base_url": "Base URL (control listener, vd http://127.0.0.1:8964)",
         "api_key": "API key (tùy chọn, forward dạng Bearer)",
         "control_port": "Port control",
@@ -121,7 +124,21 @@
         "port_busy": "Port bận — dùng Auto để gợi ý port trống",
         "login_title": "Đăng nhập account Antigravity / Codex / Copilot ở đâu?",
         "login_note": "Đăng nhập thực hiện trong dashboard riêng của anti-api (nó giữ OAuth flow), không phải trong GUI này. Mở URL bên dưới, đăng nhập ở đó, rồi quay lại nhấn Tải models.",
-        "subsection_note": "Dùng chung CodeBuddy & Anti-API"
+        "subsection_note": "Dùng chung CodeBuddy & Anti-API",
+        "account_section": "Tài khoản",
+        "config_section": "Cấu hình",
+        "add_provider": "Thêm provider",
+        "new_name_placeholder": "Tên provider, vd copilot",
+        "model_prefixes": "Tiền tố model (phân tách |)",
+        "prefixes_hint": "Provider khớp đầu tiên (theo thứ tự) xử lý model",
+        "empty": "Chưa có provider. Thêm ở trên — cầu anti-api migrate sẽ tự hiện ở đây.",
+        "zed_import": "Nhập file credential",
+        "zed_test": "Kiểm tra kết nối",
+        "zed_no_accounts": "Chưa có account Zed. Nhập file credential JSON xuất từ Zed.",
+        "zed_account_note": "Account nằm trong vault của app (mã hóa). Mỗi account nhập một file credential.",
+        "zed_hint_refresh": "Tải models trước — định tuyến chat cần list model trong cache.",
+        "zed_config_note": "Host cố định: zed.dev (identity) + cloud.zed.dev (API). Timeout theo tham chiếu anti-api (8s / 90s). System id tùy chọn qua env ANTI_API_ZED_SYSTEM_ID.",
+        "zed_system_id": "System ID (tùy chọn, đè env)"
     },
     "settings": {
         "title": "Cài đặt",

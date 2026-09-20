@@ -1,4 +1,7 @@
-//! Scheduled account maintenance tasks.
+//! Scheduled account maintenance: token keepalive only.
+//!
+//! Bản quốc tế (intl) không có checkin/travel/activity — chỉ giữ keepalive
+//! (chạm nhẹ user_resource để token khỏi hết hạn + cập nhật credits).
 
 use std::time::Duration;
 
@@ -11,11 +14,11 @@ use crate::core::pool::Pool;
 use crate::core::upstream::client::Client;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TaskKind { Checkin, Travel, Activity, Keepalive }
+pub enum TaskKind { Keepalive }
 
 impl std::fmt::Display for TaskKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self { Self::Checkin => "checkin", Self::Travel => "travel", Self::Activity => "activity", Self::Keepalive => "keepalive" })
+        f.write_str(match self { Self::Keepalive => "keepalive" })
     }
 }
 
@@ -56,9 +59,6 @@ impl Scheduler {
     fn enabled_tasks(&self) -> Vec<(TaskKind, Vec<u8>)> {
         let c = &self.config;
         let mut tasks = Vec::new();
-        if c.checkin_enabled { tasks.push((TaskKind::Checkin, hours(&c.checkin_hours))); }
-        if c.travel_enabled { tasks.push((TaskKind::Travel, hours(&c.travel_hours))); }
-        if c.activity_enabled { tasks.push((TaskKind::Activity, hours(&c.activity_hours))); }
         if c.keepalive_enabled { tasks.push((TaskKind::Keepalive, hours(&c.keepalive_hours))); }
         tasks
     }
@@ -66,12 +66,8 @@ impl Scheduler {
     fn fire(&self, kind: TaskKind) {
         info!("scheduler firing {}", kind);
         for account in self.pool.all_accounts() {
-            let result = match kind {
-                TaskKind::Checkin => self.upstream.daily_checkin(&account.auth).map(|_| ()),
-                TaskKind::Travel => self.upstream.travel_status(&account.auth).map(|_| ()),
-                TaskKind::Activity => self.upstream.report_chat_activity(&account.auth, &format!("wb2api-{}", chrono::Utc::now().timestamp_millis())),
-                TaskKind::Keepalive => self.upstream.user_resource(&account.auth).map(|_| ()),
-            };
+            // Keepalive = chạm user_resource: vừa giữ token sống vừa refresh credits.
+            let result = self.upstream.user_resource(&account.auth).map(|_| ());
             if let Err(error) = result { warn!("scheduler {} [{}]: {}", kind, account.uid, error); }
             std::thread::sleep(Duration::from_millis(800));
         }

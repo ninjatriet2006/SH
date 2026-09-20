@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
-import { getSchedule, runTask, saveSchedule, type SchedulerTask } from '../../../bridge/scheduler_bridge';
+import { getSchedule, runKeepalive, saveSchedule } from '../../../bridge/scheduler_bridge';
 import { ipcErrorMessage } from '../../../bridge/ipc';
 import type { ScheduleConfig } from '../../../bridge/types';
 import { useTranslation } from '../utils/i18n';
 
-type TaskKey = SchedulerTask;
-
-const TASK_ORDER: TaskKey[] = ['checkin', 'travel', 'activity', 'keepalive'];
+// Trang lịch rút gọn: chỉ keepalive (bản intl không có checkin/travel/activity).
+// Giữ 1 dòng duy nhất: giờ chạy + bật/tắt + chạy ngay.
 
 function hoursToText(hours: number[]): string {
     return [...hours].sort((a, b) => a - b).join(', ');
@@ -29,15 +28,10 @@ function textToHours(text: string): number[] {
 export function SchedulerPage() {
     const { t } = useTranslation();
     const [schedule, setSchedule] = useState<ScheduleConfig | null>(null);
-    const [hoursText, setHoursText] = useState<Record<TaskKey, string>>({
-        checkin: '',
-        travel: '',
-        activity: '',
-        keepalive: '',
-    });
+    const [hoursText, setHoursText] = useState('');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
-    const [busy, setBusy] = useState<SchedulerTask | null>(null);
+    const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState<string | null>(null);
     const [isError, setIsError] = useState(false);
 
@@ -46,12 +40,7 @@ export function SchedulerPage() {
             setMessage(null);
             const s = await getSchedule();
             setSchedule(s);
-            setHoursText({
-                checkin: hoursToText(s.checkin_hours),
-                travel: hoursToText(s.travel_hours),
-                activity: hoursToText(s.activity_hours),
-                keepalive: hoursToText(s.keepalive_hours),
-            });
+            setHoursText(hoursToText(s.keepalive_hours ?? []));
         } catch (e) {
             setMessage(ipcErrorMessage(e));
             setIsError(true);
@@ -64,18 +53,18 @@ export function SchedulerPage() {
         void load();
     }, []);
 
-    const run = async (task: SchedulerTask) => {
+    const run = async () => {
         try {
-            setBusy(task);
+            setBusy(true);
             setMessage(null);
-            const result = await runTask(task);
+            const result = await runKeepalive();
             setMessage(result.message);
             setIsError(!result.success);
         } catch (e) {
             setMessage(ipcErrorMessage(e));
             setIsError(true);
         } finally {
-            setBusy(null);
+            setBusy(false);
         }
     };
 
@@ -86,10 +75,7 @@ export function SchedulerPage() {
             setMessage(null);
             const next: ScheduleConfig = {
                 ...schedule,
-                checkin_hours: textToHours(hoursText.checkin),
-                travel_hours: textToHours(hoursText.travel),
-                activity_hours: textToHours(hoursText.activity),
-                keepalive_hours: textToHours(hoursText.keepalive),
+                keepalive_hours: textToHours(hoursText),
             };
             await saveSchedule(next);
             setSchedule(next);
@@ -101,11 +87,6 @@ export function SchedulerPage() {
         } finally {
             setSaving(false);
         }
-    };
-
-    const toggle = (task: TaskKey) => {
-        if (!schedule) return;
-        setSchedule({ ...schedule, [`${task}_enabled`]: !schedule[`${task}_enabled` as keyof ScheduleConfig] });
     };
 
     if (loading) return <div>{t('common.loading')}</div>;
@@ -127,47 +108,46 @@ export function SchedulerPage() {
                         </tr>
                     </thead>
                     <tbody>
-                        {TASK_ORDER.map((task) => {
-                            const enabled = schedule[`${task}_enabled` as keyof ScheduleConfig] as boolean;
-                            return (
-                                <tr key={task}>
-                                    <td>{t(`scheduler.${task}`)}</td>
-                                    <td>
-                                        <input
-                                            className="input"
-                                            style={{ width: '12rem' }}
-                                            value={hoursText[task]}
-                                            placeholder="9, 21"
-                                            onChange={(e) => setHoursText({ ...hoursText, [task]: e.target.value })}
-                                        />
-                                    </td>
-                                    <td>
-                                        <label style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', cursor: 'pointer' }}>
-                                            <input type="checkbox" checked={enabled} onChange={() => toggle(task)} />
-                                            <span className={`badge ${enabled ? 'badge-success' : 'badge-warning'}`}>
-                                                {enabled ? 'ON' : 'OFF'}
-                                            </span>
-                                        </label>
-                                    </td>
-                                    <td>
-                                        <button
-                                            className="btn btn-primary"
-                                            onClick={() => void run(task)}
-                                            disabled={busy !== null || saving}
-                                        >
-                                            {busy === task ? t('common.loading') : t('scheduler.run_now')}
-                                        </button>
-                                    </td>
-                                </tr>
-                            );
-                        })}
+                        <tr>
+                            <td>{t('scheduler.keepalive')}</td>
+                            <td>
+                                <input
+                                    className="input"
+                                    style={{ width: '12rem' }}
+                                    value={hoursText}
+                                    placeholder="22"
+                                    onChange={(e) => setHoursText(e.target.value)}
+                                />
+                            </td>
+                            <td>
+                                <label style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', cursor: 'pointer' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={!!schedule.keepalive_enabled}
+                                        onChange={() => setSchedule({ ...schedule, keepalive_enabled: !schedule.keepalive_enabled })}
+                                    />
+                                    <span className={`badge ${schedule.keepalive_enabled ? 'badge-success' : 'badge-warning'}`}>
+                                        {schedule.keepalive_enabled ? 'ON' : 'OFF'}
+                                    </span>
+                                </label>
+                            </td>
+                            <td>
+                                <button
+                                    className="btn btn-primary"
+                                    onClick={() => void run()}
+                                    disabled={busy || saving}
+                                >
+                                    {busy ? t('common.loading') : t('scheduler.run_now')}
+                                </button>
+                            </td>
+                        </tr>
                     </tbody>
                 </table>
                 <div className="form-actions">
-                    <button className="btn" onClick={() => void load()} disabled={saving || busy !== null}>
+                    <button className="btn" onClick={() => void load()} disabled={saving || busy}>
                         {t('common.refresh')}
                     </button>
-                    <button className="btn btn-primary" onClick={() => void save()} disabled={saving || busy !== null}>
+                    <button className="btn btn-primary" onClick={() => void save()} disabled={saving || busy}>
                         {t('common.save')}
                     </button>
                 </div>

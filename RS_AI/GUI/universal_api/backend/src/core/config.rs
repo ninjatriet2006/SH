@@ -20,8 +20,19 @@ pub struct Config {
     /// External provider bridge (anti-api compatible). `#[serde(default)]`
     /// để config.json cũ (chưa có field) vẫn parse được — chống lỗi ngầm.
     /// File cũ có field lạ (vd `vpn` đã gỡ) vẫn parse: serde bỏ qua unknown fields.
+    /// LEGACY single-bridge: giữ để migrate sang `providers` lúc boot
+    /// (xem load_boot_config). Code mới đọc `providers`.
     #[serde(default)]
     pub external: ExternalConfig,
+    /// Multi-provider registry: mỗi entry một provider ngoài (tên + prefixes +
+    /// config riêng). Rỗng = migrate từ `external` lúc boot.
+    /// UI ProvidersPage: mỗi provider một card Account + Configuration.
+    #[serde(default)]
+    pub providers: Vec<crate::core::external::ProviderEntry>,
+    /// Khối Zed native (tách hoàn toàn khỏi anti-api/external).
+    /// `#[serde(default)]` để config cũ vẫn parse.
+    #[serde(default)]
+    pub zed: ZedProviderConfig,
 }
 
 impl Default for Config {
@@ -37,13 +48,7 @@ impl Default for Config {
                 soft_rate_max: "2h".to_string(),
             },
             schedule: ScheduleConfig {
-                checkin_hours: vec![9, 21],
-                travel_hours: vec![9, 21],
-                activity_hours: vec![10],
                 keepalive_hours: vec![22],
-                checkin_enabled: true,
-                travel_enabled: true,
-                activity_enabled: true,
                 keepalive_enabled: true,
             },
             upstream: UpstreamConfig {
@@ -75,7 +80,27 @@ impl Default for Config {
                 gc_interval: "5m".to_string(),
             },
             external: ExternalConfig::default(),
+            providers: Vec::new(),
+            zed: ZedProviderConfig::default(),
         }
+    }
+}
+
+/// Cấu hình khối Zed native (riêng hoàn toàn khỏi external/anti-api).
+/// Host/timeout cố định theo tham chiếu; `system_id` tùy chọn (trống = đọc env
+/// `ANTI_API_ZED_SYSTEM_ID`, trống nữa = không gửi header).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZedProviderConfig {
+    /// Bật routing native. Tắt = model Zed (kể cả prefix tường minh) không route.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub system_id: String,
+}
+
+impl Default for ZedProviderConfig {
+    fn default() -> Self {
+        Self { enabled: true, system_id: String::new() }
     }
 }
 
@@ -92,14 +117,17 @@ pub struct CooldownConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScheduleConfig {
-    pub checkin_hours: Vec<i32>,
-    pub travel_hours: Vec<i32>,
-    pub activity_hours: Vec<i32>,
+    /// Chỉ còn keepalive (bản intl không có checkin/travel/activity).
+    /// Field cũ thiếu trong file mới vẫn parse nhờ default; file cũ thừa
+    /// field vẫn parse (serde bỏ qua unknown) — không cần migrate.
+    #[serde(default)]
     pub keepalive_hours: Vec<i32>,
-    pub checkin_enabled: bool,
-    pub travel_enabled: bool,
-    pub activity_enabled: bool,
+    #[serde(default = "default_true")]
     pub keepalive_enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -207,7 +235,7 @@ pub fn apply_env(config: &mut Config) {
     if let Some(v) = env_str2("UAPI_PROMPT_FILE", "PROMPT_FILE") { config.prompt.file = v; }
 }
 
-/// Config khởi động: file (nếu có) → env đè lên → mặc định.
+/// Config khởi động: file (nếu có) → env đè lên → mặc định → migrate providers.
 pub fn load_boot_config() -> Config {
     let path = crate::core::paths::config_file_path();
     let mut cfg = load_from_file(&path.to_string_lossy()).unwrap_or_default();
@@ -222,7 +250,26 @@ pub fn load_boot_config() -> Config {
     cfg.state_file = crate::core::paths::resolve_data_path(&base, &cfg.state_file)
         .to_string_lossy()
         .to_string();
+    // Multi-provider migrate: config cũ chỉ có `external` → tạo 1 entry.
+    // Config mới đã có `providers` thì giữ nguyên, đồng bộ `external` = entry đầu
+    // để code legacy (validate/start) vẫn chạy.
+    if cfg.providers.is_empty() {
+        cfg.providers = crate::core::external::ProviderRegistry::from_legacy(&cfg.external).providers;
+    }
+    sync_legacy_external(&mut cfg);
     cfg
+}
+
+/// Đồng bộ field legacy `external` = entry providers đầu tiên (nếu có).
+/// Mọi code đọc `config.external` (validate, forward, health) tiếp tục đúng
+/// mà không cần biết registry. Gọi sau mọi mutation của `providers`.
+pub fn sync_legacy_external(cfg: &mut Config) {
+    if let Some(first) = cfg.providers.first() {
+        cfg.external = first.config.clone();
+    } else if cfg.providers.is_empty() {
+        // Không provider nào: tắt legacy để routing rỗng (thay vì config cũ sót).
+        cfg.external.enabled = false;
+    }
 }
 
 /// Parse duration dạng Go: "600s" | "30m" | "6h" | "1d" | số giây trần.

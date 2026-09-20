@@ -17,7 +17,6 @@ function payloadFor(command: string, args: Record<string, unknown>): Record<stri
     list_files: ['pane'],
     fs_copy: ['task_id'],
     fs_move: ['task_id'],
-    fs_read_text: ['max_bytes'],
     sys_open_with: ['exec_cmd', 'app'],
   };
   for (const field of nullable[command] ?? []) {

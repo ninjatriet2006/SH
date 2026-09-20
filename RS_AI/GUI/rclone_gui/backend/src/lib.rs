@@ -9,6 +9,7 @@
   + `core`: Giao tiếp hệ điều hành, rclone thô.
 */
 
+pub mod actions;
 pub mod api;
 pub mod core;
 pub mod ipc;
@@ -43,8 +44,6 @@ pub fn run() {
             ipc::fs_temp_dir,
             ipc::fs_chmod,
             ipc::fs_chown,
-            ipc::fs_read_text,
-            ipc::fs_write_text,
             // ==================
             // SYS API (Trong core/sys.rs)
             // ==================

@@ -1,9 +1,10 @@
 //! BLOCK Core — HTTP gateway thuần (axum), ported from Go: internal/server/*.go.
 //!
-//! File này KHÔNG chứa logic anti-api: mọi thứ provider ngoài nằm ở
-//! `core/external.rs` (BLOCK anti-api). Điểm biên duy nhất:
-//! `is_external_model` (chọn đường), `forward_external_stream` (forward chat),
-//! `merge_external_models` (gộp models).
+//! File này KHÔNG chứa logic provider: CodeBuddy đi pool nội bộ, external qua
+//! `core/external.rs` (BLOCK anti-api), Zed native qua `core/providers::zed`
+//! (BLOCK riêng, tách hoàn toàn). Điểm biên: `resolve_route_entry` +
+//! `forward_external_stream` (external), `resolve_native` + `forward_zed_stream`
+//! (zed), `merge_external_models` (gộp models).
 //!
 //! Routes:
 //!   POST /v1/chat/completions — SSE proxy (with account rotation)
@@ -68,6 +69,11 @@ pub struct AppState {
     pub dynamic_models: Arc<ParkingRwLock<DynamicModelsCache>>,
     /// Models từ external provider (anti-api). Merge vào `/v1/models`.
     pub external_models: Arc<ParkingRwLock<Vec<Value>>>,
+    /// Cache model Zed native (id → info) cho routing + `/v1/models` merge.
+    /// Refresh qua IPC `refresh_zed_models` (ghi qua GatewayState handle).
+    pub zed_models: Arc<ParkingRwLock<std::collections::HashMap<String, crate::core::providers::zed::ZedModelInfo>>>,
+    /// Token cache Zed share với RuntimeState (tránh fetch llm token mỗi request).
+    pub zed_tokens: Arc<crate::core::providers::zed::ZedTokenCache>,
     pub storage: Option<Arc<Storage>>,
     pub audit: Arc<crate::core::audit::AuditBuffer>,
 }
@@ -225,6 +231,12 @@ pub fn build_router(state: SharedState) -> Router {
         .route("/v1/chat/completions", post(handle_chat))
         .route("/v1/messages", post(handle_messages))
         .route("/v1/models", get(handle_models))
+        .route("/zed/v1/chat/completions", post(handle_chat_zed))
+        .route("/zed/v1/messages", post(handle_messages_zed))
+        .route("/zed/v1/models", get(handle_models_zed))
+        .route("/codebuddy/v1/chat/completions", post(handle_chat_codebuddy))
+        .route("/codebuddy/v1/messages", post(handle_messages_codebuddy))
+        .route("/codebuddy/v1/models", get(handle_models_codebuddy))
         .route("/status", get(handle_status))
         .route("/metrics", get(handle_metrics))
         .route("/debug/traces", get(handle_debug_traces))
@@ -264,9 +276,13 @@ fn parse_listen(listen: &str) -> String {
 pub async fn start_server(
     state: SharedState,
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error + Send + Sync>> {
-    // Validate external config sớm để báo lỗi rõ thay vì chạy nửa chừng.
-    if let Err(e) = state.config.external.validate(&state.config.listen) {
-        return Err(format!("invalid external config: {e}").into());
+    // Validate từng provider enabled sớm để báo lỗi rõ thay vì chạy nửa chừng.
+    for p in crate::core::external::effective_providers(&state.config) {
+        if p.config.enabled {
+            if let Err(e) = p.config.validate(&state.config.listen) {
+                return Err(format!("invalid provider '{}': {e}", p.name).into());
+            }
+        }
     }
     let addr = parse_listen(&state.config.listen);
     let router = build_router(state.clone());
@@ -366,10 +382,46 @@ pub struct ApiKeyContext {
 
 // ─── /v1/chat/completions ───────────────────────────────────────────────────
 
+/// Ép định tuyến provider ở tầng endpoint (thay vì chỉ theo tên model):
+/// - `Auto`: Zed native (nếu khớp cache) → registry http-bridge → pool CodeBuddy.
+/// - `Zed`: chỉ native Zed (lỗi rõ nếu tắt/hết account/chưa refresh models).
+/// - `CodeBuddy`: chỉ pool CodeBuddy (bỏ qua Zed + bridge).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ForceProvider {
+    Auto,
+    Zed,
+    CodeBuddy,
+}
+
 async fn handle_chat(
     State(state): State<SharedState>,
     headers: HeaderMap,
     request: Request<Body>,
+) -> Response {
+    handle_chat_inner(state, headers, request, ForceProvider::Auto).await
+}
+
+async fn handle_chat_zed(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    request: Request<Body>,
+) -> Response {
+    handle_chat_inner(state, headers, request, ForceProvider::Zed).await
+}
+
+async fn handle_chat_codebuddy(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    request: Request<Body>,
+) -> Response {
+    handle_chat_inner(state, headers, request, ForceProvider::CodeBuddy).await
+}
+
+async fn handle_chat_inner(
+    state: SharedState,
+    headers: HeaderMap,
+    request: Request<Body>,
+    forced: ForceProvider,
 ) -> Response {
     let key_prefix = request
         .extensions()
@@ -422,26 +474,60 @@ async fn handle_chat(
     let raw_request_body = String::from_utf8_lossy(&body).to_string();
     let model = req.model.clone();
     let stream = req.stream;
-    // ── Unified router: external model → anti-api bridge (lấy ý tưởng
-    // Flow/Account routing từ anti-api, forward native qua HTTP) ──────────
-    if state.config.external.enabled && crate::core::external::is_external_model(&model) {
-        return crate::core::external::forward_external_stream(
-            state,
-            key_prefix,
-            "/v1/chat/completions",
-            model,
-            upstream_body,
-            raw_request_headers,
-            raw_request_body,
-            stream,
-            false,
-        );
+    let route_path: &'static str = match forced {
+        ForceProvider::Auto => "/v1/chat/completions",
+        ForceProvider::Zed => "/zed/v1/chat/completions",
+        ForceProvider::CodeBuddy => "/codebuddy/v1/chat/completions",
+    };
+    // ── Router: Zed ép buộc → chỉ native; Auto → native (nếu khớp cache),
+    // registry http-bridge, rồi pool CodeBuddy; CodeBuddy ép buộc → chỉ pool.
+    if forced == ForceProvider::Zed || (forced == ForceProvider::Auto && state.config.zed.enabled) {
+        if forced == ForceProvider::Zed && !state.config.zed.enabled {
+            return crate::core::providers::zed::unavailable_response(
+                "zed provider disabled in config",
+            );
+        }
+        let zed_sys = crate::core::providers::zed::resolve_system_id(&state.config.zed.system_id);
+        if let Some(zr) = crate::core::providers::zed::resolve_native(&state, &model) {
+            return crate::core::providers::zed::forward_stream(
+                state, zr, zed_sys, key_prefix, route_path, model,
+                upstream_body, raw_request_headers, raw_request_body, stream, false,
+            );
+        }
+        // Prefix zed/ tường minh nhưng chưa resolve (chưa refresh models hoặc
+        // hết account) → lỗi rõ thay vì rơi vào pool CodeBuddy gây nhầm.
+        if crate::core::providers::zed::strip_prefix(&model) != model.trim() {
+            return crate::core::providers::zed::unavailable_response(
+                "zed model/account unavailable — refresh Zed models first",
+            );
+        }
+        if forced == ForceProvider::Zed {
+            return crate::core::providers::zed::unavailable_response(
+                "zed model not in cache — refresh Zed models first",
+            );
+        }
+    }
+    if forced == ForceProvider::Auto {
+        if let Some(entry) = crate::core::external::resolve_route_entry(&state.config, &model) {
+            return crate::core::external::forward_external_stream(
+                state,
+                entry.config,
+                key_prefix,
+                route_path,
+                model,
+                upstream_body,
+                raw_request_headers,
+                raw_request_body,
+                stream,
+                false,
+            );
+        }
     }
     dispatch_upstream_stream(
         state,
         uid,
         key_prefix,
-        "/v1/chat/completions",
+        route_path,
         model,
         upstream_body,
         raw_request_headers,
@@ -457,6 +543,31 @@ async fn handle_messages(
     State(state): State<SharedState>,
     headers: HeaderMap,
     request: Request<Body>,
+) -> Response {
+    handle_messages_inner(state, headers, request, ForceProvider::Auto).await
+}
+
+async fn handle_messages_zed(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    request: Request<Body>,
+) -> Response {
+    handle_messages_inner(state, headers, request, ForceProvider::Zed).await
+}
+
+async fn handle_messages_codebuddy(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    request: Request<Body>,
+) -> Response {
+    handle_messages_inner(state, headers, request, ForceProvider::CodeBuddy).await
+}
+
+async fn handle_messages_inner(
+    state: SharedState,
+    headers: HeaderMap,
+    request: Request<Body>,
+    forced: ForceProvider,
 ) -> Response {
     let key_prefix = request
         .extensions()
@@ -504,24 +615,56 @@ async fn handle_messages(
     let raw_request_body = String::from_utf8_lossy(&body).to_string();
     let model = req.model.clone();
     let stream = req.stream;
-    if state.config.external.enabled && crate::core::external::is_external_model(&model) {
-        return crate::core::external::forward_external_stream(
-            state,
-            key_prefix,
-            "/v1/messages",
-            model,
-            upstream_body,
-            raw_request_headers,
-            raw_request_body,
-            stream,
-            true,
-        );
+    let route_path: &'static str = match forced {
+        ForceProvider::Auto => "/v1/messages",
+        ForceProvider::Zed => "/zed/v1/messages",
+        ForceProvider::CodeBuddy => "/codebuddy/v1/messages",
+    };
+    if forced == ForceProvider::Zed || (forced == ForceProvider::Auto && state.config.zed.enabled) {
+        if forced == ForceProvider::Zed && !state.config.zed.enabled {
+            return crate::core::providers::zed::unavailable_response(
+                "zed provider disabled in config",
+            );
+        }
+        let zed_sys = crate::core::providers::zed::resolve_system_id(&state.config.zed.system_id);
+        if let Some(zr) = crate::core::providers::zed::resolve_native(&state, &model) {
+            return crate::core::providers::zed::forward_stream(
+                state, zr, zed_sys, key_prefix, route_path, model,
+                upstream_body, raw_request_headers, raw_request_body, stream, true,
+            );
+        }
+        if crate::core::providers::zed::strip_prefix(&model) != model.trim() {
+            return crate::core::providers::zed::unavailable_response(
+                "zed model/account unavailable — refresh Zed models first",
+            );
+        }
+        if forced == ForceProvider::Zed {
+            return crate::core::providers::zed::unavailable_response(
+                "zed model not in cache — refresh Zed models first",
+            );
+        }
+    }
+    if forced == ForceProvider::Auto {
+        if let Some(entry) = crate::core::external::resolve_route_entry(&state.config, &model) {
+            return crate::core::external::forward_external_stream(
+                state,
+                entry.config,
+                key_prefix,
+                route_path,
+                model,
+                upstream_body,
+                raw_request_headers,
+                raw_request_body,
+                stream,
+                true,
+            );
+        }
     }
     dispatch_upstream_stream(
         state,
         uid,
         key_prefix,
-        "/v1/messages",
+        route_path,
         model,
         upstream_body,
         raw_request_headers,
@@ -990,12 +1133,30 @@ async fn refresh_dynamic_models_if_stale(state: &SharedState) {
 }
 
 async fn handle_models(State(state): State<SharedState>) -> Response {
+    handle_models_inner(state, ForceProvider::Auto).await
+}
+
+async fn handle_models_zed(State(state): State<SharedState>) -> Response {
+    handle_models_inner(state, ForceProvider::Zed).await
+}
+
+async fn handle_models_codebuddy(State(state): State<SharedState>) -> Response {
+    handle_models_inner(state, ForceProvider::CodeBuddy).await
+}
+
+/// List models theo scope: Auto gộp tất cả (CodeBuddy + external + zed),
+/// Zed/CodeBuddy chỉ trả models của đúng provider đó.
+async fn handle_models_inner(state: SharedState, scope: ForceProvider) -> Response {
     refresh_dynamic_models_if_stale(&state).await;
-    let (dynamic, external) = {
+    let (dynamic, external, zed) = {
         let cache = state.dynamic_models.read();
-        (cache.models.clone(), state.external_models.read().clone())
+        (
+            cache.models.clone(),
+            state.external_models.read().clone(),
+            state.zed_models.read().clone(),
+        )
     };
-    // Ưu tiên: dynamic (discovery nội bộ) → static; external luôn append thêm
+    // Ưu tiên: dynamic (discovery nội bộ) → static; external + zed append thêm
     // (dedupe theo id để tránh trùng khi cùng tên model).
     let mut data: Vec<Value> = if dynamic.is_empty() { STATIC_MODELS
         .iter()
@@ -1009,9 +1170,44 @@ async fn handle_models(State(state): State<SharedState>) -> Response {
             })
         })
         .collect() } else { dynamic };
-    if state.config.external.enabled {
-        // Biên anti-api: gộp models ngoài (logic trong core/external.rs).
-        crate::core::external::merge_external_models(&mut data, external);
+    // Scope Zed: CHỈ models Zed (không lẫn static/dynamic/bridge).
+    if scope == ForceProvider::Zed {
+        data.clear();
+    }
+    if scope != ForceProvider::Zed {
+        let reg = crate::core::external::ProviderRegistry {
+            providers: crate::core::external::effective_providers(&state.config),
+        };
+        if reg.enabled_any() {
+            // Biên anti-api: gộp models ngoài (logic trong core/external.rs).
+            crate::core::external::merge_external_models(&mut data, external);
+        }
+    }
+    // Zed native: merge từ cache (refresh qua Zed → Refresh models).
+    // Scope CodeBuddy bỏ qua để list thuần provider đó.
+    if scope != ForceProvider::CodeBuddy && !zed.is_empty() {
+        let mut seen: std::collections::HashSet<String> = data
+            .iter()
+            .filter_map(|v| v.get("id")?.as_str().map(|s| s.to_string()))
+            .collect();
+        let mut entries: Vec<(&String, &crate::core::providers::zed::ZedModelInfo)> =
+            zed.iter().collect();
+        entries.sort_by(|a, b| a.0.cmp(b.0));
+        for (id, info) in entries {
+            if seen.insert(id.clone()) {
+                let mut entry = json!({
+                    "id": id,
+                    "object": "model",
+                    "created": 1753600000_i64,
+                    "owned_by": "zed",
+                });
+                if let Some(max) = info.max_output_tokens {
+                    entry["max_output_tokens"] = json!(max);
+                    entry["context_length"] = json!(max);
+                }
+                data.push(entry);
+            }
+        }
     }
 
     let resp = json!({

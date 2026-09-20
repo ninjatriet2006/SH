@@ -38,6 +38,8 @@ fn test_state(api_key: &str) -> Arc<AppState> {
         metrics: Arc::new(Metrics::default()),
         dynamic_models: Arc::new(RwLock::new(Default::default())),
         external_models: Arc::new(RwLock::new(Vec::new())),
+        zed_models: Arc::new(RwLock::new(Default::default())),
+        zed_tokens: Arc::new(universal_api_lib::core::providers::zed::ZedTokenCache::default()),
         storage: None,
         audit: Arc::new(AuditBuffer::default()),
     })
@@ -114,6 +116,42 @@ async fn open_access_endpoints() {
     );
     assert_eq!(resp.status(), 200);
     assert!(resp.header("content-type").unwrap_or("").contains("text/event-stream"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn scoped_provider_endpoints() {
+    let base = boot("").await;
+    let ag = agent();
+
+    // /zed/v1/models khi chưa refresh: list RỖNG (thuần Zed, không lẫn static).
+    let resp = call(ag.get(&format!("{base}/zed/v1/models")));
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.into_json().unwrap();
+    assert_eq!(body["object"], "list");
+    assert!(body["data"].as_array().unwrap().is_empty());
+
+    // /codebuddy/v1/models: static fallback (không external/zed).
+    let resp = call(ag.get(&format!("{base}/codebuddy/v1/models")));
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.into_json().unwrap();
+    assert!(body["data"].as_array().unwrap().len() >= 10);
+
+    // POST /zed/... với model không trong cache → SSE 200 + lỗi rõ (không rơi pool).
+    let resp = send(
+        ag.post(&format!("{base}/zed/v1/chat/completions"))
+            .set("Content-Type", "application/json"),
+        r#"{"model":"zed/whatever","messages":[{"role":"user","content":"hi"}],"stream":false}"#,
+    );
+    assert_eq!(resp.status(), 200);
+    assert!(resp.header("content-type").unwrap_or("").contains("text/event-stream"));
+
+    // POST /codebuddy/... không account → SSE 200 (đi pool, lỗi trong stream).
+    let resp = send(
+        ag.post(&format!("{base}/codebuddy/v1/chat/completions"))
+            .set("Content-Type", "application/json"),
+        r#"{"model":"glm-5.2","messages":[{"role":"user","content":"hi"}],"stream":false}"#,
+    );
+    assert_eq!(resp.status(), 200);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

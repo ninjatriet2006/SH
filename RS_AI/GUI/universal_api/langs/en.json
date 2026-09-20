@@ -10,7 +10,9 @@
         "providers": "Providers",
         "scheduler": "Scheduler",
         "config": "Configuration",
-        "settings": "Settings"
+        "settings": "Settings",
+        "zed": "Zed",
+        "group_zed": "Zed"
     },
     "common": {
         "save": "Save",
@@ -41,7 +43,9 @@
         "checkin_now": "Checkin Now",
         "travel_now": "Travel Now",
         "activity_now": "Activity Now",
-        "keepalive_now": "Keepalive Now"
+        "keepalive_now": "Keepalive Now",
+        "bridge_providers": "Providers (enabled/total)",
+        "endpoints": "Scoped endpoints"
     },
     "accounts": {
         "title": "Account Management",
@@ -70,7 +74,9 @@
         "col_credits": "Credits",
         "col_status": "Status",
         "col_inflight": "In-Flight",
-        "col_actions": "Actions"
+        "col_actions": "Actions",
+        "enable": "Enable",
+        "disable": "Disable"
     },
     "scheduler": {
         "title": "Scheduler",
@@ -80,9 +86,6 @@
         "col_hours": "Schedule",
         "col_enabled": "Enabled",
         "col_actions": "Actions",
-        "checkin": "Daily Checkin",
-        "travel": "Cat Travel",
-        "activity": "Activity Report",
         "keepalive": "Token Keepalive",
         "run_now": "Run Now"
     },
@@ -103,7 +106,7 @@
     "providers": {
         "title": "External Providers (anti-api bridge)",
         "description": "Connect to an anti-api compatible service (Antigravity / Codex / Copilot / Zed / Kiro / Grok) running separately via Docker or binary. Universal API stays the unified gateway: internal models use the local pool, external models are forwarded.",
-        "enabled": "Enable external routing",
+        "enabled": "Enabled",
         "base_url": "Base URL (control listener, e.g. http://127.0.0.1:8964)",
         "api_key": "API key (optional, forwarded as Bearer)",
         "control_port": "Control port",
@@ -122,7 +125,21 @@
         "port_busy": "Port is busy — use Auto to suggest a free one",
         "login_title": "Where do I log in Antigravity / Codex / Copilot accounts?",
         "login_note": "Login happens inside anti-api's own dashboard (it owns the OAuth flows), not in this GUI. Open the URL below, log in there, then come back and Refresh models.",
-        "subsection_note": "Shared between CodeBuddy & Anti-API"
+        "subsection_note": "Shared between CodeBuddy & Anti-API",
+        "account_section": "Account",
+        "config_section": "Configuration",
+        "add_provider": "Add provider",
+        "new_name_placeholder": "Provider name, e.g. copilot",
+        "model_prefixes": "Model prefixes (| separated)",
+        "prefixes_hint": "First matching provider (in order) handles the model",
+        "empty": "No providers yet. Add one above — migrated anti-api bridge appears here automatically.",
+        "zed_import": "Import credential file",
+        "zed_test": "Test connection",
+        "zed_no_accounts": "No Zed accounts yet. Import a credential JSON file exported from Zed.",
+        "zed_account_note": "Accounts live in this app vault (encrypted). Import one credential file per account.",
+        "zed_hint_refresh": "Refresh models first — chat routing needs the model list in cache.",
+        "zed_config_note": "Fixed hosts: zed.dev (identity) + cloud.zed.dev (API). Timeouts follow anti-api reference (8s / 90s). Optional system id via ANTI_API_ZED_SYSTEM_ID env.",
+        "zed_system_id": "System ID (optional, overrides env)"
     },
     "settings": {
         "title": "Settings",

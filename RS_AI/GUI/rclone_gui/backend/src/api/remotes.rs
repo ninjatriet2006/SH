@@ -5,6 +5,7 @@
 - Tương tác: Gọi bởi lib.rs, cung cấp kết quả cho frontend thông qua Tauri command. Dùng `utils` để gọi rclone.
 */
 
+use crate::actions::move_op::{Cap, SupportCopyAndDelete, SupportMove};
 use crate::core::rclone; // Sử dụng helper từ thư viện dùng chung
 use crate::core::task::blocking;
 use crate::logic::file_ops::parse_remote_path;
@@ -172,43 +173,35 @@ pub async fn check_transfer_capability(src: String, dst: String) -> Result<Value
     let (src_remote, _) = parse_remote_path(&src);
     let (dst_remote, _) = parse_remote_path(&dst);
 
-    let mut can_move = false;
+    // UNIVERSAL: move-native 1 bước (`Move`/`DirMove`) khác với copy + purge
+    // fallback 2 bước (`Copy` + `Purge`); tên nội bộ mới, key JSON giữ nguyên.
+    let mut support_move = SupportMove(false);
     let mut can_copy = false;
-    let mut can_copy_delete = false;
+    let mut support_copy_and_delete = SupportCopyAndDelete(false);
 
     if src_remote == dst_remote && src_remote == "Local" {
-        can_move = true;
+        support_move = SupportMove(true);
         can_copy = true;
     } else if src_remote == dst_remote && src_remote != "Local" {
         // Hỏi features từ backend
         if let Ok(feats) = get_backend_features(src_remote).await {
             if let Some(features) = feats.get("Features") {
-                if let Some(mv) = features.get("Move").and_then(|v| v.as_bool()) {
-                    if mv {
-                        can_move = true;
-                    }
-                }
-                if let Some(dir_mv) = features.get("DirMove").and_then(|v| v.as_bool()) {
-                    if dir_mv {
-                        can_move = true;
-                    }
-                }
-
+                let mv = features.get("Move").and_then(|v| v.as_bool()).unwrap_or(false);
+                let dir_mv = features.get("DirMove").and_then(|v| v.as_bool()).unwrap_or(false);
                 let copy = features.get("Copy").and_then(|v| v.as_bool()).unwrap_or(false);
-                if copy {
-                    can_copy = true;
-                }
-
                 let purge = features.get("Purge").and_then(|v| v.as_bool()).unwrap_or(false);
-                can_copy_delete = copy && purge;
+                let cap = Cap::from_backend_features(mv, dir_mv, copy, purge);
+                support_move = SupportMove(cap.support_move);
+                can_copy = copy;
+                support_copy_and_delete = SupportCopyAndDelete(cap.support_copy_and_delete);
             }
         }
     }
 
     Ok(json!({
-        "canMove": can_move,
+        "canMove": support_move.0,
         "canCopy": can_copy,
-        "canCopyDelete": can_copy_delete
+        "canCopyDelete": support_copy_and_delete.0
     }))
 }
 

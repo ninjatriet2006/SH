@@ -26,6 +26,18 @@ pub struct StoredAccount {
     pub updated_at: i64,
 }
 
+/// Zed native account (khối riêng). Token mã hóa, không bao giờ trả về UI.
+#[derive(Debug, Clone, Serialize)]
+pub struct StoredZedAccount {
+    pub id: String,
+    pub label: String,
+    pub access_token: String,
+    pub org_id: String,
+    pub enabled: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AccessKey {
     pub id: i64,
@@ -93,6 +105,16 @@ CREATE TABLE IF NOT EXISTS usage_logs (
     created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_usage_logs_key ON usage_logs(access_key_prefix);
+-- Native Zed accounts (khối riêng, theo mẫu CodeBuddy nhưng tách bảng).
+CREATE TABLE IF NOT EXISTS zed_accounts (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL DEFAULT '',
+    access_token_enc TEXT NOT NULL,
+    org_id TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
 ";
 
 fn now() -> i64 {
@@ -181,8 +203,12 @@ impl Storage {
         for row in rows {
             let (uid, domain, nickname, enterprise_id, at_enc, rt_enc, expires_at, created_at, updated_at) =
                 row.map_err(|e| format!("row: {e}"))?;
-            let access_token = self.vault.decrypt(&at_enc)?;
-            let refresh_token = if rt_enc.is_empty() { String::new() } else { self.vault.decrypt(&rt_enc)? };
+            let access_token = self.vault.decrypt(&at_enc).map_err(|e| {
+                format!("{e} (vault key mismatch — stored credentials unreadable; remove and re-import the account)")
+            })?;
+            let refresh_token = if rt_enc.is_empty() { String::new() } else { self.vault.decrypt(&rt_enc).map_err(|e| {
+                format!("{e} (vault key mismatch — stored credentials unreadable; remove and re-import the account)")
+            })? };
             out.push(StoredAccount { uid, domain, nickname, enterprise_id, access_token, refresh_token, expires_at, created_at, updated_at });
         }
         Ok(out)
@@ -201,6 +227,76 @@ impl Storage {
         let conn = self.conn.lock().map_err(|_| "storage lock poisoned".to_string())?;
         conn.query_row("SELECT access_token_enc FROM accounts WHERE uid = ?1", params![uid], |r| r.get(0))
             .map_err(|e| format!("raw blob: {e}"))
+    }
+
+    // ── Zed accounts (native block, tách bảng khỏi CodeBuddy) ────────────────
+
+    pub fn upsert_zed_account(
+        &self,
+        id: &str,
+        label: &str,
+        access_token: &str,
+        org_id: &str,
+    ) -> Result<(), String> {
+        let at_enc = self.vault.encrypt(access_token)?;
+        let ts = now();
+        let conn = self.conn.lock().map_err(|_| "storage lock poisoned".to_string())?;
+        conn.execute(
+            "INSERT INTO zed_accounts (id, label, access_token_enc, org_id, enabled, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 1, ?5, ?5)
+             ON CONFLICT(id) DO UPDATE SET
+               label=excluded.label, access_token_enc=excluded.access_token_enc,
+               org_id=excluded.org_id, updated_at=excluded.updated_at",
+            params![id, label, at_enc, org_id, ts],
+        )
+        .map_err(|e| format!("upsert zed account: {e}"))?;
+        Ok(())
+    }
+
+    pub fn list_zed_accounts(&self) -> Result<Vec<StoredZedAccount>, String> {
+        let conn = self.conn.lock().map_err(|_| "storage lock poisoned".to_string())?;
+        let mut stmt = conn
+            .prepare("SELECT id, label, access_token_enc, org_id, enabled, created_at, updated_at FROM zed_accounts ORDER BY id")
+            .map_err(|e| format!("prepare: {e}"))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?, row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?, row.get::<_, i64>(6)?,
+                ))
+            })
+            .map_err(|e| format!("query zed accounts: {e}"))?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (id, label, at_enc, org_id, enabled, created_at, updated_at) =
+                row.map_err(|e| format!("row: {e}"))?;
+            let access_token = self.vault.decrypt(&at_enc).map_err(|e| {
+                format!("{e} (vault key mismatch — stored credentials unreadable; remove and re-import the account)")
+            })?;
+            out.push(StoredZedAccount { id, label, access_token, org_id, enabled: enabled != 0, created_at, updated_at });
+        }
+        Ok(out)
+    }
+
+    pub fn set_zed_enabled(&self, id: &str, enabled: bool) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|_| "storage lock poisoned".to_string())?;
+        let n = conn.execute(
+            "UPDATE zed_accounts SET enabled = ?1, updated_at = ?2 WHERE id = ?3",
+            params![if enabled { 1 } else { 0 }, now(), id],
+        )
+        .map_err(|e| format!("set zed enabled: {e}"))?;
+        if n == 0 {
+            return Err(format!("zed account not found: {id}"));
+        }
+        Ok(())
+    }
+
+    pub fn delete_zed_account(&self, id: &str) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|_| "storage lock poisoned".to_string())?;
+        conn.execute("DELETE FROM zed_accounts WHERE id = ?1", params![id])
+            .map_err(|e| format!("delete zed account: {e}"))?;
+        Ok(())
     }
 
     // ── Access keys ─────────────────────────────────────────────────────────

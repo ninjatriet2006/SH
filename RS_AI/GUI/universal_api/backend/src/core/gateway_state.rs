@@ -52,12 +52,14 @@ pub struct GatewayState {
     /// Handle cache models động của gateway đang chạy — để IPC refresh tay.
     /// None khi gateway chưa start (đã stop thì handler axum giữ Arc cũ, vô hại).
     pub dynamic_models: Mutex<Option<Arc<parking_lot::RwLock<DynamicModelsCache>>>>,
+    /// Handle cache model Zed native — IPC `refresh_zed_models` ghi qua đây.
+    pub zed_models: Mutex<Option<Arc<parking_lot::RwLock<crate::core::providers::zed::ZedModelMap>>>>,
     pub metrics: std::sync::Arc<Metrics>,
 }
 
 impl Default for GatewayState {
     fn default() -> Self {
         let (shutdown_tx, _) = watch::channel(false);
-        Self { info: Mutex::new(GatewayInfo::default()), shutdown_tx, server_task: Mutex::new(None), scheduler_task: Mutex::new(None), dynamic_models: Mutex::new(None), metrics: std::sync::Arc::new(Metrics::default()) }
+        Self { info: Mutex::new(GatewayInfo::default()), shutdown_tx, server_task: Mutex::new(None), scheduler_task: Mutex::new(None), dynamic_models: Mutex::new(None), zed_models: Mutex::new(None), metrics: std::sync::Arc::new(Metrics::default()) }
     }
 }

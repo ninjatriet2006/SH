@@ -229,12 +229,29 @@ pub struct ProviderEntry {
     /// Loại transport: "http-bridge" (anti-api) — mở rộng "native" sau.
     #[serde(default = "default_provider_kind")]
     pub kind: String,
+    /// Model pattern: tiền tố phân tách `|`, prefix-match lowercase.
+    /// Trống = không match model nào (an toàn mặc định).
+    #[serde(default)]
+    pub model_prefixes: String,
     #[serde(flatten)]
     pub config: ExternalConfig,
 }
 
 fn default_provider_kind() -> String {
     "http-bridge".to_string()
+}
+
+/// Prefix mặc định của entry anti-api migrate từ config cũ — giữ nguyên tập
+/// model đã route trước đây (claude/gpt/gemini/grok/copilot/codex/zed/kiro...).
+pub fn default_antiapi_prefixes() -> String {
+    [
+        "route:", "route/",
+        "claude-", "claude/", "gpt-", "gpt/", "o1", "o3", "o4",
+        "gemini-", "gemini/", "grok-", "grok/", "xbuild",
+        "copilot-", "copilot/", "codex", "zed", "kiro",
+        "opus", "sonnet", "haiku",
+    ]
+    .join("|")
 }
 
 /// Danh sách provider mặc định khi user chưa cấu hình gì: 1 anti-api bridge
@@ -244,6 +261,7 @@ impl Default for ProviderEntry {
         Self {
             name: "anti-api".to_string(),
             kind: default_provider_kind(),
+            model_prefixes: default_antiapi_prefixes(),
             config: ExternalConfig::default(),
         }
     }
@@ -259,44 +277,45 @@ pub struct ProviderRegistry {
 
 impl ProviderRegistry {
     /// Migrate từ config cũ: nếu config.json có `external` (single) mà
-    /// `providers` rỗng → tự tạo 1 entry tên "anti-api". Không mất dữ liệu.
+    /// `providers` rỗng → tự tạo 1 entry tên "anti-api" kèm full prefixes cũ.
+    /// Không mất dữ liệu, routing giữ nguyên.
     pub fn from_legacy(external: &ExternalConfig) -> Self {
         let mut reg = Self::default();
         if external.enabled || !external.base_url.is_empty() {
             reg.providers.push(ProviderEntry {
                 name: "anti-api".to_string(),
                 kind: default_provider_kind(),
+                model_prefixes: default_antiapi_prefixes(),
                 config: external.clone(),
             });
         }
         reg
     }
 
-}
-
-impl ProviderRegistry {
     /// Provider đầu tiên (theo thứ tự) enabled và khớp model-pattern.
     /// Mỗi entry mang `model_prefixes` riêng → model nào rơi vào provider đó.
     pub fn route_model(&self, model: &str) -> Option<&ProviderEntry> {
-        let m = model.trim().to_lowercase();
-        if m.is_empty() {
-            return None;
-        }
-        self.providers.iter().find(|p| {
-            p.config.enabled
-                && !p.model_prefixes.trim().is_empty()
-                && p.model_prefixes
-                    .split('|')
-                    .map(|x| x.trim().to_lowercase())
-                    .filter(|x| !x.is_empty())
-                    .any(|pref| m.starts_with(&pref))
-        })
+        self.providers.iter().find(|p| p.matches_model(model))
     }
 
     pub fn enabled_any(&self) -> bool {
         self.providers.iter().any(|p| p.config.enabled)
     }
 }
+
+/// Providers hiệu dụng cho routing/validate: `config.providers` nếu có,
+/// ngược lại migrate từ legacy `external` (config cũ / default).
+/// Trả về Vec clone để caller không giữ lock config qua I/O.
+pub fn effective_providers(config: &crate::core::config::Config) -> Vec<ProviderEntry> {
+    if config.providers.is_empty() {
+        ProviderRegistry::from_legacy(&config.external).providers
+    } else {
+        config.providers.clone()
+    }
+}
+
+/// Resolve model → ProviderEntry clone (http-bridge). Native blocks (Zed...)
+/// tách hoàn toàn: tự resolve cache riêng, KHÔNG đi qua registry này.
 
 // ─── Model routing ────────────────────────────────────────────────────────────
 
@@ -324,8 +343,9 @@ pub fn is_external_model(model: &str) -> bool {
 
 impl ProviderEntry {
     /// Check model có thuộc provider này không (prefix match, lowercase).
+    /// Tắt hoặc prefixes trống → không match (an toàn mặc định).
     pub fn matches_model(&self, model: &str) -> bool {
-        if !self.enabled || self.model_prefixes.trim().is_empty() {
+        if !self.config.enabled || self.model_prefixes.trim().is_empty() {
             return false;
         }
         let m = model.trim().to_lowercase();
@@ -340,9 +360,15 @@ impl ProviderEntry {
     }
 }
 
-/// Chọn provider đầu tiên (theo thứ tự) khớp model. None = không provider nào.
-pub fn resolve_provider<'a>(providers: &'a [ProviderEntry], model: &str) -> Option<&'a ProviderEntry> {
-    providers.iter().find(|p| p.matches_model(model))
+// ─── Registry routing (http-bridge + mọi kind khác) ────────────────────────────
+
+/// Resolve model → ProviderEntry clone (mọi kind).
+pub fn resolve_route_entry(
+    config: &crate::core::config::Config,
+    model: &str,
+) -> Option<ProviderEntry> {
+    let reg = ProviderRegistry { providers: effective_providers(config) };
+    reg.route_model(model).cloned()
 }
 
 // ─── HTTP bridge (ureq blocking — gọi trong spawn_blocking) ───────────────────
@@ -509,6 +535,7 @@ pub fn forward_chat(
     Ok((status, buf, resp_headers))
 }
 
+
 use std::io::Read as _;
 
 #[cfg(test)]
@@ -588,6 +615,47 @@ mod tests {
         };
         assert!(cfg.validate(":7863").is_ok());
     }
+
+    #[test]
+    fn provider_registry_routes_by_prefix() {
+        let mk = |name: &str, prefixes: &str, enabled: bool| ProviderEntry {
+            name: name.to_string(),
+            kind: "http-bridge".to_string(),
+            model_prefixes: prefixes.to_string(),
+            config: ExternalConfig { enabled, ..Default::default() },
+        };
+        let reg = ProviderRegistry {
+            providers: vec![
+                mk("copilot", "copilot-|copilot/", true),
+                mk("codex", "gpt-|codex|o1|o3|o4", true),
+                mk("off", "claude-", false),
+            ],
+        };
+        assert_eq!(reg.route_model("copilot-claude").unwrap().name, "copilot");
+        assert_eq!(reg.route_model("GPT-5").unwrap().name, "codex");
+        assert!(reg.route_model("claude-sonnet").is_none()); // tắt → không match
+        assert!(reg.route_model("glm-5").is_none()); // model nội bộ
+        assert!(reg.route_model("").is_none());
+        assert!(reg.enabled_any());
+        let empty = ProviderRegistry::default();
+        assert!(!empty.enabled_any());
+        assert!(empty.route_model("gpt-5").is_none());
+    }
+
+    #[test]
+    fn legacy_migration_keeps_routing() {
+        let mut ext = ExternalConfig::default();
+        ext.enabled = true;
+        let reg = ProviderRegistry::from_legacy(&ext);
+        assert_eq!(reg.providers.len(), 1);
+        // Tập model cũ vẫn route về entry migrate.
+        assert_eq!(reg.route_model("claude-sonnet-4").unwrap().name, "anti-api");
+        assert_eq!(reg.route_model("route:fast").unwrap().name, "anti-api");
+        assert!(reg.route_model("glm-5").is_none());
+        // Config tắt + base rỗng → không tạo entry (tránh provider ma).
+        let off = ExternalConfig { enabled: false, base_url: String::new(), ..Default::default() };
+        assert!(ProviderRegistry::from_legacy(&off).providers.is_empty());
+    }
 }
 
 // ─── Gateway integration (điểm biên server.rs gọi vào) ───────────────────────
@@ -620,6 +688,7 @@ pub fn merge_external_models(data: &mut Vec<Value>, external: Vec<Value>) {
 #[allow(clippy::too_many_arguments)]
 pub fn forward_external_stream(
     state: SharedState,
+    ext_cfg: ExternalConfig,
     key_prefix: String,
     route: &'static str,
     model: String,
@@ -630,7 +699,6 @@ pub fn forward_external_stream(
     is_anthropic: bool,
 ) -> Response {
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, std::convert::Infallible>>(64);
-    let ext_cfg = state.config.external.clone();
     let metrics = state.metrics.clone();
     let audit = state.audit.clone();
     let storage = state.storage.clone();

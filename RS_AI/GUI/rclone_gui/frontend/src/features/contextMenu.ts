@@ -11,7 +11,6 @@ import { ContextMenu, type ContextMenuItem } from '../components/ContextMenu';
 import { OpenWithModal } from '../components/OpenWithModal';
 import { OperationModal } from '../components/OperationModal';
 import { PropertiesModal } from '../components/PropertiesModal';
-import { TextEditorModal } from '../components/TextEditorModal';
 import { BatchRenameModal, type BatchRenameItem } from '../components/BatchRenameModal';
 import * as fileOps from '../services/fileOps';
 import * as trashOps from '../services/trashOps';
@@ -104,10 +103,6 @@ export async function MenuFile(e: MouseEvent, opts: ContextMenuOptions): Promise
     'Open',
     'Open With...',
   ];
-  // Sửa nội dung: chỉ có ý nghĩa với tệp đơn (không phải thư mục, không batch).
-  if (!f.is_dir && !batchMode) {
-    menuItems.push('Sửa nội dung (Text)');
-  }
   menuItems.push(
     'New Folder',
     'New File',
@@ -153,14 +148,11 @@ export async function MenuFile(e: MouseEvent, opts: ContextMenuOptions): Promise
         case 'Open':
           fileOps.open(fullPath).catch((err) => console.warn('open fail:', err));
           break;
-        case 'Sửa nội dung (Text)':
-          openTextEditor(f, fullPath, pane, basePath, onRefresh);
+        case 'Open With...':
+          new OpenWithModal(fullPath).open();
           break;
         case 'Open in New Tab':
           if (opts.onOpenInNewTab) opts.onOpenInNewTab(fullPath);
-          break;
-        case 'Open With...':
-          new OpenWithModal(fullPath).open();
           break;
         case 'Open in Terminal':
           import('../../../bridge/ipc').then(({ invoke }) => {
@@ -172,7 +164,7 @@ export async function MenuFile(e: MouseEvent, opts: ContextMenuOptions): Promise
           promptName('New Folder', 'folder name', (name) => fileOps.mkdir(joinPath(basePath, name)), pane, basePath, onRefresh);
           break;
         case 'New File':
-          promptName('New File', 'file name', (name) => fileOps.write(joinPath(basePath, name), ''), pane, basePath, onRefresh);
+          promptName('New File', 'file name', (name) => fileOps.touch(joinPath(basePath, name)), pane, basePath, onRefresh);
           break;
         case 'Rename':
           openRenameModal(f, fullPath, pane, basePath, onRefresh);
@@ -270,7 +262,7 @@ export function MenuEmpty(e: MouseEvent, opts: FolderContextMenuOptions): void {
           promptName('New Folder', 'folder name', (name) => fileOps.mkdir(joinPath(basePath, name)), pane, basePath, onRefresh);
           break;
         case 'New File':
-          promptName('New File', 'file name', (name) => fileOps.write(joinPath(basePath, name), ''), pane, basePath, onRefresh);
+          promptName('New File', 'file name', (name) => fileOps.touch(joinPath(basePath, name)), pane, basePath, onRefresh);
           break;
         case 'Paste':
           pasteTo(pane, basePath, onRefresh);
@@ -339,24 +331,6 @@ function promptName(
 /** Tên hàm: showPropertiesModal | Mô tả: Mở Modal Properties nâng cao: đếm đệ quy, phân quyền chmod. */
 async function showPropertiesModal(f: FileItem, fullPath: string, pane: Pane): Promise<void> {
   const modal = new PropertiesModal(f, fullPath, pane);
-  await modal.open();
-}
-
-/**
- * Tên hàm: openTextEditor
- * Mô tả: Mở trình sửa nội dung văn bản tối giản cho một tệp (Local hoặc cloud).
- * Nội dung đọc/ghi qua `rclone cat` / `rclone rcat` nên hoạt động với mọi backend.
- */
-async function openTextEditor(
-  f: FileItem,
-  fullPath: string,
-  pane: Pane,
-  basePath: string,
-  onRefresh: (pane: Pane, path: string) => Promise<void>,
-): Promise<void> {
-  const modal = new TextEditorModal(f.name, fullPath, async () => {
-    await onRefresh(pane, basePath);
-  });
   await modal.open();
 }
 

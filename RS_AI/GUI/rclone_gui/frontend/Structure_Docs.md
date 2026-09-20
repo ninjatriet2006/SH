@@ -94,8 +94,6 @@ xuống backend, không tự parse hay xử lý quyền.
 - **mkdir** / **remove** / **rename**(`path`, `newName`)
 - **copy** / **move**(`src`, `dest`, `taskId?`)
 - **cpLocal** / **moveLocal**
-- **read**(`path`, `maxBytes?`) / **write**(`path`, `content`) — đọc/ghi văn bản
-  (backend dùng `rclone cat`/`rcat` nên hoạt động cả trên cloud).
 - **open**(`path`) — mở bằng ứng dụng mặc định của OS.
 - **statAdvanced**(`path`) → `Promise<StatInfo>`
 - **getFreeSpace** / **getAboutSpace**(`path`)
@@ -166,7 +164,6 @@ sau mỗi lần khôi phục/xoá.
 | `DebugView` | Log lời gọi API | `#view-debug` |
 | `TransferDrawer` | Hàng đợi truyền tải | `#transfer-drawer` |
 | `SearchModal` | Tìm kiếm đệ quy theo tên | mở từ nút 🔍 |
-| `TextEditorModal` | Sửa nội dung tệp văn bản (Local & cloud) | context menu → Sửa nội dung |
 | `BookmarkManagerModal` | Sửa/xoá/sắp xếp ghim | mở từ menu 🔖 |
 | `PropertiesModal` | Thuộc tính file + emblem | mở từ context menu |
 | `OpenWithModal`, `ConflictModal`, `FallbackModal`, `BatchRenameModal`, `OperationModal`, `ContextMenu`, `FloatingStatusBar` | Hộp thoại / tiện ích dùng chung | theo ngữ cảnh |

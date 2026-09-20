@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getGatewayStatus, refreshGatewayModels, startGateway, stopGateway } from '../../../bridge/gateway_bridge';
-import { getExternalConfig, getExternalStatus } from '../../../bridge/external_bridge';
+import { getExternalConfig, getExternalStatus, getProviders, getProviderStatus } from '../../../bridge/external_bridge';
 import { createAccessKey, listAccessKeys, revokeAccessKey } from '../../../bridge/access_keys_bridge';
-import { runTask, type SchedulerTask } from '../../../bridge/scheduler_bridge';
 import { ipcErrorMessage } from '../../../bridge/ipc';
-import type { AccessKey, ExternalStatus, GatewayInfo, TaskResult } from '../../../bridge/types';
+import type { AccessKey, ExternalStatus, GatewayInfo } from '../../../bridge/types';
 import { useTranslation } from '../utils/i18n';
 
 export function DashboardPage() {
@@ -14,10 +13,10 @@ export function DashboardPage() {
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [taskResult, setTaskResult] = useState<TaskResult | null>(null);
     const [extEnabled, setExtEnabled] = useState(false);
     const [extBase, setExtBase] = useState('');
     const [extStatus, setExtStatus] = useState<ExternalStatus | null>(null);
+    const [extCount, setExtCount] = useState<{ total: number; enabled: number }>({ total: 0, enabled: 0 });
     const [copied, setCopied] = useState(false);
     const [modelsMsg, setModelsMsg] = useState<string | null>(null);
     // Access keys (chuyển từ Admin — таб keys duy nhất không trùng).
@@ -73,16 +72,42 @@ export function DashboardPage() {
         try {
             setError(null);
             setGateway(await getGatewayStatus());
-            try {
+        } catch (e) { setError(ipcErrorMessage(e)); }
+        finally { setLoading(false); }
+        // Health mạng chạy nền, KHÔNG block render (treo đã từng xảy ra khi
+        // provider unreachable: cả trang đứng ở "Loading..." hết timeout).
+        void refreshExternal();
+    };
+
+    const refreshExternal = async () => {
+        try {
+            // Multi-provider: badge theo registry (số enabled/tổng).
+            // Health chi tiết lấy của provider enabled đầu tiên (tránh treo
+            // Dashboard khi nhiều provider timeout nối tiếp).
+            const list = await getProviders();
+            const enabled = list.filter((p) => p.config.enabled);
+            setExtCount({ total: list.length, enabled: enabled.length });
+            if (enabled.length > 0) {
+                const first = enabled[0];
+                setExtEnabled(true);
+                setExtBase(first.config.base_url);
+                const s = await getProviderStatus(first.name);
+                setExtStatus({
+                    reachable: s.reachable,
+                    http_status: s.http_status,
+                    latency_ms: s.latency_ms,
+                    error: s.error,
+                });
+            } else {
+                // Fallback legacy single-bridge (config cũ chưa migrate).
                 const cfg = await getExternalConfig();
                 setExtEnabled(cfg.enabled);
                 setExtBase(cfg.base_url);
                 setExtStatus(cfg.enabled ? await getExternalStatus() : null);
-            } catch {
-                setExtStatus(null);
             }
-        } catch (e) { setError(ipcErrorMessage(e)); }
-        finally { setLoading(false); }
+        } catch {
+            setExtStatus(null);
+        }
     };
 
     useEffect(() => { void refresh(); void refreshKeys(); }, []);
@@ -102,12 +127,6 @@ export function DashboardPage() {
             const models = await refreshGatewayModels();
             setModelsMsg(`${models.length} models: ${models.map((m) => m.id).join(', ')}`);
         } catch (e) { setError(ipcErrorMessage(e)); }
-        finally { setBusy(false); }
-    };
-
-    const executeTask = async (task: SchedulerTask) => {
-        try { setBusy(true); setError(null); setTaskResult(await runTask(task)); }
-        catch (e) { setError(ipcErrorMessage(e)); }
         finally { setBusy(false); }
     };
 
@@ -149,6 +168,9 @@ export function DashboardPage() {
                     <button className="btn" onClick={() => void refresh()} disabled={busy}>{t('common.refresh')}</button>
                     <button className="btn" onClick={() => void refreshModels()} disabled={busy || loading || status !== 'running'} title={t('dashboard.models_hint')}>{t('dashboard.models')}</button>
                 </div>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '0.5rem' }}>
+                    {t('dashboard.endpoints')}: <code>/v1/*</code> · <code>/zed/v1/*</code> · <code>/codebuddy/v1/*</code>
+                </div>
                 {modelsMsg && <p className="success-message" style={{ wordBreak: 'break-word' }}>{modelsMsg}</p>}
                 {gateway?.error && <p className="error-message">{gateway.error}</p>}
                 {error && <p className="error-message">{error}</p>}
@@ -160,6 +182,12 @@ export function DashboardPage() {
                 </h3>
                 <div style={{ display: 'flex', gap: '2rem', marginTop: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
                     <div>{extBadge}</div>
+                    {extCount.total > 0 && (
+                        <div>
+                            <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{t('dashboard.bridge_providers')}</div>
+                            <div>{extCount.enabled} / {extCount.total}</div>
+                        </div>
+                    )}
                     {extEnabled && (
                         <div>
                             <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Base URL</div>
@@ -228,16 +256,6 @@ export function DashboardPage() {
                         </tbody>
                     </table>
                 )}
-            </div>
-            <div className="card">
-                <h3>{t('dashboard.quick_actions')}</h3>
-                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                    <button className="btn btn-primary" onClick={() => void executeTask('checkin')} disabled={busy}>{t('dashboard.checkin_now')}</button>
-                    <button className="btn btn-primary" onClick={() => void executeTask('travel')} disabled={busy}>{t('dashboard.travel_now')}</button>
-                    <button className="btn btn-primary" onClick={() => void executeTask('activity')} disabled={busy}>{t('dashboard.activity_now')}</button>
-                    <button className="btn btn-primary" onClick={() => void executeTask('keepalive')} disabled={busy}>{t('dashboard.keepalive_now')}</button>
-                </div>
-                {taskResult && <p className={taskResult.success ? 'success-message' : 'error-message'}>{taskResult.message}</p>}
             </div>
         </div>
     );

@@ -122,6 +122,11 @@ pub fn start_gateway(
     if let Ok(mut h) = gateway.dynamic_models.lock() {
         *h = Some(dynamic_models.clone());
     }
+    // Zed native: map rỗng lúc start, IPC refresh_zed_models nạp sau.
+    let zed_models = Arc::new(RwLock::new(crate::core::providers::zed::ZedModelMap::new()));
+    if let Ok(mut h) = gateway.zed_models.lock() {
+        *h = Some(zed_models.clone());
+    }
     let storage = runtime.storage().ok();
     let audit = runtime.audit.clone();
     let external_snapshot = runtime.external_models.lock().map(|c| c.clone()).unwrap_or_default();
@@ -130,7 +135,7 @@ pub fn start_gateway(
     if let Ok(mut s) = runtime.session.lock() {
         *s = Some(session_router.clone());
     }
-    let app_state = Arc::new(AppState { config: config.clone(), pool, session: session_router, prompt_mode, degrade: crate::core::server::DegradeGate::new(), shutdown_tx: shutdown_tx.clone(), metrics: gateway.metrics.clone(), dynamic_models, external_models: Arc::new(RwLock::new(external_snapshot)), storage, audit });
+    let app_state = Arc::new(AppState { config: config.clone(), pool, session: session_router, prompt_mode, degrade: crate::core::server::DegradeGate::new(), shutdown_tx: shutdown_tx.clone(), metrics: gateway.metrics.clone(), dynamic_models, external_models: Arc::new(RwLock::new(external_snapshot)), zed_models, zed_tokens: runtime.zed_tokens.clone(), storage, audit });
     let task = tauri::async_runtime::block_on(start_server(app_state)).map_err(|e| { info.status = crate::core::gateway_state::GatewayStatus::Error; info.error = Some(e.to_string()); IpcError::new(IpcErrorCode::Unavailable, e.to_string()) })?;
     *gateway.server_task.lock().map_err(|_| IpcError::new(IpcErrorCode::Internal, "State lock poisoned"))? = Some(task);
     // Scheduler nền: trước đây code có Scheduler nhưng không nơi nào spawn nên lịch
@@ -146,7 +151,12 @@ pub fn start_gateway(
             crate::core::upstream::client::Client::new(&config.upstream.proxy_url),
             shutdown_tx.subscribe(),
         );
-        *sched = Some(tauri::async_runtime::block_on(async move { scheduler.spawn() }));
+        // block_on tạo runtime context cho tokio::spawn bên trong
+        // Scheduler::spawn; JoinHandle trả về cố ý KHÔNG await (task nền).
+        // Allow async_yields_async: ở đây cần handle, không cần kết quả.
+        #[allow(clippy::async_yields_async)]
+        let sched_handle = tauri::async_runtime::block_on(async move { scheduler.spawn() });
+        *sched = Some(sched_handle);
     }
     gateway.shutdown_tx.send(true).ok();
     info.status = crate::core::gateway_state::GatewayStatus::Running;

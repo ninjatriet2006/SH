@@ -9,5 +9,6 @@ pub mod lang;
 pub mod login;
 pub mod scheduler_api;
 pub mod settings;
+pub mod zed;
 pub mod theme;
 pub mod usage;

@@ -23,6 +23,9 @@ pub struct RuntimeState {
     /// Session router của gateway đang chạy (sticky x-user-id → uid).
     /// Set lúc start, xóa lúc stop — để UI hiện account đang phục vụ.
     pub session: Mutex<Option<SessionRouter>>,
+    /// Cache LLM token Zed theo account (TTL 15p trong module zed).
+    /// Arc để share với AppState (gateway forward cần đọc khi dispatch).
+    pub zed_tokens: std::sync::Arc<crate::core::providers::zed::ZedTokenCache>,
 }
 
 /// State device-login do máy chủ cấp, kèm realm chống lệch (port từ Go loginState).
@@ -232,6 +235,7 @@ impl RuntimeState {
             external_models: Mutex::new(Vec::new()),
             pending_login: Mutex::new(None),
             session: Mutex::new(None),
+            zed_tokens: std::sync::Arc::new(crate::core::providers::zed::ZedTokenCache::default()),
         }
     }
 }

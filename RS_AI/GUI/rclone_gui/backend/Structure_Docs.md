@@ -97,11 +97,6 @@ rồi dựng lại theo cú pháp rclone bằng `core::rclone::build_target`:
 - **open_in_terminal**(`path: String`) → `Result<(), String>`
 - **fs_get_thumbnail**(`path: String`) → `Result<String, String>` — data URI base64.
 - **fs_temp_dir**() → `String`
-- **fs_read_text**(`path: String`, `max_bytes: Option<u64>`) → `Result<String, String>`
-  Đọc văn bản qua `rclone cat --count` (mặc định giới hạn 1 MiB). Từ chối file
-  không phải UTF-8 thay vì trả chuỗi lộn xộn.
-- **fs_write_text**(`path: String`, `content: String`) → `Result<(), String>`
-  Ghi qua `rclone rcat` (nhận stdin) nên hoạt động cho cả Local và mọi remote.
 - **fs_chmod**(`path: String`, `mode: u32`) → `Result<(), String>`
   Chỉ ổ Local (Unix). Giữ 12 bit quyền; có sudo fallback qua `pkexec chmod`.
 - **fs_chown**(`path: String`, `uid: u32`, `gid: u32`) → `Result<(), String>`
@@ -169,8 +164,7 @@ rồi dựng lại theo cú pháp rclone bằng `core::rclone::build_target`:
   Không có `::` → mặc định remote là `Local`.
 - **run_with_sudo_fallback**(`remote`, `action`, `args`, `fallback_cmd`) → `Result<(), String>`
   Chạy closure; nếu lỗi Permission Denied trên Local (Linux) thì thử lại qua `pkexec`.
-  Action được hỗ trợ: `rm`, `mkdir`, `mv`, `cp`, `chmod`. Riêng `write` trả lỗi rõ
-  ràng vì `pkexec` không chuyển tiếp stdin cho `rclone rcat`.
+  Action được hỗ trợ: `rm`, `mkdir`, `mv`, `cp`, `chmod`.
 - **check_conflicts**(`srcs`, `dest_path`) → `Result<Vec<ConflictInfo>, String>`
   Dùng `lsjson --stat` để xác định kiểu của chính target (không phải của file con).
   Nếu cả nguồn và đích là thư mục → quét đệ quy tìm file con trùng đường dẫn.

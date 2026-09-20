@@ -2,6 +2,7 @@ pub mod gateway_state;
 pub mod resources;
 pub mod paths;
 pub mod upstream;
+pub mod providers;
 pub mod auth;
 pub mod audit;
 pub mod config;

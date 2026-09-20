@@ -17,8 +17,6 @@ import {
   fsStatAdvanced,
   fsChmod,
   fsChown,
-  fsReadText,
-  fsWriteText,
 } from '../../../bridge/explorer_api.ts';
 import { getAbout } from '../../../bridge/remote_api.ts';
 import type { StatInfo, SearchResultItem } from '../../../bridge/explorer_api.ts';
@@ -66,21 +64,9 @@ export async function moveLocal(from: string, to: string, taskId?: number): Prom
     return fsMove(from, to, taskId);
 }
 
-/** Đọc nội dung văn bản của file (Local hoặc cloud). Ném lỗi nếu là file nhị phân. */
-export async function read(path: string, maxBytes?: number): Promise<string> {
-    return fsReadText(path, maxBytes);
-}
-
-/**
- * Ghi nội dung văn bản vào file. Nội dung rỗng dùng `fs_touch` (nhanh hơn,
- * và tạo được file rỗng trên mọi backend); ngược lại ghi qua `rclone rcat`.
- */
-export async function write(path: string, content: string): Promise<void> {
-    if (content === '') {
-        await invoke('fs_touch', { path });
-        return;
-    }
-    return fsWriteText(path, content);
+/** Tạo file rỗng (New File). Giữ lại sau S2: chỉ gọi `fs_touch`, không sửa nội dung. */
+export async function touch(path: string): Promise<void> {
+    await invoke('fs_touch', { path });
 }
 
 export async function open(path: string): Promise<void> {

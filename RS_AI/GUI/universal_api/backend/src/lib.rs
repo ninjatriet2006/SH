@@ -98,7 +98,7 @@ pub fn run() {
             api::config_api::save_config,
             api::config_api::get_default_config,
             // ==================
-            // EXTERNAL PROVIDER (anti-api bridge)
+            // EXTERNAL PROVIDERS (multi-provider: Account + Configuration)
             // ==================
             api::external::get_external_config,
             api::external::save_external_config,
@@ -107,12 +107,24 @@ pub fn run() {
             api::external::check_port_available,
             api::external::suggest_free_port,
             api::external::normalize_external_url,
+            api::external::get_providers,
+            api::external::save_providers,
+            api::external::get_provider_status,
+            api::external::refresh_provider_models,
+            // ==================
+            // ZED NATIVE (Account + Configuration, no scheduler)
+            // ==================
+            api::zed::list_zed_accounts,
+            api::zed::import_zed_account,
+            api::zed::set_zed_enabled,
+            api::zed::remove_zed_account,
+            api::zed::test_zed_account,
+            api::zed::refresh_zed_models,
+            api::zed::get_zed_config,
+            api::zed::save_zed_config,
             // ==================
             // SCHEDULER API
             // ==================
-            api::scheduler_api::run_checkin_now,
-            api::scheduler_api::run_travel_now,
-            api::scheduler_api::run_activity_now,
             api::scheduler_api::run_keepalive_now,
             api::scheduler_api::get_schedule,
             api::scheduler_api::save_schedule,

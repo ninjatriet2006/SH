@@ -79,17 +79,35 @@ fn load_or_create_key(fallback_path: &std::path::Path) -> Result<[u8; 32], Strin
         }
         return Ok(key);
     }
-    // 3. Chưa có key nào: tạo mới ở service mới (như cũ).
+    // 3. Chưa có key nào: tạo mới ở service mới (như cũ) + VERIFY đọc lại được.
+    // Bài học thực tế: key "tạo xong nhưng không persist ở đâu" khiến mọi row
+    // mã hóa trong phiên đó thành rác sau restart — thà fail LOUD ngay tại boot
+    // còn hơn im lặng chạy rồi mất toàn bộ credentials.
     if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER) {
         let mut key = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut key);
         let b64 = base64::engine::general_purpose::STANDARD.encode(key);
-        if entry.set_password(&b64).is_ok() {
+        if entry.set_password(&b64).is_ok() && read_keyring_key(KEYRING_SERVICE) == Some(key) {
             return Ok(key);
         }
-        // keyring write failed -> fall through to file fallback
+        // keyring write failed/unverifiable -> fall through to file fallback
     }
-    load_or_create_key_file(fallback_path)
+    let key = load_or_create_key_file(fallback_path)?;
+    // Verify file round-trip (đọc lại đúng key vừa ghi).
+    match std::fs::read(fallback_path) {
+        Ok(raw) => {
+            let ok = std::str::from_utf8(&raw)
+                .ok()
+                .and_then(|b| base64::engine::general_purpose::STANDARD.decode(b.trim()).ok())
+                .map(|d| d.len() == 32 && d == key.to_vec())
+                .unwrap_or(false);
+            if !ok {
+                return Err("vault key created but not readable back — refusing ephemeral key (credentials would be lost on restart)".into());
+            }
+            Ok(key)
+        }
+        Err(e) => Err(format!("vault key file unreadable after write: {e}")),
+    }
 }
 
 /// Đọc key thô từ một keyring service. None = không có/khóa/sai định dạng.
