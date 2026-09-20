@@ -2,7 +2,9 @@
 [INTEGRITY NOTES]
 - Mục đích: features/clipboard.ts — Clipboard nội bộ phục vụ tính năng Copy/Cut/Paste giữa hai khung (Dual Pane).
 - Trách nhiệm: Chỉ lưu trữ trạng thái (chế độ copy/cut và danh sách đường dẫn). Giao tiếp với clipboard của hệ điều hành OS qua Tauri `invoke`.
-- Tương tác: Tính năng dán thực tế (Paste) gọi hàm `pasteTo`, xử lý xung đột tệp tin, và chuyển xuống `transferManager` để tải lên/copy.
+- Tương tác: Tính năng dán thực tế (Paste) gọi hàm `pasteTo`, xử lý xung đột tệp tin, và đặt job
+  qua `transferManager.enqueue` (P3 backend-driven: enqueue → `job_enqueue`, tiến trình vẽ từ
+  event `job_update`). IPC cũ (`fs_copy`/`fs_move`) giữ nguyên làm fallback trong transferManager.
 */
 import { invoke } from '../../../bridge/ipc';
 
@@ -86,7 +88,7 @@ function joinPath(dir: string, name: string): string {
  * Tên hàm: pasteTo
  * Mô tả: Thực thi thao tác Dán (Paste) clipboard hiện tại vào thư mục đích.
  * - Hiển thị cảnh báo xung đột (Conflict) nếu trùng tên.
- * - Đẩy danh sách cuối cùng vào TransferManager (hàng đợi tiến trình).
+ * - Đặt job vào TransferManager backend-driven (hàng đợi job, vẽ từ `job_update`).
  * Tham số đầu vào: 
  *   - destPane (Bắt buộc), destPath (Bắt buộc): Thông tin đích
  *   - onRefresh (Bắt buộc): Hàm callback tải lại UI sau khi xong

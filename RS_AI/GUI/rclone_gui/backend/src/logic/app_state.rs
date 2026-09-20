@@ -8,9 +8,10 @@
 */
 
 use crate::actions::perm::Policy;
+use crate::core::jobs::JobStore;
 use notify::RecommendedWatcher;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// Cấu trúc lưu trữ trạng thái toàn cục của ứng dụng
 pub struct AppState {
@@ -28,6 +29,9 @@ pub struct AppState {
     /// S2: chính sách leo thang quyền (`deny`/`ask_once`/`allow_system`).
     /// Mặc định `AskOnce` — lỗi quyền trả `PERMISSION_CONSENT` để frontend hỏi.
     pub policy: Mutex<Policy>,
+
+    /// P1 job queue (song song với luồng cũ; P2 mới cắm actions thật).
+    pub jobs: Arc<JobStore>,
 }
 
 impl AppState {
@@ -37,6 +41,7 @@ impl AppState {
             local_watcher: Mutex::new(None),
             watched_paths: Mutex::new(HashMap::new()),
             policy: Mutex::new(Policy::default()),
+            jobs: Arc::new(JobStore::new()),
         }
     }
 }

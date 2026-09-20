@@ -4,11 +4,11 @@
 - Trách nhiệm: phân tuyến Route × IsDir → chọn SupportRename từ cờ backend
   Move/DirMove → dựng `moveto` + sudo fallback; khớp `match` + UNIVERSAL.
 - Tương tác: Chỉ gọi hàm thuần `logic::file_ops::parse_remote_path`,
-  `core::rclone::build_target`. Không chạy lệnh, không wire `fs_*` cũ / IPC.
+  `core::rclone_caller::build_target`. Không chạy lệnh, không wire `fs_*` cũ / IPC.
 */
 
 use crate::actions::types::RemoteKind;
-use crate::core::rclone::build_target;
+use crate::core::rclone_caller::build_target;
 use crate::logic::file_ops::parse_remote_path;
 
 /// Tuyến đổi tên, suy từ cặp (src_remote, dst_remote) — cùng họ với `move_op::Route`.

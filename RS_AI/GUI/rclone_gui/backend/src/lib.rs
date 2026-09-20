@@ -108,6 +108,12 @@ pub fn run() {
             ipc::get_lang_content,
             ipc::get_available_themes,
             ipc::get_available_fonts,
+            // ==================
+            // JOBS API (P1 stub, song song với luồng cũ)
+            // ==================
+            ipc::job_enqueue,
+            ipc::job_list,
+            ipc::job_cancel,
         ])
         .setup(|app| {
             if let Ok(path) = app.path().resource_dir() {

@@ -52,7 +52,7 @@ pub fn same_provider(src: &str, dst: &str) -> bool {
         // UNIVERSAL: dính ổ máy hoặc cùng tên — không cần gọi rclone.
         (true, _, _) | (_, true, _) | (_, _, true) => false,
         (false, false, false) => {
-            let output = match crate::core::rclone::run_cmd(&["config", "dump"]) {
+            let output = match crate::core::rclone_caller::run_cmd(&["config", "dump"]) {
                 Ok(o) => o,
                 // UNIVERSAL: rclone lỗi — giữ hành vi cũ, coi như khác hãng.
                 Err(_) => return false,
@@ -68,6 +68,25 @@ pub fn same_provider(src: &str, dst: &str) -> bool {
         }
     }
 }
+/// Tên hàm: is_dir
+/// Mô tả: Xác định một target rclone là thư mục hay file.
+///
+/// Dùng `lsjson --stat` — lệnh này trả về MỘT object mô tả chính target.
+/// (`lsjson` thường sẽ liệt kê các *con*, nên `IsDir` của phần tử đầu tiên là
+/// của file con, không phải của target — một lỗi dễ mắc.)
+///
+/// Trả `None` nếu không xác định được (target không tồn tại, lỗi mạng, ...).
+pub fn is_dir(target: &str) -> Option<bool> {
+    let output = crate::core::rclone_caller::run_cmd(&["lsjson", "--stat", target]).ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    serde_json::from_slice::<serde_json::Value>(&output.stdout)
+        .ok()?
+        .get("IsDir")?
+        .as_bool()
+}
+
 /// Phạm vi xóa — enum dùng chung cho copy/move/delete (S2 gộp CopyAndDelete).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeleteScope {
@@ -112,5 +131,37 @@ mod tests {
         assert!(!same_provider_from_dump("Local", "A", &dump));
         assert!(!same_provider_from_dump("A", "A", &dump));
         assert!(!same_provider_from_dump("A", "Missing", &dump));
+    }
+
+    #[test]
+    fn test_is_dir_distinguishes_file_and_dir() {
+        use crate::core::rclone_caller::run_cmd;
+        // Chỉ chạy nếu có rclone trong PATH.
+        if run_cmd(&["version"]).map(|o| !o.status.success()).unwrap_or(true) {
+            return;
+        }
+
+        let dir = std::env::temp_dir().join("rclone_gui_is_dir_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("child.txt");
+        std::fs::write(&file, b"x").unwrap();
+
+        // Thư mục có một file con: nếu dùng `lsjson` (không --stat) thì sẽ đọc
+        // sai thành file. `--stat` phải trả về true.
+        assert_eq!(is_dir(&dir.to_string_lossy()), Some(true));
+        assert_eq!(is_dir(&file.to_string_lossy()), Some(false));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_is_dir_none_for_missing_target() {
+        use crate::core::rclone_caller::run_cmd;
+        if run_cmd(&["version"]).map(|o| !o.status.success()).unwrap_or(true) {
+            return;
+        }
+        let missing = std::env::temp_dir().join("rclone_gui_definitely_missing_xyz");
+        assert_eq!(is_dir(&missing.to_string_lossy()), None);
     }
 }

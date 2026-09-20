@@ -3,12 +3,15 @@
 - Mục đích: Trial S1 bóc đặc tả `fs_search` thành plan thuần (`lsjson -R --include`).
 - Trách nhiệm: parse → build_target → chọn lệnh `lsjson`; khớp `match` trên `RemoteKind`.
 - Tương tác: Chỉ gọi hàm thuần `logic::file_ops::parse_remote_path`,
-  `core::rclone::build_target`. Không chạy lệnh, không wire `fs_*` cũ / IPC.
+  `core::rclone_caller::build_target`. Không chạy lệnh, không wire `fs_*` cũ / IPC.
 */
 
 use crate::actions::explorer::Cap;
 use crate::actions::types::RemoteKind;
-use crate::core::rclone::build_target;
+use crate::api::files::{FileItem, SearchResultItem};
+use crate::core::rclone_caller;
+use crate::core::task::blocking;
+use crate::core::rclone_caller::build_target;
 use crate::logic::file_ops::parse_remote_path;
 
 /// Đặc tả thuần cho `search`: lệnh `lsjson -R --include`.
@@ -53,6 +56,51 @@ pub fn plan_search(path: &str, query: &str, fast_list: bool) -> Result<SearchPla
         filter,
         rclone_args,
     })
+}
+
+/// S2: thực thi search — `plan_search` (fast-list từ cờ engine) + `blocking` run + parse cũ.
+/// UNIVERSAL: cả Local và remote đều tìm qua `lsjson` đệ quy.
+pub async fn execute_search(path: String, query: String) -> Result<Vec<SearchResultItem>, String> {
+    let fast_list = crate::settings::engine::load_engine_flags()
+        .map(|f| f.fast_list)
+        .unwrap_or(false);
+    let plan = plan_search(&path, &query, fast_list)?;
+    let (remote, real_path) = parse_remote_path(&path);
+    blocking(move || {
+        let args: Vec<&str> = plan.rclone_args.iter().map(|s| s.as_str()).collect();
+        let output = rclone_caller::run_cmd(&args)?;
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+        }
+        let items: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout)
+            .map_err(|e| format!("Lỗi phân tích JSON khi tìm kiếm: {}", e))?;
+        let mut files = Vec::new();
+        for item in items {
+            let name = item["Name"].as_str().unwrap_or("").to_string();
+            let rel_path = item["Path"].as_str().unwrap_or("").to_string();
+            let file_path = if real_path.ends_with('/') {
+                format!("{}{}", real_path, rel_path)
+            } else {
+                format!("{}/{}", real_path, rel_path)
+            };
+            let file_info = FileItem {
+                uuid: file_path.clone(),
+                name,
+                is_dir: item["IsDir"].as_bool().unwrap_or(false),
+                size: item["Size"].as_i64().unwrap_or(0),
+                mod_time: item["ModTime"].as_str().unwrap_or("").to_string(),
+                file_type: None,
+            };
+            let ui_path = if remote == "Local" {
+                format!("Local::{}", file_path)
+            } else {
+                format!("{}::{}", remote, file_path)
+            };
+            files.push(SearchResultItem { item: file_info, path: ui_path });
+        }
+        Ok(files)
+    })
+    .await
 }
 
 #[cfg(test)]

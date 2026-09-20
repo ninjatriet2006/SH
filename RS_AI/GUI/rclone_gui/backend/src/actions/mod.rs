@@ -28,6 +28,9 @@ pub mod search;
 pub mod stat;
 pub mod view;
 pub mod perm;
+pub mod trash_delete;
+pub mod trash_list;
+pub mod trash_restore;
 pub mod types;
 
 pub use types::{RemoteKind, SameProvider, same_provider, same_provider_from_dump};
@@ -102,9 +105,9 @@ pub mod explorer {
     pub use super::stat;
     pub use super::view;
     pub use super::ExplorerCap as Cap;
-    pub use super::list::{ListPlan, plan_list};
-    pub use super::search::{SearchPlan, plan_search};
-    pub use super::stat::{StatPlan, plan_stat};
+    pub use super::list::{ListPlan, execute_list, plan_list};
+    pub use super::search::{SearchPlan, execute_search, plan_search};
+    pub use super::stat::{StatPlan, execute_stat, plan_stat};
     pub use super::view::{ThumbnailGroup, ThumbnailPlan, ViewPlan, plan_thumbnail, plan_view_download};
 }
 

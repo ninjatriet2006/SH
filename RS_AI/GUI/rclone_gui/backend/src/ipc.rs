@@ -162,6 +162,8 @@ payload!(ImportRemotePayload { name: String, ini: String });
 payload!(EngineFlagsPayload { flags: crate::settings::engine::GlobalFlags });
 payload!(LangPayload { lang_code: String });
 payload!(PermissionPolicyPayload { policy: String });
+payload!(JobEnqueuePayload { kind: String, src: Option<String>, dst: Option<String> });
+payload!(JobIdPayload { job_id: String });
 
 macro_rules! async_command {
     ($name:ident, $payload:ty, $output:ty, $target:path, ($($field:ident),* $(,)?)) => {
@@ -334,7 +336,7 @@ pub fn set_permission_policy(
     request: Req<PermissionPolicyPayload>,
 ) -> IpcResult<String> {
     let request_id = validate(&request)?;
-    let policy = Policy::from_str(request.payload.policy.trim())
+    let policy = Policy::parse(request.payload.policy.trim())
         .ok_or_else(|| error(IpcErrorCode::InvalidArgument, "policy must be deny|ask_once|allow_system"))?;
     *state
         .policy
@@ -600,6 +602,44 @@ sync_command!(
     api::appearance::get_available_fonts,
     ()
 );
+
+/// P1 job queue (song song, IPC cũ nguyên vẹn): enqueue/list/cancel.
+/// Stub chưa gọi actions thật (P2); worker phát event `job_update`.
+#[tauri::command]
+pub async fn job_enqueue(
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+    request: Req<JobEnqueuePayload>,
+) -> IpcResult<core::jobs::Job> {
+    let request_id = validate(&request)?;
+    let payload = request.payload;
+    let kind = core::jobs::JobKind::parse(&payload.kind)
+        .ok_or_else(|| error(IpcErrorCode::InvalidArgument, "kind must be copy|move|delete|list"))?;
+    let job = state.jobs.enqueue(kind, payload.src, payload.dst);
+    state.jobs.spawn_worker(app_handle);
+    Ok(success(request_id, job))
+}
+
+/// P1: liệt kê snapshot toàn bộ job.
+#[tauri::command]
+pub async fn job_list(state: State<'_, AppState>, request: Req<Empty>) -> IpcResult<Vec<core::jobs::Job>> {
+    let request_id = validate(&request)?;
+    Ok(success(request_id, state.jobs.list()))
+}
+
+/// P1: hủy job (queued → cancelled ngay; running → cờ dừng bước tiếp).
+#[tauri::command]
+pub async fn job_cancel(
+    state: State<'_, AppState>,
+    request: Req<JobIdPayload>,
+) -> IpcResult<core::jobs::Job> {
+    let request_id = validate(&request)?;
+    state
+        .jobs
+        .request_cancel(&request.payload.job_id)
+        .map(|job| success(request_id, job))
+        .map_err(backend_error)
+}
 
 #[cfg(test)]
 mod tests {

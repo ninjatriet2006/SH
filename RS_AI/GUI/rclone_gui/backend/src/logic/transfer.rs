@@ -2,7 +2,7 @@
 [INTEGRITY NOTES]
 - Mục đích: Quản lý các tiến trình truyền tải dữ liệu ngầm (Copy/Move).
 - Trách nhiệm: Chạy lệnh rclone với pipe log JSON, bóc tách tiến độ (progress), phát sự kiện lên Frontend, và quản lý PID để Hủy (Cancel).
-- Tương tác: Gọi `core::rclone::build_target`, gọi `app_state.rs`.
+- Tương tác: Gọi `core::rclone_caller::build_target`, gọi `app_state.rs`.
 */
 
 use crate::logic::app_state::AppState;
@@ -43,11 +43,10 @@ pub fn build_transfer_args(
             args.push(format!("--backup-dir={dir}"));
         }
     }
-    match flags.server_side_across && server_side_across {
-        // UNIVERSAL: cùng hãng + bật cờ — server-side xuyên-config, không qua local.
-        true => args.push("--server-side-across-configs".to_string()),
-        // UNIVERSAL: khác hãng / tắt cờ — giữ nguyên args cũ.
-        false => {}
+    // UNIVERSAL: cùng hãng + bật cờ — server-side xuyên-config, không qua local.
+    // UNIVERSAL: khác hãng / tắt cờ — giữ nguyên args cũ.
+    if flags.server_side_across && server_side_across {
+        args.push("--server-side-across-configs".to_string());
     }
     args
 }

@@ -8,14 +8,13 @@
 use serde::{Deserialize, Serialize};
 
 use crate::actions::perm::{Policy, classify_permission_error, escalate};
-use crate::core::rclone;
+use crate::core::rclone_caller;
 use crate::core::task::blocking;
 use crate::logic::app_state::AppState;
 use crate::logic::file_ops;
 use crate::logic::transfer;
-use crate::logic::watcher;
 use std::process::Command;
-use tauri::{Manager, State};
+use tauri::State;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[allow(non_snake_case)]
@@ -33,17 +32,6 @@ pub async fn fs_check_conflicts(
     file_ops::check_conflicts(app_handle, srcs, dest_path).await
 }
 
-#[derive(Deserialize, Debug)]
-#[allow(non_snake_case)]
-pub struct RcloneFile {
-    pub Path: String,
-    pub Name: String,
-    pub Size: i64,
-    pub MimeType: String,
-    pub ModTime: String,
-    pub IsDir: bool,
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct FileItem {
     pub uuid: String,
@@ -56,24 +44,18 @@ pub struct FileItem {
 
 #[derive(serde::Serialize)]
 pub struct StatInfo {
-    size: u64,
-    file_count: u64,
-    dir_count: u64,
-    permissions: u32,
-    uid: u32,
-    gid: u32,
-}
-
-#[derive(serde::Deserialize)]
-struct RcloneSizeOutput {
-    count: u64,
-    bytes: u64,
+    pub(crate) size: u64,
+    pub(crate) file_count: u64,
+    pub(crate) dir_count: u64,
+    pub(crate) permissions: u32,
+    pub(crate) uid: u32,
+    pub(crate) gid: u32,
 }
 
 #[derive(serde::Serialize)]
 pub struct SearchResultItem {
-    item: FileItem,
-    path: String,
+    pub(crate) item: FileItem,
+    pub(crate) path: String,
 }
 
 pub async fn list_files(
@@ -81,70 +63,16 @@ pub async fn list_files(
     path: String,
     pane: Option<String>,
 ) -> Result<Vec<FileItem>, String> {
-    let (remote, real_path) = file_ops::parse_remote_path(&path);
-    let safe_path = if remote == "Local" && real_path.is_empty() {
-        "/"
-    } else {
-        &real_path
-    };
-    let target = rclone::build_target(&remote, safe_path);
-
-    // Cập nhật inotify watcher theo thư mục pane này đang xem.
-    // Chỉ ổ Local mới theo dõi được; remote cloud thì ngừng theo dõi.
-    if let Some(pane) = pane.as_deref() {
-        let state = app_handle.state::<AppState>();
-        let to_watch = if remote == "Local" { Some(safe_path) } else { None };
-        watcher::watch_pane(&state, pane, to_watch);
-    }
-
-    let files = blocking(move || {
-        let output = rclone::run_cmd(&["lsjson", &target, "--max-depth", "1"])?;
-
-        if !output.status.success() {
-            let err_msg = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Lỗi liệt kê file '{}': {}", target, err_msg));
-        }
-
-        let json_str = String::from_utf8_lossy(&output.stdout);
-        if json_str.trim().is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let parsed_files: Vec<RcloneFile> =
-            serde_json::from_str(&json_str).map_err(|e| format!("Lỗi phân tích JSON rclone_files: {}", e))?;
-
-        Ok(parsed_files)
-    })
-    .await?;
-
-    let mut files: Vec<FileItem> = files
-        .into_iter()
-        .map(|f| FileItem {
-            uuid: f.Path,
-            name: f.Name,
-            size: f.Size,
-            is_dir: f.IsDir,
-            mod_time: f.ModTime,
-            file_type: if f.MimeType.is_empty() { None } else { Some(f.MimeType) },
-        })
-        .collect();
-
-    files.sort_by(|a, b| match (b.is_dir, a.is_dir) {
-        (true, false) => std::cmp::Ordering::Greater,
-        (false, true) => std::cmp::Ordering::Less,
-        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-    });
-
-    Ok(files)
+    crate::actions::list::execute_list(app_handle, path, pane).await
 }
 
 pub async fn fs_mkdir(path: String) -> Result<(), String> {
     blocking(move || {
         let (remote, real_path) = file_ops::parse_remote_path(&path);
-        let target = rclone::build_target(&remote, &real_path);
+        let target = rclone_caller::build_target(&remote, &real_path);
 
         file_ops::run_with_sudo_fallback(&remote, "mkdir", std::slice::from_ref(&real_path), || {
-            let output = rclone::run_cmd(&["mkdir", &target])?;
+            let output = rclone_caller::run_cmd(&["mkdir", &target])?;
             if !output.status.success() {
                 Err(String::from_utf8_lossy(&output.stderr).into_owned())
             } else {
@@ -158,17 +86,17 @@ pub async fn fs_mkdir(path: String) -> Result<(), String> {
 pub async fn fs_delete(path: String) -> Result<(), String> {
     blocking(move || {
         let (remote, real_path) = file_ops::parse_remote_path(&path);
-        let target = rclone::build_target(&remote, &real_path);
+        let target = rclone_caller::build_target(&remote, &real_path);
 
         // Xác định kiểu của target trước, thay vì khớp chuỗi thông điệp lỗi của
         // rclone ("is a file not a directory") — cách đó vỡ nếu rclone đổi wording
         // hoặc chạy dưới locale khác.
-        let is_dir = rclone::is_dir(&target).unwrap_or(true);
+        let is_dir = crate::actions::types::is_dir(&target).unwrap_or(true);
 
         file_ops::run_with_sudo_fallback(&remote, "rm", std::slice::from_ref(&real_path), || {
             // `purge` xoá đệ quy thư mục; `deletefile` xoá đúng một file.
             let cmd = if is_dir { "purge" } else { "deletefile" };
-            let output = rclone::run_cmd(&[cmd, &target])?;
+            let output = rclone_caller::run_cmd(&[cmd, &target])?;
             if output.status.success() {
                 return Ok(());
             }
@@ -176,7 +104,7 @@ pub async fn fs_delete(path: String) -> Result<(), String> {
             // Phòng trường hợp phán đoán kiểu sai (ví dụ remote trả metadata lạ):
             // thử lệnh còn lại một lần nữa trước khi báo lỗi.
             let fallback = if is_dir { "deletefile" } else { "purge" };
-            let retry = rclone::run_cmd(&[fallback, &target])?;
+            let retry = rclone_caller::run_cmd(&[fallback, &target])?;
             if retry.status.success() {
                 return Ok(());
             }
@@ -190,12 +118,12 @@ pub async fn fs_delete(path: String) -> Result<(), String> {
 pub async fn fs_touch(path: String) -> Result<(), String> {
     blocking(move || {
         let (remote, real_path) = file_ops::parse_remote_path(&path);
-        let target = rclone::build_target(&remote, &real_path);
+        let target = rclone_caller::build_target(&remote, &real_path);
 
         if remote == "Local" {
             std::fs::File::create(&target).map_err(|e| e.to_string())?;
         } else {
-            rclone::spawn_cmd(&["touch", &target])?;
+            rclone_caller::spawn_cmd(&["touch", &target])?;
         }
         Ok(())
     })
@@ -207,11 +135,11 @@ pub async fn fs_rename(old_path: String, new_path: String) -> Result<(), String>
         let (remote, old_real) = file_ops::parse_remote_path(&old_path);
         let (_, new_real) = file_ops::parse_remote_path(&new_path);
 
-        let src = rclone::build_target(&remote, &old_real);
-        let dst = rclone::build_target(&remote, &new_real);
+        let src = rclone_caller::build_target(&remote, &old_real);
+        let dst = rclone_caller::build_target(&remote, &new_real);
 
         file_ops::run_with_sudo_fallback(&remote, "mv", &[old_real.clone(), new_real.clone()], || {
-            let output = rclone::run_cmd(&["moveto", &src, &dst])?;
+            let output = rclone_caller::run_cmd(&["moveto", &src, &dst])?;
             if !output.status.success() {
                 Err(String::from_utf8_lossy(&output.stderr).into_owned())
             } else {
@@ -232,8 +160,8 @@ pub async fn fs_copy(
     let (src_remote, src_real) = file_ops::parse_remote_path(&src);
     let (dst_remote, dst_real) = file_ops::parse_remote_path(&dst);
 
-    let src_target = rclone::build_target(&src_remote, &src_real);
-    let dst_target = rclone::build_target(&dst_remote, &dst_real);
+    let src_target = rclone_caller::build_target(&src_remote, &src_real);
+    let dst_target = rclone_caller::build_target(&dst_remote, &dst_real);
 
     // Chạy tiến trình copy chính (có báo tiến độ). Nếu thất bại do thiếu quyền
     // và cả hai đầu đều là Local, thử lại một lần qua pkexec (`cp -r`).
@@ -264,8 +192,8 @@ pub async fn fs_move(
     let (src_remote, src_real) = file_ops::parse_remote_path(&src);
     let (dst_remote, dst_real) = file_ops::parse_remote_path(&dst);
 
-    let src_target = rclone::build_target(&src_remote, &src_real);
-    let dst_target = rclone::build_target(&dst_remote, &dst_real);
+    let src_target = rclone_caller::build_target(&src_remote, &src_real);
+    let dst_target = rclone_caller::build_target(&dst_remote, &dst_real);
 
     let policy = state.policy.lock().map(|p| *p).unwrap_or_default();
     let result = transfer::run_transfer_task(app_handle, state, "moveto", src_target, dst_target, task_id).await;
@@ -288,133 +216,11 @@ pub async fn fs_cancel(state: State<'_, AppState>, task_id: u32) -> Result<(), S
 }
 
 pub async fn fs_stat_advanced(path: String) -> Result<StatInfo, String> {
-    blocking(move || {
-        let (remote, real_path) = file_ops::parse_remote_path(&path);
-        let target = rclone::build_target(&remote, &real_path);
-        // UNIVERSAL: đếm đệ quy + fast-list khi bật cờ engine; tắt thì giữ args cũ.
-        let fast_list = crate::settings::engine::load_engine_flags()
-            .map(|f| f.fast_list)
-            .unwrap_or(false);
-        let output = rclone::run_cmd(&["size", &target, "--json"])?;
-
-        if !output.status.success() {
-            return Err(String::from_utf8_lossy(&output.stderr).into_owned());
-        }
-
-        let parsed: RcloneSizeOutput =
-            serde_json::from_slice(&output.stdout).map_err(|e| format!("Lỗi phân tích JSON rclone size: {}", e))?;
-
-        // Đếm số thư mục con (đệ quy). Lệnh sẽ lỗi nếu target là file → coi như 0.
-        let dir_args: Vec<&str> = if fast_list {
-            vec!["lsjson", "-R", "--dirs-only", "--fast-list", &target]
-        } else {
-            vec!["lsjson", "-R", "--dirs-only", &target]
-        };
-        let dir_count = match rclone::run_cmd(&dir_args) {
-            Ok(out) if out.status.success() => serde_json::from_slice::<Vec<serde_json::Value>>(&out.stdout)
-                .map(|v| v.len() as u64)
-                .unwrap_or(0),
-            _ => 0,
-        };
-
-        // Quyền/chủ sở hữu chỉ có ý nghĩa trên ổ Local.
-        let (permissions, uid, gid) = read_local_ownership(&remote, &target);
-
-        Ok(StatInfo {
-            size: parsed.bytes,
-            file_count: parsed.count,
-            dir_count,
-            permissions,
-            uid,
-            gid,
-        })
-    })
-    .await
-}
-
-/// Đọc mode/uid/gid thật của một đường dẫn Local. Trả về (0, 0, 0) trên các
-/// remote đám mây hoặc trên hệ điều hành không hỗ trợ khái niệm này.
-fn read_local_ownership(remote: &str, target: &str) -> (u32, u32, u32) {
-    if remote != "Local" {
-        return (0, 0, 0);
-    }
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        if let Ok(meta) = std::fs::metadata(target) {
-            return (meta.mode(), meta.uid(), meta.gid());
-        }
-    }
-
-    #[cfg(not(unix))]
-    let _ = target;
-
-    (0, 0, 0)
+    crate::actions::stat::execute_stat(path).await
 }
 
 pub async fn fs_search(path: String, query: String) -> Result<Vec<SearchResultItem>, String> {
-    blocking(move || {
-        let (remote, real_path) = file_ops::parse_remote_path(&path);
-        let target = rclone::build_target(&remote, &real_path);
-        let filter = format!("*{}*", query);
-        // UNIVERSAL: tìm đệ quy + fast-list khi bật cờ engine; tắt thì giữ args cũ.
-        let fast_list = crate::settings::engine::load_engine_flags()
-            .map(|f| f.fast_list)
-            .unwrap_or(false);
-        let args: Vec<&str> = if fast_list {
-            vec!["lsjson", &target, "-R", "--include", &filter, "--files-only", "--fast-list"]
-        } else {
-            vec!["lsjson", &target, "-R", "--include", &filter, "--files-only"]
-        };
-        let output = rclone::run_cmd(&args)?;
-
-        if !output.status.success() {
-            return Err(String::from_utf8_lossy(&output.stderr).into_owned());
-        }
-
-        let items: Vec<serde_json::Value> =
-            serde_json::from_slice(&output.stdout).map_err(|e| format!("Lỗi phân tích JSON khi tìm kiếm: {}", e))?;
-
-        let mut files = Vec::new();
-        for item in items {
-            let name = item["Name"].as_str().unwrap_or("").to_string();
-            let rel_path = item["Path"].as_str().unwrap_or("").to_string();
-
-            let file_path = if real_path.ends_with('/') {
-                format!("{}{}", real_path, rel_path)
-            } else {
-                format!("{}/{}", real_path, rel_path)
-            };
-
-            let size = item["Size"].as_i64().unwrap_or(0);
-            let is_dir = item["IsDir"].as_bool().unwrap_or(false);
-            let mod_time = item["ModTime"].as_str().unwrap_or("").to_string();
-
-            let file_info = FileItem {
-                uuid: file_path.clone(),
-                name,
-                is_dir,
-                size,
-                mod_time,
-                file_type: None,
-            };
-
-            let ui_path = if remote == "Local" {
-                format!("Local::{}", file_path)
-            } else {
-                format!("{}::{}", remote, file_path)
-            };
-
-            files.push(SearchResultItem {
-                item: file_info,
-                path: ui_path,
-            });
-        }
-
-        Ok(files)
-    })
-    .await
+    crate::actions::search::execute_search(path, query).await
 }
 
 pub async fn get_home_dir() -> Result<String, String> {

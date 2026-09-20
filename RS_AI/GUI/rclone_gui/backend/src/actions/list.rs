@@ -3,13 +3,19 @@
 - Mục đích: Trial S1 bóc đặc tả `list_files` thành plan thuần (`lsjson --max-depth 1`).
 - Trách nhiệm: parse → build_target → chọn lệnh `lsjson`; khớp `match` trên `RemoteKind`.
 - Tương tác: Chỉ gọi hàm thuần `logic::file_ops::parse_remote_path`,
-  `core::rclone::build_target`. Không chạy lệnh, không wire `fs_*` cũ / IPC.
+  `core::rclone_caller::build_target`. Không chạy lệnh, không wire `fs_*` cũ / IPC.
 */
 
 use crate::actions::explorer::Cap;
 use crate::actions::types::RemoteKind;
-use crate::core::rclone::build_target;
+use crate::api::files::FileItem;
+use crate::core::rclone_caller;
+use crate::core::task::blocking;
+use crate::core::rclone_caller::build_target;
+use crate::logic::app_state::AppState;
 use crate::logic::file_ops::parse_remote_path;
+use crate::logic::watcher;
+use serde::Deserialize;
 
 /// Đặc tả thuần cho `list`: lệnh `lsjson --max-depth 1` + ghi chú watcher pane.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +57,67 @@ pub fn plan_list(path: &str) -> Result<ListPlan, String> {
         rclone_args,
         watch_path,
     })
+}
+
+/// Rclone `lsjson` một dòng (giữ cục bộ để parse; struct dùng chung ở `api::files`).
+#[derive(Deserialize, Debug)]
+#[allow(non_snake_case)]
+struct RcloneFile {
+    Path: String,
+    Name: String,
+    Size: i64,
+    MimeType: String,
+    ModTime: String,
+    IsDir: bool,
+}
+
+/// S2: thực thi list — `plan_list` + watcher pane + `blocking` run + parse + sort cũ.
+/// UNIVERSAL: Local gắn watcher theo pane; remote cloud ngừng watch.
+pub async fn execute_list(
+    app_handle: tauri::AppHandle,
+    path: String,
+    pane: Option<String>,
+) -> Result<Vec<FileItem>, String> {
+    use tauri::Manager;
+    let plan = plan_list(&path)?;
+    if let Some(pane) = pane.as_deref() {
+        let state = app_handle.state::<AppState>();
+        watcher::watch_pane(&state, pane, plan.watch_path.as_deref());
+    }
+    let files = blocking(move || {
+        let args: Vec<&str> = plan.rclone_args.iter().map(|s| s.as_str()).collect();
+        let output = rclone_caller::run_cmd(&args)?;
+        if !output.status.success() {
+            let err_msg = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("Lỗi liệt kê file '{}': {}", plan.target, err_msg));
+        }
+        let json_str = String::from_utf8_lossy(&output.stdout);
+        if json_str.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        let parsed: Vec<RcloneFile> = serde_json::from_str(&json_str)
+            .map_err(|e| format!("Lỗi phân tích JSON rclone_files: {}", e))?;
+        Ok(parsed)
+    })
+    .await?;
+
+    let mut files: Vec<FileItem> = files
+        .into_iter()
+        .map(|f| FileItem {
+            uuid: f.Path,
+            name: f.Name,
+            size: f.Size,
+            is_dir: f.IsDir,
+            mod_time: f.ModTime,
+            file_type: if f.MimeType.is_empty() { None } else { Some(f.MimeType) },
+        })
+        .collect();
+    files.sort_by(|a, b| match (b.is_dir, a.is_dir) {
+        (true, false) => std::cmp::Ordering::Greater,
+        (false, true) => std::cmp::Ordering::Less,
+        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+    });
+    Ok(files)
 }
 
 #[cfg(test)]

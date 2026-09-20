@@ -6,7 +6,7 @@
 */
 
 use crate::actions::move_op::{Cap, SupportCopyAndDelete, SupportMove};
-use crate::core::rclone; // Sử dụng helper từ thư viện dùng chung
+use crate::core::rclone_caller; // Sử dụng helper từ thư viện dùng chung
 use crate::core::task::blocking;
 use crate::logic::file_ops::parse_remote_path;
 use serde_json::{json, Value};
@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 /// Mô tả: Trả về danh sách tất cả các remote đã cấu hình từ rclone config dump.
 pub async fn list_remotes() -> Result<Vec<Value>, String> {
     let dump: Value = blocking(|| {
-        let output = rclone::run_cmd(&["config", "dump"])?;
+        let output = rclone_caller::run_cmd(&["config", "dump"])?;
 
         if !output.status.success() {
             let err_msg = String::from_utf8_lossy(&output.stderr);
@@ -55,7 +55,7 @@ pub async fn list_remotes() -> Result<Vec<Value>, String> {
 /// Mô tả: Trả về danh sách tất cả các loại cloud (Google Drive, Dropbox...) được rclone hỗ trợ dưới dạng JSON.
 pub async fn get_providers() -> Result<String, String> {
     blocking(|| {
-        let output = rclone::run_cmd(&["config", "providers"])?;
+        let output = rclone_caller::run_cmd(&["config", "providers"])?;
 
         if !output.status.success() {
             let err_msg = String::from_utf8_lossy(&output.stderr);
@@ -90,7 +90,7 @@ pub async fn create_remote(
             args.push(arg);
         }
 
-        let output = rclone::run_cmd(&args)?;
+        let output = rclone_caller::run_cmd(&args)?;
 
         if !output.status.success() {
             let err_msg = String::from_utf8_lossy(&output.stderr);
@@ -106,7 +106,7 @@ pub async fn create_remote(
 /// Mô tả: Xóa một cấu hình cloud (remote) khỏi rclone.
 pub async fn delete_remote(name: String) -> Result<String, String> {
     blocking(move || {
-        let output = rclone::run_cmd(&["config", "delete", &name])?;
+        let output = rclone_caller::run_cmd(&["config", "delete", &name])?;
 
         if !output.status.success() {
             let err_msg = String::from_utf8_lossy(&output.stderr);
@@ -136,7 +136,7 @@ pub async fn update_remote(name: String, options: std::collections::HashMap<Stri
             args.push(arg);
         }
 
-        let output = rclone::run_cmd(&args)?;
+        let output = rclone_caller::run_cmd(&args)?;
 
         if !output.status.success() {
             let err_msg = String::from_utf8_lossy(&output.stderr);
@@ -154,7 +154,7 @@ pub async fn get_backend_features(remote: String) -> Result<Value, String> {
     blocking(move || {
         // Đuôi ":" báo cho rclone biết đây là một remote
         let remote_with_colon = format!("{}:", remote);
-        let output = rclone::run_cmd(&["backend", "features", &remote_with_colon])?;
+        let output = rclone_caller::run_cmd(&["backend", "features", &remote_with_colon])?;
 
         if !output.status.success() {
             let err_msg = String::from_utf8_lossy(&output.stderr);
@@ -220,7 +220,7 @@ mod tests {
 /// Mô tả: Lấy thông tin dung lượng của một remote (total, used, free, trashed, other).
 pub async fn rclone_about(remote: String) -> Result<Value, String> {
     blocking(move || {
-        let output = rclone::run_cmd(&["about", &remote, "--json"])?;
+        let output = rclone_caller::run_cmd(&["about", &remote, "--json"])?;
 
         if !output.status.success() {
             let err_msg = String::from_utf8_lossy(&output.stderr);
@@ -237,7 +237,7 @@ pub async fn rclone_about(remote: String) -> Result<Value, String> {
 /// Mô tả: Lấy thông tin kích thước và số lượng tệp của một remote hoặc thư mục.
 pub async fn rclone_size(remote: String) -> Result<Value, String> {
     blocking(move || {
-        let output = rclone::run_cmd(&["size", &remote, "--json"])?;
+        let output = rclone_caller::run_cmd(&["size", &remote, "--json"])?;
 
         if !output.status.success() {
             let err_msg = String::from_utf8_lossy(&output.stderr);

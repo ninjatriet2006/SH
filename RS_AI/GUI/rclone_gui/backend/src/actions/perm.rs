@@ -25,7 +25,7 @@ pub enum Policy {
 
 impl Policy {
     /// UNIVERSAL: parse chuỗi snake_case từ IPC (`deny`/`ask_once`/`allow_system`).
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "deny" => Some(Policy::Deny),
             "ask_once" => Some(Policy::AskOnce),
@@ -267,10 +267,10 @@ mod tests {
 
     #[test]
     fn policy_roundtrip_snake_case() {
-        assert_eq!(Policy::from_str("deny"), Some(Policy::Deny));
-        assert_eq!(Policy::from_str("ask_once"), Some(Policy::AskOnce));
-        assert_eq!(Policy::from_str("allow_system"), Some(Policy::AllowSystem));
-        assert!(Policy::from_str("root").is_none());
+        assert_eq!(Policy::parse("deny"), Some(Policy::Deny));
+        assert_eq!(Policy::parse("ask_once"), Some(Policy::AskOnce));
+        assert_eq!(Policy::parse("allow_system"), Some(Policy::AllowSystem));
+        assert!(Policy::parse("root").is_none());
         assert_eq!(Policy::default(), Policy::AskOnce);
     }
 

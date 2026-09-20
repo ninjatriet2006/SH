@@ -2,7 +2,7 @@
 [INTEGRITY NOTES]
 - Mục đích: Xử lý logic nghiệp vụ cao cấp cho thao tác File (Bóc tách chuỗi, kiểm tra quyền, sao chép hàng loạt).
 - Trách nhiệm: Rút gọn dữ liệu mà Frontend gửi xuống. Thực thi sudo fallback tự động nếu thiếu quyền Local.
-- Tương tác: Gọi `core::rclone`, `core::sys`. Gọi từ `api::files`.
+- Tương tác: Gọi `core::rclone_caller`, `core::sys`. Gọi từ `api::files`.
 */
 
 use crate::api::files::ConflictInfo;
@@ -52,10 +52,10 @@ pub async fn check_conflicts(
         let mut conflicts = Vec::new();
 
         let (dest_remote, dest_real) = parse_remote_path(&dest_path);
-        let dest_target = crate::core::rclone::build_target(&dest_remote, &dest_real);
+        let dest_target = crate::core::rclone_caller::build_target(&dest_remote, &dest_real);
 
         // Lấy danh sách các file/thư mục hiện có ở cấp 1 của thư mục đích
-        let output = crate::core::rclone::run_cmd(&["lsjson", &dest_target])?;
+        let output = crate::core::rclone_caller::run_cmd(&["lsjson", &dest_target])?;
         if !output.status.success() {
             let err_msg = String::from_utf8_lossy(&output.stderr);
             if err_msg.contains("directory not found") || err_msg.contains("failed to read directory") {
@@ -83,7 +83,7 @@ pub async fn check_conflicts(
                     src_real_path.as_str()
                 };
 
-                let src_target = crate::core::rclone::build_target(&src_remote, &src_real_path);
+                let src_target = crate::core::rclone_caller::build_target(&src_remote, &src_real_path);
 
                 // Xây dựng đường dẫn đích tuyệt đối cho mục này
                 let dest_item_real = if dest_real.is_empty() || dest_real == "/" {
@@ -95,10 +95,10 @@ pub async fn check_conflicts(
                         format!("{}/{}", dest_real, base_name)
                     }
                 };
-                let dest_item_target = crate::core::rclone::build_target(&dest_remote, &dest_item_real);
+                let dest_item_target = crate::core::rclone_caller::build_target(&dest_remote, &dest_item_real);
 
                 if let Some(&is_dest_dir) = existing_items.get(base_name) {
-                    let src_is_dir = crate::core::rclone::is_dir(&src_target).unwrap_or(false);
+                    let src_is_dir = crate::actions::types::is_dir(&src_target).unwrap_or(false);
 
                     if src_is_dir && is_dest_dir {
                         // Cả 2 đều là thư mục -> Quét đệ quy các file con
@@ -113,8 +113,8 @@ pub async fn check_conflicts(
                         } else {
                             vec!["lsjson", "-R", "--files-only", &dest_item_target]
                         };
-                        let src_files_out = crate::core::rclone::run_cmd(&src_args);
-                        let dest_files_out = crate::core::rclone::run_cmd(&dest_args);
+                        let src_files_out = crate::core::rclone_caller::run_cmd(&src_args);
+                        let dest_files_out = crate::core::rclone_caller::run_cmd(&dest_args);
 
                         if let (Ok(s_out), Ok(d_out)) = (src_files_out, dest_files_out) {
                             if s_out.status.success() && d_out.status.success() {

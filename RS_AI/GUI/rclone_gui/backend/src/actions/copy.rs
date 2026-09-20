@@ -2,7 +2,7 @@
 [INTEGRITY NOTES]
 - Mục đích: Trial S1 bóc logic `fs_copy` + `run_transfer_task(..., "copyto", ...)` thành `execute_copy`.
 - Trách nhiệm: Phân tuyến (Route) → chọn Cap → chạy `copyto`; `fs_copy` cũ giữ nguyên hành vi.
-- Tương tác: Gọi `logic::file_ops::parse_remote_path`, `core::rclone::build_target`,
+- Tương tác: Gọi `logic::file_ops::parse_remote_path`, `core::rclone_caller::build_target`,
   `logic::{transfer, file_ops}`. Dùng chung `delete_op::DeleteScope`. Không đụng move/ipc/frontend.
 */
 
@@ -142,7 +142,7 @@ pub async fn execute_copy(
     dst: String,
     task_id: Option<u32>,
 ) -> Result<(), String> {
-    use crate::core::rclone;
+    use crate::core::rclone_caller;
     use crate::logic::{file_ops, transfer};
 
     let (src_remote, src_real) = file_ops::parse_remote_path(&src);
@@ -159,8 +159,8 @@ pub async fn execute_copy(
     // UNIVERSAL: copy giữ nguồn nên NoTrash tường minh — khớp ngữ nghĩa copyto.
     let _delete_scope = _cap.delete_scope;
 
-    let src_target = rclone::build_target(&src_remote, &src_real);
-    let dst_target = rclone::build_target(&dst_remote, &dst_real);
+    let src_target = rclone_caller::build_target(&src_remote, &src_real);
+    let dst_target = rclone_caller::build_target(&dst_remote, &dst_real);
 
     let result = transfer::run_transfer_task_with_flags(app_handle, state, "copyto", src_target, dst_target, task_id, server_side_across).await;
 

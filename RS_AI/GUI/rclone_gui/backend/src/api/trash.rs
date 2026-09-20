@@ -2,13 +2,14 @@
 [INTEGRITY NOTES]
 - Mục đích: Quản lý tính năng Thùng rác (Trash) cho cả Local và Remote (Cloud).
 - Trách nhiệm: Tầng API mỏng — nhận request từ Frontend rồi chuyển cho
-  `logic::trash_local` (chuẩn FreeDesktop) hoặc `logic::trash_remote` (rclone).
+  `actions::trash_{list,restore,delete}` (Route Local/Remote đã unify). Giữ nguyên tên IPC/api.
 - Tương tác: Được gọi từ `services/trashOps.ts` trong frontend.
 */
 
+use crate::actions::{trash_delete, trash_list, trash_restore};
+use crate::actions::types::{DeleteScope, EmptyDirs};
 use crate::api::files::FileItem;
 use crate::core::task::blocking;
-use crate::logic::{trash_local, trash_remote};
 use serde::Serialize;
 
 // ====================================================================================
@@ -28,39 +29,25 @@ pub struct TrashItemLocal {
 /// Tên hàm: fs_trash_list_local
 /// Mô tả: Lấy danh sách mục trong thùng rác cục bộ, mới xoá xếp trước.
 pub async fn fs_trash_list_local() -> Result<Vec<TrashItemLocal>, String> {
-    blocking(trash_local::list).await
+    blocking(trash_list::list_local).await
 }
 
 /// Tên hàm: fs_trash_restore_local
 /// Mô tả: Khôi phục một mục từ thùng rác cục bộ về vị trí gốc.
 pub async fn fs_trash_restore_local(item_id: String) -> Result<(), String> {
-    blocking(move || trash_local::restore(&item_id)).await
+    blocking(move || trash_restore::restore_local(&item_id)).await
 }
 
 /// Tên hàm: fs_trash_delete_local
 /// Mô tả: Xoá vĩnh viễn một mục khỏi thùng rác cục bộ.
 pub async fn fs_trash_delete_local(item_id: String) -> Result<(), String> {
-    blocking(move || trash_local::delete(&item_id)).await
+    blocking(move || trash_delete::delete_local(&item_id, DeleteScope::NoTrash)).await
 }
 
 /// Tên hàm: fs_trash_empty_local
 /// Mô tả: Xoá vĩnh viễn toàn bộ mục trong thùng rác cục bộ.
 pub async fn fs_trash_empty_local() -> Result<(), String> {
-    blocking(|| {
-        let items = trash_local::list()?;
-        let mut errors = Vec::new();
-        for item in &items {
-            if let Err(e) = trash_local::delete(&item.id) {
-                errors.push(format!("{}: {}", item.name, e));
-            }
-        }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(format!("Không xoá được {} mục:\n{}", errors.len(), errors.join("\n")))
-        }
-    })
-    .await
+    blocking(move || trash_delete::empty_local(EmptyDirs::Recursive)).await
 }
 
 // ====================================================================================
@@ -80,28 +67,28 @@ fn require_remote(account: Option<String>) -> Result<String, String> {
 /// Mô tả: Liệt kê các mục trong thùng rác của remote (Google Drive, Jottacloud, PikPak).
 pub async fn fs_trash_list_remote_terminal(account: Option<String>) -> Result<Vec<FileItem>, String> {
     let remote = require_remote(account)?;
-    blocking(move || trash_remote::list(&remote)).await
+    blocking(move || trash_list::list_remote(&remote)).await
 }
 
 /// Tên hàm: fs_trash_restore_remote_terminal
-/// Mô tả: Khôi phục một mục trong thùng rác đám mây về vị trí gốc.
+/// Mô tả: Khôi phục một mục trong thùng rác đám mây về vị trí gốc (chỉ Drive).
 pub async fn fs_trash_restore_remote_terminal(account: Option<String>, path: String) -> Result<(), String> {
     let remote = require_remote(account)?;
-    blocking(move || trash_remote::restore(&remote, &path)).await
+    blocking(move || trash_restore::restore_remote(&remote, &path)).await
 }
 
 /// Tên hàm: fs_trash_delete_remote_terminal
 /// Mô tả: Xoá vĩnh viễn một mục đang ở trong thùng rác đám mây.
 pub async fn fs_trash_delete_remote_terminal(account: Option<String>, path: String) -> Result<(), String> {
     let remote = require_remote(account)?;
-    blocking(move || trash_remote::delete(&remote, &path)).await
+    blocking(move || trash_delete::delete_remote(&remote, &path, DeleteScope::NoTrash)).await
 }
 
 /// Tên hàm: fs_trash_empty_remote_terminal
 /// Mô tả: Dọn sạch toàn bộ thùng rác đám mây (`rclone cleanup`).
 pub async fn fs_trash_empty_remote_terminal(account: Option<String>) -> Result<(), String> {
     let remote = require_remote(account)?;
-    blocking(move || trash_remote::empty(&remote)).await
+    blocking(move || trash_delete::empty_remote(&remote, EmptyDirs::Recursive)).await
 }
 
 #[cfg(test)]

@@ -4,12 +4,12 @@
   `execute_delete`, cộng thêm nhánh Trash; `fs_delete` cũ giữ nguyên hành vi.
 - Trách nhiệm: Phân tuyến (Route) + loại target (IsDir) + phạm vi xóa (DeleteScope) → chọn lệnh.
 - Tương tác: Gọi `logic::file_ops::{parse_remote_path, run_with_sudo_fallback}`,
-  `core::{rclone, task::blocking}`. `DeleteScope` dùng chung cho copy/move/delete (S2).
+  `core::{rclone_caller, task::blocking}`. `DeleteScope` dùng chung cho copy/move/delete (S2).
   Không đụng move/copy/ipc/frontend.
 */
 
 pub use crate::actions::types::{DeleteScope, EmptyDirs};
-use crate::core::{rclone, task};
+use crate::core::{rclone_caller, task};
 use crate::logic::file_ops;
 
 /// Tuyến xóa, suy từ remote chứa target (`"Local"` = ổ máy).
@@ -49,10 +49,10 @@ pub async fn execute_delete_with_empty_dirs(
 ) -> Result<(), String> {
     let (remote, real_path) = file_ops::parse_remote_path(&path);
     let route = Route::classify(&remote);
-    let target = rclone::build_target(&remote, &real_path);
+    let target = rclone_caller::build_target(&remote, &real_path);
 
     // Xác định kiểu target trước (như `fs_delete`), thay vì khớp chuỗi lỗi rclone.
-    let is_dir = rclone::is_dir(&target).unwrap_or(true);
+    let is_dir = crate::actions::types::is_dir(&target).unwrap_or(true);
     // Clone cho bước dọn rỗng sau delete chính (closure `move` đã chiếm `target`).
     let cleanup_target = target.clone();
 
@@ -85,7 +85,7 @@ pub async fn execute_delete_with_empty_dirs(
         // trash (vd. Drive) sẽ trash thay vì xóa hẳn. Cây thư mục rỗng có thể còn lại.
         (Route::Remote, DeleteScope::Trash) => {
             task::blocking(move || {
-                let output = rclone::run_cmd(&["delete", &target])?;
+                let output = rclone_caller::run_cmd(&["delete", &target])?;
                 if output.status.success() {
                     Ok(())
                 } else {
@@ -100,7 +100,7 @@ pub async fn execute_delete_with_empty_dirs(
                 // UNIVERSAL: chỉ dọn đúng target rỗng sau Trash (`rmdir` không đệ quy).
                 EmptyDirs::OnlyHere => {
                     task::blocking(move || {
-                        let output = rclone::run_cmd(&["rmdir", &cleanup_target])?;
+                        let output = rclone_caller::run_cmd(&["rmdir", &cleanup_target])?;
                         if output.status.success() {
                             Ok(())
                         } else {
@@ -112,7 +112,7 @@ pub async fn execute_delete_with_empty_dirs(
                 // UNIVERSAL: dọn đệ quy cây rỗng sau Trash (`rmdirs` leo lên cha).
                 EmptyDirs::Recursive => {
                     task::blocking(move || {
-                        let output = rclone::run_cmd(&["rmdirs", &cleanup_target])?;
+                        let output = rclone_caller::run_cmd(&["rmdirs", &cleanup_target])?;
                         if output.status.success() {
                             Ok(())
                         } else {
@@ -132,11 +132,11 @@ pub async fn execute_delete_with_empty_dirs(
                 true => {
                     task::blocking(move || {
                         file_ops::run_with_sudo_fallback(&remote, "rm", std::slice::from_ref(&real_path), || {
-                            let output = rclone::run_cmd(&["purge", &target])?;
+                            let output = rclone_caller::run_cmd(&["purge", &target])?;
                             if output.status.success() {
                                 return Ok(());
                             }
-                            let retry = rclone::run_cmd(&["deletefile", &target])?;
+                            let retry = rclone_caller::run_cmd(&["deletefile", &target])?;
                             if retry.status.success() {
                                 return Ok(());
                             }
@@ -158,11 +158,11 @@ pub async fn execute_delete_with_empty_dirs(
                 false => {
                     task::blocking(move || {
                         file_ops::run_with_sudo_fallback(&remote, "rm", std::slice::from_ref(&real_path), || {
-                            let output = rclone::run_cmd(&["deletefile", &target])?;
+                            let output = rclone_caller::run_cmd(&["deletefile", &target])?;
                             if output.status.success() {
                                 return Ok(());
                             }
-                            let retry = rclone::run_cmd(&["purge", &target])?;
+                            let retry = rclone_caller::run_cmd(&["purge", &target])?;
                             if retry.status.success() {
                                 return Ok(());
                             }

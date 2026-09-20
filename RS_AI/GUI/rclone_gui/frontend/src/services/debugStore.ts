@@ -1,6 +1,6 @@
 export interface LogEntry {
   timestamp: string;
-  type: 'INFO' | 'API' | 'TRANSFER' | 'SYS';
+  type: 'INFO' | 'API' | 'TRANSFER' | 'SYS' | 'BACKEND';
   action: string;
   detail: string;
 }
@@ -52,3 +52,19 @@ class DebugStore {
 }
 
 export const debugStore = new DebugStore();
+
+// Hook event `backend-log` từ Rust (best-effort: ngoài Tauri thì bỏ qua).
+export function subscribeBackendLogs(): void {
+  if (typeof window === 'undefined') return;
+  import('@tauri-apps/api/event')
+    .then(({ listen }) =>
+      listen<{ level: string; tag: string; message: string }>('backend-log', (event) => {
+        const { level, tag, message } = event.payload ?? ({} as any);
+        debugStore.log('BACKEND', `[${level ?? '?'}][${tag ?? '?'}]`, String(message ?? ''));
+      }),
+    )
+    .catch(() => {});
+}
+
+// Tự nối khi chạy trong app; lỗi/thiếu Tauri đều bỏ qua.
+void subscribeBackendLogs();

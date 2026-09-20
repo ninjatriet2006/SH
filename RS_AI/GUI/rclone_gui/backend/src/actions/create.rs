@@ -3,12 +3,12 @@
 - Mục đích: Trial S1 bóc đặc tả `fs_mkdir`/`fs_touch` (họ tạo) thành plan thuần.
 - Trách nhiệm: parse → build_target → chọn sudo fallback; khớp `match` trên `RemoteKind`.
 - Tương tác: Chỉ gọi hàm thuần `logic::file_ops::parse_remote_path`,
-  `core::rclone::build_target`. Không chạy lệnh, không wire `fs_*` cũ / IPC.
+  `core::rclone_caller::build_target`. Không chạy lệnh, không wire `fs_*` cũ / IPC.
 */
 
 use crate::actions::ops::Cap;
 use crate::actions::types::RemoteKind;
-use crate::core::rclone::build_target;
+use crate::core::rclone_caller::build_target;
 use crate::logic::file_ops::parse_remote_path;
 
 /// Đặc tả thuần cho `mkdir`: target rclone + lệnh + sudo fallback.
