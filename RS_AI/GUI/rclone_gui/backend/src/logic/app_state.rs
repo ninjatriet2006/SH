@@ -8,7 +8,7 @@
 */
 
 use crate::actions::perm::Policy;
-use crate::core::jobs::JobStore;
+use crate::logic::jobs::JobStore;
 use notify::RecommendedWatcher;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

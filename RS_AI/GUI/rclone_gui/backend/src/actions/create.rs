@@ -7,7 +7,9 @@
 */
 
 use crate::actions::ops::Cap;
+use crate::actions::perm::{Policy, classify_permission_error, escalate};
 use crate::actions::types::RemoteKind;
+use crate::core::{rclone_caller, task};
 use crate::core::rclone_caller::build_target;
 use crate::logic::file_ops::parse_remote_path;
 
@@ -70,6 +72,49 @@ pub fn plan_touch(path: &str) -> Result<TouchPlan, String> {
         rclone_args,
         local_create,
     })
+}
+
+/// Thực thi `mkdir`: chạy [`plan_mkdir`] + `rclone mkdir` + sudo fallback.
+/// UNIVERSAL: `AllowSystem` giữ hành vi `fs_mkdir` cũ (tự `pkexec mkdir -p`);
+/// `Deny`/`AskOnce` trả `PERMISSION_CONSENT` để frontend park + hỏi.
+pub async fn execute_mkdir(path: String, policy: Policy) -> Result<(), String> {
+    let plan = plan_mkdir(&path)?;
+    let (remote, real_path) = parse_remote_path(&path);
+    let target = plan.target.clone();
+    task::blocking(move || {
+        escalate(policy, &remote, "mkdir", std::slice::from_ref(&real_path), || {
+            let output = rclone_caller::run_cmd(&["mkdir", &target])?;
+            if !output.status.success() {
+                Err(String::from_utf8_lossy(&output.stderr).into_owned())
+            } else {
+                Ok(())
+            }
+        })
+    })
+    .await
+}
+
+/// Thực thi `touch`: chạy [`plan_touch`] + tạo file.
+/// UNIVERSAL: Local qua `File::create`, remote qua `rclone touch`;
+/// lỗi quyền khi chưa consent trả `PERMISSION_CONSENT` (cũ không sudo nên không pkexec).
+pub async fn execute_touch(path: String, policy: Policy) -> Result<(), String> {
+    let plan = plan_touch(&path)?;
+    task::blocking(move || {
+        if plan.local_create {
+            std::fs::File::create(&plan.target).map(|_| ()).map_err(|e| {
+                let msg = e.to_string();
+                // UNIVERSAL: chưa consent thì park, không tự leo thang (bản cũ không sudo).
+                if classify_permission_error(&msg) && policy != Policy::AllowSystem {
+                    format!("PERMISSION_CONSENT: {}.", msg)
+                } else {
+                    msg
+                }
+            })
+        } else {
+            rclone_caller::spawn_cmd(&["touch", &plan.target])
+        }
+    })
+    .await
 }
 
 #[cfg(test)]

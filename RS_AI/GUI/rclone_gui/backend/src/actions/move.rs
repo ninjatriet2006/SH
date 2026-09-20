@@ -178,6 +178,8 @@ pub async fn execute_move(
     let src_target = rclone_caller::build_target(&src_remote, &src_real);
     let dst_target = rclone_caller::build_target(&dst_remote, &dst_real);
 
+    // UNIVERSAL: đọc policy trước khi move State vào transfer (State không Copy).
+    let policy = state.policy.lock().map(|p| *p).unwrap_or_default();
     let result = transfer::run_transfer_task_with_flags(app_handle, state, "moveto", src_target, dst_target, task_id, server_side_across).await;
 
     match route {
@@ -185,6 +187,10 @@ pub async fn execute_move(
         Route::LocalLocal => match result {
             Ok(()) => Ok(()),
             Err(e) => {
+                // UNIVERSAL: chưa consent thì park, không tự pkexec.
+                if crate::actions::perm::classify_permission_error(&e) && policy != crate::actions::perm::Policy::AllowSystem {
+                    return Err(format!("PERMISSION_CONSENT: {}.", e));
+                }
                 file_ops::run_with_sudo_fallback("Local", "mv", &[src_real.clone(), dst_real.clone()], || Err(e))
             }
         },

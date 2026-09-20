@@ -7,7 +7,9 @@
   `core::rclone_caller::build_target`. Không chạy lệnh, không wire `fs_*` cũ / IPC.
 */
 
+use crate::actions::perm::{Policy, escalate};
 use crate::actions::types::RemoteKind;
+use crate::core::{rclone_caller, task};
 use crate::core::rclone_caller::build_target;
 use crate::logic::file_ops::parse_remote_path;
 
@@ -166,6 +168,27 @@ pub fn plan_rename_for(
 /// Mặc định file + backend hỗ trợ rename (giữ hành vi S1 cũ).
 pub fn plan_rename(old_path: &str, new_path: &str) -> Result<RenamePlan, String> {
     plan_rename_for(old_path, new_path, IsDir::File, SupportRename(true))
+}
+
+/// Thực thi `rename`: chạy [`plan_rename`] + `rclone moveto` + sudo fallback.
+/// UNIVERSAL: `AllowSystem` giữ hành vi `fs_rename` cũ (tự `pkexec mv`);
+/// `Deny`/`AskOnce` trả `PERMISSION_CONSENT` để frontend park + hỏi.
+pub async fn execute_rename(old_path: String, new_path: String, policy: Policy) -> Result<(), String> {
+    let plan = plan_rename(&old_path, &new_path)?;
+    let (remote, old_real) = parse_remote_path(&old_path);
+    let (_, new_real) = parse_remote_path(&new_path);
+    let (src, dst) = (plan.src_target.clone(), plan.dst_target.clone());
+    task::blocking(move || {
+        escalate(policy, &remote, "mv", &[old_real.clone(), new_real.clone()], || {
+            let output = rclone_caller::run_cmd(&["moveto", &src, &dst])?;
+            if !output.status.success() {
+                Err(String::from_utf8_lossy(&output.stderr).into_owned())
+            } else {
+                Ok(())
+            }
+        })
+    })
+    .await
 }
 
 #[cfg(test)]

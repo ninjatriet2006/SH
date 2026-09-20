@@ -1,4 +1,4 @@
-use crate::{actions::perm::Policy, api, core, logic::app_state::AppState};
+use crate::{actions::perm::Policy, api, core, logic::{self, app_state::AppState}};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -610,10 +610,10 @@ pub async fn job_enqueue(
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
     request: Req<JobEnqueuePayload>,
-) -> IpcResult<core::jobs::Job> {
+) -> IpcResult<logic::jobs::Job> {
     let request_id = validate(&request)?;
     let payload = request.payload;
-    let kind = core::jobs::JobKind::parse(&payload.kind)
+    let kind = logic::jobs::JobKind::parse(&payload.kind)
         .ok_or_else(|| error(IpcErrorCode::InvalidArgument, "kind must be copy|move|delete|list"))?;
     let job = state.jobs.enqueue(kind, payload.src, payload.dst);
     state.jobs.spawn_worker(app_handle);
@@ -622,7 +622,7 @@ pub async fn job_enqueue(
 
 /// P1: liệt kê snapshot toàn bộ job.
 #[tauri::command]
-pub async fn job_list(state: State<'_, AppState>, request: Req<Empty>) -> IpcResult<Vec<core::jobs::Job>> {
+pub async fn job_list(state: State<'_, AppState>, request: Req<Empty>) -> IpcResult<Vec<logic::jobs::Job>> {
     let request_id = validate(&request)?;
     Ok(success(request_id, state.jobs.list()))
 }
@@ -632,7 +632,7 @@ pub async fn job_list(state: State<'_, AppState>, request: Req<Empty>) -> IpcRes
 pub async fn job_cancel(
     state: State<'_, AppState>,
     request: Req<JobIdPayload>,
-) -> IpcResult<core::jobs::Job> {
+) -> IpcResult<logic::jobs::Job> {
     let request_id = validate(&request)?;
     state
         .jobs

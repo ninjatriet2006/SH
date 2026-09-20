@@ -17,6 +17,10 @@ pub struct GlobalFlags {
     pub server_side_across: bool,
     pub dry_run: bool,
     pub backup_dir: Option<String>,
+    // UNIVERSAL: false (mặc định) = bóc thư mục thành từng món qua queue con;
+    // true = chạy nguyên khối một lệnh src→dst duy nhất qua queue con.
+    #[serde(default)]
+    pub bulk_transfer: bool,
 }
 
 impl Default for GlobalFlags {
@@ -28,6 +32,7 @@ impl Default for GlobalFlags {
             server_side_across: false,
             dry_run: false,
             backup_dir: None,
+            bulk_transfer: false,
         }
     }
 }
@@ -114,6 +119,16 @@ mod tests {
         assert!(!flags.server_side_across);
         assert!(!flags.dry_run);
         assert_eq!(flags.backup_dir, None);
+        assert!(!flags.bulk_transfer);
+    }
+
+    #[test]
+    fn bulk_defaults_off_and_old_json_without_field_still_loads() {
+        // UNIVERSAL: file cũ thiếu `bulk_transfer` vẫn đọc được → false.
+        let old = r#"{"transfers":4,"checkers":8,"fast_list":false,"server_side_across":false,"dry_run":false,"backup_dir":null}"#;
+        let flags: GlobalFlags = serde_json::from_str(old).expect("old json loads");
+        assert!(!flags.bulk_transfer);
+        assert_eq!(flags, GlobalFlags::default());
     }
 
     #[test]
@@ -125,6 +140,7 @@ mod tests {
             server_side_across: true,
             dry_run: true,
             backup_dir: Some("/tmp/backup".to_string()),
+            bulk_transfer: true,
         };
         let json = serde_json::to_string(&flags).expect("serialize");
         let back: GlobalFlags = serde_json::from_str(&json).expect("deserialize");

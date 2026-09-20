@@ -288,6 +288,7 @@ mod tests {
             server_side_across: true,
             dry_run: true,
             backup_dir: Some("/tmp/bk".to_string()),
+            bulk_transfer: false,
         };
         let args = build_transfer_args("copyto", "A:/a", "B:/b", &flags, true);
         assert!(args.contains(&"--transfers=2".to_string()));

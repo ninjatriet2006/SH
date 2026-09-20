@@ -117,6 +117,6 @@ pub mod ops {
     pub use super::create;
     pub use super::rename;
     pub use super::OpsCap as Cap;
-    pub use super::create::{MkdirPlan, TouchPlan, plan_mkdir, plan_touch};
-    pub use super::rename::{IsDir, RenamePlan, SupportRename, plan_rename, plan_rename_for};
+    pub use super::create::{MkdirPlan, TouchPlan, execute_mkdir, execute_touch, plan_mkdir, plan_touch};
+    pub use super::rename::{IsDir, RenamePlan, SupportRename, execute_rename, plan_rename, plan_rename_for};
 }

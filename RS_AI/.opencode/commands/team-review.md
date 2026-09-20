@@ -1,19 +1,18 @@
 ---
-description: Review các thay đổi hiện tại (git diff) bởi Reviewer agent.
+description: Review chéo các thay đổi hiện tại (git diff) theo hệ 2-model.
 agent: lead
 ---
 
 # Teamwork Review Command
 
-Hãy điều phối Reviewer agent để review các thay đổi hiện tại trong repo.
+Điều phối review chéo 2 chiều cho các thay đổi hiện tại trong repo.
 
 $ARGUMENTS
 
 Nếu có staged/unstaged changes, review diff. Nếu không có changes, báo cáo rằng không có gì để review.
 
-Review chéo đối ứng (`lead.md` mục 6): Check mặc định chạy SeekAI GLM flash
-(`reviewer.md`). Nếu diff hiện tại do GLM tạo ra (phase lẻ / Dev = GLM), Lead đảo
-2 dòng `model:` trong `rust-dev.md` ↔ `reviewer.md` trước để Muse Spark duyệt —
-cấm cùng model vừa làm vừa duyệt.
+Review chéo 2 chiều (`lead.md` mục 3 + 6): **model nào viết code thì model KIA review** — cấm tự approve.
+- Diff do **Lead** viết → giao **Peer** (`peer.md`, mũ Review) soi.
+- Diff do **Peer** viết → **Lead** tự review inline (đọc diff, trace edge, chạy verify).
 
-Reviewer phải xuất kết quả rõ ràng: APPROVED hoặc REQUEST_CHANGES với danh sách cụ thể.
+Bên review phải xuất kết quả rõ ràng: APPROVE / REQUEST_CHANGES / FOUND_ISSUES, mỗi finding kèm `file:line — impact — fix`. Cấm khen suông.
