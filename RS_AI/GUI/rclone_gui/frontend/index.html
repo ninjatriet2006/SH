@@ -132,6 +132,20 @@ Các module tương tác: /src/main.ts, /themes/tokens.css, /themes/style.css
               <select id="settings-font"></select>
               <p data-lang-id="settings_resource_hint">Add local resources to langs/, themes/, or fonts/ and restart to refresh the lists.</p>
             </section>
+            <section class="settings-card" id="settings-engine">
+              <h2 data-lang-id="settings_engine_title">Engine</h2>
+              <label for="engine-transfers" data-lang-id="settings_engine_transfers">Transfers (1-32)</label>
+              <input type="number" id="engine-transfers" min="1" max="32" step="1" />
+              <label for="engine-checkers" data-lang-id="settings_engine_checkers">Checkers (1-64)</label>
+              <input type="number" id="engine-checkers" min="1" max="64" step="1" />
+              <label for="engine-backup-dir" data-lang-id="settings_engine_backup_dir">Backup dir (trống = tắt)</label>
+              <input type="text" id="engine-backup-dir" placeholder="/tmp/rclone-backup" />
+              <label><input type="checkbox" id="engine-fast-list" /> <span data-lang-id="settings_engine_fast_list">Fast list (liệt kê đệ quy nhanh)</span></label>
+              <label><input type="checkbox" id="engine-across" /> <span data-lang-id="settings_engine_across">Server-side xuyên config (cùng hãng)</span></label>
+              <label><input type="checkbox" id="engine-dry-run" /> <span data-lang-id="settings_engine_dry_run">Dry run (chạy thử)</span></label>
+              <p id="engine-error" class="settings-error" style="display: none; color: red;"></p>
+              <button class="btn btn-primary" id="engine-save" data-lang-id="settings_engine_save">Lưu Engine</button>
+            </section>
           </main>
         </div>
       </div>

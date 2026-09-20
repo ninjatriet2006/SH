@@ -10,7 +10,8 @@ import { joinPath } from './dragDrop';
 import * as fileOps from '../services/fileOps';
 import { FallbackModal } from '../components/FallbackModal';
 import { checkTransferCapability } from '../../../bridge/remote_api';
-import { getTempDir, fsDelete, fsCancel } from '../../../bridge/explorer_api';
+import { getTempDir, fsDelete, fsCancel, setPermissionPolicy, isPermissionConsentError } from '../../../bridge/explorer_api';
+import { PermissionDialog } from '../components/PermissionDialog';
 import { debugStore } from '../services/debugStore';
 import { listen } from '@tauri-apps/api/event';
 
@@ -50,6 +51,9 @@ class TransferManager {
   private nextId = 1;
   private isProcessing = false;
   private fallbackApplyToAllCache: { action: 'fallback_server_side' | 'fallback_local' | 'cancel', expireAt: number } | null = null;
+  // S2: task đang park chờ consent + cờ tránh mở nhiều dialog cùng lúc.
+  private parkedIds: number[] = [];
+  private permissionDialogOpen = false;
 
   constructor() {
     // Lắng nghe luồng sự kiện báo cáo tiến độ (progress) trực tiếp từ Backend Rclone
@@ -293,6 +297,16 @@ class TransferManager {
               });
             }
           } catch (e: any) {
+            // S2: lỗi PERMISSION_CONSENT → park task + hiện dialog 1 lần/luôn/không.
+            // UNIVERSAL: giữ task ở trạng thái error để UI thấy, park id để rerun.
+            if (isPermissionConsentError(e)) {
+              task.status = 'error';
+              task.error = e?.message ?? e?.toString() ?? 'Cần quyền hệ thống';
+              this.notify();
+              await this.handlePermissionConsent(task);
+              this.notify();
+              continue;
+            }
             // Nếu người dùng đã hủy thì giữ nguyên trạng thái 'cancelled',
             // không báo lỗi (rclone bị kill có thể throw).
             if ((task.status as TransferStatus) !== 'cancelled') {
@@ -372,6 +386,44 @@ class TransferManager {
   private notify() {
     if (this.onUpdate) {
       this.onUpdate();
+    }
+  }
+
+  /**
+   * S2: park task dính `PERMISSION_CONSENT`, hiện dialog consent duy nhất rồi
+   * rerun các task parked nếu được cho phép (`once` rerun 1 vòng, `always`
+   * set policy `allow_system` rồi rerun, `never` set `deny` và thôi).
+   */
+  private async handlePermissionConsent(failedTask: TransferTask): Promise<void> {
+    if (!this.parkedIds.includes(failedTask.id)) this.parkedIds.push(failedTask.id);
+    if (this.permissionDialogOpen) return;
+    this.permissionDialogOpen = true;
+    try {
+      const detail = failedTask.error ?? 'Thiếu quyền truy cập.';
+      const choice = await new PermissionDialog(failedTask.name, detail).open();
+      if (choice === 'never') {
+        await setPermissionPolicy('deny').catch(() => undefined);
+        return;
+      }
+      if (choice === 'always') {
+        await setPermissionPolicy('allow_system').catch(() => undefined);
+      }
+      // `once`: không đổi policy bền — backend mặc định AskOnce nên chỉ rerun;
+      // vòng rerun này nếu vẫn lỗi sẽ park lại và hỏi tiếp.
+      const rerun = [...this.parkedIds];
+      this.parkedIds = [];
+      for (const id of rerun) {
+        const t = this.tasks.get(id);
+        if (t && t.status === 'error') {
+          t.status = 'queued';
+          t.error = undefined;
+          t.progress = 0;
+        }
+      }
+      this.notify();
+      void this.processQueue();
+    } finally {
+      this.permissionDialogOpen = false;
     }
   }
 

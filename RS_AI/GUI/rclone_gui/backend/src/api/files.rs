@@ -7,6 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::actions::perm::{Policy, classify_permission_error, escalate};
 use crate::core::rclone;
 use crate::core::task::blocking;
 use crate::logic::app_state::AppState;
@@ -236,11 +237,17 @@ pub async fn fs_copy(
 
     // Chạy tiến trình copy chính (có báo tiến độ). Nếu thất bại do thiếu quyền
     // và cả hai đầu đều là Local, thử lại một lần qua pkexec (`cp -r`).
+    // S2: đọc policy trước khi move State vào transfer (State không Copy).
+    let policy = state.policy.lock().map(|p| *p).unwrap_or_default();
     let result = transfer::run_transfer_task(app_handle, state, "copyto", src_target, dst_target, task_id).await;
 
     match result {
         Ok(()) => Ok(()),
         Err(e) if src_remote == "Local" && dst_remote == "Local" => {
+            // S2: tôn trọng policy — chưa consent thì park, không tự pkexec.
+            if classify_permission_error(&e) && policy != Policy::AllowSystem {
+                return Err(format!("PERMISSION_CONSENT: {}.", e));
+            }
             file_ops::run_with_sudo_fallback("Local", "cp", &[src_real.clone(), dst_real.clone()], || Err(e))
         }
         Err(e) => Err(e),
@@ -260,11 +267,16 @@ pub async fn fs_move(
     let src_target = rclone::build_target(&src_remote, &src_real);
     let dst_target = rclone::build_target(&dst_remote, &dst_real);
 
+    let policy = state.policy.lock().map(|p| *p).unwrap_or_default();
     let result = transfer::run_transfer_task(app_handle, state, "moveto", src_target, dst_target, task_id).await;
 
     match result {
         Ok(()) => Ok(()),
         Err(e) if src_remote == "Local" && dst_remote == "Local" => {
+            // S2: tôn trọng policy — chưa consent thì park, không tự pkexec.
+            if classify_permission_error(&e) && policy != Policy::AllowSystem {
+                return Err(format!("PERMISSION_CONSENT: {}.", e));
+            }
             file_ops::run_with_sudo_fallback("Local", "mv", &[src_real.clone(), dst_real.clone()], || Err(e))
         }
         Err(e) => Err(e),
@@ -279,6 +291,10 @@ pub async fn fs_stat_advanced(path: String) -> Result<StatInfo, String> {
     blocking(move || {
         let (remote, real_path) = file_ops::parse_remote_path(&path);
         let target = rclone::build_target(&remote, &real_path);
+        // UNIVERSAL: đếm đệ quy + fast-list khi bật cờ engine; tắt thì giữ args cũ.
+        let fast_list = crate::settings::engine::load_engine_flags()
+            .map(|f| f.fast_list)
+            .unwrap_or(false);
         let output = rclone::run_cmd(&["size", &target, "--json"])?;
 
         if !output.status.success() {
@@ -289,7 +305,12 @@ pub async fn fs_stat_advanced(path: String) -> Result<StatInfo, String> {
             serde_json::from_slice(&output.stdout).map_err(|e| format!("Lỗi phân tích JSON rclone size: {}", e))?;
 
         // Đếm số thư mục con (đệ quy). Lệnh sẽ lỗi nếu target là file → coi như 0.
-        let dir_count = match rclone::run_cmd(&["lsjson", "-R", "--dirs-only", &target]) {
+        let dir_args: Vec<&str> = if fast_list {
+            vec!["lsjson", "-R", "--dirs-only", "--fast-list", &target]
+        } else {
+            vec!["lsjson", "-R", "--dirs-only", &target]
+        };
+        let dir_count = match rclone::run_cmd(&dir_args) {
             Ok(out) if out.status.success() => serde_json::from_slice::<Vec<serde_json::Value>>(&out.stdout)
                 .map(|v| v.len() as u64)
                 .unwrap_or(0),
@@ -337,8 +358,16 @@ pub async fn fs_search(path: String, query: String) -> Result<Vec<SearchResultIt
         let (remote, real_path) = file_ops::parse_remote_path(&path);
         let target = rclone::build_target(&remote, &real_path);
         let filter = format!("*{}*", query);
-
-        let output = rclone::run_cmd(&["lsjson", &target, "-R", "--include", &filter, "--files-only"])?;
+        // UNIVERSAL: tìm đệ quy + fast-list khi bật cờ engine; tắt thì giữ args cũ.
+        let fast_list = crate::settings::engine::load_engine_flags()
+            .map(|f| f.fast_list)
+            .unwrap_or(false);
+        let args: Vec<&str> = if fast_list {
+            vec!["lsjson", &target, "-R", "--include", &filter, "--files-only", "--fast-list"]
+        } else {
+            vec!["lsjson", &target, "-R", "--include", &filter, "--files-only"]
+        };
+        let output = rclone::run_cmd(&args)?;
 
         if !output.status.success() {
             return Err(String::from_utf8_lossy(&output.stderr).into_owned());
@@ -595,7 +624,13 @@ pub fn fs_temp_dir() -> String {
 /// Tên hàm: fs_chmod
 /// Mô tả: Đổi quyền (mode) của một file/thư mục trên ổ Local.
 /// Chỉ hỗ trợ Unix — remote cloud không có khái niệm mode POSIX.
+/// IPC cũ giữ: wrapper mặc định `AllowSystem` (hành vi sudo tự động cũ).
 pub async fn fs_chmod(path: String, mode: u32) -> Result<(), String> {
+    fs_chmod_with_policy(path, mode, Policy::AllowSystem).await
+}
+
+/// S2: bản tôn trọng policy — `Deny`/`AskOnce` trả `PERMISSION_CONSENT` để park.
+pub async fn fs_chmod_with_policy(path: String, mode: u32, policy: Policy) -> Result<(), String> {
     blocking(move || {
         let (remote, real_path) = file_ops::parse_remote_path(&path);
         if remote != "Local" {
@@ -612,7 +647,7 @@ pub async fn fs_chmod(path: String, mode: u32) -> Result<(), String> {
             let safe_mode = mode & 0o7777;
             let octal = format!("{:o}", safe_mode);
 
-            file_ops::run_with_sudo_fallback("Local", "chmod", &[octal.clone(), real_path.clone()], || {
+            escalate(policy, "Local", "chmod", &[octal.clone(), real_path.clone()], || {
                 use std::os::unix::fs::PermissionsExt;
                 std::fs::set_permissions(&real_path, std::fs::Permissions::from_mode(safe_mode))
                     .map_err(|e| e.to_string())
@@ -631,7 +666,24 @@ pub async fn fs_chmod(path: String, mode: u32) -> Result<(), String> {
 /// Tên hàm: fs_chown
 /// Mô tả: Đổi chủ sở hữu (uid/gid) của một file/thư mục trên ổ Local.
 /// Thao tác này gần như luôn cần quyền root nên đi thẳng qua `pkexec chown`.
+/// IPC cũ giữ: wrapper mặc định `AllowSystem` (hành vi pkexec cũ).
 pub async fn fs_chown(path: String, uid: u32, gid: u32) -> Result<(), String> {
+    fs_chown_with_policy(path, uid, gid, Policy::AllowSystem).await
+}
+
+/// S2: bản tôn trọng policy — `Deny`/`AskOnce` trả `PERMISSION_CONSENT` để park.
+pub async fn fs_chown_with_policy(path: String, uid: u32, gid: u32, policy: Policy) -> Result<(), String> {
+    // S2: chown luôn cần root — chưa consent thì park ngay, không chạm pkexec.
+    // UNIVERSAL: trả marker để frontend hiện dialog 1 lần / luôn / không.
+    if policy != Policy::AllowSystem {
+        let (remote, _) = file_ops::parse_remote_path(&path);
+        if remote == "Local" {
+            return Err(format!(
+                "PERMISSION_CONSENT: đổi chủ sở hữu '{}' cần quyền root.",
+                path
+            ));
+        }
+    }
     blocking(move || {
         let (remote, real_path) = file_ops::parse_remote_path(&path);
         if remote != "Local" {

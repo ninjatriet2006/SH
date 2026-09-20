@@ -1,5 +1,4 @@
 pub mod appearance;
-pub mod config;
 pub mod files;
 pub mod lang;
 pub mod mount;

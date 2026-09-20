@@ -30,5 +30,13 @@
   "settings_language": "Ngôn ngữ",
   "settings_theme": "Chủ đề",
   "settings_font": "Kiểu chữ",
-  "settings_resource_hint": "Thêm tài nguyên local vào langs/, themes/ hoặc fonts/ rồi khởi động lại để cập nhật danh sách."
+  "settings_resource_hint": "Thêm tài nguyên local vào langs/, themes/ hoặc fonts/ rồi khởi động lại để cập nhật danh sách.",
+  "settings_engine_title": "Engine",
+  "settings_engine_transfers": "Transfers (1-32)",
+  "settings_engine_checkers": "Checkers (1-64)",
+  "settings_engine_backup_dir": "Thư mục backup (trống = tắt)",
+  "settings_engine_fast_list": "Fast list (liệt kê đệ quy nhanh)",
+  "settings_engine_across": "Server-side xuyên config (cùng hãng)",
+  "settings_engine_dry_run": "Chạy thử (dry run)",
+  "settings_engine_save": "Lưu Engine"
 }

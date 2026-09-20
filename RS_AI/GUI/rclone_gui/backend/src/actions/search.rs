@@ -20,7 +20,8 @@ pub struct SearchPlan {
 }
 
 /// Dựng plan `search` (`lsjson -R --include *query* --files-only`); query rỗng → lỗi.
-pub fn plan_search(path: &str, query: &str) -> Result<SearchPlan, String> {
+/// UNIVERSAL: `fast_list` bật thì gắn `--fast-list` để liệt kê đệ quy nhanh.
+pub fn plan_search(path: &str, query: &str, fast_list: bool) -> Result<SearchPlan, String> {
     if query.is_empty() {
         return Err("Thiếu từ khóa tìm kiếm.".to_string());
     }
@@ -29,16 +30,23 @@ pub fn plan_search(path: &str, query: &str) -> Result<SearchPlan, String> {
     let _cap = Cap::of(kind);
     let target = build_target(&remote, &real);
     let filter = format!("*{}*", query);
+    // UNIVERSAL: đệ quy + fast-list khi bật cờ engine; tắt thì giữ args cũ.
+    let mut tail = vec![
+        "-R".to_string(),
+        "--include".to_string(),
+        filter.clone(),
+        "--files-only".to_string(),
+    ];
+    if fast_list {
+        tail.push("--fast-list".to_string());
+    }
     let rclone_args = match kind {
         // UNIVERSAL: cả Local và remote đều tìm qua `lsjson` đệ quy, không sudo.
-        RemoteKind::Local | RemoteKind::Remote => vec![
-            "lsjson".to_string(),
-            target.clone(),
-            "-R".to_string(),
-            "--include".to_string(),
-            filter.clone(),
-            "--files-only".to_string(),
-        ],
+        RemoteKind::Local | RemoteKind::Remote => {
+            let mut v = vec!["lsjson".to_string(), target.clone()];
+            v.extend(tail);
+            v
+        }
     };
     Ok(SearchPlan {
         target,
@@ -53,6 +61,15 @@ mod tests {
 
     #[test]
     fn search_empty_query_rejected() {
-        assert!(plan_search("Local::/tmp", "").is_err());
+        assert!(plan_search("Local::/tmp", "", false).is_err());
+    }
+
+    #[test]
+    fn search_fast_list_flag() {
+        // UNIVERSAL: bật fast-list thì args có cờ, tắt thì giữ nguyên.
+        let on = plan_search("Local::/tmp", "doc", true).expect("plan");
+        assert!(on.rclone_args.contains(&"--fast-list".to_string()));
+        let off = plan_search("Local::/tmp", "doc", false).expect("plan");
+        assert!(!off.rclone_args.contains(&"--fast-list".to_string()));
     }
 }

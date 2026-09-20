@@ -7,6 +7,7 @@
 */
 
 pub use crate::actions::types::DeleteScope;
+use crate::actions::types::{SameProvider, same_provider};
 use crate::logic::app_state::AppState;
 
 /// Tuyến di chuyển, suy từ cặp (src_remote, dst_remote).
@@ -84,8 +85,16 @@ impl Route {
         }
     }
 
-    /// Năng lực gợi ý cho từng tuyến.
+    /// Năng lực gợi ý cho từng tuyến (tắt cờ xuyên-config → giữ hành vi cũ).
     pub fn cap(self) -> Cap {
+        // UNIVERSAL: đường cũ — coi như khác hãng, DiffCloud không server-side.
+        self.cap_with_provider(SameProvider(false), false)
+    }
+
+    /// UNIVERSAL: năng lực theo tuyến × cùng-hãng × cờ xuyên-config; DiffCloud
+    /// `server_side = same_provider && across_enabled`, các tuyến khác giữ nguyên.
+    pub fn cap_with_provider(self, same: SameProvider, across_enabled: bool) -> Cap {
+        let diff_server_side = same.0 && across_enabled;
         match self {
             // UNIVERSAL: Local↔Local đi qua syscall/rename; server-side vô nghĩa,
             // nhưng cần sudo fallback khi dính Permission Denied.
@@ -124,10 +133,11 @@ impl Route {
                 // UNIVERSAL: moveto dời nguồn hẳn nên fallback purge nguồn khớp ngữ nghĩa; Trash chỉ dùng khi move-an-toàn dọn nguồn qua trash.
                 delete_scope: DeleteScope::NoTrash,
             },
-            // UNIVERSAL: khác backend phải trung chuyển qua máy (trừ khi
-            // `--server-side-across-configs` được bật — cờ còn thiếu, xem mod.rs).
+            // UNIVERSAL: khác backend cùng hãng + bật cờ thì server-side
+            // xuyên-config (`--server-side-across-configs`); khác hãng/tắt cờ
+            // giữ nguyên trung chuyển qua máy.
             Self::DiffCloud => Cap {
-                server_side: false,
+                server_side: diff_server_side,
                 sudo_fallback: false,
                 support_move: false,
                 support_copy_and_delete: false,
@@ -155,14 +165,20 @@ pub async fn execute_move(
     let (dst_remote, dst_real) = file_ops::parse_remote_path(&dst);
     let route = Route::classify(&src_remote, &dst_remote);
     let _kind = TransferKind::Move;
-    let _cap = route.cap();
+    // UNIVERSAL: DiffCloud cùng hãng + bật cờ engine → server-side xuyên-config.
+    let same = SameProvider(same_provider(&src_remote, &dst_remote));
+    let across_enabled = crate::settings::engine::load_engine_flags()
+        .map(|f| f.server_side_across)
+        .unwrap_or(false);
+    let _cap = route.cap_with_provider(same, across_enabled);
+    let server_side_across = _cap.server_side && route == Route::DiffCloud;
     // UNIVERSAL: fallback NoTrash tường minh — purge nguồn khớp ngữ nghĩa moveto; Trash chỉ dùng khi move-an-toàn.
     let _delete_scope = _cap.delete_scope;
 
     let src_target = rclone::build_target(&src_remote, &src_real);
     let dst_target = rclone::build_target(&dst_remote, &dst_real);
 
-    let result = transfer::run_transfer_task(app_handle, state, "moveto", src_target, dst_target, task_id).await;
+    let result = transfer::run_transfer_task_with_flags(app_handle, state, "moveto", src_target, dst_target, task_id, server_side_across).await;
 
     match route {
         // UNIVERSAL: Local→Local — `moveto` thất bại do quyền thì thử `pkexec mv`.
@@ -178,7 +194,39 @@ pub async fn execute_move(
         Route::CloudLocal => result,
         // UNIVERSAL: cùng cloud — move server-side, lỗi trả thẳng về UI.
         Route::SameCloud => result,
-        // UNIVERSAL: khác cloud — trung chuyển qua local, lỗi trả thẳng về UI.
+        // UNIVERSAL: khác cloud cùng hãng — server-side xuyên-config; khác hãng
+        // giữ nguyên trung chuyển qua local, lỗi trả thẳng về UI.
         Route::DiffCloud => result,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::logic::transfer::build_transfer_args;
+
+    #[test]
+    fn move_diffcloud_cap_same_vs_diff_provider() {
+        // UNIVERSAL: cùng hãng + bật cờ → server-side xuyên-config.
+        assert!(Route::DiffCloud.cap_with_provider(SameProvider(true), true).server_side);
+        // UNIVERSAL: khác hãng / tắt cờ → giữ nguyên trung chuyển qua local.
+        assert!(!Route::DiffCloud.cap_with_provider(SameProvider(false), true).server_side);
+        assert!(!Route::DiffCloud.cap_with_provider(SameProvider(true), false).server_side);
+        assert!(!Route::DiffCloud.cap().server_side);
+    }
+
+    #[test]
+    fn move_diffcloud_args_same_vs_diff_provider() {
+        use crate::settings::engine::GlobalFlags;
+        // UNIVERSAL: cùng hãng + bật cờ engine → có cờ xuyên-config trong args rclone.
+        let on = GlobalFlags { server_side_across: true, ..GlobalFlags::default() };
+        let same_args = build_transfer_args("moveto", "A:/a", "B:/b", &on, true);
+        assert!(same_args.contains(&"--server-side-across-configs".to_string()));
+        // UNIVERSAL: khác hãng / tắt cờ → args giữ nguyên, không có cờ.
+        let diff_args = build_transfer_args("moveto", "A:/a", "B:/b", &on, false);
+        assert!(!diff_args.contains(&"--server-side-across-configs".to_string()));
+        let off = GlobalFlags::default();
+        let off_args = build_transfer_args("moveto", "A:/a", "B:/b", &off, true);
+        assert!(!off_args.contains(&"--server-side-across-configs".to_string()));
     }
 }

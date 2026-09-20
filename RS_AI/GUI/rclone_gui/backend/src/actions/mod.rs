@@ -30,7 +30,7 @@ pub mod view;
 pub mod perm;
 pub mod types;
 
-pub use types::RemoteKind;
+pub use types::{RemoteKind, SameProvider, same_provider, same_provider_from_dump};
 
 pub use move_op::{Cap, DeleteScope, Route, SupportCopyAndDelete, SupportMove, TransferKind, execute_move};
 

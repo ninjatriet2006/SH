@@ -20,16 +20,22 @@ pub struct StatPlan {
 }
 
 /// Dựng plan `stat` (`size --json` + `lsjson -R --dirs-only`).
-pub fn plan_stat(path: &str) -> Result<StatPlan, String> {
+/// UNIVERSAL: `fast_list` bật thì gắn `--fast-list` cho nhánh đếm đệ quy.
+pub fn plan_stat(path: &str, fast_list: bool) -> Result<StatPlan, String> {
     let (remote, real) = parse_remote_path(path);
     let kind = RemoteKind::classify(&remote);
     let _cap = Cap::of(kind);
     let target = build_target(&remote, &real);
     let size_args = vec![target.clone(), "--json".to_string()];
+    // UNIVERSAL: đếm đệ quy + fast-list khi bật cờ engine; tắt thì giữ args cũ.
     let dirs_args = match kind {
         // UNIVERSAL: cả Local và remote đều đếm thư mục con qua `lsjson -R --dirs-only`.
         RemoteKind::Local | RemoteKind::Remote => {
-            vec![target.clone()]
+            let mut v = vec![target.clone(), "-R".to_string(), "--dirs-only".to_string()];
+            if fast_list {
+                v.push("--fast-list".to_string());
+            }
+            v
         }
     };
     Ok(StatPlan {
@@ -37,4 +43,18 @@ pub fn plan_stat(path: &str) -> Result<StatPlan, String> {
         size_args,
         dirs_args,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stat_fast_list_flag() {
+        // UNIVERSAL: bật fast-list thì dirs_args có cờ, tắt thì không.
+        let on = plan_stat("Local::/tmp", true).expect("plan");
+        assert!(on.dirs_args.contains(&"--fast-list".to_string()));
+        let off = plan_stat("Local::/tmp", false).expect("plan");
+        assert!(!off.dirs_args.contains(&"--fast-list".to_string()));
+    }
 }

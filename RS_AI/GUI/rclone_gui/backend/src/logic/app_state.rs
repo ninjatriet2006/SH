@@ -7,6 +7,7 @@
 - Tương tác: Được sử dụng bởi `logic/transfer.rs`, `logic/watcher.rs` và `api/files.rs`.
 */
 
+use crate::actions::perm::Policy;
 use notify::RecommendedWatcher;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -23,6 +24,10 @@ pub struct AppState {
     /// Đường dẫn Local đang được theo dõi của từng pane (`"left"` / `"right"`).
     /// Cần tách theo pane vì hai pane có thể mở hai thư mục khác nhau.
     pub watched_paths: Mutex<HashMap<String, String>>,
+
+    /// S2: chính sách leo thang quyền (`deny`/`ask_once`/`allow_system`).
+    /// Mặc định `AskOnce` — lỗi quyền trả `PERMISSION_CONSENT` để frontend hỏi.
+    pub policy: Mutex<Policy>,
 }
 
 impl AppState {
@@ -31,6 +36,7 @@ impl AppState {
             pids: Mutex::new(HashMap::new()),
             local_watcher: Mutex::new(None),
             watched_paths: Mutex::new(HashMap::new()),
+            policy: Mutex::new(Policy::default()),
         }
     }
 }

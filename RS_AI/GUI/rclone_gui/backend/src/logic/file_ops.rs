@@ -6,7 +6,6 @@
 */
 
 use crate::api::files::ConflictInfo;
-use std::process::Command;
 
 /// Tên hàm: parse_remote_path
 /// Mô tả: Bóc tách chuỗi "GDrive::/Documents" thành remote ("GDrive") và đường dẫn ("/Documents").
@@ -22,78 +21,19 @@ pub fn parse_remote_path(full_path: &str) -> (String, String) {
 
 /// Tên hàm: run_with_sudo_fallback
 /// Mô tả: Bọc lệnh rclone/os. Nếu chạy thất bại do Permission Denied và đây là ổ Local, tự động gọi pkexec (sudo).
+/// S2: giữ nguyên hành vi cũ = `perm::escalate(AllowSystem, ...)`; luồng có consent
+/// gọi thẳng `perm::escalate(policy, ...)` để nhận `PERMISSION_CONSENT`.
 pub fn run_with_sudo_fallback<F>(remote: &str, action: &str, args: &[String], fallback_cmd: F) -> Result<(), String>
 where
     F: FnOnce() -> Result<(), String>,
 {
-    // Gọi hàm gốc trước
-    let result = fallback_cmd();
-    match result {
-        Ok(_) => Ok(()),
-        Err(e) => {
-            let err_lower = e.to_lowercase();
-            // Kiểm tra lỗi phân quyền trên Local
-            if remote == "Local" && (err_lower.contains("permission denied") || err_lower.contains("access is denied"))
-            {
-                #[cfg(target_os = "linux")]
-                {
-                    // Tự động gọi sudo qua pkexec
-                    let mut cmd_args = Vec::new();
-                    match action {
-                        "rm" => {
-                            cmd_args.push("rm".to_string());
-                            cmd_args.push("-rf".to_string());
-                        }
-                        "mkdir" => {
-                            cmd_args.push("mkdir".to_string());
-                            cmd_args.push("-p".to_string());
-                        }
-                        "mv" => {
-                            cmd_args.push("mv".to_string());
-                        }
-                        "cp" => {
-                            cmd_args.push("cp".to_string());
-                            cmd_args.push("-r".to_string());
-                        }
-                        // chmod nhận tham số dạng: <octal> <path>
-                        "chmod" => {
-                            cmd_args.push("chmod".to_string());
-                        }
-                        // Ghi nội dung cần quyền root: dùng `tee` để nhận stdin.
-                        // (Không dùng ở nhánh này vì pkexec không chuyển tiếp stdin;
-                        //  chỉ báo lỗi rõ ràng cho người dùng.)
-                        "write" => {
-                            return Err("Không đủ quyền ghi tệp này. Hãy đổi quyền hoặc chọn vị trí khác.".into());
-                        }
-                        _ => return Err("Hành động sudo không được hỗ trợ".into()),
-                    }
-                    for arg in args {
-                        cmd_args.push(arg.clone());
-                    }
-
-                    let output = Command::new("pkexec")
-                        .args(&cmd_args)
-                        .output()
-                        .map_err(|e| format!("Lỗi gọi pkexec: {}", e))?;
-
-                    if !output.status.success() {
-                        let err = String::from_utf8_lossy(&output.stderr).into_owned();
-                        if err.is_empty() {
-                            return Err("Thao tác pkexec bị huỷ hoặc lỗi phân quyền.".into());
-                        }
-                        return Err(err);
-                    }
-                    Ok(())
-                }
-                #[cfg(not(target_os = "linux"))]
-                {
-                    return Err(e);
-                }
-            } else {
-                Err(e)
-            }
-        }
-    }
+    crate::actions::perm::escalate(
+        crate::actions::perm::Policy::AllowSystem,
+        remote,
+        action,
+        args,
+        fallback_cmd,
+    )
 }
 
 /// Tên hàm: check_conflicts
@@ -105,6 +45,10 @@ pub async fn check_conflicts(
     dest_path: String,
 ) -> Result<Vec<ConflictInfo>, String> {
     crate::core::task::blocking(move || {
+        // UNIVERSAL: đệ quy + fast-list khi bật cờ engine; tắt thì giữ args cũ.
+        let fast_list = crate::settings::engine::load_engine_flags()
+            .map(|f| f.fast_list)
+            .unwrap_or(false);
         let mut conflicts = Vec::new();
 
         let (dest_remote, dest_real) = parse_remote_path(&dest_path);
@@ -158,10 +102,19 @@ pub async fn check_conflicts(
 
                     if src_is_dir && is_dest_dir {
                         // Cả 2 đều là thư mục -> Quét đệ quy các file con
-                        let src_files_out =
-                            crate::core::rclone::run_cmd(&["lsjson", "-R", "--files-only", &src_target]);
-                        let dest_files_out =
-                            crate::core::rclone::run_cmd(&["lsjson", "-R", "--files-only", &dest_item_target]);
+                        // UNIVERSAL: bật fast-list thì quét đệ quy nhanh hơn.
+                        let src_args: Vec<&str> = if fast_list {
+                            vec!["lsjson", "-R", "--files-only", "--fast-list", &src_target]
+                        } else {
+                            vec!["lsjson", "-R", "--files-only", &src_target]
+                        };
+                        let dest_args: Vec<&str> = if fast_list {
+                            vec!["lsjson", "-R", "--files-only", "--fast-list", &dest_item_target]
+                        } else {
+                            vec!["lsjson", "-R", "--files-only", &dest_item_target]
+                        };
+                        let src_files_out = crate::core::rclone::run_cmd(&src_args);
+                        let dest_files_out = crate::core::rclone::run_cmd(&dest_args);
 
                         if let (Ok(s_out), Ok(d_out)) = (src_files_out, dest_files_out) {
                             if s_out.status.success() && d_out.status.success() {

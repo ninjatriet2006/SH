@@ -1,4 +1,4 @@
-use crate::{api, core, logic::app_state::AppState};
+use crate::{actions::perm::Policy, api, core, logic::app_state::AppState};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -157,7 +157,11 @@ payload!(MountManagePayload {
 });
 payload!(ContentPayload { content: String });
 payload!(NamesPayload { names: Vec<String> });
+payload!(SnapshotPayload { name: String });
+payload!(ImportRemotePayload { name: String, ini: String });
+payload!(EngineFlagsPayload { flags: crate::settings::engine::GlobalFlags });
 payload!(LangPayload { lang_code: String });
+payload!(PermissionPolicyPayload { policy: String });
 
 macro_rules! async_command {
     ($name:ident, $payload:ty, $output:ty, $target:path, ($($field:ident),* $(,)?)) => {
@@ -291,8 +295,53 @@ async_command!(
     api::files::fs_get_thumbnail,
     (path)
 );
-async_command!(fs_chmod, ChmodPayload, (), api::files::fs_chmod, (path, mode));
-async_command!(fs_chown, ChownPayload, (), api::files::fs_chown, (path, uid, gid));
+/// S2: chmod tôn trọng policy — envelope/payload cũ giữ nguyên, policy đọc từ State.
+#[tauri::command]
+pub async fn fs_chmod(state: State<'_, AppState>, request: Req<ChmodPayload>) -> IpcResult<()> {
+    let request_id = validate(&request)?;
+    let payload = request.payload;
+    let policy = state.policy.lock().map(|p| *p).unwrap_or_default();
+    api::files::fs_chmod_with_policy(payload.path, payload.mode, policy)
+        .await
+        .map(|data| success(request_id, data))
+        .map_err(backend_error)
+}
+
+/// S2: chown tôn trọng policy — envelope/payload cũ giữ nguyên, policy đọc từ State.
+#[tauri::command]
+pub async fn fs_chown(state: State<'_, AppState>, request: Req<ChownPayload>) -> IpcResult<()> {
+    let request_id = validate(&request)?;
+    let payload = request.payload;
+    let policy = state.policy.lock().map(|p| *p).unwrap_or_default();
+    api::files::fs_chown_with_policy(payload.path, payload.uid, payload.gid, policy)
+        .await
+        .map(|data| success(request_id, data))
+        .map_err(backend_error)
+}
+
+/// S2: đọc policy hiện tại (`deny`/`ask_once`/`allow_system`).
+#[tauri::command]
+pub fn get_permission_policy(state: State<'_, AppState>, request: Req<Empty>) -> IpcResult<String> {
+    let request_id = validate(&request)?;
+    let policy = state.policy.lock().map(|p| *p).unwrap_or_default();
+    Ok(success(request_id, policy.as_str().to_string()))
+}
+
+/// S2: đặt policy — sai chuỗi trả `InvalidArgument`, IPC cũ khác giữ nguyên.
+#[tauri::command]
+pub fn set_permission_policy(
+    state: State<'_, AppState>,
+    request: Req<PermissionPolicyPayload>,
+) -> IpcResult<String> {
+    let request_id = validate(&request)?;
+    let policy = Policy::from_str(request.payload.policy.trim())
+        .ok_or_else(|| error(IpcErrorCode::InvalidArgument, "policy must be deny|ask_once|allow_system"))?;
+    *state
+        .policy
+        .lock()
+        .map_err(|_| error(IpcErrorCode::Internal, "policy lock poisoned"))? = policy;
+    Ok(success(request_id, policy.as_str().to_string()))
+}
 
 #[tauri::command]
 pub fn fs_temp_dir(request: Req<Empty>) -> IpcResult<String> {
@@ -472,15 +521,57 @@ async_command!(
     (service_name, is_user)
 );
 
-async_command!(get_config_content, Empty, String, api::config::get_config_content, ());
+async_command!(get_config_content, Empty, String, crate::settings::config_manager::get_config_content, ());
 async_command!(
     set_config_content,
     ContentPayload,
     (),
-    api::config::set_config_content,
+    crate::settings::config_manager::set_config_content,
     (content)
 );
-async_command!(reorder_config, NamesPayload, (), api::config::reorder_config, (names));
+async_command!(reorder_config, NamesPayload, (), crate::settings::config_manager::reorder_config, (names));
+async_command!(
+    list_config_snapshots,
+    Empty,
+    Vec<String>,
+    crate::settings::config_manager::list_config_snapshots,
+    ()
+);
+async_command!(
+    restore_config_snapshot,
+    SnapshotPayload,
+    (),
+    crate::settings::config_manager::restore_config_snapshot,
+    (name)
+);
+async_command!(
+    export_config_remote,
+    NamePayload,
+    String,
+    crate::settings::config_manager::export_config_remote,
+    (name)
+);
+async_command!(
+    import_config_remote,
+    ImportRemotePayload,
+    (),
+    crate::settings::config_manager::import_config_remote,
+    (name, ini)
+);
+async_command!(
+    get_engine_flags,
+    Empty,
+    crate::settings::engine::GlobalFlags,
+    crate::settings::engine::get_engine_flags,
+    ()
+);
+async_command!(
+    set_engine_flags,
+    EngineFlagsPayload,
+    crate::settings::engine::GlobalFlags,
+    crate::settings::engine::set_engine_flags,
+    (flags)
+);
 sync_command!(
     get_available_langs,
     Empty,

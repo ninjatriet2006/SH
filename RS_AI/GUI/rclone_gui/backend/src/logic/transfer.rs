@@ -10,6 +10,53 @@ use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use tauri::Emitter;
 
+/// UNIVERSAL: dựng args rclone cho copy/move từ `GlobalFlags`.
+/// Mặc định (4/8, các cờ tắt, không backup) giữ hành vi cũ; bật cờ nào thêm cờ đó:
+/// `--transfers=N`, `--checkers=N`, `--dry-run`, `--backup-dir=DIR`,
+/// DiffCloud cùng hãng + bật `server_side_across` thì thêm `--server-side-across-configs`.
+pub fn build_transfer_args(
+    cmd_name: &str,
+    src: &str,
+    dst: &str,
+    flags: &crate::settings::engine::GlobalFlags,
+    server_side_across: bool,
+) -> Vec<String> {
+    let mut args = vec![
+        cmd_name.to_string(),
+        src.to_string(),
+        dst.to_string(),
+        format!("--transfers={}", flags.transfers),
+        format!("--checkers={}", flags.checkers),
+        "--use-json-log".to_string(),
+        "--stats".to_string(),
+        "0.5s".to_string(),
+        "-v".to_string(),
+    ];
+    // UNIVERSAL: dry-run thử trước, không ghi gì lên đích.
+    if flags.dry_run {
+        args.push("--dry-run".to_string());
+    }
+    // UNIVERSAL: giữ bản bị ghi đè/xoá vào backup-dir thay vì mất hẳn.
+    if let Some(dir) = flags.backup_dir.as_deref() {
+        let dir = dir.trim();
+        if !dir.is_empty() {
+            args.push(format!("--backup-dir={dir}"));
+        }
+    }
+    match flags.server_side_across && server_side_across {
+        // UNIVERSAL: cùng hãng + bật cờ — server-side xuyên-config, không qua local.
+        true => args.push("--server-side-across-configs".to_string()),
+        // UNIVERSAL: khác hãng / tắt cờ — giữ nguyên args cũ.
+        false => {}
+    }
+    args
+}
+
+/// Cờ engine hiện tại; lỗi đọc thì rớt về default (giữ hành vi cũ).
+fn engine_flags_or_default() -> crate::settings::engine::GlobalFlags {
+    crate::settings::engine::load_engine_flags().unwrap_or_default()
+}
+
 /// Hàm tiện ích chạy tiến trình copy/move và báo cáo tiến độ về frontend
 pub async fn run_transfer_task(
     app_handle: tauri::AppHandle,
@@ -19,17 +66,23 @@ pub async fn run_transfer_task(
     dst: String,
     task_id: Option<u32>,
 ) -> Result<(), String> {
-    let args = vec![
-        cmd_name.to_string(),
-        src.clone(),
-        dst.clone(),
-        "--transfers=8".to_string(),
-        "--checkers=8".to_string(),
-        "--use-json-log".to_string(),
-        "--stats".to_string(),
-        "0.5s".to_string(),
-        "-v".to_string(),
-    ];
+    // UNIVERSAL: đường cũ — tắt cờ xuyên-config để giữ nguyên hành vi.
+    run_transfer_task_with_flags(app_handle, state, cmd_name, src, dst, task_id, false).await
+}
+
+/// UNIVERSAL: như `run_transfer_task` nhưng cho phép bật
+/// `--server-side-across-configs` khi DiffCloud cùng hãng.
+pub async fn run_transfer_task_with_flags(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    cmd_name: &str, // "copyto" hoặc "moveto"
+    src: String,
+    dst: String,
+    task_id: Option<u32>,
+    server_side_across: bool,
+) -> Result<(), String> {
+    let flags = engine_flags_or_default();
+    let args = build_transfer_args(cmd_name, &src, &dst, &flags, server_side_across);
 
     let mut child = Command::new("rclone")
         .args(args)
@@ -209,11 +262,47 @@ fn process_alive(pid: u32) -> bool {
     }
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings::engine::GlobalFlags;
 
     #[test]
+    fn default_flags_keep_legacy_behavior() {
+        // UNIVERSAL: default (4/8, các cờ tắt) giữ hành vi cũ, không cờ thêm.
+        let flags = GlobalFlags::default();
+        let args = build_transfer_args("copyto", "A:/a", "B:/b", &flags, false);
+        assert!(args.contains(&"--transfers=4".to_string()));
+        assert!(args.contains(&"--checkers=8".to_string()));
+        assert!(!args.iter().any(|a| a == "--dry-run"));
+        assert!(!args.iter().any(|a| a.starts_with("--backup-dir=")));
+        assert!(!args.contains(&"--server-side-across-configs".to_string()));
+    }
+
+    #[test]
+    fn engine_flags_append_optional_switches() {
+        // UNIVERSAL: bật dry-run/backup/across thì args phải có đủ cờ.
+        let flags = GlobalFlags {
+            transfers: 2,
+            checkers: 3,
+            fast_list: false,
+            server_side_across: true,
+            dry_run: true,
+            backup_dir: Some("/tmp/bk".to_string()),
+        };
+        let args = build_transfer_args("copyto", "A:/a", "B:/b", &flags, true);
+        assert!(args.contains(&"--transfers=2".to_string()));
+        assert!(args.contains(&"--checkers=3".to_string()));
+        assert!(args.contains(&"--dry-run".to_string()));
+        assert!(args.contains(&"--backup-dir=/tmp/bk".to_string()));
+        assert!(args.contains(&"--server-side-across-configs".to_string()));
+        // UNIVERSAL: tắt across ở một trong hai phía thì không thêm cờ.
+        let off = build_transfer_args("copyto", "A:/a", "B:/b", &flags, false);
+        assert!(!off.contains(&"--server-side-across-configs".to_string()));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
     fn process_alive_false_for_nonexistent_pid() {
         // PID 0 không bao giờ là một tiến trình người dùng hợp lệ.
         assert!(!process_alive(0));
@@ -222,6 +311,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn process_alive_false_when_pid_is_not_rclone() {
         // Chính tiến trình test này đang sống, nhưng `comm` không phải "rclone"
         // nên phải bị coi là "không còn tác vụ rclone" (chống PID reuse).
@@ -230,6 +320,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn wait_until_gone_returns_immediately_for_dead_pid() {
         let start = std::time::Instant::now();
         assert!(wait_until_gone(0, std::time::Duration::from_secs(5)));

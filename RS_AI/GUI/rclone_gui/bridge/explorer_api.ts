@@ -113,3 +113,23 @@ export async function fsChown(path: string, uid: number, gid: number): Promise<v
   debugStore.log('API', 'fs_chown', { path, uid, gid });
   await invoke('fs_chown', { path, uid, gid });
 }
+
+/** S2: chính sách leo thang quyền (`deny`/`ask_once`/`allow_system`). */
+export type PermissionPolicy = 'deny' | 'ask_once' | 'allow_system';
+
+export async function getPermissionPolicy(): Promise<PermissionPolicy> {
+  return invoke<PermissionPolicy>('get_permission_policy');
+}
+
+export async function setPermissionPolicy(policy: PermissionPolicy): Promise<PermissionPolicy> {
+  return invoke<PermissionPolicy>('set_permission_policy', { policy });
+}
+
+/** S2: nhận diện lỗi cần consent (backend trả marker `PERMISSION_CONSENT`). */
+export function isPermissionConsentError(e: unknown): boolean {
+  try {
+    return JSON.stringify(e ?? '').includes('PERMISSION_CONSENT');
+  } catch {
+    return String(e ?? '').includes('PERMISSION_CONSENT');
+  }
+}

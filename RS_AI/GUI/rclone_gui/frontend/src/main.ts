@@ -26,6 +26,7 @@ import { resolveLanguage, applyLanguage, observeLanguage } from './features/i18n
 import { appState, normalizeSettings, saveSettings } from './store';
 import { getAvailableFonts, getAvailableThemes, type FontInfo, type ThemeInfo } from '../../bridge/appearance_api';
 import { getAvailableLangs } from '../../bridge/lang_api';
+import { getEngineFlags, setEngineFlags } from '../../bridge/engine_api';
 import { applyFont, applyTheme } from './features/appearance';
 
 let remotesManager: RemotesManager | null = null;
@@ -99,6 +100,82 @@ async function initSettings() {
     settings.language = (event.target as HTMLSelectElement).value;
     saveSettings();
     await loadLanguage(settings.language);
+  });
+  await initEngineSettings();
+}
+
+/**
+ * UNIVERSAL: cụm Engine — số transfers/checkers, backup_dir input+validate,
+ * 3 toggle (fast-list/across/dry-run), lưu qua IPC `set_engine_flags`.
+ */
+async function initEngineSettings() {
+  const num = (id: string) => document.getElementById(id) as HTMLInputElement | null;
+  const box = (id: string) => document.getElementById(id) as HTMLInputElement | null;
+  const err = document.getElementById('engine-error');
+  const transfersEl = num('engine-transfers');
+  const checkersEl = num('engine-checkers');
+  const backupEl = num('engine-backup-dir');
+  const fastEl = box('engine-fast-list');
+  const acrossEl = box('engine-across');
+  const dryEl = box('engine-dry-run');
+  if (!transfersEl || !checkersEl || !backupEl || !fastEl || !acrossEl || !dryEl) return;
+  const showError = (msg: string | null) => {
+    if (!err) return;
+    if (!msg) {
+      err.style.display = 'none';
+      err.textContent = '';
+    } else {
+      err.style.display = 'block';
+      err.textContent = msg;
+    }
+  };
+  try {
+    const flags = await getEngineFlags();
+    transfersEl.value = String(flags.transfers);
+    checkersEl.value = String(flags.checkers);
+    backupEl.value = flags.backup_dir ?? '';
+    fastEl.checked = flags.fast_list;
+    acrossEl.checked = flags.server_side_across;
+    dryEl.checked = flags.dry_run;
+  } catch (e) {
+    showError(`Không tải được cờ engine: ${e}`);
+    return;
+  }
+  document.getElementById('engine-save')?.addEventListener('click', async () => {
+    const transfers = Number(transfersEl.value);
+    const checkers = Number(checkersEl.value);
+    if (!Number.isInteger(transfers) || transfers < 1 || transfers > 32) {
+      showError('Transfers phải là số nguyên 1-32.');
+      return;
+    }
+    if (!Number.isInteger(checkers) || checkers < 1 || checkers > 64) {
+      showError('Checkers phải là số nguyên 1-64.');
+      return;
+    }
+    const rawBackup = backupEl.value.trim();
+    if (backupEl.value.length > 0 && rawBackup.length === 0) {
+      showError('Backup dir phải là đường dẫn hợp lệ hoặc để trống.');
+      return;
+    }
+    showError(null);
+    try {
+      const saved = await setEngineFlags({
+        transfers,
+        checkers,
+        fast_list: fastEl.checked,
+        server_side_across: acrossEl.checked,
+        dry_run: dryEl.checked,
+        backup_dir: rawBackup.length === 0 ? null : rawBackup,
+      });
+      transfersEl.value = String(saved.transfers);
+      checkersEl.value = String(saved.checkers);
+      backupEl.value = saved.backup_dir ?? '';
+      fastEl.checked = saved.fast_list;
+      acrossEl.checked = saved.server_side_across;
+      dryEl.checked = saved.dry_run;
+    } catch (e) {
+      showError(`Không lưu được cờ engine: ${e}`);
+    }
   });
 }
 

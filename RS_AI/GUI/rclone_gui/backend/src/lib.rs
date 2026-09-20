@@ -14,6 +14,7 @@ pub mod api;
 pub mod core;
 pub mod ipc;
 pub mod logic;
+pub mod settings;
 
 use tauri::Manager;
 
@@ -44,6 +45,8 @@ pub fn run() {
             ipc::fs_temp_dir,
             ipc::fs_chmod,
             ipc::fs_chown,
+            ipc::get_permission_policy,
+            ipc::set_permission_policy,
             // ==================
             // SYS API (Trong core/sys.rs)
             // ==================
@@ -92,6 +95,12 @@ pub fn run() {
             ipc::get_config_content,
             ipc::set_config_content,
             ipc::reorder_config,
+            ipc::list_config_snapshots,
+            ipc::restore_config_snapshot,
+            ipc::export_config_remote,
+            ipc::import_config_remote,
+            ipc::get_engine_flags,
+            ipc::set_engine_flags,
             // ==================
             // LANG API
             // ==================
