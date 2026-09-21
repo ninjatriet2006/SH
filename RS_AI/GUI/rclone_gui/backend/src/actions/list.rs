@@ -8,7 +8,6 @@
 
 use crate::actions::explorer::Cap;
 use crate::actions::types::RemoteKind;
-use crate::api::files::FileItem;
 use crate::core::rclone_caller;
 use crate::logic::fastlane::fastlane;
 use crate::core::rclone_caller::build_target;
@@ -16,6 +15,18 @@ use crate::logic::app_state::AppState;
 use crate::core::path::cut_remote_path;
 use crate::logic::watcher;
 use serde::Deserialize;
+use serde::Serialize;
+
+/// Một mục file/dir trả về cho Frontend (DTO gốc ở thợ `list`).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FileItem {
+    pub uuid: String,
+    pub name: String,
+    pub size: i64,
+    pub is_dir: bool,
+    pub mod_time: String,
+    pub file_type: Option<String>,
+}
 
 /// Đặc tả thuần cho `list`: lệnh `lsjson --max-depth 1` + ghi chú watcher pane.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,7 +70,7 @@ pub fn plan_list(path: &str) -> Result<ListPlan, String> {
     })
 }
 
-/// Rclone `lsjson` một dòng (giữ cục bộ để parse; struct dùng chung ở `api::files`).
+/// Rclone `lsjson` một dòng (giữ cục bộ để parse).
 #[derive(Deserialize, Debug)]
 #[allow(non_snake_case)]
 struct RcloneFile {

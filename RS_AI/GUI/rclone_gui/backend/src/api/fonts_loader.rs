@@ -1,14 +1,7 @@
+use super::envelope::{Empty, IpcResult, Req, success, validate};
+use crate::actions::types::FontInfo;
 use crate::core::resources::resource_dir;
-use serde::Serialize;
 use std::fs;
-
-#[derive(Debug, Clone, Serialize)]
-pub struct FontInfo {
-    pub id: String,
-    pub name: String,
-    pub family: String,
-    pub src_path: Option<String>,
-}
 
 fn font_id(stem: &str) -> String {
     stem.chars()
@@ -17,7 +10,7 @@ fn font_id(stem: &str) -> String {
         .collect()
 }
 
-pub fn scan_fonts() -> Vec<FontInfo> {
+fn scan_fonts() -> Vec<FontInfo> {
     let mut fonts = vec![FontInfo {
         id: "default".to_string(),
         name: "System default".to_string(),
@@ -50,8 +43,10 @@ pub fn scan_fonts() -> Vec<FontInfo> {
     fonts
 }
 
-pub fn get_available_fonts() -> Result<Vec<FontInfo>, String> {
-    Ok(scan_fonts())
+#[tauri::command]
+pub fn get_available_fonts(request: Req<Empty>) -> IpcResult<Vec<FontInfo>> {
+    let request_id = validate(&request)?;
+    Ok(success(request_id, scan_fonts()))
 }
 
 #[cfg(test)]

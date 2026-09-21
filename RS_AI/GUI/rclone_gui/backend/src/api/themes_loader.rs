@@ -1,14 +1,7 @@
+use super::envelope::{Empty, IpcResult, Req, success, validate};
+use crate::actions::types::ThemeInfo;
 use crate::core::resources::resource_dir;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ThemeInfo {
-    pub id: String,
-    pub name: String,
-    pub variables: HashMap<String, String>,
-}
 
 fn safe_id(value: &str) -> bool {
     !value.is_empty()
@@ -17,11 +10,11 @@ fn safe_id(value: &str) -> bool {
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
 }
 
-pub fn scan_themes() -> Vec<ThemeInfo> {
+fn scan_themes() -> Vec<ThemeInfo> {
     let mut themes = vec![ThemeInfo {
         id: "default".to_string(),
         name: "Neon default".to_string(),
-        variables: HashMap::new(),
+        variables: std::collections::HashMap::new(),
     }];
     if let Ok(entries) = fs::read_dir(resource_dir("themes")) {
         for entry in entries.filter_map(Result::ok) {
@@ -44,8 +37,10 @@ pub fn scan_themes() -> Vec<ThemeInfo> {
     themes
 }
 
-pub fn get_available_themes() -> Result<Vec<ThemeInfo>, String> {
-    Ok(scan_themes())
+#[tauri::command]
+pub fn get_available_themes(request: Req<Empty>) -> IpcResult<Vec<ThemeInfo>> {
+    let request_id = validate(&request)?;
+    Ok(success(request_id, scan_themes()))
 }
 
 #[cfg(test)]

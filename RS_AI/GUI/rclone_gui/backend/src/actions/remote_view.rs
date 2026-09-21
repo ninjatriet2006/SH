@@ -22,7 +22,7 @@ pub fn config_dump() -> Result<Value, String> {
 
 /// Danh sách remote đã sort theo tên (đồng bộ; tầng api bọc `fastlane`).
 // UNIVERSAL: sort ở thợ để api chỉ còn wrapper 1 dòng.
-pub fn list_remotes_inner() -> Result<Vec<Value>, String> {
+pub fn list_remotes() -> Result<Vec<Value>, String> {
     let dump = config_dump()?;
     Ok(sorted_remotes(&dump))
 }
@@ -48,7 +48,7 @@ fn sorted_remotes(dump: &Value) -> Vec<Value> {
 
 /// Danh sách provider rclone hỗ trợ (đồng bộ; tầng api bọc `fastlane`).
 // UNIVERSAL: việc hỏi-nhanh, trả thô stdout để frontend parse.
-pub fn get_providers_inner() -> Result<String, String> {
+pub fn get_providers() -> Result<String, String> {
     let output = rclone_caller::run_cmd(&["config", "providers"])?;
     if !output.status.success() {
         let err_msg = String::from_utf8_lossy(&output.stderr);
@@ -72,8 +72,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_list_remotes_inner() {
-        let result = list_remotes_inner();
+    async fn test_list_remotes() {
+        let result = list_remotes();
         println!("Result: {:?}", result);
     }
 }

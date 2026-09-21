@@ -3,13 +3,22 @@
 - Mục đích: Kiểm tra xung đột hash giữa source và dest trước copy/move.
 - Trách nhiệm: `lsjson` đích cấp 1 + `lsjson -R` đệ quy khi cả 2 là thư mục.
 - Tương tác: Gọi `core::{path, rclone_caller, task}`, `actions::types::is_dir`.
-  `api::files::fs_check_conflicts` là wrapper mỏng. Không đụng IPC/frontend.
+  `api::files_view::fs_check_conflicts` là command mỏng gọi sang. Không đụng frontend.
 */
 // UNIVERSAL: bê nguyên văn logic `logic::file_ops::check_conflicts` (giữ hành vi).
 // TODO(S2): dùng chung manifest/máy quét `logic::queue::manifest` khi rẻ.
 
-use crate::api::files::ConflictInfo;
 use crate::core::path::cut_remote_path;
+use serde::{Deserialize, Serialize};
+
+/// Một xung đột src/dest (DTO gốc ở thợ `conflicts`).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[allow(non_snake_case)]
+pub struct ConflictInfo {
+    pub relative_path: String,
+    pub src_full_path: String,
+    pub dest_full_path: String,
+}
 
 /// Tên hàm: check_conflicts
 /// Mô tả: Kích hoạt `rclone check` ngầm để đệ quy kiểm tra xung đột hash giữa source và dest.

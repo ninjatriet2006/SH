@@ -12,7 +12,6 @@
 pub mod actions;
 pub mod api;
 pub mod core;
-pub mod ipc;
 pub mod logic;
 pub mod settings;
 
@@ -27,91 +26,91 @@ pub fn run() {
             // ==================
             // FILES API
             // ==================
-            ipc::list_files,
-            ipc::fs_mkdir,
-            ipc::fs_touch,
-            ipc::fs_delete,
-            ipc::fs_rename,
+            api::files_view::list_files,
+            api::files_edit::fs_mkdir,
+            api::files_edit::fs_touch,
+            api::files_edit::fs_delete,
+            api::files_edit::fs_rename,
             // UNIVERSAL: fs_copy/fs_move/fs_cancel cũ đã gộp về jobs — xóa command cũ.
-            ipc::fs_stat_advanced,
-            ipc::fs_search,
-            ipc::fs_check_conflicts,
-            ipc::get_home_dir,
-            ipc::get_user_places,
-            ipc::open_in_terminal,
-            ipc::fs_get_thumbnail,
-            ipc::fs_temp_dir,
-            ipc::fs_chmod,
-            ipc::fs_chown,
-            ipc::get_permission_policy,
-            ipc::set_permission_policy,
+            api::files_view::fs_stat_advanced,
+            api::files_view::fs_search,
+            api::files_view::fs_check_conflicts,
+            api::files_view::get_home_dir,
+            api::files_view::get_user_places,
+            api::files_view::open_in_terminal,
+            api::files_view::fs_get_thumbnail,
+            api::files_view::fs_temp_dir,
+            api::files_edit::fs_chmod,
+            api::files_edit::fs_chown,
+            api::files_edit::get_permission_policy,
+            api::files_edit::set_permission_policy,
             // ==================
             // SYS API (S2 tách vai: actions::view + logic::clipboard/custom_action)
             // ==================
-            ipc::sys_open_with,
-            ipc::sys_list_apps,
-            ipc::os_clipboard_set,
-            ipc::os_clipboard_get,
-            ipc::sys_get_custom_actions,
-            ipc::sys_get_valid_actions,
-            ipc::sys_execute_custom_action,
+            api::sys::sys_open_with,
+            api::sys::sys_list_apps,
+            api::sys::os_clipboard_set,
+            api::sys::os_clipboard_get,
+            api::sys::sys_get_custom_actions,
+            api::sys::sys_get_valid_actions,
+            api::sys::sys_execute_custom_action,
             // ==================
             // TRASH API
             // ==================
-            ipc::fs_trash_list_local,
-            ipc::fs_trash_restore_local,
-            ipc::fs_trash_delete_local,
-            ipc::fs_trash_empty_local,
-            ipc::fs_trash_list_remote_terminal,
-            ipc::fs_trash_restore_remote_terminal,
-            ipc::fs_trash_delete_remote_terminal,
-            ipc::fs_trash_empty_remote_terminal,
+            api::trash_manager::fs_trash_list_local,
+            api::trash_manager::fs_trash_restore_local,
+            api::trash_manager::fs_trash_delete_local,
+            api::trash_manager::fs_trash_empty_local,
+            api::trash_manager::fs_trash_list_remote_terminal,
+            api::trash_manager::fs_trash_restore_remote_terminal,
+            api::trash_manager::fs_trash_delete_remote_terminal,
+            api::trash_manager::fs_trash_empty_remote_terminal,
             // ==================
             // REMOTES API
             // ==================
-            ipc::list_remotes,
-            ipc::get_providers,
-            ipc::create_remote,
-            ipc::update_remote,
-            ipc::delete_remote,
-            ipc::get_backend_features,
-            ipc::check_transfer_capability,
-            ipc::rclone_about,
-            ipc::rclone_size,
+            api::remote_manager::list_remotes,
+            api::remote_manager::get_providers,
+            api::remote_manager::create_remote,
+            api::remote_manager::update_remote,
+            api::remote_manager::delete_remote,
+            api::remote_manager::get_backend_features,
+            api::remote_manager::check_transfer_capability,
+            api::remote_manager::rclone_about,
+            api::remote_manager::rclone_size,
             // ==================
             // MOUNT API
             // ==================
-            ipc::check_fuse_installed,
-            ipc::create_mount_service,
-            ipc::delete_mount_service,
-            ipc::manage_mount_service,
-            ipc::list_mount_services,
-            ipc::get_mount_service_config,
+            api::mount_manager::check_fuse_installed,
+            api::mount_manager::create_mount_service,
+            api::mount_manager::delete_mount_service,
+            api::mount_manager::manage_mount_service,
+            api::mount_manager::list_mount_services,
+            api::mount_manager::get_mount_service_config,
             // ==================
             // CONFIG API
             // ==================
-            ipc::get_config_content,
-            ipc::set_config_content,
-            ipc::reorder_config,
-            ipc::list_config_snapshots,
-            ipc::restore_config_snapshot,
-            ipc::export_config_remote,
-            ipc::import_config_remote,
-            ipc::get_engine_flags,
-            ipc::set_engine_flags,
+            api::config::get_config_content,
+            api::config::set_config_content,
+            api::config::reorder_config,
+            api::config::list_config_snapshots,
+            api::config::restore_config_snapshot,
+            api::config::export_config_remote,
+            api::config::import_config_remote,
+            api::config::get_engine_flags,
+            api::config::set_engine_flags,
             // ==================
             // LANG API
             // ==================
-            ipc::get_available_langs,
-            ipc::get_lang_content,
-            ipc::get_available_themes,
-            ipc::get_available_fonts,
+            api::langs_loader::get_available_langs,
+            api::langs_loader::get_lang_content,
+            api::themes_loader::get_available_themes,
+            api::fonts_loader::get_available_fonts,
             // ==================
             // JOBS API (đường duy nhất cho copy/move/delete/list)
             // ==================
-            ipc::job_enqueue,
-            ipc::job_list,
-            ipc::job_cancel,
+            api::jobs::job_enqueue,
+            api::jobs::job_list,
+            api::jobs::job_cancel,
         ])
         .setup(|app| {
             if let Ok(path) = app.path().resource_dir() {

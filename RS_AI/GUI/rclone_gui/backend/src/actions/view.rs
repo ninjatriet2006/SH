@@ -113,7 +113,7 @@ pub async fn execute_thumbnail(path: String) -> Result<String, String> {
         thumb
             .write_to(&mut buffer, image::ImageFormat::Jpeg)
             .map_err(|e| format!("Lỗi tạo thumb: {}", e))?;
-        let base64_str = STANDARD.encode(buffer.into_inner());
+        let base64_str = STANDARD.encode(buffer.get_ref());
         Ok(format!("data:image/jpeg;base64,{}", base64_str))
     })
     .await

@@ -1,7 +1,12 @@
-pub mod files;
+pub mod config;
+pub mod envelope;
+pub mod files_edit;
+pub mod files_view;
 pub mod fonts_loader;
+pub mod jobs;
 pub mod langs_loader;
 pub mod mount_manager;
 pub mod remote_manager;
+pub mod sys;
 pub mod themes_loader;
 pub mod trash_manager;

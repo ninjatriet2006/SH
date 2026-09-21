@@ -19,7 +19,7 @@ pub fn collect_option_args(options: &HashMap<String, String>, out: &mut Vec<Stri
 
 /// Tạo remote mới (đồng bộ; tầng api bọc `fastlane`).
 // UNIVERSAL: giữ nguyên thứ tự args `config create` như bản inline cũ.
-pub fn create_remote_inner(
+pub fn create_remote(
     name: &str,
     provider: &str,
     options: &HashMap<String, String>,
@@ -39,7 +39,7 @@ pub fn create_remote_inner(
 }
 
 /// Xóa remote (đồng bộ; tầng api bọc `fastlane`).
-pub fn delete_remote_inner(name: &str) -> Result<String, String> {
+pub fn delete_remote(name: &str) -> Result<String, String> {
     let output = rclone_caller::run_cmd(&["config", "delete", name])?;
     if !output.status.success() {
         let err_msg = String::from_utf8_lossy(&output.stderr);
@@ -50,7 +50,7 @@ pub fn delete_remote_inner(name: &str) -> Result<String, String> {
 
 /// Cập nhật remote (đồng bộ; tầng api bọc `fastlane`).
 // UNIVERSAL: giữ nguyên cách dựng args `config update` như bản inline cũ.
-pub fn update_remote_inner(name: &str, options: &HashMap<String, String>) -> Result<String, String> {
+pub fn update_remote(name: &str, options: &HashMap<String, String>) -> Result<String, String> {
     let mut args = vec!["config", "update", name];
     let mut option_args = Vec::new();
     collect_option_args(options, &mut option_args);

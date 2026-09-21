@@ -8,12 +8,23 @@
 
 use crate::actions::explorer::Cap;
 use crate::actions::types::RemoteKind;
-use crate::api::files::StatInfo;
 use crate::core::rclone_caller;
 use crate::logic::fastlane::fastlane;
 use crate::core::rclone_caller::build_target;
 use crate::core::path::cut_remote_path;
 use serde::Deserialize;
+use serde::Serialize;
+
+/// Kết quả `fs_stat_advanced` (DTO gốc ở thợ `stat`).
+#[derive(Serialize)]
+pub struct StatInfo {
+    pub size: u64,
+    pub file_count: u64,
+    pub dir_count: u64,
+    pub permissions: u32,
+    pub uid: u32,
+    pub gid: u32,
+}
 
 /// Đặc tả thuần cho `stat`: lệnh `size --json` + đếm thư mục `lsjson`.
 #[derive(Debug, Clone, PartialEq, Eq)]

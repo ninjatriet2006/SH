@@ -55,6 +55,10 @@ pub use copy_op::{Cap as CopyCap, Route as CopyRoute, SupportCopy, TransferKind 
 pub use delete_op::{DeleteScope as SharedDeleteScope, EmptyDirs as DeleteEmptyDirs, Route as DeleteRoute, execute_delete, execute_delete_with_empty_dirs};
 // UNIVERSAL: TrashCap 1 não cho thùng rác remote (checkcap là nguồn duy nhất).
 pub use checkcap::{TrashCap, check_trash_cap};
+// UNIVERSAL: worker tên gọn cho `api::remote_manager` (gọi qua path module, không alias).
+pub use checksize::{about, size};
+pub use remote_edit::{create_remote, delete_remote, update_remote};
+pub use remote_view::{get_providers, list_remotes};
 
 /// Năng lực gợi ý cho explorer (tên cũ: `explorer::Cap`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

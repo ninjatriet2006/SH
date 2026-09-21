@@ -9,7 +9,7 @@ use crate::core::rclone_caller;
 use serde_json::Value;
 
 /// Dung lượng remote `rclone about --json` (đồng bộ; tầng api bọc `fastlane`).
-pub fn about_inner(remote: &str) -> Result<Value, String> {
+pub fn about(remote: &str) -> Result<Value, String> {
     let output = rclone_caller::run_cmd(&["about", remote, "--json"])?;
     if !output.status.success() {
         let err_msg = String::from_utf8_lossy(&output.stderr);
@@ -20,7 +20,7 @@ pub fn about_inner(remote: &str) -> Result<Value, String> {
 }
 
 /// Kích thước remote `rclone size --json` (đồng bộ; tầng api bọc `fastlane`).
-pub fn size_inner(remote: &str) -> Result<Value, String> {
+pub fn size(remote: &str) -> Result<Value, String> {
     let output = rclone_caller::run_cmd(&["size", remote, "--json"])?;
     if !output.status.success() {
         let err_msg = String::from_utf8_lossy(&output.stderr);

@@ -8,7 +8,15 @@
 
 use crate::actions::explorer::Cap;
 use crate::actions::types::RemoteKind;
-use crate::api::files::{FileItem, SearchResultItem};
+use super::list::FileItem;
+use serde::Serialize;
+
+/// Một kết quả tìm kiếm (DTO gốc ở thợ `search`).
+#[derive(Serialize)]
+pub struct SearchResultItem {
+    pub item: FileItem,
+    pub path: String,
+}
 use crate::core::rclone_caller;
 use crate::logic::fastlane::fastlane;
 use crate::core::rclone_caller::build_target;

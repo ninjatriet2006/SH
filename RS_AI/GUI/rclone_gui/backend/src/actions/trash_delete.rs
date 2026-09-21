@@ -10,13 +10,19 @@
 
 pub use super::trash_list::Route;
 pub use crate::actions::types::{DeleteScope, EmptyDirs};
-use super::trash_list::{list_local_inner, remote_type, trash_dir};
+use super::trash_list::{remote_type, trash_dir};
 use crate::actions::checkcap::check_trash_cap;
 use crate::core::rclone_caller;
 use serde_json::Value;
 
 /// Xoá vĩnh viễn một mục local khỏi thùng rác (bỏ cả nội dung và metadata).
-fn delete_local_inner(id: &str) -> Result<(), String> {
+/// (đồng bộ; tầng api bọc `fastlane`).
+pub fn delete_local(id: &str, scope: DeleteScope) -> Result<(), String> {
+    match scope {
+        // UNIVERSAL: mục đã ở trong thùng rác — chuyển vào trash lần nữa là vô nghĩa.
+        DeleteScope::Trash => Err("Mục đã nằm trong thùng rác, chỉ xoá vĩnh viễn được.".to_string()),
+        // UNIVERSAL: NoTrash — xoá cả nội dung `Trash/files` lẫn metadata `.trashinfo`.
+        DeleteScope::NoTrash => {
     if id.is_empty() {
         return Err("Thiếu định danh mục cần xoá.".to_string());
     }
@@ -42,13 +48,24 @@ fn delete_local_inner(id: &str) -> Result<(), String> {
     // Metadata mồ côi sẽ làm `list()` bỏ qua mục đó, nhưng vẫn nên dọn sạch.
     let _ = std::fs::remove_file(&info);
     Ok(())
+        }
+    }
 }
 
 /// Xoá vĩnh viễn một mục remote đang ở trong thùng rác.
 ///
 /// Cần cờ `--<backend>-trashed-only` để rclone nhắm vào bản trong thùng rác chứ
 /// không phải file cùng tên đang ở ngoài — thiếu cờ này sẽ xoá nhầm file đang dùng.
-fn delete_remote_inner(remote: &str, path: &str) -> Result<(), String> {
+/// (đồng bộ; tầng api bọc `fastlane`).
+pub fn delete_remote(remote: &str, path: &str, scope: DeleteScope) -> Result<(), String> {
+    match scope {
+        // UNIVERSAL: mục đã ở trong thùng rác — chuyển vào trash lần nữa là vô nghĩa.
+        DeleteScope::Trash => Err("Mục đã nằm trong thùng rác, chỉ xoá vĩnh viễn được.".to_string()),
+        // UNIVERSAL: NoTrash — `purge` cho thư mục, `deletefile` cho file, kèm cờ trashed-only.
+        DeleteScope::NoTrash => {
+            if Route::classify(remote) == Route::Local {
+                return Err("Tuyến Local phải dùng `delete_local`.".to_string());
+            }
     if path.is_empty() {
         return Err("Thiếu đường dẫn mục cần xoá.".to_string());
     }
@@ -75,58 +92,39 @@ fn delete_remote_inner(remote: &str, path: &str) -> Result<(), String> {
         });
     }
     Ok(())
-}
-
-/// Xoá vĩnh viễn một mục local. `scope` phải là [`DeleteScope::NoTrash`]
-/// (mục đã nằm trong thùng rác nên `Trash` không còn ý nghĩa).
-pub fn delete_local(id: &str, scope: DeleteScope) -> Result<(), String> {
-    match scope {
-        // UNIVERSAL: mục đã ở trong thùng rác — chuyển vào trash lần nữa là vô nghĩa.
-        DeleteScope::Trash => Err("Mục đã nằm trong thùng rác, chỉ xoá vĩnh viễn được.".to_string()),
-        // UNIVERSAL: NoTrash — xoá cả nội dung `Trash/files` lẫn metadata `.trashinfo`.
-        DeleteScope::NoTrash => match Route::Local {
-            // UNIVERSAL: Local xoá file/thư mục thẳng qua syscall.
-            Route::Local => delete_local_inner(id),
-            // UNIVERSAL: nhánh Remote không xảy ra ở hàm local — giữ để `match` đủ đầy.
-            Route::Remote => Err("Tuyến Remote phải dùng `delete_remote`.".to_string()),
-        },
-    }
-}
-
-/// Xoá vĩnh viễn một mục remote. `scope` phải là [`DeleteScope::NoTrash`].
-pub fn delete_remote(remote: &str, path: &str, scope: DeleteScope) -> Result<(), String> {
-    match scope {
-        // UNIVERSAL: mục đã ở trong thùng rác — chuyển vào trash lần nữa là vô nghĩa.
-        DeleteScope::Trash => Err("Mục đã nằm trong thùng rác, chỉ xoá vĩnh viễn được.".to_string()),
-        // UNIVERSAL: NoTrash — `purge` cho thư mục, `deletefile` cho file, kèm cờ trashed-only.
-        DeleteScope::NoTrash => match Route::classify(remote) {
-            // UNIVERSAL: classifier đã loại `"Local"` ở tầng api nên nhánh này là lỗi lập trình.
-            Route::Local => Err("Tuyến Local phải dùng `delete_local`.".to_string()),
-            // UNIVERSAL: remote nhắm đúng bản trong thùng rác nhờ cờ `--<backend>-trashed-only`.
-            Route::Remote => delete_remote_inner(remote, path),
-        },
+        }
     }
 }
 
 /// Xoá vĩnh viễn toàn bộ mục local trong thùng rác.
-fn empty_local_inner() -> Result<(), String> {
-    let items = list_local_inner()?;
+pub fn empty_local(empty: EmptyDirs) -> Result<(), String> {
+    // UNIVERSAL: Local dọn sạch bằng cách xoá từng mục (files + info).
+    let items = super::trash_list::list_local()?;
     let mut errors = Vec::new();
     for item in &items {
-        if let Err(e) = delete_local_inner(&item.id) {
+        if let Err(e) = delete_local(&item.id, DeleteScope::NoTrash) {
             errors.push(format!("{}: {}", item.name, e));
         }
     }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(format!("Không xoá được {} mục:\n{}", errors.len(), errors.join("\n")))
+    if !errors.is_empty() {
+        return Err(format!("Không xoá được {} mục:\n{}", errors.len(), errors.join("\n")));
+    }
+    match empty {
+        // UNIVERSAL: Keep — giữ hành vi cũ, cleanup đã sạch nên không dọn thêm.
+        EmptyDirs::Keep => Ok(()),
+        // UNIVERSAL: đã xoá cả thư mục lẫn file nên skip `rmdir`.
+        EmptyDirs::OnlyHere => Ok(()),
+        // UNIVERSAL: đã xoá cả thư mục lẫn file nên skip `rmdirs`.
+        EmptyDirs::Recursive => Ok(()),
     }
 }
 
-/// Dọn sạch toàn bộ thùng rác remote bằng `rclone cleanup`.
-/// Kiểm tra trước tính năng `CleanUp` để báo lỗi rõ ràng thay vì thất bại mơ hồ.
-fn empty_remote_inner(remote: &str) -> Result<(), String> {
+/// Dọn sạch thùng rác remote. `cleanup` đã xoá toàn bộ nên mọi [`EmptyDirs`]
+/// đều không cần dọn rỗng bổ sung.
+pub fn empty_remote(remote: &str, empty: EmptyDirs) -> Result<(), String> {
+    if Route::classify(remote) == Route::Local {
+        return Err("Tuyến Local phải dùng `empty_local`.".to_string());
+    }
     let target = format!("{}:", remote);
 
     // UNIVERSAL: 1 não TrashCap chặn sớm backend không có thùng rác (lỗi rõ như cũ).
@@ -165,48 +163,13 @@ fn empty_remote_inner(remote: &str) -> Result<(), String> {
             err
         });
     }
-    Ok(())
-}
-
-/// Dọn sạch thùng rác local. `cleanup` đã xoá toàn bộ nên mọi [`EmptyDirs`]
-/// đều không cần dọn rỗng bổ sung (tương tự nhánh `purge` của delete).
-pub fn empty_local(empty: EmptyDirs) -> Result<(), String> {
-    match Route::Local {
-        // UNIVERSAL: nhánh Remote không xảy ra ở hàm local — giữ để `match` đủ đầy.
-        Route::Remote => Err("Tuyến Remote phải dùng `empty_remote`.".to_string()),
-        // UNIVERSAL: Local dọn sạch bằng cách xoá từng mục (files + info).
-        Route::Local => {
-            empty_local_inner()?;
-            match empty {
-                // UNIVERSAL: Keep — giữ hành vi cũ, cleanup đã sạch nên không dọn thêm.
-                EmptyDirs::Keep => Ok(()),
-                // UNIVERSAL: đã xoá cả thư mục lẫn file nên skip `rmdir`.
-                EmptyDirs::OnlyHere => Ok(()),
-                // UNIVERSAL: đã xoá cả thư mục lẫn file nên skip `rmdirs`.
-                EmptyDirs::Recursive => Ok(()),
-            }
-        }
-    }
-}
-
-/// Dọn sạch thùng rác remote. `cleanup` đã xoá toàn bộ nên mọi [`EmptyDirs`]
-/// đều không cần dọn rỗng bổ sung.
-pub fn empty_remote(remote: &str, empty: EmptyDirs) -> Result<(), String> {
-    match Route::classify(remote) {
-        // UNIVERSAL: classifier đã loại `"Local"` ở tầng api nên nhánh này là lỗi lập trình.
-        Route::Local => Err("Tuyến Local phải dùng `empty_local`.".to_string()),
-        // UNIVERSAL: remote dọn sạch qua `rclone cleanup` (cần backend có `CleanUp`).
-        Route::Remote => {
-            empty_remote_inner(remote)?;
-            match empty {
-                // UNIVERSAL: Keep — giữ hành vi cũ, cleanup đã sạch nên không dọn thêm.
-                EmptyDirs::Keep => Ok(()),
-                // UNIVERSAL: cleanup đã sạch nên skip `rmdir`.
-                EmptyDirs::OnlyHere => Ok(()),
-                // UNIVERSAL: cleanup đã sạch nên skip `rmdirs`.
-                EmptyDirs::Recursive => Ok(()),
-            }
-        }
+    match empty {
+        // UNIVERSAL: Keep — giữ hành vi cũ, cleanup đã sạch nên không dọn thêm.
+        EmptyDirs::Keep => Ok(()),
+        // UNIVERSAL: cleanup đã sạch nên skip `rmdir`.
+        EmptyDirs::OnlyHere => Ok(()),
+        // UNIVERSAL: cleanup đã sạch nên skip `rmdirs`.
+        EmptyDirs::Recursive => Ok(()),
     }
 }
 

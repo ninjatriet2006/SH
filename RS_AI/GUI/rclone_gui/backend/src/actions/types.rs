@@ -109,6 +109,23 @@ pub enum EmptyDirs {
     Recursive,
 }
 
+/// Một font chữ cho UI (DTO gốc ở thợ `types`, quét bởi `api::fonts_loader`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FontInfo {
+    pub id: String,
+    pub name: String,
+    pub family: String,
+    pub src_path: Option<String>,
+}
+
+/// Một theme giao diện (DTO gốc ở thợ `types`, quét bởi `api::themes_loader`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ThemeInfo {
+    pub id: String,
+    pub name: String,
+    pub variables: std::collections::HashMap<String, String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

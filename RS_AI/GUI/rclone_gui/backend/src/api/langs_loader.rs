@@ -5,7 +5,9 @@ Trách nhiệm: Tự nhận diện file `*.json` có thật thay vì gắn cứn
   ngữ. Không tìm được thì trả lỗi để frontend hiện raw ID (lộ lỗi rõ ràng).
 Các module tương tác: frontend/bridge/lang_api.ts, core::resources.
 */
+// Mỗi lệnh đúng 1 pub command fn: validate Req → đọc tài nguyên trực tiếp → map backend_error.
 
+use super::envelope::{Empty, IpcResult, Req, backend_error, success, validate};
 use crate::core::resources::resource_dir;
 use std::fs;
 use std::path::PathBuf;
@@ -17,7 +19,7 @@ fn langs_dir() -> PathBuf {
 /// Quét mã ngôn ngữ từ tên file `*.json`, ĐÃ SẮP XẾP.
 /// `read_dir` không bảo đảm thứ tự nên không sắp thì "file đầu tiên" (dùng làm
 /// fallback) sẽ khác nhau giữa các máy, lỗi rất khó tái hiện.
-pub fn scan_lang_codes() -> Vec<String> {
+fn scan_lang_codes() -> Vec<String> {
     let mut codes = Vec::new();
     if let Ok(entries) = fs::read_dir(langs_dir()) {
         for entry in entries.filter_map(Result::ok) {
@@ -35,19 +37,13 @@ pub fn scan_lang_codes() -> Vec<String> {
 
 /// Mã ngôn ngữ dùng khi chưa có lựa chọn hợp lệ: file đầu tiên thực có.
 /// KHÔNG hardcode "vi" — app phải chạy với bộ ngôn ngữ bất kỳ.
-pub fn first_available_lang() -> Option<String> {
+#[allow(dead_code)]
+fn first_available_lang() -> Option<String> {
     scan_lang_codes().into_iter().next()
 }
 
-/// Danh sách ngôn ngữ khả dụng cho frontend.
-/// `rename_all = "snake_case"` để tham số Rust snake_case không bị Tauri đổi
-/// sang camelCase (mặc định của v2) làm bridge gọi vào báo "missing required key".
-pub fn get_available_langs() -> Result<Vec<String>, String> {
-    Ok(scan_lang_codes())
-}
-
-/// Đọc nội dung một file từ điển.
-pub fn get_lang_content(lang_code: String) -> Result<serde_json::Value, String> {
+/// Đọc nội dung một file từ điển (logic dùng chung cho command + test).
+fn read_lang_content(lang_code: &str) -> Result<serde_json::Value, String> {
     // Chặn path traversal: `lang_code` ghép trực tiếp vào đường dẫn nên phải
     // giới hạn ký tự, tránh `../../etc/passwd`.
     if lang_code.is_empty()
@@ -65,6 +61,22 @@ pub fn get_lang_content(lang_code: String) -> Result<serde_json::Value, String> 
 
     let content = fs::read_to_string(&path).map_err(|e| format!("Lỗi đọc file ngôn ngữ {}: {}", lang_code, e))?;
     serde_json::from_str(&content).map_err(|e| format!("Lỗi parse JSON ngôn ngữ {}: {}", lang_code, e))
+}
+
+crate::payload!(LangPayload { lang_code: String });
+
+#[tauri::command]
+pub fn get_available_langs(request: Req<Empty>) -> IpcResult<Vec<String>> {
+    let request_id = validate(&request)?;
+    Ok(success(request_id, scan_lang_codes()))
+}
+
+#[tauri::command]
+pub fn get_lang_content(request: Req<LangPayload>) -> IpcResult<serde_json::Value> {
+    let request_id = validate(&request)?;
+    read_lang_content(&request.payload.lang_code)
+        .map(|data| success(request_id, data))
+        .map_err(backend_error)
 }
 
 #[cfg(test)]
@@ -87,7 +99,7 @@ mod tests {
         match first_available_lang() {
             Some(code) => {
                 assert!(codes.contains(&code), "fallback '{code}' không có file");
-                let dict = get_lang_content(code.clone()).unwrap_or_else(|e| panic!("đọc '{code}' thất bại: {e}"));
+                let dict = read_lang_content(&code).unwrap_or_else(|e| panic!("đọc '{code}' thất bại: {e}"));
                 assert!(
                     dict.as_object().is_some_and(|m| !m.is_empty()),
                     "'{code}' phải là object không rỗng"
@@ -101,7 +113,7 @@ mod tests {
     #[test]
     fn chan_ma_ngon_ngu_doc_hai() {
         for bad in ["../../etc/passwd", "..", "vi/../en", "vi.json", ""] {
-            assert!(get_lang_content(bad.to_string()).is_err(), "mã '{bad}' phải bị từ chối");
+            assert!(read_lang_content(bad).is_err(), "mã '{bad}' phải bị từ chối");
         }
     }
 
@@ -154,7 +166,7 @@ mod tests {
         assert!(!ids.is_empty(), "không thu được data-lang-id nào");
 
         for code in scan_lang_codes() {
-            let dict = get_lang_content(code.clone()).expect("đọc file ngôn ngữ");
+            let dict = read_lang_content(&code).expect("đọc file ngôn ngữ");
             let obj = dict.as_object().expect("từ điển phải là object");
             let thieu: Vec<&String> = ids.iter().filter(|id| !obj.contains_key(*id)).collect();
             assert!(

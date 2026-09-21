@@ -61,7 +61,7 @@ pub fn execute_delete_sync(path: &str, policy: crate::actions::perm::Policy) -> 
         Err(String::from_utf8_lossy(&output.stderr).into_owned())
     })
 }
-/// Trial S1: thực thi xóa theo phạm vi, cùng hành vi `api::files::fs_delete` ở nhánh `NoTrash`.
+/// Thực thi xóa theo phạm vi (nhánh `NoTrash` = xóa vĩnh viễn như IPC `fs_delete` cũ).
 ///
 /// Không đổi cờ rclone; chọn lệnh bằng `match` trên ([`Route`], IsDir, [`DeleteScope`]).
 /// Giữ tương thích cũ: mặc định [`EmptyDirs::Keep`] (không dọn thư mục rỗng).

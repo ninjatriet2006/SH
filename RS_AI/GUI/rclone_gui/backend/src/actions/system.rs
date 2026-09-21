@@ -2,13 +2,26 @@
 [INTEGRITY NOTES]
 - Mục đích: S2 gom món hệ điều hành (home/tmp/XDG places/terminal).
 - Trách nhiệm: logic thuần OS, không đụng rclone/file người dùng.
-- Tương tác: `api::files` chỉ là wrapper mỏng; IPC + struct `UserPlace` giữ ở `api`.
+- Tương tác: `api::files_view` chỉ là command mỏng gọi sang (struct `UserPlace` ở đây).
 */
 
 // UNIVERSAL: món hệ điều hành — đọc $HOME/tmp/XDG, mở terminal; không động rclone/file người dùng.
-use crate::api::files::UserPlace;
 use crate::logic::fastlane::fastlane;
+use serde::Serialize;
 use std::process::Command;
+
+/// Một vị trí truy cập nhanh trong sidebar (DTO gốc ở thợ `system`).
+#[derive(Serialize)]
+pub struct UserPlace {
+    /// Nhãn hiển thị (đã theo ngôn ngữ hệ thống nếu XDG cung cấp).
+    pub name: String,
+    /// Đường dẫn tuyệt đối trên ổ Local.
+    pub path: String,
+    /// Emoji gợi ý cho UI.
+    pub icon: String,
+    /// Khoá XDG (`HOME`, `DESKTOP`, ...) để Frontend nhận diện.
+    pub kind: String,
+}
 
 /// UNIVERSAL: trả đúng $HOME (rơi về "/" khi thiếu).
 pub async fn get_home_dir() -> Result<String, String> {

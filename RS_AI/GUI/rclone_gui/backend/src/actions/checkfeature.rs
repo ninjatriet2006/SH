@@ -35,7 +35,7 @@ pub fn query_transfer_options(src: &str, dst: &str) -> Result<Value, String> {
 }
 
 /// Tên cũ giữ lại cho tương thích (IPC/frontend không đổi).
-pub fn transfer_capability_inner(src: &str, dst: &str) -> Result<Value, String> {
+pub fn transfer_capability(src: &str, dst: &str) -> Result<Value, String> {
     query_transfer_options(src, dst)
 }
 
@@ -46,7 +46,7 @@ mod tests {
     #[test]
     fn capability_local_same_remote_allows_move_copy() {
         // UNIVERSAL: cùng Local luôn move-native + copy, không cần hỏi backend.
-        let v = transfer_capability_inner("Local::/a", "Local::/b").expect("capability");
+        let v = transfer_capability("Local::/a", "Local::/b").expect("capability");
         assert_eq!(v.get("canMove").and_then(|x| x.as_bool()), Some(true));
         assert_eq!(v.get("canCopy").and_then(|x| x.as_bool()), Some(true));
     }
@@ -55,7 +55,7 @@ mod tests {
     fn capability_cross_remote_denies_all() {
         // UNIVERSAL: não chung check_cap — DiffCloud khác hãng/tắt cờ thì
         // không move-native lẫn copy-purge (trung chuyển qua local).
-        let v = transfer_capability_inner("A::/a", "B::/b").expect("capability");
+        let v = transfer_capability("A::/a", "B::/b").expect("capability");
         assert_eq!(v.get("canMove").and_then(|x| x.as_bool()), Some(false));
         assert_eq!(v.get("canCopy").and_then(|x| x.as_bool()), Some(false));
         assert_eq!(v.get("canCopyDelete").and_then(|x| x.as_bool()), Some(false));

@@ -3,19 +3,29 @@
 - Mục đích: Liệt kê thùng rác Local (chuẩn FreeDesktop) + Remote (rclone) (S1 unify).
 - Trách nhiệm: Phân tuyến (Route) → chọn nhánh Local/Remote bằng `match` + UNIVERSAL.
 - Tương tác: Tầng `api::trash_manager` bọc mỏng qua `logic::fastlane::fastlane`. Không đụng IPC/frontend.
-  Helpers dùng chung (`trash_dir`, `remote_type`, `list_local_inner`) để
+  Helpers dùng chung (`trash_dir`, `remote_type`, `list_local`) để
   `trash_restore`/`trash_delete` tái sử dụng (`percent_*` ở `core::path`,
   `trashed-only` hỏi `checkcap::check_trash_cap`).
 */
 
 use crate::actions::checkcap::check_trash_cap;
-use crate::api::files::FileItem;
-use crate::api::trash_manager::TrashItemLocal;
+use super::list::FileItem;
+use serde::Serialize;
 use crate::core::rclone_caller;
 /// UNIVERSAL: `percent_*` dời về `core::path`; giữ re-export để
 /// `trash_restore` (`super::trash_list::percent_encode`) không vỡ.
 pub(crate) use crate::core::path::{percent_decode, percent_encode};
 use serde_json::Value;
+
+/// Mục thùng rác Local (DTO gốc ở thợ `trash_list`).
+/// `id` là tên mục trong `Trash/files/` — dùng để khôi phục / xoá vĩnh viễn.
+#[derive(Serialize)]
+pub struct TrashItemLocal {
+    pub id: String,
+    pub name: String,
+    pub original_path: String,
+    pub time_deleted: String,
+}
 
 /// Tuyến thùng rác, suy từ tên remote (`"Local"` = ổ máy).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,7 +75,8 @@ pub(crate) fn remote_type(remote: &str) -> Result<String, String> {
 }
 
 /// Liệt kê toàn bộ mục trong thùng rác cục bộ, mới xoá xếp trước.
-pub(crate) fn list_local_inner() -> Result<Vec<TrashItemLocal>, String> {
+/// (đồng bộ; tầng api bọc `blocking`).
+pub fn list_local() -> Result<Vec<TrashItemLocal>, String> {
     let dir = trash_dir()?;
     let info_dir = dir.join("info");
     let files_dir = dir.join("files");
@@ -126,7 +137,11 @@ pub(crate) fn list_local_inner() -> Result<Vec<TrashItemLocal>, String> {
 
 /// Liệt kê các mục đang ở trong thùng rác của remote.
 /// `FileItem.uuid` giữ đường dẫn tương đối để các thao tác sau định vị chính xác.
-fn list_remote_inner(remote: &str) -> Result<Vec<FileItem>, String> {
+/// (đồng bộ; tầng api bọc `blocking`).
+pub fn list_remote(remote: &str) -> Result<Vec<FileItem>, String> {
+    if Route::classify(remote) == Route::Local {
+        return Err("Tuyến Local phải dùng `list_local`.".to_string());
+    }
     let backend = remote_type(remote)?;
     let flag = check_trash_cap(&backend).trashed_only.ok_or_else(|| {
         format!(
@@ -166,26 +181,6 @@ fn list_remote_inner(remote: &str) -> Result<Vec<FileItem>, String> {
     });
 
     Ok(files)
-}
-
-/// Liệt kê thùng rác cục bộ (đồng bộ; tầng api bọc `blocking`).
-pub fn list_local() -> Result<Vec<TrashItemLocal>, String> {
-    match Route::Local {
-        // UNIVERSAL: Local đọc metadata `.trashinfo` thẳng, không qua `gio`.
-        Route::Local => list_local_inner(),
-        // UNIVERSAL: nhánh Remote không xảy ra ở hàm local — giữ để `match` đủ đầy.
-        Route::Remote => Err("Tuyến Remote phải dùng `list_remote`.".to_string()),
-    }
-}
-
-/// Liệt kê thùng rác remote (đồng bộ; tầng api bọc `blocking`).
-pub fn list_remote(remote: &str) -> Result<Vec<FileItem>, String> {
-    match Route::classify(remote) {
-        // UNIVERSAL: classifier đã loại `"Local"` ở tầng api nên nhánh này là lỗi lập trình.
-        Route::Local => Err("Tuyến Local phải dùng `list_local`.".to_string()),
-        // UNIVERSAL: remote liệt kê qua `lsjson` + cờ `--<backend>-trashed-only`.
-        Route::Remote => list_remote_inner(remote),
-    }
 }
 
 #[cfg(test)]

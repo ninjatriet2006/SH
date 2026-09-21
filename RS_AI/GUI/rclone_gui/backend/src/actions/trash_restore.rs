@@ -14,7 +14,8 @@ use serde_json::Value;
 
 /// Khôi phục một mục local về vị trí gốc. Dùng `gio trash --restore` vì nó tự
 /// tạo lại thư mục cha nếu đã bị xoá, và không ghi đè file đang tồn tại.
-fn restore_local_inner(id: &str) -> Result<(), String> {
+/// (đồng bộ; tầng api bọc `blocking`).
+pub fn restore_local(id: &str) -> Result<(), String> {
     if id.is_empty() {
         return Err("Thiếu định danh mục cần khôi phục.".to_string());
     }
@@ -37,7 +38,11 @@ fn restore_local_inner(id: &str) -> Result<(), String> {
 }
 
 /// Khôi phục một mục remote khỏi thùng rác. Chỉ Google Drive hỗ trợ (`backend untrash`).
-fn restore_remote_inner(remote: &str, path: &str) -> Result<(), String> {
+/// (đồng bộ; tầng api bọc `blocking`).
+pub fn restore_remote(remote: &str, path: &str) -> Result<(), String> {
+    if Route::classify(remote) == Route::Local {
+        return Err("Tuyến Local phải dùng `restore_local`.".to_string());
+    }
     if path.is_empty() {
         return Err("Thiếu đường dẫn mục cần khôi phục.".to_string());
     }
@@ -68,26 +73,6 @@ fn restore_remote_inner(remote: &str, path: &str) -> Result<(), String> {
         }
     }
     Ok(())
-}
-
-/// Khôi phục một mục local (đồng bộ; tầng api bọc `blocking`).
-pub fn restore_local(id: &str) -> Result<(), String> {
-    match Route::Local {
-        // UNIVERSAL: Local khôi phục qua `gio trash --restore` (tự dựng lại thư mục cha).
-        Route::Local => restore_local_inner(id),
-        // UNIVERSAL: nhánh Remote không xảy ra ở hàm local — giữ để `match` đủ đầy.
-        Route::Remote => Err("Tuyến Remote phải dùng `restore_remote`.".to_string()),
-    }
-}
-
-/// Khôi phục một mục remote (đồng bộ; tầng api bọc `blocking`).
-pub fn restore_remote(remote: &str, path: &str) -> Result<(), String> {
-    match Route::classify(remote) {
-        // UNIVERSAL: classifier đã loại `"Local"` ở tầng api nên nhánh này là lỗi lập trình.
-        Route::Local => Err("Tuyến Local phải dùng `restore_local`.".to_string()),
-        // UNIVERSAL: remote chỉ `drive` khôi phục được (`backend untrash`), loại khác báo lỗi rõ.
-        Route::Remote => restore_remote_inner(remote, path),
-    }
 }
 
 #[cfg(test)]
