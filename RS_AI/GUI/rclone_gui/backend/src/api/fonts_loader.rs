@@ -1,4 +1,3 @@
-use super::envelope::{Empty, IpcResult, Req, success, validate};
 use crate::actions::types::FontInfo;
 use crate::core::resources::resource_dir;
 use std::fs;
@@ -44,9 +43,8 @@ fn scan_fonts() -> Vec<FontInfo> {
 }
 
 #[tauri::command]
-pub fn get_available_fonts(request: Req<Empty>) -> IpcResult<Vec<FontInfo>> {
-    let request_id = validate(&request)?;
-    Ok(success(request_id, scan_fonts()))
+pub fn get_available_fonts() -> Result<Vec<FontInfo>, String> {
+    Ok(scan_fonts())
 }
 
 #[cfg(test)]

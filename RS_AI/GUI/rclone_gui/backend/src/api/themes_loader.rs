@@ -1,4 +1,3 @@
-use super::envelope::{Empty, IpcResult, Req, success, validate};
 use crate::actions::types::ThemeInfo;
 use crate::core::resources::resource_dir;
 use std::fs;
@@ -38,9 +37,8 @@ fn scan_themes() -> Vec<ThemeInfo> {
 }
 
 #[tauri::command]
-pub fn get_available_themes(request: Req<Empty>) -> IpcResult<Vec<ThemeInfo>> {
-    let request_id = validate(&request)?;
-    Ok(success(request_id, scan_themes()))
+pub fn get_available_themes() -> Result<Vec<ThemeInfo>, String> {
+    Ok(scan_themes())
 }
 
 #[cfg(test)]

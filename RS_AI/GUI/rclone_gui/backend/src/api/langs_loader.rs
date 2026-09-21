@@ -4,10 +4,9 @@ Mục đích: API đa ngôn ngữ — liệt kê và đọc file từ điển tr
 Trách nhiệm: Tự nhận diện file `*.json` có thật thay vì gắn cứng một mã ngôn
   ngữ. Không tìm được thì trả lỗi để frontend hiện raw ID (lộ lỗi rõ ràng).
 Các module tương tác: frontend/bridge/lang_api.ts, core::resources.
+Lệnh trần `Result<T, String>`, không bao thư.
 */
-// Mỗi lệnh đúng 1 pub command fn: validate Req → đọc tài nguyên trực tiếp → map backend_error.
 
-use super::envelope::{Empty, IpcResult, Req, backend_error, success, validate};
 use crate::core::resources::resource_dir;
 use std::fs;
 use std::path::PathBuf;
@@ -63,20 +62,14 @@ fn read_lang_content(lang_code: &str) -> Result<serde_json::Value, String> {
     serde_json::from_str(&content).map_err(|e| format!("Lỗi parse JSON ngôn ngữ {}: {}", lang_code, e))
 }
 
-crate::payload!(LangPayload { lang_code: String });
-
 #[tauri::command]
-pub fn get_available_langs(request: Req<Empty>) -> IpcResult<Vec<String>> {
-    let request_id = validate(&request)?;
-    Ok(success(request_id, scan_lang_codes()))
+pub fn get_available_langs() -> Result<Vec<String>, String> {
+    Ok(scan_lang_codes())
 }
 
 #[tauri::command]
-pub fn get_lang_content(request: Req<LangPayload>) -> IpcResult<serde_json::Value> {
-    let request_id = validate(&request)?;
-    read_lang_content(&request.payload.lang_code)
-        .map(|data| success(request_id, data))
-        .map_err(backend_error)
+pub fn get_lang_content(lang_code: String) -> Result<serde_json::Value, String> {
+    read_lang_content(&lang_code)
 }
 
 #[cfg(test)]
@@ -176,5 +169,15 @@ mod tests {
                 thieu
             );
         }
+    }
+
+    /// Lệnh trần trả trực tiếp, không bọc bao thư.
+    #[test]
+    fn lenh_tran_tra_truc_tiep() {
+        let langs = get_available_langs().expect("list langs");
+        let mut sorted = langs.clone();
+        sorted.sort();
+        assert_eq!(langs, sorted);
+        assert!(get_lang_content("..".to_string()).is_err());
     }
 }

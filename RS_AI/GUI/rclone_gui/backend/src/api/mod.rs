@@ -1,5 +1,4 @@
 pub mod config;
-pub mod envelope;
 pub mod files_edit;
 pub mod files_view;
 pub mod fonts_loader;
