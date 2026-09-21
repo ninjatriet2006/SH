@@ -5,13 +5,12 @@
 - Tương tác: Chỉ `api::remote_manager` gọi sang; không đụng IPC/frontend.
 */
 
-use crate::actions::move_op::{Cap, SupportCopyAndDelete, SupportMove};
-use crate::core::path::cut_remote_path;
+use crate::actions::checkcap::check_cap;
 use crate::core::rclone_caller;
 use serde_json::{Value, json};
 
 /// Features backend của một remote (đồng bộ; tầng api bọc `fastlane`).
-pub fn backend_features_inner(remote: &str) -> Result<Value, String> {
+pub fn query_backend_features(remote: &str) -> Result<Value, String> {
     // UNIVERSAL: đuôi ":" báo cho rclone biết đây là một remote.
     let remote_with_colon = format!("{}:", remote);
     let output = rclone_caller::run_cmd(&["backend", "features", &remote_with_colon])?;
@@ -24,38 +23,20 @@ pub fn backend_features_inner(remote: &str) -> Result<Value, String> {
 }
 
 /// Năng lực move/copy giữa 2 đường dẫn (đồng bộ; tầng api bọc `fastlane`).
-// UNIVERSAL: move-native 1 bước (`Move`/`DirMove`) khác với copy + purge
-// fallback 2 bước (`Copy` + `Purge`); tên nội bộ mới, key JSON giữ nguyên.
-pub fn transfer_capability_inner(src: &str, dst: &str) -> Result<Value, String> {
-    let (src_remote, _) = cut_remote_path(src);
-    let (dst_remote, _) = cut_remote_path(dst);
-    let mut support_move = SupportMove(false);
-    let mut can_copy = false;
-    let mut support_copy_and_delete = SupportCopyAndDelete(false);
-
-    if src_remote == dst_remote && src_remote == "Local" {
-        support_move = SupportMove(true);
-        can_copy = true;
-    } else if src_remote == dst_remote && src_remote != "Local" {
-        if let Ok(feats) = backend_features_inner(&src_remote) {
-            if let Some(features) = feats.get("Features") {
-                let mv = features.get("Move").and_then(|v| v.as_bool()).unwrap_or(false);
-                let dir_mv = features.get("DirMove").and_then(|v| v.as_bool()).unwrap_or(false);
-                let copy = features.get("Copy").and_then(|v| v.as_bool()).unwrap_or(false);
-                let purge = features.get("Purge").and_then(|v| v.as_bool()).unwrap_or(false);
-                let cap = Cap::from_backend_features(mv, dir_mv, copy, purge);
-                support_move = SupportMove(cap.support_move);
-                can_copy = copy;
-                support_copy_and_delete = SupportCopyAndDelete(cap.support_copy_and_delete);
-            }
-        }
-    }
-
+// UNIVERSAL: check_cap là não chung (UI hỏi + đường chạy hỏi); đây chỉ dịch
+// Cap ra 3 cờ JSON cũ (key giữ nguyên cho frontend/IPC).
+pub fn query_transfer_options(src: &str, dst: &str) -> Result<Value, String> {
+    let cap = check_cap(src, dst);
     Ok(json!({
-        "canMove": support_move.0,
-        "canCopy": can_copy,
-        "canCopyDelete": support_copy_and_delete.0
+        "canMove": cap.support_move,
+        "canCopy": cap.support_move || cap.support_copy_and_delete,
+        "canCopyDelete": cap.support_copy_and_delete
     }))
+}
+
+/// Tên cũ giữ lại cho tương thích (IPC/frontend không đổi).
+pub fn transfer_capability_inner(src: &str, dst: &str) -> Result<Value, String> {
+    query_transfer_options(src, dst)
 }
 
 #[cfg(test)]
@@ -72,8 +53,9 @@ mod tests {
 
     #[test]
     fn capability_cross_remote_denies_all() {
-        // UNIVERSAL: khác remote/provider thì không move-native lẫn copy-purge.
-        let v = transfer_capability_inner("Local::/a", "GDrive::/b").expect("capability");
+        // UNIVERSAL: não chung check_cap — DiffCloud khác hãng/tắt cờ thì
+        // không move-native lẫn copy-purge (trung chuyển qua local).
+        let v = transfer_capability_inner("A::/a", "B::/b").expect("capability");
         assert_eq!(v.get("canMove").and_then(|x| x.as_bool()), Some(false));
         assert_eq!(v.get("canCopy").and_then(|x| x.as_bool()), Some(false));
         assert_eq!(v.get("canCopyDelete").and_then(|x| x.as_bool()), Some(false));

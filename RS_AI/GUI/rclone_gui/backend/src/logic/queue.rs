@@ -156,6 +156,9 @@ pub(super) fn run_child_transfer(
     should_cancel: impl Fn() -> bool,
     on_log_line: impl FnMut(&str),
 ) -> Result<(), String> {
+    // UNIVERSAL: check_cap là não chung (UI hỏi + đường chạy hỏi) — across
+    // lấy từ Cap.server_side, giữ bulk/item/policy/progress/cancel như cũ.
+    let cap = crate::actions::checkcap::check_cap(src, dst);
     let ticket = TransferTicket {
         src: src.to_string(),
         dst: dst.to_string(),
@@ -164,7 +167,7 @@ pub(super) fn run_child_transfer(
             ChildMode::Whole => TransferMode::Whole,
             ChildMode::Item => TransferMode::Item,
         },
-        across: child.across,
+        across: cap.server_side,
         engine_flags: child.engine_flags.clone(),
         policy,
     };

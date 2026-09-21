@@ -1,6 +1,7 @@
-pub mod appearance;
 pub mod files;
-pub mod lang;
-pub mod mount;
+pub mod fonts_loader;
+pub mod langs_loader;
+pub mod mount_manager;
 pub mod remote_manager;
-pub mod trash;
+pub mod themes_loader;
+pub mod trash_manager;

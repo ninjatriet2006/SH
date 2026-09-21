@@ -77,19 +77,6 @@ pub struct Job {
 /// thuần); re-export tại đây để giữ đường dùng cũ (`jobs::stats_percent`).
 pub use super::tracker::{parse_progress_line, stats_percent};
 
-/// UNIVERSAL S2: JOB tính quyết định across 1 lần lúc dispatch (chuyển từ
-/// `queue::run_child_transfer` lên đây để QUEUE khỏi đọc engine settings):
-/// dính ổ máy / cùng tên remote → false (trung chuyển qua local như cũ);
-/// khác tên → cùng hãng (`same_provider`) + bật cờ mới true.
-fn decide_across(src: &str, dst: &str, flags: &crate::settings::engine::GlobalFlags) -> bool {
-    let (src_remote, _) = crate::core::path::cut_remote_path(src);
-    let (dst_remote, _) = crate::core::path::cut_remote_path(dst);
-    if src_remote == "Local" || dst_remote == "Local" || src_remote == dst_remote {
-        return false;
-    }
-    crate::actions::types::same_provider(&src_remote, &dst_remote) && flags.server_side_across
-}
-
 fn config_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("XDG_CONFIG_HOME") {
         let dir = dir.trim();
@@ -512,8 +499,10 @@ impl JobStore {
         // UNIVERSAL: đọc cờ engine 1 lần duy nhất lúc dispatch; lỗi đọc →
         // default (giữ hành vi cũ: bóc con, không across).
         let flags = crate::settings::engine::load_engine_flags().unwrap_or_default();
+        // UNIVERSAL: não chung check_cap (UI hỏi + đường chạy hỏi) — across
+        // lấy từ Cap.server_side; bulk/item/policy/progress/cancel giữ nguyên.
         if flags.bulk_transfer {
-            let across = decide_across(&src, &dst, &flags);
+            let across = crate::actions::checkcap::check_cap(&src, &dst).server_side;
             self.set_children_bulk(&job.id, across, flags);
         } else {
             match manifest(&src) {
@@ -521,7 +510,7 @@ impl JobStore {
                     self.set_children_from_items(&job.id, items);
                 }
                 _ => {
-                    let across = decide_across(&src, &dst, &flags);
+                    let across = crate::actions::checkcap::check_cap(&src, &dst).server_side;
                     self.set_children_bulk(&job.id, across, flags);
                 }
             }
@@ -980,14 +969,11 @@ mod tests {
                 .expect("roundtrip");
         assert_eq!(back, whole);
         // UNIVERSAL S2: across đóng dấu 1 lần ở JOB — dính ổ máy / cùng tên
-        // remote luôn false mà không cần gọi rclone.
-        let flags = crate::settings::engine::GlobalFlags {
-            server_side_across: true,
-            ..crate::settings::engine::GlobalFlags::default()
-        };
-        assert!(!decide_across("Local:/a", "Local:/b", &flags));
-        assert!(!decide_across("Local:/a", "R:/b", &flags));
-        assert!(!decide_across("R:/a", "R:/b", &flags));
+        // remote luôn false mà không cần gọi rclone (não chung check_cap).
+        use crate::actions::checkcap::check_cap_with_flags;
+        assert!(!check_cap_with_flags("Local:/a", "Local:/b", true).server_side);
+        assert!(!check_cap_with_flags("Local:/a", "R:/b", true).server_side);
+        assert!(!check_cap_with_flags("R:/a", "R:/b", true).server_side);
     }
 
     #[test]

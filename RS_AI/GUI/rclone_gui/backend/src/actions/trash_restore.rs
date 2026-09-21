@@ -2,12 +2,13 @@
 [INTEGRITY NOTES]
 - Mục đích: Khôi phục mục từ thùng rác Local (`gio`) + Remote (`drive untrash`) (S1 unify).
 - Trách nhiệm: Phân tuyến (Route) → chọn nhánh Local/Remote bằng `match` + UNIVERSAL.
-- Tương tác: Tầng `api::trash` bọc mỏng qua `logic::fastlane::fastlane`. Không đụng IPC/frontend.
+- Tương tác: Tầng `api::trash_manager` bọc mỏng qua `logic::fastlane::fastlane`. Không đụng IPC/frontend.
   Giữ nguyên tắc backend-hỗ-trợ: restore remote chỉ `drive` (`backend untrash`).
 */
 
 pub use super::trash_list::Route;
 use super::trash_list::{percent_encode, remote_type};
+use crate::actions::checkcap::check_trash_cap;
 use crate::core::rclone_caller;
 use serde_json::Value;
 
@@ -42,7 +43,7 @@ fn restore_remote_inner(remote: &str, path: &str) -> Result<(), String> {
     }
 
     let backend = remote_type(remote)?;
-    if backend != "drive" {
+    if !check_trash_cap(&backend).can_restore {
         return Err(format!(
             "rclone không hỗ trợ khôi phục từ thùng rác cho loại '{}'. Hiện chỉ Google Drive làm được (rclone backend untrash).",
             backend

@@ -3,7 +3,7 @@
 - Mục đích: Tìm thư mục tài nguyên chạy kèm binary (`langs/`, `themes/`).
 - Trách nhiệm: Dò MỘT LẦN gốc tài nguyên rồi cache, để mọi module dùng chung
   một đường dẫn thay vì mỗi nơi tự đoán.
-- Tương tác: `api::lang` dùng để đọc thư mục `langs/`.
+- Tương tác: `api::langs_loader` (ngôn ngữ), `api::themes_loader` + `api::fonts_loader` (giao diện/chữ) dùng để đọc các thư mục tài nguyên.
 */
 
 use std::path::PathBuf;

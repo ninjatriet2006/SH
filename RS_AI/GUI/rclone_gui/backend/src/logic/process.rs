@@ -55,19 +55,6 @@ pub(crate) fn terminate_gracefully(pid: u32) {
     }
 }
 
-/// UNIVERSAL: hủy êm khi đang giữ handle `Child` — thay `child.kill()` thẳng:
-/// gửi SIGTERM theo pid, chờ grace, chỉ `kill()` khi tiến trình lì không thoát.
-/// UNIVERSAL: giữ cho đường transfer streaming có handle; queue blocking hiện
-/// chưa dùng nên cho phép dead_code thay vì xóa (hủy êm 1 nguồn sự thật).
-#[allow(dead_code)]
-pub(crate) fn graceful_kill_child(child: &mut std::process::Child) {
-    let pid = child.id();
-    send_terminate(pid);
-    if !wait_until_gone(pid, GRACE_PERIOD) {
-        let _ = child.kill();
-    }
-}
-
 /// UNIVERSAL: chờ tiến trình `pid` kết thúc, tối đa `timeout`.
 pub(crate) fn wait_until_gone(pid: u32, timeout: std::time::Duration) -> bool {
     let deadline = std::time::Instant::now() + timeout;

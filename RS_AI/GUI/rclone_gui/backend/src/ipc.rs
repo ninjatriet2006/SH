@@ -136,7 +136,7 @@ payload!(CapabilityPayload {
     dst: String
 });
 payload!(MountCreatePayload {
-    config: api::mount::MountConfig,
+    config: api::mount_manager::MountConfig,
     confirmed: bool
 });
 payload!(MountTargetPayload {
@@ -366,51 +366,51 @@ async_command!(
 async_command!(
     fs_trash_list_local,
     Empty,
-    Vec<api::trash::TrashItemLocal>,
-    api::trash::fs_trash_list_local,
+    Vec<api::trash_manager::TrashItemLocal>,
+    api::trash_manager::fs_trash_list_local,
     ()
 );
 async_command!(
     fs_trash_restore_local,
     ItemPayload,
     (),
-    api::trash::fs_trash_restore_local,
+    api::trash_manager::fs_trash_restore_local,
     (item_id)
 );
 async_command!(
     fs_trash_delete_local,
     ItemPayload,
     (),
-    api::trash::fs_trash_delete_local,
+    api::trash_manager::fs_trash_delete_local,
     (item_id)
 );
-async_command!(fs_trash_empty_local, Empty, (), api::trash::fs_trash_empty_local, ());
+async_command!(fs_trash_empty_local, Empty, (), api::trash_manager::fs_trash_empty_local, ());
 async_command!(
     fs_trash_list_remote_terminal,
     AccountPayload,
     Vec<api::files::FileItem>,
-    api::trash::fs_trash_list_remote_terminal,
+    api::trash_manager::fs_trash_list_remote_terminal,
     (account)
 );
 async_command!(
     fs_trash_restore_remote_terminal,
     RemoteTrashItemPayload,
     (),
-    api::trash::fs_trash_restore_remote_terminal,
+    api::trash_manager::fs_trash_restore_remote_terminal,
     (account, path)
 );
 async_command!(
     fs_trash_delete_remote_terminal,
     RemoteTrashItemPayload,
     (),
-    api::trash::fs_trash_delete_remote_terminal,
+    api::trash_manager::fs_trash_delete_remote_terminal,
     (account, path)
 );
 async_command!(
     fs_trash_empty_remote_terminal,
     AccountPayload,
     (),
-    api::trash::fs_trash_empty_remote_terminal,
+    api::trash_manager::fs_trash_empty_remote_terminal,
     (account)
 );
 
@@ -448,40 +448,40 @@ async_command!(
 async_command!(rclone_about, RemotePayload, Value, api::remote_manager::rclone_about, (remote));
 async_command!(rclone_size, RemotePayload, Value, api::remote_manager::rclone_size, (remote));
 
-async_command!(check_fuse_installed, Empty, bool, api::mount::check_fuse_installed, ());
+async_command!(check_fuse_installed, Empty, bool, api::mount_manager::check_fuse_installed, ());
 async_command!(
     create_mount_service,
     MountCreatePayload,
     String,
-    api::mount::create_mount_service,
+    api::mount_manager::create_mount_service,
     (config, confirmed)
 );
 async_command!(
     delete_mount_service,
     MountDeletePayload,
     String,
-    api::mount::delete_mount_service,
+    api::mount_manager::delete_mount_service,
     (service_name, is_user, confirmed)
 );
 async_command!(
     manage_mount_service,
     MountManagePayload,
     String,
-    api::mount::manage_mount_service,
+    api::mount_manager::manage_mount_service,
     (service_name, is_user, action, confirmed)
 );
 async_command!(
     list_mount_services,
     Empty,
-    Vec<api::mount::SystemdServiceInfo>,
-    api::mount::list_mount_services,
+    Vec<api::mount_manager::SystemdServiceInfo>,
+    api::mount_manager::list_mount_services,
     ()
 );
 async_command!(
     get_mount_service_config,
     MountTargetPayload,
-    api::mount::MountConfig,
-    api::mount::get_mount_service_config,
+    api::mount_manager::MountConfig,
+    api::mount_manager::get_mount_service_config,
     (service_name, is_user)
 );
 
@@ -553,28 +553,28 @@ sync_command!(
     get_available_langs,
     Empty,
     Vec<String>,
-    api::lang::get_available_langs,
+    api::langs_loader::get_available_langs,
     ()
 );
 sync_command!(
     get_lang_content,
     LangPayload,
     Value,
-    api::lang::get_lang_content,
+    api::langs_loader::get_lang_content,
     (lang_code)
 );
 sync_command!(
     get_available_themes,
     Empty,
-    Vec<api::appearance::ThemeInfo>,
-    api::appearance::get_available_themes,
+    Vec<api::themes_loader::ThemeInfo>,
+    api::themes_loader::get_available_themes,
     ()
 );
 sync_command!(
     get_available_fonts,
     Empty,
-    Vec<api::appearance::FontInfo>,
-    api::appearance::get_available_fonts,
+    Vec<api::fonts_loader::FontInfo>,
+    api::fonts_loader::get_available_fonts,
     ()
 );
 

@@ -3,14 +3,15 @@
 - Mục đích: Xoá vĩnh viễn từng mục + dọn sạch thùng rác Local/Remote (S1 unify).
 - Trách nhiệm: Phân tuyến (Route) → chọn nhánh Local/Remote bằng `match` + UNIVERSAL;
   xoá vĩnh viễn dùng chung [`DeleteScope`], dọn sạch dùng chung [`EmptyDirs`].
-- Tương tác: Tầng `api::trash` bọc mỏng qua `logic::fastlane::fastlane`. Không đụng IPC/frontend.
+- Tương tác: Tầng `api::trash_manager` bọc mỏng qua `logic::fastlane::fastlane`. Không đụng IPC/frontend.
   Xoá từng mục remote cần cờ `--<backend>-trashed-only`; dọn sạch qua `rclone cleanup`
   khi backend có tính năng `CleanUp`.
 */
 
 pub use super::trash_list::Route;
 pub use crate::actions::types::{DeleteScope, EmptyDirs};
-use super::trash_list::{list_local_inner, remote_type, trash_dir, trashed_only_flag};
+use super::trash_list::{list_local_inner, remote_type, trash_dir};
+use crate::actions::checkcap::check_trash_cap;
 use crate::core::rclone_caller;
 use serde_json::Value;
 
@@ -53,7 +54,7 @@ fn delete_remote_inner(remote: &str, path: &str) -> Result<(), String> {
     }
 
     let backend = remote_type(remote)?;
-    let flag = trashed_only_flag(&backend).ok_or_else(|| {
+    let flag = check_trash_cap(&backend).trashed_only.ok_or_else(|| {
         format!(
             "rclone không hỗ trợ xoá từng mục trong thùng rác cho loại '{}'. Hãy dùng 'Dọn sạch thùng rác'.",
             backend
@@ -127,6 +128,15 @@ fn empty_local_inner() -> Result<(), String> {
 /// Kiểm tra trước tính năng `CleanUp` để báo lỗi rõ ràng thay vì thất bại mơ hồ.
 fn empty_remote_inner(remote: &str) -> Result<(), String> {
     let target = format!("{}:", remote);
+
+    // UNIVERSAL: 1 não TrashCap chặn sớm backend không có thùng rác (lỗi rõ như cũ).
+    let backend = remote_type(remote)?;
+    if !check_trash_cap(&backend).can_cleanup {
+        return Err(format!(
+            "Remote '{}' không hỗ trợ dọn sạch thùng rác (CleanUp).",
+            remote
+        ));
+    }
 
     if let Ok(output) = rclone_caller::run_cmd(&["backend", "features", &target]) {
         if output.status.success() {

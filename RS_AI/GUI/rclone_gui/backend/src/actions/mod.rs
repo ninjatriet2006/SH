@@ -12,6 +12,9 @@
 //! thẳng dưới `actions/`; hai module `explorer`/`ops` bên dưới chỉ là alias
 //! tương thích để `use crate::actions::explorer::*` / `ops::*` cũ không vỡ.
 
+#[path = "checkcap.rs"]
+pub mod checkcap;
+
 #[path = "move.rs"]
 pub mod move_op;
 
@@ -24,8 +27,14 @@ pub mod delete_op;
 pub mod create;
 pub mod conflicts;
 pub mod list;
+// UNIVERSAL S2 mount micro: query/creator/files/control (api/mount_manager bọc fastlane).
+pub mod mount_control;
+pub mod mount_files;
+pub mod mount_query;
 pub mod rename;
-pub mod remotes;
+pub mod mount_creator;
+pub mod remote_view;
+pub mod remote_edit;
 pub mod checkfeature;
 pub mod checksize;
 pub mod search;
@@ -44,6 +53,8 @@ pub use move_op::{Cap, DeleteScope, Route, SupportCopyAndDelete, SupportMove, Tr
 // UNIVERSAL: execute_copy/execute_move cũ đã gộp về jobs — chỉ giữ Route/Cap/Support*.
 pub use copy_op::{Cap as CopyCap, Route as CopyRoute, SupportCopy, TransferKind as CopyTransferKind};
 pub use delete_op::{DeleteScope as SharedDeleteScope, EmptyDirs as DeleteEmptyDirs, Route as DeleteRoute, execute_delete, execute_delete_with_empty_dirs};
+// UNIVERSAL: TrashCap 1 não cho thùng rác remote (checkcap là nguồn duy nhất).
+pub use checkcap::{TrashCap, check_trash_cap};
 
 /// Năng lực gợi ý cho explorer (tên cũ: `explorer::Cap`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
