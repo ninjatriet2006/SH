@@ -21,11 +21,22 @@ fn scan_themes() -> Vec<ThemeInfo> {
             if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("json") {
                 continue;
             }
-            let Ok(content) = fs::read_to_string(&path) else {
-                continue;
+            let content = match fs::read_to_string(&path) {
+                Ok(c) => c,
+                // UNIVERSAL: file theme đọc lỗi → warn rồi bỏ qua (đồng bộ với
+                // core::resources), tránh theme biến mất khỏi UI không dấu vết.
+                Err(e) => {
+                    crate::core::debug::warn(None, "themes_loader", format!("bỏ qua theme đọc lỗi {}: {}", path.display(), e));
+                    continue;
+                }
             };
-            let Ok(theme) = serde_json::from_str::<ThemeInfo>(&content) else {
-                continue;
+            let theme = match serde_json::from_str::<ThemeInfo>(&content) {
+                Ok(t) => t,
+                // UNIVERSAL: JSON theme hỏng → warn kèm tên file rồi bỏ qua.
+                Err(e) => {
+                    crate::core::debug::warn(None, "themes_loader", format!("bỏ qua theme JSON hỏng {}: {}", path.display(), e));
+                    continue;
+                }
             };
             if safe_id(&theme.id) && theme.id != "default" {
                 themes.push(theme);

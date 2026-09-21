@@ -43,17 +43,33 @@ pub async fn import_config_remote(name: String, ini: String) -> Result<(), Strin
 }
 
 #[tauri::command]
-pub async fn get_engine_flags() -> Result<crate::settings::engine::GlobalFlags, String> {
+pub async fn get_engine_flags() -> Result<crate::settings::engine::EngineSettings, String> {
     fastlane(crate::settings::engine::load_engine_flags).await
 }
 
 #[tauri::command]
 pub async fn set_engine_flags(
-    flags: crate::settings::engine::GlobalFlags,
-) -> Result<crate::settings::engine::GlobalFlags, String> {
+    flags: crate::settings::engine::EngineSettings,
+) -> Result<crate::settings::engine::EngineSettings, String> {
     fastlane(move || {
         crate::settings::engine::save_engine_flags(&flags)?;
         Ok(flags)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn get_debug_settings() -> Result<crate::settings::diagnostics::DebugSettings, String> {
+    fastlane(crate::settings::diagnostics::load_debug_settings).await
+}
+
+#[tauri::command]
+pub async fn set_debug_settings(
+    settings: crate::settings::diagnostics::DebugSettings,
+) -> Result<crate::settings::diagnostics::DebugSettings, String> {
+    fastlane(move || {
+        crate::settings::diagnostics::save_debug_settings(&settings)?;
+        Ok(settings)
     })
     .await
 }

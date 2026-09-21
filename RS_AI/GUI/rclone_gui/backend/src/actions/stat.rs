@@ -87,7 +87,7 @@ fn read_local_ownership(remote: &str, target: &str) -> (u32, u32, u32) {
 /// UNIVERSAL: `size --json` + đếm `lsjson -R --dirs-only`; ownership chỉ Local.
 pub async fn execute_stat(path: String) -> Result<StatInfo, String> {
     let fast_list = crate::settings::engine::load_engine_flags()
-        .map(|f| f.fast_list)
+        .map(|f| f.switches.fast_list)
         .unwrap_or(false);
     let plan = plan_stat(&path, fast_list)?;
     let (remote, _) = cut_remote_path(&path);

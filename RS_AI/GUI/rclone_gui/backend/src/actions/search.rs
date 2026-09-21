@@ -70,7 +70,7 @@ pub fn plan_search(path: &str, query: &str, fast_list: bool) -> Result<SearchPla
 /// UNIVERSAL: cả Local và remote đều tìm qua `lsjson` đệ quy.
 pub async fn execute_search(path: String, query: String) -> Result<Vec<SearchResultItem>, String> {
     let fast_list = crate::settings::engine::load_engine_flags()
-        .map(|f| f.fast_list)
+        .map(|f| f.switches.fast_list)
         .unwrap_or(false);
     let plan = plan_search(&path, &query, fast_list)?;
     let (remote, real_path) = cut_remote_path(&path);

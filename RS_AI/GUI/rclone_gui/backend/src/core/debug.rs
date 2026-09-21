@@ -62,6 +62,27 @@ pub fn log_file_path() -> PathBuf {
     config_dir().join("backend.log")
 }
 
+/// UNIVERSAL: dọn rác log ở RANH GIỚI job — nếu `backend.log` vượt `max_bytes`
+/// thì đổi tên thành `backend.log.old` (đè đời cũ, giữ đúng 2 đời) rồi để lần
+/// ghi kế tạo file mới. Gọi sau khi một job kết thúc để nhóm log không bị xé lẻ.
+/// Mọi lỗi IO đều bỏ qua (dọn log không được phép làm hỏng luồng chính).
+pub fn rotate_if_oversized(max_bytes: u64) {
+    rotate_path_if_oversized(&log_file_path(), max_bytes);
+}
+
+/// UNIVERSAL: lõi xoay vòng theo đường dẫn cho sẵn (tách khỏi `log_file_path`
+/// để test trên file tạm, không đụng `backend.log` thật). Mọi lỗi IO bỏ qua.
+fn rotate_path_if_oversized(path: &std::path::Path, max_bytes: u64) {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return; // Chưa có file hoặc không đọc được → không cần xoay.
+    };
+    if meta.len() <= max_bytes {
+        return;
+    }
+    let old = path.with_extension("log.old");
+    let _ = std::fs::rename(path, &old);
+}
+
 /// Ghi một dòng log: file append (best-effort) + `eprintln!` + event
 /// `backend-log` khi có handle (best-effort, thiếu thì bỏ qua).
 pub fn log(handle: Option<&AppHandle>, level: Level, tag: &str, message: impl AsRef<str>) {
@@ -103,6 +124,17 @@ pub fn error(handle: Option<&AppHandle>, tag: &str, message: impl AsRef<str>) {
     log(handle, Level::Error, tag, message);
 }
 
+/// UNIVERSAL: định dạng thời lượng gọn cho dòng nhật ký vòng đời job:
+/// dưới 1 giây ghi mili-giây (`820ms`), từ 1 giây ghi giây một chữ số (`4.2s`).
+pub fn human_elapsed(d: std::time::Duration) -> String {
+    let secs = d.as_secs_f64();
+    if secs < 1.0 {
+        format!("{}ms", d.as_millis())
+    } else {
+        format!("{:.1}s", secs)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,5 +156,31 @@ mod tests {
     fn log_without_handle_does_not_panic() {
         // Ghi file + eprintln, không emit event.
         log(None, Level::Info, "test", "hello");
+    }
+
+    #[test]
+    fn human_elapsed_switches_unit_at_one_second() {
+        // UNIVERSAL: dưới 1s ghi ms, từ 1s ghi giây 1 chữ số.
+        assert_eq!(human_elapsed(std::time::Duration::from_millis(820)), "820ms");
+        assert_eq!(human_elapsed(std::time::Duration::from_millis(4200)), "4.2s");
+    }
+
+    #[test]
+    fn rotate_only_when_over_threshold() {
+        // UNIVERSAL: test trên file tạm riêng (không đụng backend.log thật).
+        let base = std::env::temp_dir().join(format!("rclone_gui_rotate_test_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&base);
+        let path = base.join("backend.log");
+        let old = path.with_extension("log.old");
+        let _ = std::fs::remove_file(&old);
+        std::fs::write(&path, b"0123456789").expect("seed log");
+        // Ngưỡng lớn hơn kích thước → không xoay.
+        rotate_path_if_oversized(&path, 1_000);
+        assert!(path.is_file(), "dưới ngưỡng phải giữ nguyên");
+        // Ngưỡng nhỏ hơn kích thước → xoay sang .old.
+        rotate_path_if_oversized(&path, 5);
+        assert!(old.is_file(), "vượt ngưỡng phải tạo .old");
+        assert!(!path.is_file(), "vượt ngưỡng thì .log đã đổi tên");
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

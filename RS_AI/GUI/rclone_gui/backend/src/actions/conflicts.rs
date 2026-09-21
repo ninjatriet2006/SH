@@ -110,7 +110,7 @@ pub async fn check_conflicts(
     crate::logic::fastlane::fastlane(move || {
         // UNIVERSAL: đệ quy + fast-list khi bật cờ engine; tắt thì giữ args cũ.
         let fast_list = crate::settings::engine::load_engine_flags()
-            .map(|f| f.fast_list)
+            .map(|f| f.switches.fast_list)
             .unwrap_or(false);
         let mut conflicts = Vec::new();
 

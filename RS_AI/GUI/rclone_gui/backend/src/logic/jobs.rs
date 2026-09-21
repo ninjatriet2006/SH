@@ -210,7 +210,7 @@ impl JobStore {
                 error: None,
                 mode: ChildMode::Item,
                 across: false,
-                engine_flags: crate::settings::engine::GlobalFlags::default(),
+                engine_flags: crate::settings::engine::EngineSettings::default(),
             })
             .collect();
         let total = kids.len();
@@ -233,7 +233,7 @@ impl JobStore {
         &self,
         id: &str,
         across: bool,
-        flags: crate::settings::engine::GlobalFlags,
+        flags: crate::settings::engine::EngineSettings,
     ) -> Vec<QueueItem> {
         let kids = vec![QueueItem {
             job_id: id.to_string(),
@@ -375,6 +375,19 @@ impl JobStore {
             } else {
                 continue;
             }
+            // UNIVERSAL: nhật ký vòng đời — mốc START, tag `job-...` để lọc
+            // trọn hành trình 1 job (chống phân mảnh khi nhiều job chạy chung).
+            let started_at = std::time::Instant::now();
+            crate::core::debug::info(
+                None,
+                &id,
+                format!(
+                    "BẮT ĐẦU {:?} | {} → {}",
+                    snapshot.kind,
+                    snapshot.src.as_deref().unwrap_or("-"),
+                    snapshot.dst.as_deref().unwrap_or("-"),
+                ),
+            );
             // UNIVERSAL S2: Copy/Move do `run_transfer_job` tự điều phối vé
             // (bulk 1 vé / off bóc manifest) rồi chạy qua `execute_children`;
             // kind khác giữ đường cũ (nở best-effort, vỏ rỗng → chạy đơn).
@@ -425,6 +438,18 @@ impl JobStore {
                     j.error = Some(e);
                 }),
             };
+            // UNIVERSAL: nhật ký vòng đời — khối tổng kết END nguyên khối (1 job
+            // = 1 dòng đủ: kết cục, tiến độ con, %, thời lượng, lý do nếu lỗi).
+            // Lấy state cuối để có số đếm/lỗi chuẩn dù `done` là None.
+            let final_job = done.clone().or_else(|| self.get(&id));
+            self.log_job_end(&id, final_job.as_ref(), started_at.elapsed());
+            // UNIVERSAL: dọn rác log Ở RANH GIỚI job (sau khi nhóm log của job
+            // này đã ghi xong) — cắt không bao giờ xé đôi hành trình một job.
+            // Ngưỡng do người dùng chỉnh (diagnostics.json); lỗi đọc → mặc định.
+            let rotate_bytes = crate::settings::diagnostics::load_debug_settings()
+                .unwrap_or_default()
+                .log_rotate_bytes();
+            crate::core::debug::rotate_if_oversized(rotate_bytes);
             if let (Some(job), Some(e)) = (done, emit.as_mut()) {
                 e(job);
             } else if emit.is_some() {
@@ -433,6 +458,35 @@ impl JobStore {
                 if let (Some(job), Some(e)) = (self.get(&id), emit.as_mut()) {
                     e(job);
                 }
+            }
+        }
+    }
+
+    /// UNIVERSAL: đóng dấu dòng END cho một job — chọn mức + câu chữ theo kết
+    /// cục cuối (match enum `JobStatus` đủ tay, cấm wildcard). Fail giữa chừng
+    /// ghi kèm con thứ mấy/tổng + % + lý do để soi được chết ở đâu.
+    fn log_job_end(&self, id: &str, job: Option<&Job>, elapsed: std::time::Duration) {
+        let dur = crate::core::debug::human_elapsed(elapsed);
+        let Some(job) = job else {
+            // Mất state cuối (lock hỏng thoáng qua) — vẫn ghi 1 dòng để không nuốt.
+            crate::core::debug::warn(None, id, format!("KẾT THÚC (mất state) | {dur}"));
+            return;
+        };
+        let progress = format!("{}/{} con | {}%", job.child_done, job.child_total, job.progress);
+        match job.status {
+            JobStatus::Done => {
+                crate::core::debug::info(None, id, format!("XONG {:?} | {progress} | {dur}", job.kind));
+            }
+            JobStatus::Cancelled => {
+                crate::core::debug::info(None, id, format!("HỦY {:?} | {progress} | {dur}", job.kind));
+            }
+            JobStatus::Error => {
+                let reason = job.error.as_deref().unwrap_or("(không rõ)");
+                crate::core::debug::error(None, id, format!("LỖI {:?} | {progress} | {dur} | {reason}", job.kind));
+            }
+            // Job vẫn Queued/Running lúc END là bất thường (state chưa chốt) → warn.
+            JobStatus::Queued | JobStatus::Running => {
+                crate::core::debug::warn(None, id, format!("KẾT THÚC BẤT THƯỜNG {:?}={:?} | {progress} | {dur}", job.kind, job.status));
             }
         }
     }
@@ -512,7 +566,7 @@ impl JobStore {
         let flags = crate::settings::engine::load_engine_flags().unwrap_or_default();
         // UNIVERSAL: não chung check_cap (UI hỏi + đường chạy hỏi) — across
         // lấy từ Cap.server_side; bulk/item/policy/progress/cancel giữ nguyên.
-        if flags.bulk_transfer {
+        if flags.switches.bulk_transfer {
             let across = crate::actions::checkcap::check_cap(&src, &dst).server_side;
             self.set_children_bulk(&job.id, across, flags);
         } else {
@@ -725,11 +779,15 @@ impl JobStore {
             for (id, _, _) in &dirty {
                 if let Some(list) = ck.get_mut(id) {
                     for k in list.iter_mut() {
-                        if k.status == JobStatus::Running {
-                            k.status = JobStatus::Error;
-                            k.error = Some(MSG.to_string());
-                        } else if k.status == JobStatus::Queued {
-                            k.status = JobStatus::Cancelled;
+                        // UNIVERSAL: match enum nội bộ đủ 5 tay để compiler bắt khi
+                        // thêm status mới; con đang chạy → lỗi, đang chờ → hủy.
+                        match k.status {
+                            JobStatus::Running => {
+                                k.status = JobStatus::Error;
+                                k.error = Some(MSG.to_string());
+                            }
+                            JobStatus::Queued => k.status = JobStatus::Cancelled,
+                            JobStatus::Done | JobStatus::Error | JobStatus::Cancelled => {}
                         }
                     }
                 }
@@ -930,10 +988,13 @@ mod tests {
         // off (manifest bóc) → N vé Item.
         let (store, path) = temp_store("s2_bulk");
         let job = store.enqueue(JobKind::Copy, Some("/a".into()), Some("/b".into()));
-        let flags = crate::settings::engine::GlobalFlags {
-            bulk_transfer: true,
-            server_side_across: true,
-            ..crate::settings::engine::GlobalFlags::default()
+        let flags = crate::settings::engine::EngineSettings {
+            switches: crate::settings::engine::EngineSwitches {
+                bulk_transfer: true,
+                server_side_across: true,
+                ..Default::default()
+            },
+            ..Default::default()
         };
         let one = store.set_children_bulk(&job.id, true, flags.clone());
         assert_eq!(one.len(), 1);
@@ -967,7 +1028,7 @@ mod tests {
         let item: QueueItem = serde_json::from_value(old).expect("legacy ticket loads");
         assert_eq!(item.mode, ChildMode::Item);
         assert!(!item.across);
-        assert_eq!(item.engine_flags, crate::settings::engine::GlobalFlags::default());
+        assert_eq!(item.engine_flags, crate::settings::engine::EngineSettings::default());
         let whole = QueueItem {
             job_id: "j".into(),
             path: String::new(),
@@ -976,9 +1037,12 @@ mod tests {
             error: None,
             mode: ChildMode::Whole,
             across: true,
-            engine_flags: crate::settings::engine::GlobalFlags {
-                server_side_across: true,
-                ..crate::settings::engine::GlobalFlags::default()
+            engine_flags: crate::settings::engine::EngineSettings {
+                switches: crate::settings::engine::EngineSwitches {
+                    server_side_across: true,
+                    ..Default::default()
+                },
+                ..Default::default()
             },
         };
         let back: QueueItem =

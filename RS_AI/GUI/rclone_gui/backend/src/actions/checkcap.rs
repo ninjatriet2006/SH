@@ -149,7 +149,7 @@ impl Route {
 /// (`logic::queue`/`logic::jobs`) đều gọi đây; THUẦN tính toán, KHÔNG thực thi move.
 pub fn check_cap(src: &str, dst: &str) -> Cap {
     let across_enabled = crate::settings::engine::load_engine_flags()
-        .map(|f| f.server_side_across)
+        .map(|f| f.switches.server_side_across)
         .unwrap_or(false);
     check_cap_with_flags(src, dst, across_enabled)
 }

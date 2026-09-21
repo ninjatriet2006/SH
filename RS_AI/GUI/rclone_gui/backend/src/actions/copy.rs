@@ -142,7 +142,7 @@ impl Route {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::engine::GlobalFlags;
+    use crate::settings::engine::{EngineSettings, EngineSwitches, EngineTuning};
 
     #[test]
     fn copy_diffcloud_cap_same_vs_diff_provider() {
@@ -157,13 +157,16 @@ mod tests {
     #[test]
     fn copy_diffcloud_args_same_vs_diff_provider() {
         // UNIVERSAL: cùng hãng + bật cờ engine → có cờ xuyên-config trong args rclone.
-        let on = GlobalFlags { server_side_across: true, ..GlobalFlags::default() };
+        let on = EngineSettings {
+            switches: EngineSwitches { server_side_across: true, ..Default::default() },
+            ..Default::default()
+        };
         let same_args = whole_args("copyto", "A:/a", "B:/b", &on, true);
         assert!(same_args.contains(&"--server-side-across-configs".to_string()));
         // UNIVERSAL: khác hãng / tắt cờ → args giữ nguyên, không có cờ.
         let diff_args = whole_args("copyto", "A:/a", "B:/b", &on, false);
         assert!(!diff_args.contains(&"--server-side-across-configs".to_string()));
-        let off = GlobalFlags::default();
+        let off = EngineSettings::default();
         let off_args = whole_args("copyto", "A:/a", "B:/b", &off, true);
         assert!(!off_args.contains(&"--server-side-across-configs".to_string()));
     }
@@ -171,7 +174,7 @@ mod tests {
     #[test]
     fn whole_args_keep_legacy_behavior_by_default() {
         // UNIVERSAL: default (4/8, các cờ tắt) giữ hành vi cũ, không cờ thêm.
-        let flags = GlobalFlags::default();
+        let flags = EngineSettings::default();
         let args = whole_args("copyto", "A:/a", "B:/b", &flags, false);
         assert!(args.contains(&"--transfers=4".to_string()));
         assert!(args.contains(&"--checkers=8".to_string()));
@@ -184,14 +187,18 @@ mod tests {
     #[test]
     fn whole_args_append_optional_switches() {
         // UNIVERSAL: bật dry-run/backup/across thì args phải có đủ cờ.
-        let flags = GlobalFlags {
-            transfers: 2,
-            checkers: 3,
-            fast_list: false,
-            server_side_across: true,
-            dry_run: true,
-            backup_dir: Some("/tmp/bk".to_string()),
-            bulk_transfer: false,
+        let flags = EngineSettings {
+            switches: EngineSwitches {
+                fast_list: false,
+                server_side_across: true,
+                dry_run: true,
+                bulk_transfer: false,
+            },
+            tuning: EngineTuning {
+                transfers: 2,
+                checkers: 3,
+                backup_dir: Some("/tmp/bk".to_string()),
+            },
         };
         let args = whole_args("copyto", "A:/a", "B:/b", &flags, true);
         assert!(args.contains(&"--transfers=2".to_string()));
@@ -210,26 +217,26 @@ pub(crate) fn whole_args(
     cmd: &str,
     src: &str,
     dst: &str,
-    flags: &crate::settings::engine::GlobalFlags,
+    flags: &crate::settings::engine::EngineSettings,
     server_side_across: bool,
 ) -> Vec<String> {
     let mut args = vec![
         cmd.to_string(),
         src.to_string(),
         dst.to_string(),
-        format!("--transfers={}", flags.transfers),
-        format!("--checkers={}", flags.checkers),
+        format!("--transfers={}", flags.tuning.transfers),
+        format!("--checkers={}", flags.tuning.checkers),
         "--use-json-log".to_string(),
         "--stats".to_string(),
         "0.5s".to_string(),
         "-v".to_string(),
     ];
     // UNIVERSAL: dry-run thử trước, không ghi gì lên đích.
-    if flags.dry_run {
+    if flags.switches.dry_run {
         args.push("--dry-run".to_string());
     }
     // UNIVERSAL: giữ bản bị ghi đè/xoá vào backup-dir thay vì mất hẳn.
-    if let Some(dir) = flags.backup_dir.as_deref() {
+    if let Some(dir) = flags.tuning.backup_dir.as_deref() {
         let dir = dir.trim();
         if !dir.is_empty() {
             args.push(format!("--backup-dir={dir}"));
@@ -237,7 +244,7 @@ pub(crate) fn whole_args(
     }
     // UNIVERSAL: cùng hãng + bật cờ — server-side xuyên-config, không qua local.
     // UNIVERSAL: khác hãng / tắt cờ — giữ nguyên args cũ.
-    if flags.server_side_across && server_side_across {
+    if flags.switches.server_side_across && server_side_across {
         args.push("--server-side-across-configs".to_string());
     }
     args
@@ -250,7 +257,7 @@ pub(crate) fn item_args(
     cmd: &str,
     src: &str,
     dst: &str,
-    flags: &crate::settings::engine::GlobalFlags,
+    flags: &crate::settings::engine::EngineSettings,
 ) -> Vec<String> {
     let mut args = vec![
         cmd.to_string(),
@@ -261,10 +268,10 @@ pub(crate) fn item_args(
         "0.5s".to_string(),
         "-v".to_string(),
     ];
-    if flags.dry_run {
+    if flags.switches.dry_run {
         args.push("--dry-run".to_string());
     }
-    if let Some(dir) = flags.backup_dir.as_deref() {
+    if let Some(dir) = flags.tuning.backup_dir.as_deref() {
         let dir = dir.trim();
         if !dir.is_empty() {
             args.push(format!("--backup-dir={dir}"));

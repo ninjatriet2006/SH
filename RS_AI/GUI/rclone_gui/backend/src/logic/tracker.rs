@@ -46,7 +46,7 @@ pub struct TransferTicket {
     #[serde(default)]
     pub across: bool,
     /// UNIVERSAL: snapshot cờ engine do JOB đóng dấu.
-    pub engine_flags: crate::settings::engine::GlobalFlags,
+    pub engine_flags: crate::settings::engine::EngineSettings,
     /// UNIVERSAL: chính sách leo thang quyền đóng dấu lúc dispatch.
     pub policy: crate::actions::perm::Policy,
 }

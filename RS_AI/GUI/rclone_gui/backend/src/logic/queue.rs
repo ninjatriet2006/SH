@@ -26,7 +26,7 @@ pub enum ChildMode {
 /// `status` riêng từng con để worker chạy tuần tự và báo tiến độ cha.
 /// QUEUE là thằng làm, không quyết: `mode`/`across`/`engine_flags` do JOB
 /// đóng dấu 1 lần lúc dispatch, tầng chạy chỉ đọc vé, không đọc engine settings.
-/// (UNIVERSAL: chỉ `PartialEq` vì snapshot `GlobalFlags` của engine không `Eq`.)
+/// (UNIVERSAL: `EngineSettings` giờ đã `Eq` nên `QueueItem` cũng phái sinh được.)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QueueItem {
     pub job_id: String,
@@ -43,7 +43,7 @@ pub struct QueueItem {
     pub across: bool,
     /// UNIVERSAL S2: snapshot cờ engine do JOB đóng dấu (vé cũ thiếu → default).
     #[serde(default)]
-    pub engine_flags: crate::settings::engine::GlobalFlags,
+    pub engine_flags: crate::settings::engine::EngineSettings,
 }
 
 /// UNIVERSAL: một vé điểm danh — một món trong thư mục đã bóc qua `lsjson -R`.
@@ -115,7 +115,7 @@ pub fn manifest(src: &str) -> Result<Vec<ManifestItem>, String> {
     let target = crate::core::rclone_caller::build_target(&remote, &safe);
     // UNIVERSAL: đọc cờ engine; lỗi đọc thì rớt về tắt để giữ hành vi cũ.
     let fast = crate::settings::engine::load_engine_flags()
-        .map(|f| f.fast_list)
+        .map(|f| f.switches.fast_list)
         .unwrap_or(false);
     let args = manifest_args(&target, fast);
     let refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
@@ -259,16 +259,22 @@ impl JobStore {
                 Some(c) => c,
                 None => continue,
             };
+            // UNIVERSAL: Mức B — nhật ký từng vé con, cùng tag `job-...` với cha
+            // để lọc 1 job ra thấy trọn các bước con (con thứ mấy/tổng + path).
+            let pos = format!("con {}/{}", idx + 1, total);
             match self.execute_child(job, &child) {
                 Ok(()) => {
                     self.update_child_progress(&job.id, idx, JobStatus::Done, None);
+                    crate::core::debug::info(None, &job.id, format!("  {pos} xong | {}", child.path));
                 }
                 Err(e) if e == "job cancelled" || self.is_cancel_requested(&job.id) => {
                     self.update_child_progress(&job.id, idx, JobStatus::Cancelled, None);
+                    crate::core::debug::info(None, &job.id, format!("  {pos} hủy | {}", child.path));
                     return Err("job cancelled".to_string());
                 }
                 Err(e) => {
                     self.update_child_progress(&job.id, idx, JobStatus::Error, Some(e.clone()));
+                    crate::core::debug::error(None, &job.id, format!("  {pos} LỖI | {} | {e}", child.path));
                     // Vé còn lại chưa chạy → cancelled theo cha lỗi.
                     if let Ok(mut kids) = self.children.lock() {
                         if let Some(list) = kids.get_mut(&job.id) {

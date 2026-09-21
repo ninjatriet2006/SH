@@ -29,15 +29,18 @@ mod tests {
 
     #[test]
     fn move_diffcloud_args_same_vs_diff_provider() {
-        use crate::settings::engine::GlobalFlags;
+        use crate::settings::engine::{EngineSettings, EngineSwitches};
         // UNIVERSAL: cùng hãng + bật cờ engine → có cờ xuyên-config trong args rclone.
-        let on = GlobalFlags { server_side_across: true, ..GlobalFlags::default() };
+        let on = EngineSettings {
+            switches: EngineSwitches { server_side_across: true, ..Default::default() },
+            ..Default::default()
+        };
         let same_args = whole_args("moveto", "A:/a", "B:/b", &on, true);
         assert!(same_args.contains(&"--server-side-across-configs".to_string()));
         // UNIVERSAL: khác hãng / tắt cờ → args giữ nguyên, không có cờ.
         let diff_args = whole_args("moveto", "A:/a", "B:/b", &on, false);
         assert!(!diff_args.contains(&"--server-side-across-configs".to_string()));
-        let off = GlobalFlags::default();
+        let off = EngineSettings::default();
         let off_args = whole_args("moveto", "A:/a", "B:/b", &off, true);
         assert!(!off_args.contains(&"--server-side-across-configs".to_string()));
     }
@@ -45,8 +48,8 @@ mod tests {
     #[test]
     fn move_item_args_stay_single_with_json_log() {
         // UNIVERSAL: vé từng món là lệnh đơn nhưng vẫn json-log để stream tiến độ.
-        use crate::settings::engine::GlobalFlags;
-        let args = item_args("moveto", "A:/a", "B:/b", &GlobalFlags::default());
+        use crate::settings::engine::EngineSettings;
+        let args = item_args("moveto", "A:/a", "B:/b", &EngineSettings::default());
         assert_eq!(&args[0..3], &["moveto", "A:/a", "B:/b"]);
         assert!(args.contains(&"--use-json-log".to_string()));
         assert!(!args.iter().any(|a| a.starts_with("--transfers=")));

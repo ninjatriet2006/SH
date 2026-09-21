@@ -98,6 +98,8 @@ pub fn run() {
             api::config::import_config_remote,
             api::config::get_engine_flags,
             api::config::set_engine_flags,
+            api::config::get_debug_settings,
+            api::config::set_debug_settings,
             // ==================
             // LANG API
             // ==================
