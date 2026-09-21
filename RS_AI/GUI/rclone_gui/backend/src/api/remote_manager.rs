@@ -5,9 +5,9 @@
   `actions::remotes` qua `logic::fastlane::fastlane`. Không chạy rclone trực tiếp.
 - Tương tác: Được gọi từ frontend qua Tauri command (`list_remotes`, `create_remote`...).
 */
-// UNIVERSAL: thợ chạy ở `actions::remotes::*_inner` (đồng bộ); cửa chỉ bọc `fastlane`.
+// UNIVERSAL: thợ chạy ở `actions::{remotes,checkfeature,checksize}::*_inner` (đồng bộ); cửa chỉ bọc `fastlane`.
 
-use crate::actions::remotes;
+use crate::actions::{checkfeature, checksize, remotes};
 use crate::logic::fastlane::fastlane;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -54,27 +54,27 @@ pub async fn update_remote(name: String, options: HashMap<String, String>) -> Re
 /// Tên hàm: get_backend_features
 /// Mô tả: Kiểm tra xem ổ đĩa cloud này có hỗ trợ tính năng nào (vd: Thùng rác, copy server-side...).
 pub async fn get_backend_features(remote: String) -> Result<Value, String> {
-    // UNIVERSAL: wrapper mỏng — logic chạy ở `actions::remotes::backend_features_inner`.
-    fastlane(move || remotes::backend_features_inner(&remote)).await
+    // UNIVERSAL: wrapper mỏng — logic chạy ở `actions::checkfeature::backend_features_inner`.
+    fastlane(move || checkfeature::backend_features_inner(&remote)).await
 }
 
 /// Tên hàm: check_transfer_capability
 /// Mô tả: Đánh giá khả năng copy/move giữa 2 đường dẫn thông qua rclone features.
 pub async fn check_transfer_capability(src: String, dst: String) -> Result<Value, String> {
-    // UNIVERSAL: wrapper mỏng — logic chạy ở `actions::remotes::transfer_capability_inner`.
-    fastlane(move || remotes::transfer_capability_inner(&src, &dst)).await
+    // UNIVERSAL: wrapper mỏng — logic chạy ở `actions::checkfeature::transfer_capability_inner`.
+    fastlane(move || checkfeature::transfer_capability_inner(&src, &dst)).await
 }
 
 /// Tên hàm: rclone_about
 /// Mô tả: Lấy thông tin dung lượng của một remote (total, used, free, trashed, other).
 pub async fn rclone_about(remote: String) -> Result<Value, String> {
-    // UNIVERSAL: wrapper mỏng — logic chạy ở `actions::remotes::about_inner`.
-    fastlane(move || remotes::about_inner(&remote)).await
+    // UNIVERSAL: wrapper mỏng — logic chạy ở `actions::checksize::about_inner`.
+    fastlane(move || checksize::about_inner(&remote)).await
 }
 
 /// Tên hàm: rclone_size
 /// Mô tả: Lấy thông tin kích thước và số lượng tệp của một remote hoặc thư mục.
 pub async fn rclone_size(remote: String) -> Result<Value, String> {
-    // UNIVERSAL: wrapper mỏng — logic chạy ở `actions::remotes::size_inner`.
-    fastlane(move || remotes::size_inner(&remote)).await
+    // UNIVERSAL: wrapper mỏng — logic chạy ở `actions::checksize::size_inner`.
+    fastlane(move || checksize::size_inner(&remote)).await
 }

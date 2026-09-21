@@ -26,6 +26,8 @@ pub mod conflicts;
 pub mod list;
 pub mod rename;
 pub mod remotes;
+pub mod checkfeature;
+pub mod checksize;
 pub mod search;
 pub mod stat;
 pub mod view;
