@@ -1,8 +1,7 @@
 //! UNIVERSAL S2 mount micro: truy vấn chỉ đọc (fuse + liệt kê + đọc config).
 //! Chặn luồng (tầng api bọc `fastlane`); parse ExecStart giữ hành vi cũ.
 
-use crate::actions::mount_creator::{MountConfig, shlex_split, validate_service_name};
-use crate::actions::mount_files::service_path;
+use crate::actions::mount_editor::{MountConfig, service_path, shlex_split, validate_service_name};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -164,7 +163,7 @@ pub fn scan_mount_services() -> Result<Vec<SystemdServiceInfo>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::actions::mount_creator::render_unit;
+    use crate::actions::mount_editor::render_unit;
 
     #[test]
     fn parse_roundtrips_rendered_unit() {

@@ -1,7 +1,12 @@
-//! UNIVERSAL S2 mount micro: MountConfig + validate + render unit thuần.
+//! UNIVERSAL S2 mount micro: editor (validate/render + đường dẫn + ghi/xóa file service).
+//! Gộp từ `mount_creator` (validate/render thuần) + `mount_files` (đường dẫn/ghi/xóa).
 //! Thuần (dễ test): validate/render không chạm đĩa ngoài `which rclone`.
+//! Chặn luồng (gọi trong `fastlane` ở tầng api).
 
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
 
 /// UNIVERSAL: cấu hình 1 service rclone mount (JSON giữ nguyên).
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -168,6 +173,104 @@ pub fn shlex_split(input: &str) -> Vec<String> {
     parts
 }
 
+/// UNIVERSAL: thư mục chứa unit theo level (user `~/.config/systemd/user`, system `/etc/systemd/system`).
+pub fn service_dir(is_user: bool) -> PathBuf {
+    if is_user {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
+        PathBuf::from(home).join(".config/systemd/user")
+    } else {
+        PathBuf::from("/etc/systemd/system")
+    }
+}
+
+/// UNIVERSAL: đường dẫn file `<name>.service` đã khóa trong thư mục service.
+/// `validate_service_name` chỉ cho `[A-Za-z0-9_-]` nên đã chặn `/`, `..`, thoát thư mục.
+pub fn service_path(service_name: &str, is_user: bool) -> Result<PathBuf, String> {
+    validate_service_name(service_name)?;
+    Ok(service_dir(is_user).join(format!("{service_name}.service")))
+}
+
+/// UNIVERSAL: hậu tố ngẫu nhiên cho file tạm (không đoán được, không va chạm).
+fn random_suffix() -> String {
+    // UNIVERSAL: ưu tiên /dev/urandom (đọc đúng 8 byte); rớt xuống pid + thời gian khi lỗi.
+    if let Ok(mut f) = fs::File::open("/dev/urandom") {
+        use std::io::Read;
+        let mut buf = [0u8; 8];
+        if f.read_exact(&mut buf).is_ok() {
+            let mut s = String::with_capacity(16);
+            for b in buf {
+                s.push_str(&format!("{b:02x}"));
+            }
+            return s;
+        }
+    }
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let pid = std::process::id() as u128;
+    format!("{:x}", nanos ^ (pid << 64 | 0x9e37_79b9_7f4a_7c15))
+}
+
+/// UNIVERSAL: file tạm system tên ngẫu nhiên khó đoán (tránh `/tmp/<tên>.service` cố định).
+fn temp_service_path(service_name: &str) -> PathBuf {
+    PathBuf::from(format!("/tmp/.{service_name}.{}.service", random_suffix()))
+}
+
+/// UNIVERSAL: ghi nội dung unit (user: viết trực tiếp; system: qua `pkexec cp` từ file tạm).
+pub fn write_service_file(service_name: &str, is_user: bool, content: &str) -> Result<PathBuf, String> {
+    let path = service_path(service_name, is_user)?;
+    if !is_user {
+        // UNIVERSAL: file tạm quyền chặt (0600) + tên ngẫu nhiên, xong xóa kể cả khi lỗi.
+        let tmp_path = temp_service_path(service_name);
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut opts = fs::OpenOptions::new();
+            opts.create_new(true).write(true).mode(0o600);
+            use std::io::Write;
+            let mut f = opts.open(&tmp_path).map_err(|e| e.to_string())?;
+            f.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
+        }
+        let out = Command::new("pkexec")
+            .arg("cp")
+            .arg(&tmp_path)
+            .arg(path.to_string_lossy().as_ref())
+            .output()
+            .map_err(|e| e.to_string())?;
+        let _ = fs::remove_file(&tmp_path);
+        if !out.status.success() {
+            return Err(format!("Lỗi cấp quyền root: {}", String::from_utf8_lossy(&out.stderr)));
+        }
+    } else {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        fs::write(&path, content).map_err(|e| e.to_string())?;
+    }
+    crate::actions::mount_control::daemon_reload(is_user);
+    Ok(path)
+}
+
+/// UNIVERSAL: xóa file service (system qua `pkexec rm -f`) + daemon-reload.
+pub fn remove_service_file(service_name: &str, is_user: bool) -> Result<(), String> {
+    let path = service_path(service_name, is_user)?;
+    if !is_user {
+        let out = Command::new("pkexec")
+            .arg("rm")
+            .arg("-f")
+            .arg(path.to_string_lossy().as_ref())
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !out.status.success() {
+            return Err(format!("Lỗi cấp quyền root: {}", String::from_utf8_lossy(&out.stderr)));
+        }
+    } else {
+        let _ = fs::remove_file(&path);
+    }
+    crate::actions::mount_control::daemon_reload(is_user);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,5 +330,29 @@ mod tests {
         let parts = shlex_split("/usr/bin/rclone mount \"gdrive:my docs\" \"/mnt/gdrive\" --allow-other");
         assert_eq!(parts[2], "gdrive:my docs");
         assert_eq!(parts[3], "/mnt/gdrive");
+    }
+
+    #[test]
+    fn service_path_is_contained_and_canonical() {
+        let path = service_path("rclone-safe", false).expect("safe path");
+        assert_eq!(path, PathBuf::from("/etc/systemd/system/rclone-safe.service"));
+        assert!(service_path("../../tmp/owned", false).is_err());
+        assert!(service_path("a/b", true).is_err());
+        assert!(service_path("", true).is_err());
+        assert!(service_path(&"a".repeat(129), true).is_err());
+        // UNIVERSAL: user level khóa đúng thư mục user.
+        assert_eq!(
+            service_path("demo", true).expect("user path"),
+            service_dir(true).join("demo.service")
+        );
+    }
+
+    #[test]
+    fn temp_path_is_unpredictable_and_not_fixed_name() {
+        let a = temp_service_path("rclone-safe");
+        let b = temp_service_path("rclone-safe");
+        assert_ne!(a, b);
+        assert_ne!(a, PathBuf::from("/tmp/rclone-safe.service"));
+        assert!(a.to_string_lossy().starts_with("/tmp/.rclone-safe."));
     }
 }

@@ -1,7 +1,7 @@
 //! UNIVERSAL S2 mount micro: start/stop/enable/disable qua systemctl.
 //! System level đi qua `pkexec systemctl`; chặn luồng (gọi trong `fastlane`).
 
-use crate::actions::mount_creator::{validate_action, validate_service_name};
+use crate::actions::mount_editor::{validate_action, validate_service_name};
 use std::process::Command;
 
 /// UNIVERSAL: chạy 1 action systemctl đã allowlist lên service đã validate.
@@ -26,6 +26,15 @@ pub fn run_action(service_name: &str, is_user: bool, action: &str) -> Result<Str
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
     }
     Ok(format!("Lệnh {action} thành công"))
+}
+
+/// UNIVERSAL: nạp lại systemd sau khi thêm/xóa unit (editor gọi ké sau ghi/xóa).
+pub fn daemon_reload(is_user: bool) {
+    if is_user {
+        let _ = Command::new("systemctl").arg("--user").arg("daemon-reload").output();
+    } else {
+        let _ = Command::new("pkexec").arg("systemctl").arg("daemon-reload").output();
+    }
 }
 
 #[cfg(test)]

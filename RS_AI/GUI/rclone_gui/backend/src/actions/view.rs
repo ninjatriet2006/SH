@@ -67,6 +67,58 @@ pub fn plan_thumbnail(path: &str) -> Result<ThumbnailPlan, String> {
     Ok(ThumbnailPlan { local_path, group })
 }
 
+/// UNIVERSAL: thực thi thumbnail từ `plan_thumbnail` (video→ffmpegthumbnailer,
+/// pdf→pdftoppm, còn lại→image crate; trả data URI base64).
+pub async fn execute_thumbnail(path: String) -> Result<String, String> {
+    fastlane(move || {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        use std::io::Cursor;
+
+        let plan = plan_thumbnail(&path)?;
+        match plan.group {
+            // UNIVERSAL: video qua `ffmpegthumbnailer`, hỏng thì rơi xuống decode ảnh.
+            ThumbnailGroup::Video => {
+                let output = Command::new("ffmpegthumbnailer")
+                    .args(["-i", &plan.local_path, "-o", "-", "-s", "64", "-c", "jpeg", "-f"])
+                    .output();
+                if let Ok(out) = output {
+                    if out.status.success() {
+                        let base64_str = STANDARD.encode(&out.stdout);
+                        return Ok(format!("data:image/jpeg;base64,{}", base64_str));
+                    }
+                }
+            }
+            // UNIVERSAL: pdf qua `pdftoppm`, hỏng thì rơi xuống decode ảnh.
+            ThumbnailGroup::Pdf => {
+                let output = Command::new("pdftoppm")
+                    .args([
+                        "-jpeg", "-f", "1", "-l", "1", "-singlefile", "-scale-to", "64",
+                        &plan.local_path,
+                    ])
+                    .output();
+                if let Ok(out) = output {
+                    if out.status.success() {
+                        let base64_str = STANDARD.encode(&out.stdout);
+                        return Ok(format!("data:image/jpeg;base64,{}", base64_str));
+                    }
+                }
+            }
+            // UNIVERSAL: còn lại thử decode ảnh trực tiếp (`image` crate).
+            ThumbnailGroup::Image => {}
+        }
+
+        let img = image::open(&plan.local_path).map_err(|e| format!("Lỗi mở ảnh: {}", e))?;
+        let thumb = img.thumbnail(64, 64);
+        let mut buffer = Cursor::new(Vec::new());
+        thumb
+            .write_to(&mut buffer, image::ImageFormat::Jpeg)
+            .map_err(|e| format!("Lỗi tạo thumb: {}", e))?;
+        let base64_str = STANDARD.encode(buffer.into_inner());
+        Ok(format!("data:image/jpeg;base64,{}", base64_str))
+    })
+    .await
+}
+
 /// Dựng plan `view`: Local trả đường dẫn gốc (không tải); remote tải `copyto` về temp.
 pub fn plan_view_download(src: &str) -> Result<ViewPlan, String> {
     let (remote, real) = cut_remote_path(src);
