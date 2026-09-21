@@ -3,14 +3,14 @@
 - Mục đích: Trial S1 bóc logic `fs_delete` (`purge`/`deletefile` + sudo fallback) thành
   `execute_delete`, cộng thêm nhánh Trash; `fs_delete` cũ giữ nguyên hành vi.
 - Trách nhiệm: Phân tuyến (Route) + loại target (IsDir) + phạm vi xóa (DeleteScope) → chọn lệnh.
-- Tương tác: Gọi `logic::file_ops::{parse_remote_path, run_with_sudo_fallback}`,
+- Tương tác: Gọi `core::path::cut_remote_path` + `actions::perm::escalate`,
   `core::{rclone_caller, task::blocking}`. `DeleteScope` dùng chung cho copy/move/delete (S2).
   Không đụng move/copy/ipc/frontend.
 */
 
 pub use crate::actions::types::{DeleteScope, EmptyDirs};
 use crate::core::{rclone_caller, task};
-use crate::logic::file_ops;
+use crate::core::path::cut_remote_path;
 
 /// Tuyến xóa, suy từ remote chứa target (`"Local"` = ổ máy).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +31,35 @@ impl Route {
     }
 }
 
+/// UNIVERSAL: bản ĐỒNG BỘ cho worker job/queue (sync, không AppHandle/State) —
+/// cùng ngữ nghĩa nhánh `NoTrash` của `execute_delete` (xóa vĩnh viễn như
+/// `fs_delete`): phán đoán kiểu trước qua `is_dir` rồi `purge`/`deletefile` +
+/// thử lệnh còn lại, qua `perm::escalate` với policy đã đóng dấu lúc dispatch.
+pub fn execute_delete_sync(path: &str, policy: crate::actions::perm::Policy) -> Result<(), String> {
+    let (remote, real_path) = cut_remote_path(path);
+    let target = rclone_caller::build_target(&remote, &real_path);
+    // UNIVERSAL: chạm Tier route để giữ một nguồn sự thật về tuyến xóa.
+    let _ = Route::classify(&remote);
+    let is_dir = crate::actions::types::is_dir(&target).unwrap_or(true);
+    // UNIVERSAL: thư mục `purge` trước, file `deletefile` trước; rớt qua lệnh
+    // còn lại khi phán đoán kiểu sai (giữ đúng thứ tự `fs_delete` cũ).
+    let (first, second) = if is_dir {
+        ("purge", "deletefile")
+    } else {
+        ("deletefile", "purge")
+    };
+    crate::actions::perm::escalate(policy, &remote, "rm", std::slice::from_ref(&real_path), || {
+        let output = rclone_caller::run_cmd(&[first, &target])?;
+        if output.status.success() {
+            return Ok(());
+        }
+        let retry = rclone_caller::run_cmd(&[second, &target])?;
+        if retry.status.success() {
+            return Ok(());
+        }
+        Err(String::from_utf8_lossy(&output.stderr).into_owned())
+    })
+}
 /// Trial S1: thực thi xóa theo phạm vi, cùng hành vi `api::files::fs_delete` ở nhánh `NoTrash`.
 ///
 /// Không đổi cờ rclone; chọn lệnh bằng `match` trên ([`Route`], IsDir, [`DeleteScope`]).
@@ -47,7 +76,7 @@ pub async fn execute_delete_with_empty_dirs(
     scope: DeleteScope,
     empty_dirs: EmptyDirs,
 ) -> Result<(), String> {
-    let (remote, real_path) = file_ops::parse_remote_path(&path);
+    let (remote, real_path) = cut_remote_path(&path);
     let route = Route::classify(&remote);
     let target = rclone_caller::build_target(&remote, &real_path);
 
@@ -131,7 +160,13 @@ pub async fn execute_delete_with_empty_dirs(
                 // UNIVERSAL: thư mục — `purge` xóa đệ quy; rớt qua `deletefile` nếu đoán sai kiểu.
                 true => {
                     task::blocking(move || {
-                        file_ops::run_with_sudo_fallback(&remote, "rm", std::slice::from_ref(&real_path), || {
+                        // UNIVERSAL: hành vi cũ = AllowSystem (tự pkexec khi lỗi quyền Local).
+                        crate::actions::perm::escalate(
+                            crate::actions::perm::Policy::AllowSystem,
+                            &remote,
+                            "rm",
+                            std::slice::from_ref(&real_path),
+                            || {
                             let output = rclone_caller::run_cmd(&["purge", &target])?;
                             if output.status.success() {
                                 return Ok(());
@@ -157,7 +192,13 @@ pub async fn execute_delete_with_empty_dirs(
                 // UNIVERSAL: file — `deletefile` xóa đúng một file; rớt qua `purge` nếu đoán sai kiểu.
                 false => {
                     task::blocking(move || {
-                        file_ops::run_with_sudo_fallback(&remote, "rm", std::slice::from_ref(&real_path), || {
+                        // UNIVERSAL: hành vi cũ = AllowSystem (tự pkexec khi lỗi quyền Local).
+                        crate::actions::perm::escalate(
+                            crate::actions::perm::Policy::AllowSystem,
+                            &remote,
+                            "rm",
+                            std::slice::from_ref(&real_path),
+                            || {
                             let output = rclone_caller::run_cmd(&["deletefile", &target])?;
                             if output.status.success() {
                                 return Ok(());

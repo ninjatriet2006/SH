@@ -5,6 +5,8 @@
 //! chạy tuần tự từng vé con qua runner dùng chung bên dưới.
 
 use super::jobs::{Job, JobKind, JobStatus, JobStore};
+use crate::actions::perm::Policy;
+use crate::logic::tracker::{Tracker, TransferMode, TransferTicket};
 use serde::{Deserialize, Serialize};
 
 /// UNIVERSAL S2: chế độ chạy của vé con — tường minh trên vé, QUEUE chỉ làm theo.
@@ -53,7 +55,7 @@ pub struct ManifestItem {
 }
 
 /// UNIVERSAL: dựng args `lsjson -R` cho `manifest()`; bật `fast_list` thì thêm
-/// `--fast-list` (khớp quy ước `file_ops::check_conflicts`), tắt thì giữ args cũ.
+/// `--fast-list` (khớp quy ước `actions::conflicts::check_conflicts`), tắt thì giữ args cũ.
 pub fn manifest_args(target: &str, fast_list: bool) -> Vec<String> {
     if fast_list {
         vec![
@@ -104,7 +106,7 @@ pub fn parse_manifest_json(json_str: &str) -> Result<Vec<ManifestItem>, String> 
 /// UNIVERSAL: quét `lsjson -R` rồi bóc thư mục thành vé từng món qua
 /// [`parse_manifest_json`]; tôn trọng cờ `fast_list` của engine.
 pub fn manifest(src: &str) -> Result<Vec<ManifestItem>, String> {
-    let (remote, real) = crate::logic::file_ops::parse_remote_path(src);
+    let (remote, real) = crate::core::path::cut_remote_path(src);
     let safe = if remote == "Local" && real.is_empty() {
         "/".to_string()
     } else {
@@ -136,89 +138,57 @@ fn join_child(base: &str, rel: &str) -> String {
     }
 }
 
-/// UNIVERSAL S2: chạy một vé con copy/move theo `mode` tường minh trên vé
-/// (QUEUE không đọc engine settings, không nhận tham số bulk).
-/// - `Whole`: toàn bộ src→dst một lệnh, dùng `build_transfer_args` với cờ +
-///   `across` đã đóng dấu trên vé.
-/// - `Item`: một lệnh đơn (`copyto`/`moveto`) cho `path` tương đối của vé.
-///   Giữ sudo fallback cả hai nhánh; cancel/progress do vòng `execute_children`
-///   giữ (kiểm tra cờ hủy mỗi vé, tiến độ = con xong / tổng con).
+/// UNIVERSAL S2: chạy một vé con copy/move bằng actions `execute_*` (QUEUE chỉ
+/// điều phối, không tự spawn rclone, không tự parse — actions phun dòng thô,
+/// queue hỏi `Tracker` (nơi duy nhất tính %) rồi ghi vào Job).
+/// - Vé (`mode`/`across`/`engine_flags`) do JOB đóng dấu lúc dispatch — đây chỉ
+///   map `ChildMode` → `TransferMode` rồi truyền vé nguyên dạng.
+/// - `should_cancel` ngó `JobStore::is_cancel_requested` (do `execute_child` cấp);
+///   `on_log_line` nhận dòng thô từ actions (do `execute_child` cấp, tự hỏi tracker).
+/// - `policy` lấy từ `job.policy` (JOB đóng dấu lúc dispatch) — actions bọc
+///   `perm::escalate` nên chưa consent trả `PERMISSION_CONSENT` thay vì pkexec.
 pub(super) fn run_child_transfer(
     is_copy: bool,
     src: &str,
     dst: &str,
     child: &QueueItem,
+    policy: Policy,
+    should_cancel: impl Fn() -> bool,
+    on_log_line: impl FnMut(&str),
 ) -> Result<(), String> {
-    let cmd = if is_copy { "copyto" } else { "moveto" };
-    let (src_remote, src_real) = crate::logic::file_ops::parse_remote_path(src);
-    let (dst_remote, dst_real) = crate::logic::file_ops::parse_remote_path(dst);
-    match child.mode {
-        // UNIVERSAL: vé nguyên khối — cờ + across đều lấy từ vé (JOB đóng dấu).
-        ChildMode::Whole => {
-            let src_target = crate::core::rclone_caller::build_target(&src_remote, &src_real);
-            let dst_target = crate::core::rclone_caller::build_target(&dst_remote, &dst_real);
-            let args = crate::logic::transfer::build_transfer_args(
-                cmd,
-                &src_target,
-                &dst_target,
-                &child.engine_flags,
-                child.across,
-            );
-            let refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-            let run = || {
-                let out = crate::core::rclone_caller::run_cmd(&refs)?;
-                if out.status.success() {
-                    return Ok(());
-                }
-                Err(String::from_utf8_lossy(&out.stderr).trim().to_owned())
-            };
-            // UNIVERSAL: Local↔Local rớt qua `pkexec cp/mv` như `execute_copy`/`execute_move`.
-            if src_remote == "Local" && dst_remote == "Local" {
-                let action = if is_copy { "cp" } else { "mv" };
-                return crate::logic::file_ops::run_with_sudo_fallback(
-                    "Local",
-                    action,
-                    &[src_real, dst_real],
-                    run,
-                );
-            }
-            run()
-        }
-        // UNIVERSAL: vé từng món — một lệnh đơn cho `path` của vé.
-        ChildMode::Item => {
-            let full_src = join_child(&src_real, &child.path);
-            let full_dst = join_child(&dst_real, &child.path);
-            let src_target = crate::core::rclone_caller::build_target(&src_remote, &full_src);
-            let dst_target = crate::core::rclone_caller::build_target(&dst_remote, &full_dst);
-            crate::logic::file_ops::run_with_sudo_fallback(&src_remote, cmd, &[full_src], || {
-                let out = crate::core::rclone_caller::run_cmd(&[cmd, &src_target, &dst_target])?;
-                if out.status.success() {
-                    return Ok(());
-                }
-                Err(String::from_utf8_lossy(&out.stderr).trim().to_owned())
-            })
-        }
+    let ticket = TransferTicket {
+        src: src.to_string(),
+        dst: dst.to_string(),
+        rel: child.path.clone(),
+        mode: match child.mode {
+            ChildMode::Whole => TransferMode::Whole,
+            ChildMode::Item => TransferMode::Item,
+        },
+        across: child.across,
+        engine_flags: child.engine_flags.clone(),
+        policy,
+    };
+    if is_copy {
+        crate::actions::copy_op::execute_copy(ticket, should_cancel, on_log_line)
+    } else {
+        crate::actions::move_op::execute_move(ticket, should_cancel, on_log_line)
     }
 }
 
-/// UNIVERSAL S2: chạy một vé con delete (`deletefile` → rớt `purge` + sudo
-/// fallback), cùng ngữ nghĩa nhánh `NoTrash` của `execute_delete` (xóa vĩnh viễn
-/// như `fs_delete`). Đồng bộ vì lý do như [`run_child_transfer`].
-pub(super) fn run_child_delete(src: &str, rel: &str) -> Result<(), String> {
-    let (remote, real) = crate::logic::file_ops::parse_remote_path(src);
+/// UNIVERSAL S2: chạy một vé con delete qua actions `execute_delete_sync`
+/// (cùng ngữ nghĩa nhánh `NoTrash` của `execute_delete`: xóa vĩnh viễn như
+/// `fs_delete` — `deletefile` → rớt `purge` + sudo fallback).
+/// UNIVERSAL: `policy` từ `job.policy` — chưa consent trả `PERMISSION_CONSENT`.
+pub(super) fn run_child_delete(src: &str, rel: &str, policy: Policy) -> Result<(), String> {
+    let (remote, real) = crate::core::path::cut_remote_path(src);
     let full = join_child(&real, rel);
-    let target = crate::core::rclone_caller::build_target(&remote, &full);
-    crate::logic::file_ops::run_with_sudo_fallback(&remote, "rm", std::slice::from_ref(&full), || {
-        let out = crate::core::rclone_caller::run_cmd(&["deletefile", &target])?;
-        if out.status.success() {
-            return Ok(());
-        }
-        let retry = crate::core::rclone_caller::run_cmd(&["purge", &target])?;
-        if retry.status.success() {
-            return Ok(());
-        }
-        Err(String::from_utf8_lossy(&out.stderr).trim().to_owned())
-    })
+    // UNIVERSAL: dựng lại chuỗi gốc cho actions parse (`Remote::/path`, Local trần).
+    let path = if remote == "Local" {
+        full
+    } else {
+        format!("{remote}::{full}")
+    };
+    crate::actions::delete_op::execute_delete_sync(&path, policy)
 }
 
 impl JobStore {
@@ -315,10 +285,12 @@ impl JobStore {
     }
 
     /// UNIVERSAL S2: một vé con — rẽ theo `mode` tường minh trên vé (không suy
-    /// từ "`path` rỗng = bulk"): `Whole` chạy toàn bộ src→dst qua
-    /// `run_child_transfer` với cờ/across đã đóng dấu; `Item` là vỏ dir `Ok`
-    /// ngay, file thì một lệnh đơn theo kind cha; `List`/`Manifest` chỉ điểm
-    /// danh nên `Ok` ngay.
+    /// từ "`path` rỗng = bulk"): `Whole` chạy toàn bộ src→dst qua actions
+    /// `execute_*` với vé đã đóng dấu + closure ngó cờ hủy + sink dòng thô hỏi
+    /// `Tracker` (nơi duy nhất tính %) rồi ghi % vào tiến độ cha (Whole 1 vé =
+    /// tiến độ job, jobs nhận % từ queue như cũ); `Item` là vỏ dir `Ok` ngay,
+    /// file thì một lệnh đơn theo kind cha (tiến độ cha giữ theo con xong/tổng
+    /// con nên sink no-op); `List`/`Manifest` chỉ điểm danh nên `Ok` ngay.
     fn execute_child(&self, job: &Job, child: &QueueItem) -> Result<(), String> {
         if self.is_cancel_requested(&job.id) {
             return Err("job cancelled".to_string());
@@ -332,7 +304,26 @@ impl JobStore {
                         .dst
                         .clone()
                         .ok_or_else(|| format!("{} job missing dst", cmd))?;
-                    run_child_transfer(job.kind == JobKind::Copy, &src, &dst, child)
+                    // UNIVERSAL: actions phun dòng thô → hỏi Tracker lấy % rồi ghi
+                    // vào tiến độ cha (Tracker lọc trùng % sẵn, không cần last riêng).
+                    let job_id = job.id.clone();
+                    let mut tracker = Tracker::new();
+                    run_child_transfer(
+                        job.kind == JobKind::Copy,
+                        &src,
+                        &dst,
+                        child,
+                        job.policy,
+                        || self.is_cancel_requested(&job_id),
+                        |line: &str| {
+                            if let Some(st) = tracker.next_stats(line) {
+                                let pct = st.percent;
+                                self.update(&job_id, |j| {
+                                    j.progress = pct;
+                                });
+                            }
+                        },
+                    )
                 }
                 _ => Ok(()),
             },
@@ -344,7 +335,7 @@ impl JobStore {
                     JobKind::List | JobKind::Manifest => Ok(()),
                     JobKind::Delete => {
                         let src = job.src.clone().unwrap_or_default();
-                        run_child_delete(&src, &child.path)
+                        run_child_delete(&src, &child.path, job.policy)
                     }
                     JobKind::Copy | JobKind::Move => {
                         let cmd = if job.kind == JobKind::Copy { "copyto" } else { "moveto" };
@@ -353,7 +344,18 @@ impl JobStore {
                             .dst
                             .clone()
                             .ok_or_else(|| format!("{} job missing dst", cmd))?;
-                        run_child_transfer(job.kind == JobKind::Copy, &src, &dst, child)
+                        // UNIVERSAL: tiến độ cha = con xong/tổng con (vòng
+                        // `execute_children` giữ) nên intra-file stream no-op.
+                        let job_id = job.id.clone();
+                        run_child_transfer(
+                            job.kind == JobKind::Copy,
+                            &src,
+                            &dst,
+                            child,
+                            job.policy,
+                            || self.is_cancel_requested(&job_id),
+                            |_| {},
+                        )
                     }
                 }
             }

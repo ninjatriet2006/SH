@@ -345,7 +345,7 @@ pub async fn get_mount_service_config(service_name: String, is_user: bool) -> Re
                 while i < parts.len() {
                     if parts[i] == "mount" && i + 2 < parts.len() {
                         let remote_full = parts[i + 1].to_string();
-                        let (r_name, r_path) = crate::logic::file_ops::parse_remote_path(&remote_full);
+                        let (r_name, r_path) = crate::core::path::cut_remote_path(&remote_full);
                         config.remote_name = r_name;
                         config.remote_path = r_path.trim_start_matches('/').to_string();
                         config.mount_path = parts[i + 2].to_string();

@@ -1,19 +1,16 @@
 /*
 [INTEGRITY NOTES]
 - Mục đích: API Endpoints thao tác File (Command Tauri).
-- Trách nhiệm: Nhận request từ Frontend (tham số đường dẫn gộp chung kiểu Remote::/Path), gọi tầng `logic` để phân tích và thực thi.
-- Tương tác: Giao tiếp trực tiếp với Frontend. Gọi `logic::file_ops`, `logic::transfer`.
+- Trách nhiệm: Nhận request từ Frontend (tham số đường dẫn gộp chung kiểu Remote::/Path), gọi tầng `logic`/`actions` để phân tích và thực thi.
+- Tương tác: Giao tiếp trực tiếp với Frontend. Copy/move/cancel chạy qua `logic::jobs`.
 */
+// UNIVERSAL: fs_copy/fs_move/fs_cancel cũ đã gộp về jobs — xóa wrapper đường cũ.
 
 use serde::{Deserialize, Serialize};
 
 use crate::actions::perm::Policy;
 use crate::core::task::blocking;
-use crate::logic::app_state::AppState;
-use crate::logic::file_ops;
-use crate::logic::transfer;
 use std::process::Command;
-use tauri::State;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[allow(non_snake_case)]
@@ -28,7 +25,8 @@ pub async fn fs_check_conflicts(
     srcs: Vec<String>,
     dest_path: String,
 ) -> Result<Vec<ConflictInfo>, String> {
-    file_ops::check_conflicts(app_handle, srcs, dest_path).await
+    // UNIVERSAL: wrapper mỏng — logic chạy ở `actions::conflicts::check_conflicts`.
+    crate::actions::conflicts::check_conflicts(app_handle, srcs, dest_path).await
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -83,32 +81,6 @@ pub async fn fs_touch(path: String) -> Result<(), String> {
 pub async fn fs_rename(old_path: String, new_path: String) -> Result<(), String> {
     // UNIVERSAL: wrapper mỏng — logic chạy ở `actions::rename::execute_rename` (AllowSystem = hành vi cũ).
     crate::actions::rename::execute_rename(old_path, new_path, Policy::AllowSystem).await
-}
-
-pub async fn fs_copy(
-    app_handle: tauri::AppHandle,
-    state: State<'_, AppState>,
-    src: String,
-    dst: String,
-    task_id: Option<u32>,
-) -> Result<(), String> {
-    // UNIVERSAL: wrapper mỏng — policy + sudo fallback chạy trong `actions::copy_op::execute_copy`.
-    crate::actions::copy_op::execute_copy(app_handle, state, src, dst, task_id).await
-}
-
-pub async fn fs_move(
-    app_handle: tauri::AppHandle,
-    state: State<'_, AppState>,
-    src: String,
-    dst: String,
-    task_id: Option<u32>,
-) -> Result<(), String> {
-    // UNIVERSAL: wrapper mỏng — policy + sudo fallback chạy trong `actions::move_op::execute_move`.
-    crate::actions::move_op::execute_move(app_handle, state, src, dst, task_id).await
-}
-
-pub async fn fs_cancel(state: State<'_, AppState>, task_id: u32) -> Result<(), String> {
-    transfer::cancel_transfer(state, task_id)
 }
 
 pub async fn fs_stat_advanced(path: String) -> Result<StatInfo, String> {

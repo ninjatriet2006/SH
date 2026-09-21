@@ -2,10 +2,11 @@
 [INTEGRITY NOTES]
 - Mục đích: Định nghĩa trạng thái toàn cục (App State) cho ứng dụng.
 - Trách nhiệm:
-  + Lưu danh sách PIDs của các tiến trình rclone ngầm để hỗ trợ việc Hủy (Cancel).
   + Giữ inotify watcher và đường dẫn Local đang được theo dõi cho từng pane.
-- Tương tác: Được sử dụng bởi `logic/transfer.rs`, `logic/watcher.rs` và `api/files.rs`.
+  + Giữ chính sách leo thang quyền (Policy) và job queue (JobStore).
+- Tương tác: Được sử dụng bởi `logic::jobs`, `logic::watcher` và `ipc.rs`.
 */
+// UNIVERSAL: đường transfer cũ (pids/cancel) đã gộp về jobs — không còn map pid.
 
 use crate::actions::perm::Policy;
 use crate::logic::jobs::JobStore;
@@ -15,9 +16,6 @@ use std::sync::{Arc, Mutex};
 
 /// Cấu trúc lưu trữ trạng thái toàn cục của ứng dụng
 pub struct AppState {
-    // Lưu các tiến trình (PIDs) đang chạy để quản lý hủy tác vụ (kill)
-    pub pids: Mutex<HashMap<u32, u32>>,
-
     /// Trình theo dõi biến động hệ thống file nội bộ (inotify trên Linux).
     /// `None` nếu khởi tạo thất bại — khi đó tính năng tự làm mới sẽ tắt.
     pub local_watcher: Mutex<Option<RecommendedWatcher>>,
@@ -30,14 +28,13 @@ pub struct AppState {
     /// Mặc định `AskOnce` — lỗi quyền trả `PERMISSION_CONSENT` để frontend hỏi.
     pub policy: Mutex<Policy>,
 
-    /// P1 job queue (song song với luồng cũ; P2 mới cắm actions thật).
+    /// P1 job queue (đường duy nhất cho copy/move/delete/list).
     pub jobs: Arc<JobStore>,
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self {
-            pids: Mutex::new(HashMap::new()),
             local_watcher: Mutex::new(None),
             watched_paths: Mutex::new(HashMap::new()),
             policy: Mutex::new(Policy::default()),

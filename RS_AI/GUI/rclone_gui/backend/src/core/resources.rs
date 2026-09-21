@@ -9,6 +9,8 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
+use crate::core::log;
+
 /// Gốc tài nguyên đã dò (cache) — mọi resource phải cùng một base, nếu không sẽ
 /// xảy ra trạng thái nửa vời (thư mục này thấy, thư mục kia không).
 static RESOURCE_BASE: OnceLock<PathBuf> = OnceLock::new();
@@ -18,6 +20,9 @@ static RESOURCE_BASE: OnceLock<PathBuf> = OnceLock::new();
 pub fn init_resource_base(path: PathBuf) {
     if path.join(RESOURCE_ANCHOR).is_dir() {
         let _ = RESOURCE_BASE.set(path);
+    } else {
+        // Warn only: giữ nguyên (không set base) vì thiếu langs/ → UI hiện raw ID.
+        log::warn(None, "resources", format!("init_resource_base thiếu {}/ trong {}", RESOURCE_ANCHOR, path.display()));
     }
 }
 
@@ -57,8 +62,11 @@ fn detect_resource_base() -> PathBuf {
         }
     }
 
-    // Không tìm được: trả CWD để hành vi vẫn xác định (không panic).
-    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    // Không tìm được: warn rồi trả CWD để hành vi vẫn xác định (không panic).
+    // Thiếu langs/ → UI hiện raw ID.
+    let fallback = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    log::warn(None, "resources", format!("không tìm thấy {}/, dùng CWD {}", RESOURCE_ANCHOR, fallback.display()));
+    fallback
 }
 
 /// Gốc tài nguyên (đã cache).

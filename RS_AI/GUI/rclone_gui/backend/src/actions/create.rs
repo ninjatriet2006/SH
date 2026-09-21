@@ -2,7 +2,7 @@
 [INTEGRITY NOTES]
 - Mục đích: Trial S1 bóc đặc tả `fs_mkdir`/`fs_touch` (họ tạo) thành plan thuần.
 - Trách nhiệm: parse → build_target → chọn sudo fallback; khớp `match` trên `RemoteKind`.
-- Tương tác: Chỉ gọi hàm thuần `logic::file_ops::parse_remote_path`,
+- Tương tác: Chỉ gọi hàm thuần `core::path::cut_remote_path`,
   `core::rclone_caller::build_target`. Không chạy lệnh, không wire `fs_*` cũ / IPC.
 */
 
@@ -11,7 +11,7 @@ use crate::actions::perm::{Policy, classify_permission_error, escalate};
 use crate::actions::types::RemoteKind;
 use crate::core::{rclone_caller, task};
 use crate::core::rclone_caller::build_target;
-use crate::logic::file_ops::parse_remote_path;
+use crate::core::path::cut_remote_path;
 
 /// Đặc tả thuần cho `mkdir`: target rclone + lệnh + sudo fallback.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,7 +31,7 @@ pub struct TouchPlan {
 
 /// Dựng plan `mkdir` từ đường dẫn `Remote::/Path`; lỗi khi đường dẫn rỗng.
 pub fn plan_mkdir(path: &str) -> Result<MkdirPlan, String> {
-    let (remote, real) = parse_remote_path(path);
+    let (remote, real) = cut_remote_path(path);
     if real.is_empty() {
         return Err("Thiếu đường dẫn cần tạo.".to_string());
     }
@@ -54,7 +54,7 @@ pub fn plan_mkdir(path: &str) -> Result<MkdirPlan, String> {
 
 /// Dựng plan `touch` từ đường dẫn `Remote::/Path`; lỗi khi đường dẫn rỗng.
 pub fn plan_touch(path: &str) -> Result<TouchPlan, String> {
-    let (remote, real) = parse_remote_path(path);
+    let (remote, real) = cut_remote_path(path);
     if real.is_empty() {
         return Err("Thiếu đường dẫn cần tạo tệp.".to_string());
     }
@@ -79,7 +79,7 @@ pub fn plan_touch(path: &str) -> Result<TouchPlan, String> {
 /// `Deny`/`AskOnce` trả `PERMISSION_CONSENT` để frontend park + hỏi.
 pub async fn execute_mkdir(path: String, policy: Policy) -> Result<(), String> {
     let plan = plan_mkdir(&path)?;
-    let (remote, real_path) = parse_remote_path(&path);
+    let (remote, real_path) = cut_remote_path(&path);
     let target = plan.target.clone();
     task::blocking(move || {
         escalate(policy, &remote, "mkdir", std::slice::from_ref(&real_path), || {

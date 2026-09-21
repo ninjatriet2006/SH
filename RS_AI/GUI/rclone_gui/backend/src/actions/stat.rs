@@ -2,7 +2,7 @@
 [INTEGRITY NOTES]
 - Mục đích: Trial S1 bóc đặc tả `fs_stat_advanced` thành plan thuần (`size --json`).
 - Trách nhiệm: parse → build_target → chọn lệnh `size`/`lsjson`; khớp `match` trên `RemoteKind`.
-- Tương tác: Chỉ gọi hàm thuần `logic::file_ops::parse_remote_path`,
+- Tương tác: Chỉ gọi hàm thuần `core::path::cut_remote_path`,
   `core::rclone_caller::build_target`. Không chạy lệnh, không wire `fs_*` cũ / IPC.
 */
 
@@ -12,7 +12,7 @@ use crate::api::files::StatInfo;
 use crate::core::rclone_caller;
 use crate::core::task::blocking;
 use crate::core::rclone_caller::build_target;
-use crate::logic::file_ops::parse_remote_path;
+use crate::core::path::cut_remote_path;
 use serde::Deserialize;
 
 /// Đặc tả thuần cho `stat`: lệnh `size --json` + đếm thư mục `lsjson`.
@@ -26,7 +26,7 @@ pub struct StatPlan {
 /// Dựng plan `stat` (`size --json` + `lsjson -R --dirs-only`).
 /// UNIVERSAL: `fast_list` bật thì gắn `--fast-list` cho nhánh đếm đệ quy.
 pub fn plan_stat(path: &str, fast_list: bool) -> Result<StatPlan, String> {
-    let (remote, real) = parse_remote_path(path);
+    let (remote, real) = cut_remote_path(path);
     let kind = RemoteKind::classify(&remote);
     let _cap = Cap::of(kind);
     let target = build_target(&remote, &real);
@@ -79,7 +79,7 @@ pub async fn execute_stat(path: String) -> Result<StatInfo, String> {
         .map(|f| f.fast_list)
         .unwrap_or(false);
     let plan = plan_stat(&path, fast_list)?;
-    let (remote, _) = parse_remote_path(&path);
+    let (remote, _) = cut_remote_path(&path);
     blocking(move || {
         let mut size_cmd = vec!["size"];
         size_cmd.extend(plan.size_args.iter().map(|s| s.as_str()));

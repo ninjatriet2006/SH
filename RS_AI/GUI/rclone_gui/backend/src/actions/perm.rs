@@ -2,12 +2,12 @@
 [INTEGRITY NOTES]
 - Mục đích: Trial S1 bóc đặc tả `fs_chmod`/`fs_chown` thành plan thuần.
 - Trách nhiệm: guard Local-only + chuẩn hóa mode/spec + chọn sudo; khớp `match` trên `RemoteKind`.
-- Tương tác: Chỉ gọi hàm thuần `logic::file_ops::parse_remote_path`.
+- Tương tác: Chỉ gọi hàm thuần `core::path::cut_remote_path`.
   Không chạy lệnh, không wire `fs_*` cũ / IPC.
 */
 
 use crate::actions::types::RemoteKind;
-use crate::logic::file_ops::parse_remote_path;
+use crate::core::path::cut_remote_path;
 use serde::{Deserialize, Serialize};
 
 /// S2: chính sách leo thang quyền do người dùng chốt qua dialog consent.
@@ -186,7 +186,7 @@ pub struct ChownPlan {
 
 /// Dựng plan `chmod`; remote → lỗi Local-only. Chỉ giữ 12 bit quyền.
 pub fn plan_chmod(path: &str, mode: u32) -> Result<ChmodPlan, String> {
-    let (remote, real) = parse_remote_path(path);
+    let (remote, real) = cut_remote_path(path);
     let kind = RemoteKind::classify(&remote);
     let cap = Cap::of(kind);
     if !cap.allowed {
@@ -220,7 +220,7 @@ pub fn plan_chmod(path: &str, mode: u32) -> Result<ChmodPlan, String> {
 
 /// Dựng plan `chown`; remote → lỗi Local-only.
 pub fn plan_chown(path: &str, uid: u32, gid: u32) -> Result<ChownPlan, String> {
-    let (remote, real) = parse_remote_path(path);
+    let (remote, real) = cut_remote_path(path);
     let kind = RemoteKind::classify(&remote);
     let cap = Cap::of(kind);
     if !cap.allowed {

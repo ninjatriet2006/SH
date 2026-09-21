@@ -1,40 +1,15 @@
 /*
 [INTEGRITY NOTES]
-- Mục đích: Xử lý logic nghiệp vụ cao cấp cho thao tác File (Bóc tách chuỗi, kiểm tra quyền, sao chép hàng loạt).
-- Trách nhiệm: Rút gọn dữ liệu mà Frontend gửi xuống. Thực thi sudo fallback tự động nếu thiếu quyền Local.
-- Tương tác: Gọi `core::rclone_caller`, `core::sys`. Gọi từ `api::files`.
+- Mục đích: Kiểm tra xung đột hash giữa source và dest trước copy/move.
+- Trách nhiệm: `lsjson` đích cấp 1 + `lsjson -R` đệ quy khi cả 2 là thư mục.
+- Tương tác: Gọi `core::{path, rclone_caller, task}`, `actions::types::is_dir`.
+  `api::files::fs_check_conflicts` là wrapper mỏng. Không đụng IPC/frontend.
 */
+// UNIVERSAL: bê nguyên văn logic `logic::file_ops::check_conflicts` (giữ hành vi).
+// TODO(S2): dùng chung manifest/máy quét `logic::queue::manifest` khi rẻ.
 
 use crate::api::files::ConflictInfo;
-
-/// Tên hàm: parse_remote_path
-/// Mô tả: Bóc tách chuỗi "GDrive::/Documents" thành remote ("GDrive") và đường dẫn ("/Documents").
-pub fn parse_remote_path(full_path: &str) -> (String, String) {
-    if let Some(idx) = full_path.find("::") {
-        let remote = full_path[..idx].to_string();
-        let path = full_path[idx + 2..].to_string();
-        (remote, path)
-    } else {
-        ("Local".to_string(), full_path.to_string())
-    }
-}
-
-/// Tên hàm: run_with_sudo_fallback
-/// Mô tả: Bọc lệnh rclone/os. Nếu chạy thất bại do Permission Denied và đây là ổ Local, tự động gọi pkexec (sudo).
-/// S2: giữ nguyên hành vi cũ = `perm::escalate(AllowSystem, ...)`; luồng có consent
-/// gọi thẳng `perm::escalate(policy, ...)` để nhận `PERMISSION_CONSENT`.
-pub fn run_with_sudo_fallback<F>(remote: &str, action: &str, args: &[String], fallback_cmd: F) -> Result<(), String>
-where
-    F: FnOnce() -> Result<(), String>,
-{
-    crate::actions::perm::escalate(
-        crate::actions::perm::Policy::AllowSystem,
-        remote,
-        action,
-        args,
-        fallback_cmd,
-    )
-}
+use crate::core::path::cut_remote_path;
 
 /// Tên hàm: check_conflicts
 /// Mô tả: Kích hoạt `rclone check` ngầm để đệ quy kiểm tra xung đột hash giữa source và dest.
@@ -51,7 +26,7 @@ pub async fn check_conflicts(
             .unwrap_or(false);
         let mut conflicts = Vec::new();
 
-        let (dest_remote, dest_real) = parse_remote_path(&dest_path);
+        let (dest_remote, dest_real) = cut_remote_path(&dest_path);
         let dest_target = crate::core::rclone_caller::build_target(&dest_remote, &dest_real);
 
         // Lấy danh sách các file/thư mục hiện có ở cấp 1 của thư mục đích
@@ -76,7 +51,7 @@ pub async fn check_conflicts(
                 .collect();
 
             for src_item in srcs {
-                let (src_remote, src_real_path) = parse_remote_path(&src_item);
+                let (src_remote, src_real_path) = cut_remote_path(&src_item);
                 let base_name = if let Some(idx) = src_real_path.rfind('/') {
                     &src_real_path[idx + 1..]
                 } else {
@@ -160,30 +135,4 @@ pub async fn check_conflicts(
         Ok(conflicts)
     })
     .await
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_remote_path_local() {
-        let (remote, path) = parse_remote_path("/home/user/Documents");
-        assert_eq!(remote, "Local");
-        assert_eq!(path, "/home/user/Documents");
-    }
-
-    #[test]
-    fn test_parse_remote_path_cloud() {
-        let (remote, path) = parse_remote_path("GDrive::/Work/Project");
-        assert_eq!(remote, "GDrive");
-        assert_eq!(path, "/Work/Project");
-    }
-
-    #[test]
-    fn test_parse_remote_path_empty() {
-        let (remote, path) = parse_remote_path("");
-        assert_eq!(remote, "Local");
-        assert_eq!(path, "");
-    }
 }

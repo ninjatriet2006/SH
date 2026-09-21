@@ -1,14 +1,19 @@
 /*
 [INTEGRITY NOTES]
-- Mục đích: Trial S1 bóc logic `fs_move` + `run_transfer_task(..., "moveto", ...)` thành `execute_move`.
-- Trách nhiệm: Phân tuyến (Route) → chọn Cap → chạy `moveto`; `fs_move` cũ giữ nguyên hành vi.
-- Tương tác: Gọi `logic::file_ops::parse_remote_path`, `core::rclone_caller::build_target`,
-  `logic::{transfer, file_ops}`. Không đụng copy/ipc/frontend.
+- Mục đích: Route + Cap cho move + THỰC THI move (nơi duy nhất gọi rclone move).
+- Trách nhiệm: Phân tuyến (Route) → chọn Cap; `execute_move` NHẬN VÉ ĐÃ ĐÓNG DẤU
+  (`TransferTicket` — không đọc engine settings), dùng chung lõi streaming
+  `copy_op::run_streaming` với lệnh `moveto` + sudo fallback `mv`.
+- Tương tác: `logic::queue` gọi `execute_move` như `execute_copy`. Không đụng copy/ipc/frontend.
 */
+// UNIVERSAL: actions tay trắng về % — chỉ GỌI rclone + phun dòng log THÔ vào
+// sink (tính % là việc DUY NHẤT của tracker, queue hỏi tracker rồi ghi Job)
+// + hủy êm + escalate (xem `copy_op::run_streaming`); file này chỉ giữ
+// Route/Cap + `execute_move`.
 
 pub use crate::actions::types::DeleteScope;
-use crate::actions::types::{SameProvider, same_provider};
-use crate::logic::app_state::AppState;
+use crate::actions::types::SameProvider;
+use crate::logic::tracker::TransferTicket;
 
 /// Tuyến di chuyển, suy từ cặp (src_remote, dst_remote).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,68 +153,10 @@ impl Route {
     }
 }
 
-/// Trial S1: thực thi move qua `rclone moveto`, cùng hành vi với `api::files::fs_move`.
-///
-/// Không đổi cờ rclone; chỉ thay if/else bằng `match` trên [`Route`].
-pub async fn execute_move(
-    app_handle: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
-    src: String,
-    dst: String,
-    task_id: Option<u32>,
-) -> Result<(), String> {
-    use crate::core::rclone_caller;
-    use crate::logic::{file_ops, transfer};
-
-    let (src_remote, src_real) = file_ops::parse_remote_path(&src);
-    let (dst_remote, dst_real) = file_ops::parse_remote_path(&dst);
-    let route = Route::classify(&src_remote, &dst_remote);
-    let _kind = TransferKind::Move;
-    // UNIVERSAL: DiffCloud cùng hãng + bật cờ engine → server-side xuyên-config.
-    let same = SameProvider(same_provider(&src_remote, &dst_remote));
-    let across_enabled = crate::settings::engine::load_engine_flags()
-        .map(|f| f.server_side_across)
-        .unwrap_or(false);
-    let _cap = route.cap_with_provider(same, across_enabled);
-    let server_side_across = _cap.server_side && route == Route::DiffCloud;
-    // UNIVERSAL: fallback NoTrash tường minh — purge nguồn khớp ngữ nghĩa moveto; Trash chỉ dùng khi move-an-toàn.
-    let _delete_scope = _cap.delete_scope;
-
-    let src_target = rclone_caller::build_target(&src_remote, &src_real);
-    let dst_target = rclone_caller::build_target(&dst_remote, &dst_real);
-
-    // UNIVERSAL: đọc policy trước khi move State vào transfer (State không Copy).
-    let policy = state.policy.lock().map(|p| *p).unwrap_or_default();
-    let result = transfer::run_transfer_task_with_flags(app_handle, state, "moveto", src_target, dst_target, task_id, server_side_across).await;
-
-    match route {
-        // UNIVERSAL: Local→Local — `moveto` thất bại do quyền thì thử `pkexec mv`.
-        Route::LocalLocal => match result {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                // UNIVERSAL: chưa consent thì park, không tự pkexec.
-                if crate::actions::perm::classify_permission_error(&e) && policy != crate::actions::perm::Policy::AllowSystem {
-                    return Err(format!("PERMISSION_CONSENT: {}.", e));
-                }
-                file_ops::run_with_sudo_fallback("Local", "mv", &[src_real.clone(), dst_real.clone()], || Err(e))
-            }
-        },
-        // UNIVERSAL: Local→Cloud — upload, lỗi trả thẳng về UI (có progress task).
-        Route::LocalCloud => result,
-        // UNIVERSAL: Cloud→Local — download, lỗi trả thẳng về UI (có progress task).
-        Route::CloudLocal => result,
-        // UNIVERSAL: cùng cloud — move server-side, lỗi trả thẳng về UI.
-        Route::SameCloud => result,
-        // UNIVERSAL: khác cloud cùng hãng — server-side xuyên-config; khác hãng
-        // giữ nguyên trung chuyển qua local, lỗi trả thẳng về UI.
-        Route::DiffCloud => result,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::logic::transfer::build_transfer_args;
+    use crate::actions::copy_op::{item_args, whole_args};
 
     #[test]
     fn move_diffcloud_cap_same_vs_diff_provider() {
@@ -226,13 +173,34 @@ mod tests {
         use crate::settings::engine::GlobalFlags;
         // UNIVERSAL: cùng hãng + bật cờ engine → có cờ xuyên-config trong args rclone.
         let on = GlobalFlags { server_side_across: true, ..GlobalFlags::default() };
-        let same_args = build_transfer_args("moveto", "A:/a", "B:/b", &on, true);
+        let same_args = whole_args("moveto", "A:/a", "B:/b", &on, true);
         assert!(same_args.contains(&"--server-side-across-configs".to_string()));
         // UNIVERSAL: khác hãng / tắt cờ → args giữ nguyên, không có cờ.
-        let diff_args = build_transfer_args("moveto", "A:/a", "B:/b", &on, false);
+        let diff_args = whole_args("moveto", "A:/a", "B:/b", &on, false);
         assert!(!diff_args.contains(&"--server-side-across-configs".to_string()));
         let off = GlobalFlags::default();
-        let off_args = build_transfer_args("moveto", "A:/a", "B:/b", &off, true);
+        let off_args = whole_args("moveto", "A:/a", "B:/b", &off, true);
         assert!(!off_args.contains(&"--server-side-across-configs".to_string()));
     }
+
+    #[test]
+    fn move_item_args_stay_single_with_json_log() {
+        // UNIVERSAL: vé từng món là lệnh đơn nhưng vẫn json-log để stream tiến độ.
+        use crate::settings::engine::GlobalFlags;
+        let args = item_args("moveto", "A:/a", "B:/b", &GlobalFlags::default());
+        assert_eq!(&args[0..3], &["moveto", "A:/a", "B:/b"]);
+        assert!(args.contains(&"--use-json-log".to_string()));
+        assert!(!args.iter().any(|a| a.starts_with("--transfers=")));
+    }
+}
+
+/// UNIVERSAL: thực thi move từ VÉ ĐÃ ĐÓNG DẤU (worker sync, test sync) —
+/// chung lõi streaming với copy (`rclone moveto`, sudo fallback `pkexec mv`);
+/// phun log thô qua `on_log_line` (tay trắng về %, tracker tính sau).
+pub fn execute_move(
+    ticket: TransferTicket,
+    should_cancel: impl Fn() -> bool,
+    on_log_line: impl FnMut(&str),
+) -> Result<(), String> {
+    super::copy_op::run_streaming("moveto", "mv", &ticket, should_cancel, on_log_line)
 }

@@ -4,6 +4,7 @@
 //! Tách từ `core/jobs.rs` cũ; tên/trường IPC + event giữ NGUYÊN.
 
 use super::queue::{ChildMode, ManifestItem, QueueItem, manifest, sort_manifest};
+use crate::actions::perm::Policy;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -65,38 +66,24 @@ pub struct Job {
     /// UNIVERSAL S2: tổng số con sau khi `manifest()` nở (default 0 = chưa nở).
     #[serde(default)]
     pub child_total: usize,
+    /// UNIVERSAL: chính sách leo thang quyền đóng dấu lúc dispatch
+    /// (`enqueue_with_policy` đọc từ `AppState.policy`); file cũ thiếu trường
+    /// vẫn nạp nhờ `default` = `AskOnce`.
+    #[serde(default)]
+    pub policy: Policy,
 }
 
-/// UNIVERSAL: trích % hoàn thành từ object `stats` của rclone (`--use-json-log`).
-/// Ưu tiên `percentage` (float 0-100), rớt về `bytes/totalBytes` khi thiếu.
-pub fn stats_percent(stats: &serde_json::Value) -> Option<u8> {
-    if let Some(p) = stats.get("percentage").and_then(|v| v.as_f64()) {
-        if p.is_finite() {
-            return Some(p.clamp(0.0, 100.0).round() as u8);
-        }
-    }
-    let bytes = stats.get("bytes").and_then(|v| v.as_f64())?;
-    let total = stats.get("totalBytes").and_then(|v| v.as_f64())?;
-    if !bytes.is_finite() || !total.is_finite() || total <= 0.0 {
-        return None;
-    }
-    Some((bytes / total * 100.0).clamp(0.0, 100.0).round() as u8)
-}
-
-/// UNIVERSAL: bóc một dòng log JSON của transfer thành % để map vào `job.progress`;
-/// dòng không phải stats (log thường, lỗi text) trả `None` để worker bỏ qua.
-pub fn parse_progress_line(line: &str) -> Option<u8> {
-    let v: serde_json::Value = serde_json::from_str(line).ok()?;
-    stats_percent(v.get("stats")?)
-}
+/// UNIVERSAL: parser log transfer sống ở `super::tracker` (thư viện đọc log
+/// thuần); re-export tại đây để giữ đường dùng cũ (`jobs::stats_percent`).
+pub use super::tracker::{parse_progress_line, stats_percent};
 
 /// UNIVERSAL S2: JOB tính quyết định across 1 lần lúc dispatch (chuyển từ
 /// `queue::run_child_transfer` lên đây để QUEUE khỏi đọc engine settings):
 /// dính ổ máy / cùng tên remote → false (trung chuyển qua local như cũ);
 /// khác tên → cùng hãng (`same_provider`) + bật cờ mới true.
 fn decide_across(src: &str, dst: &str, flags: &crate::settings::engine::GlobalFlags) -> bool {
-    let (src_remote, _) = crate::logic::file_ops::parse_remote_path(src);
-    let (dst_remote, _) = crate::logic::file_ops::parse_remote_path(dst);
+    let (src_remote, _) = crate::core::path::cut_remote_path(src);
+    let (dst_remote, _) = crate::core::path::cut_remote_path(dst);
     if src_remote == "Local" || dst_remote == "Local" || src_remote == dst_remote {
         return false;
     }
@@ -158,7 +145,22 @@ impl JobStore {
     }
 
     /// Thêm job mới ở trạng thái `queued`, persist, trả bản clone.
+    /// UNIVERSAL: đường cũ — policy mặc định (`AskOnce`); luồng có consent
+    /// dùng `enqueue_with_policy` để đóng dấu từ `AppState.policy`.
     pub fn enqueue(&self, kind: JobKind, src: Option<String>, dst: Option<String>) -> Job {
+        self.enqueue_with_policy(kind, src, dst, Policy::default())
+    }
+
+    /// UNIVERSAL: thêm job + đóng dấu policy lúc dispatch (IPC `job_enqueue`
+    /// đọc `AppState.policy` rồi gọi hàm này; worker chỉ đọc `job.policy`,
+    /// không đọc settings/state giữa chừng).
+    pub fn enqueue_with_policy(
+        &self,
+        kind: JobKind,
+        src: Option<String>,
+        dst: Option<String>,
+        policy: Policy,
+    ) -> Job {
         let job = Job {
             id: self.next_id(),
             kind,
@@ -169,6 +171,7 @@ impl JobStore {
             error: None,
             child_done: 0,
             child_total: 0,
+            policy,
         };
         if let Ok(mut inner) = self.inner.lock() {
             inner.insert(job.id.clone(), job.clone());
@@ -329,6 +332,18 @@ impl JobStore {
         updated
     }
 
+    /// UNIVERSAL: smart compact — cha `Done` thì XÓA vé con `Done`, GIỮ vé con
+    /// lỗi/hủy để xem lại; giữ `child_done/total` trên cha (đếm không đổi);
+    /// `Error`/`Cancelled` giữ nguyên hết để retry/review.
+    fn compact_done_children(&self, id: &str) {
+        if let Ok(mut kids) = self.children.lock() {
+            if let Some(list) = kids.get_mut(id) {
+                list.retain(|k| !matches!(k.status, JobStatus::Done));
+            }
+        }
+        self.persist();
+    }
+
     fn pop_next(&self) -> Option<String> {
         self.queue.lock().ok()?.pop_front()
     }
@@ -389,15 +404,23 @@ impl JobStore {
             // UNIVERSAL S2: sau vòng con vẫn đẩy tiến độ cha qua emit từng vé
             // (execute_children đã update+emit nội bộ qua update_child_progress).
             let done = match outcome {
-                Ok(()) => self.update(&id, |j| {
-                    if self.is_cancel_requested(&id) {
-                        j.status = JobStatus::Cancelled;
-                    } else {
-                        j.status = JobStatus::Done;
-                        j.progress = 100;
-                        j.child_done = j.child_total;
+                Ok(()) => {
+                    let updated = self.update(&id, |j| {
+                        if self.is_cancel_requested(&id) {
+                            j.status = JobStatus::Cancelled;
+                        } else {
+                            j.status = JobStatus::Done;
+                            j.progress = 100;
+                            j.child_done = j.child_total;
+                        }
+                    });
+                    // UNIVERSAL: smart compact — cha Done thì gọn vé con ngay,
+                    // event terminal bên dưới vẫn phát 1 lần đầy đủ đếm.
+                    if updated.as_ref().is_some_and(|j| j.status == JobStatus::Done) {
+                        self.compact_done_children(&id);
                     }
-                }),
+                    updated
+                }
                 Err(e) if e == "job cancelled" || self.is_cancel_requested(&id) => {
                     self.mark_children_cancelled(&id);
                     self.update(&id, |j| {
@@ -469,6 +492,10 @@ impl JobStore {
     /// off→`manifest()` bóc thành N vé `Item`; file đơn / vỏ rỗng / lỗi đọc
     /// best-effort → rớt về 1 vé `Whole` để tầng con vẫn chạy thật thay vì
     /// `Done` giả. Cả hai nhánh đều đi qua `queue::execute_children`.
+    /// UNIVERSAL: hủy là hợp tác giữa các vé (`is_cancel_requested` mỗi vé);
+    /// vé đang chạy là `run_cmd` blocking nên không có handle để `kill` thẳng —
+    /// mọi kết thúc cưỡng bức đều hủy êm qua `super::process` (đường transfer
+    /// cũ), tuyệt đối không `child.kill()` trực tiếp trong logic job.
     fn run_transfer_job<E: FnMut(Job)>(
         &self,
         job: &Job,
@@ -502,43 +529,16 @@ impl JobStore {
         self.execute_children(job)
     }
 
-    /// UNIVERSAL: delete thật (`NoTrash`) — phán đoán kiểu trước qua `is_dir`
-    /// rồi `purge`/`deletefile` + thử lệnh còn lại, như `execute_delete`.
+    /// UNIVERSAL: delete thật (`NoTrash`) qua actions `execute_delete_sync`
+    /// (JOB chỉ điều phối, actions mới là nơi gọi rclone).
+    /// UNIVERSAL: tôn trọng `job.policy` qua `perm::escalate` — chưa consent
+    /// thì trả `PERMISSION_CONSENT` thay vì tự `pkexec`.
     fn run_delete_job(&self, job: &Job) -> Result<(), String> {
         let src = job.src.clone().ok_or_else(|| "delete job missing src".to_string())?;
-        let (remote, real_path) = crate::logic::file_ops::parse_remote_path(&src);
-        let target = crate::core::rclone_caller::build_target(&remote, &real_path);
         if self.is_cancel_requested(&job.id) {
             return Err("job cancelled".to_string());
         }
-        // UNIVERSAL: chạm Tier route để giữ một nguồn sự thật về tuyến xóa.
-        let _ = crate::actions::delete_op::Route::classify(&remote);
-        let is_dir = crate::actions::types::is_dir(&target).unwrap_or(true);
-        if is_dir {
-            crate::logic::file_ops::run_with_sudo_fallback(&remote, "rm", std::slice::from_ref(&real_path), || {
-                let output = crate::core::rclone_caller::run_cmd(&["purge", &target])?;
-                if output.status.success() {
-                    return Ok(());
-                }
-                let retry = crate::core::rclone_caller::run_cmd(&["deletefile", &target])?;
-                if retry.status.success() {
-                    return Ok(());
-                }
-                Err(String::from_utf8_lossy(&output.stderr).into_owned())
-            })
-        } else {
-            crate::logic::file_ops::run_with_sudo_fallback(&remote, "rm", std::slice::from_ref(&real_path), || {
-                let output = crate::core::rclone_caller::run_cmd(&["deletefile", &target])?;
-                if output.status.success() {
-                    return Ok(());
-                }
-                let retry = crate::core::rclone_caller::run_cmd(&["purge", &target])?;
-                if retry.status.success() {
-                    return Ok(());
-                }
-                Err(String::from_utf8_lossy(&output.stderr).into_owned())
-            })
-        }
+        crate::actions::delete_op::execute_delete_sync(&src, job.policy)
     }
 
     /// UNIVERSAL: list thật — dựng plan dùng chung rồi chạy `lsjson`, JSON hỏng
@@ -650,12 +650,9 @@ impl JobStore {
             self.children.lock(),
         ) {
             for job in jobs.drain(..) {
-                // Job dở dang từ lần chạy trước → đưa về queued để chạy lại ở P2.
-                let mut job = job;
-                if matches!(job.status, JobStatus::Running) {
-                    job.status = JobStatus::Queued;
-                    job.progress = 0;
-                }
+                // UNIVERSAL: giữ nguyên status đĩa (kể cả `Running` mồ côi) để
+                // `reconcile_orphans()` chạy 1 lần lúc khởi động quyết định
+                // (đánh `Error` + dọn `.partial`); chỉ `Queued` mới vào hàng chờ.
                 if job.status == JobStatus::Queued {
                     q.push_back(job.id.clone());
                 }
@@ -663,9 +660,8 @@ impl JobStore {
             }
             for (id, mut list) in kids {
                 for k in list.iter_mut() {
-                    if matches!(k.status, JobStatus::Running) {
-                        k.status = JobStatus::Queued;
-                    }
+                    // UNIVERSAL: giữ `Running` mồ côi cho `reconcile_orphans()`;
+                    // chỉ suy lại `Whole` cho vé bulk đời cũ (`Item` + path rỗng).
                     // UNIVERSAL S2: vé cũ (trước `mode` tường minh) thiếu trường
                     // → serde default `Item`; vé `path` rỗng thời đó là bulk
                     // nguyên khối nên suy lại `Whole` 1 lần ở biên load (tầng
@@ -675,6 +671,125 @@ impl JobStore {
                     }
                 }
                 ck.insert(id, list);
+            }
+        }
+    }
+
+    /// UNIVERSAL: dọn job mồ côi sau crash — chạy 1 lần lúc khởi động (gọi từ
+    /// `lib.rs setup` sau khi tạo `JobStore`).
+    /// - Job (hoặc con) còn `Running` khi nạp lại → cha thành `Error`
+    ///   "gián đoạn phiên trước", con `Running` → `Error`, con `Queued` của cha
+    ///   chết → `Cancelled`; persist một lần cuối.
+    /// - Job transfer (`Copy`/`Move`) bị gián đoạn mà đích là Local → xóa file
+    ///   rác `*.partial` trong đúng thư mục đích của job (không đệ quy, không
+    ///   quét cả ổ); đích Remote thì bỏ qua. Mọi lỗi đọc/xóa chỉ `warn`.
+    pub fn reconcile_orphans(&self) -> usize {
+        const MSG: &str = "gián đoạn phiên trước: tiến trình bị giết ngang";
+        // Thu snapshot dst của job transfer mồ côi trước để dọn sau khi nhả lock.
+        let mut dirty: Vec<(String, Option<String>, JobKind)> = Vec::new();
+        if let Ok(inner) = self.inner.lock() {
+            let kids = self.children.lock().ok();
+            for job in inner.values() {
+                let mut child_running = false;
+                if let Some(m) = kids.as_ref() {
+                    if let Some(list) = m.get(&job.id) {
+                        child_running = list.iter().any(|k| k.status == JobStatus::Running);
+                    }
+                }
+                if job.status == JobStatus::Running || child_running {
+                    dirty.push((job.id.clone(), job.dst.clone(), job.kind));
+                }
+            }
+        }
+        if dirty.is_empty() {
+            return 0;
+        }
+        let n = dirty.len();
+        if let Ok(mut inner) = self.inner.lock() {
+            for (id, _, _) in &dirty {
+                if let Some(job) = inner.get_mut(id) {
+                    if job.status == JobStatus::Running {
+                        job.status = JobStatus::Error;
+                        job.error = Some(MSG.to_string());
+                    }
+                }
+            }
+        }
+        if let Ok(mut ck) = self.children.lock() {
+            for (id, _, _) in &dirty {
+                if let Some(list) = ck.get_mut(id) {
+                    for k in list.iter_mut() {
+                        if k.status == JobStatus::Running {
+                            k.status = JobStatus::Error;
+                            k.error = Some(MSG.to_string());
+                        } else if k.status == JobStatus::Queued {
+                            k.status = JobStatus::Cancelled;
+                        }
+                    }
+                }
+            }
+        }
+        // Dọn `.partial` cho job transfer mồ côi (đích Local only).
+        for (_, dst, kind) in &dirty {
+            if !matches!(kind, JobKind::Copy | JobKind::Move) {
+                continue;
+            }
+            if let Some(d) = dst.as_deref() {
+                Self::cleanup_partial_dir(d);
+            }
+        }
+        self.persist();
+        n
+    }
+
+    /// UNIVERSAL: xóa file `*.partial` trong đúng 1 thư mục đích Local (không
+    /// đệ quy); dst là file thì dọn thư mục cha; Remote/rỗng/lỗi chỉ `warn`.
+    fn cleanup_partial_dir(dst: &str) {
+        let (remote, real) = crate::core::path::cut_remote_path(dst);
+        if remote != "Local" {
+            return;
+        }
+        let real = real.trim();
+        if real.is_empty() {
+            return;
+        }
+        let p = PathBuf::from(real);
+        let dir = if p.is_dir() {
+            p
+        } else if let Some(parent) = p.parent() {
+            if parent.as_os_str().is_empty() {
+                return;
+            }
+            parent.to_path_buf()
+        } else {
+            return;
+        };
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(e) => {
+                crate::core::log::warn(None, "jobs", format!("bỏ qua dọn .partial '{dir:?}': {e}"));
+                return;
+            }
+        };
+        for ent in entries {
+            let ent = match ent {
+                Ok(e) => e,
+                Err(e) => {
+                    crate::core::log::warn(None, "jobs", format!("bỏ qua entry .partial: {e}"));
+                    continue;
+                }
+            };
+            let path = ent.path();
+            let is_file = ent.file_type().map(|t| t.is_file()).unwrap_or(false) || path.is_file();
+            if !is_file {
+                continue;
+            }
+            let name = ent.file_name().to_string_lossy().into_owned();
+            if !name.ends_with(".partial") {
+                continue;
+            }
+            if let Err(e) = std::fs::remove_file(&path) {
+                crate::core::log::warn(None, "jobs", format!("không xóa được '{path:?}': {e}"));
             }
         }
     }
@@ -919,11 +1034,120 @@ mod tests {
         );
         store.request_cancel(&job.id).expect("cancel ok");
         assert!(store.children_of(&job.id).iter().all(|k| k.status == JobStatus::Cancelled));
-        // IPC giữ trường cũ + thêm mới.
+        // IPC giữ trường cũ + thêm mới (policy đóng dấu lúc dispatch).
         let v = serde_json::to_value(store.get(&job.id).expect("job")).expect("json");
-        for f in ["id", "kind", "src", "dst", "status", "progress", "error", "child_done", "child_total"] {
+        for f in ["id", "kind", "src", "dst", "status", "progress", "error", "child_done", "child_total", "policy"] {
             assert!(v.get(f).is_some(), "missing field {f}");
         }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn reconcile_marks_running_error_and_cleans_partial() {
+        // UNIVERSAL: job Running khi nạp → Error "gián đoạn phiên trước";
+        // file `.partial` giả trong temp bị dọn, file thường giữ nguyên.
+        let dst = std::env::temp_dir().join("rclone_gui_reconcile_dst");
+        let _ = std::fs::remove_dir_all(&dst);
+        std::fs::create_dir_all(&dst).expect("seed dst");
+        let junk = dst.join("a.abc123.partial");
+        let keep = dst.join("keep.txt");
+        std::fs::write(&junk, b"x").expect("seed partial");
+        std::fs::write(&keep, b"ok").expect("seed keep");
+        let path = std::env::temp_dir().join("rclone_gui_jobs_test_reconcile.json");
+        let _ = std::fs::remove_file(&path);
+        let dst_s = dst.to_string_lossy().into_owned();
+        let snap = serde_json::json!({
+            "jobs": [{"id": "job-orphan", "kind": "copy", "src": "/a",
+                "dst": dst_s, "status": "running", "progress": 42,
+                "error": null, "child_done": 0, "child_total": 1}],
+            "children": {"job-orphan": [
+                {"job_id": "job-orphan", "path": "a", "is_dir": false,
+                 "status": "running", "error": null}]},
+        });
+        std::fs::write(&path, serde_json::to_string(&snap).expect("snap"))
+            .expect("write snap");
+        let store = JobStore::with_path(path.clone());
+        assert_eq!(store.get("job-orphan").map(|j| j.status), Some(JobStatus::Running));
+        assert_eq!(store.reconcile_orphans(), 1);
+        let fixed = store.get("job-orphan").expect("job");
+        assert_eq!(fixed.status, JobStatus::Error);
+        assert!(fixed.error.as_deref().unwrap_or("").contains("gián đoạn phiên trước"));
+        let kids = store.children_of("job-orphan");
+        assert_eq!(kids.len(), 1);
+        assert_eq!(kids[0].status, JobStatus::Error);
+        assert!(!junk.exists(), ".partial phải bị dọn");
+        assert!(keep.exists(), "file thường phải giữ");
+        assert_eq!(store.reconcile_orphans(), 0);
+        let _ = std::fs::remove_dir_all(&dst);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn policy_stamped_at_enqueue_and_legacy_defaults_ask_once() {
+        // UNIVERSAL: enqueue thường default AskOnce; enqueue_with_policy đóng
+        // dấu Deny/AllowSystem; file cũ thiếu `policy` vẫn nạp = AskOnce.
+        let (store, path) = temp_store("policy_stamp");
+        let plain = store.enqueue(JobKind::Copy, Some("/a".into()), Some("/b".into()));
+        assert_eq!(plain.policy, Policy::AskOnce);
+        let denied =
+            store.enqueue_with_policy(JobKind::Move, Some("/a".into()), Some("/b".into()), Policy::Deny);
+        assert_eq!(denied.policy, Policy::Deny);
+        assert_eq!(store.get(&denied.id).map(|j| j.policy), Some(Policy::Deny));
+        // UNIVERSAL: legacy JSON không có `policy` → default AskOnce, IPC đọc được.
+        let legacy = serde_json::json!({
+            "id": "legacy-1", "kind": "list", "src": "/s", "dst": null,
+            "status": "queued", "progress": 0, "error": null,
+            "child_done": 0, "child_total": 0
+        });
+        let job: Job = serde_json::from_value(legacy).expect("legacy job loads");
+        assert_eq!(job.policy, Policy::AskOnce);
+        let v = serde_json::to_value(&denied).expect("serialize");
+        assert_eq!(v.get("policy").and_then(|p| p.as_str()), Some("deny"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn smart_compact_done_keeps_errors_drops_done() {
+        // UNIVERSAL: Done gọn con — lỗi-giữ/xong-xóa, giữ đếm, Error giữ hết.
+        let (store, path) = temp_store("smart_compact");
+        let job = store.enqueue(JobKind::Copy, Some("/a".into()), Some("/b".into()));
+        store.set_children_from_items(
+            &job.id,
+            vec![
+                ManifestItem { path: "ok1".into(), is_dir: false },
+                ManifestItem { path: "ok2".into(), is_dir: false },
+                ManifestItem { path: "bad".into(), is_dir: false },
+            ],
+        );
+        store.update_child_progress(&job.id, 0, JobStatus::Done, None);
+        store.update_child_progress(
+            &job.id,
+            2,
+            JobStatus::Error,
+            Some("boom".to_string()),
+        );
+        store.update(&job.id, |j| {
+            j.status = JobStatus::Done;
+            j.progress = 100;
+            j.child_done = j.child_total;
+        });
+        store.compact_done_children(&job.id);
+        let kids = store.children_of(&job.id);
+        // UNIVERSAL: vé Done bị xóa, vé lỗi giữ lại để xem lại.
+        assert!(kids.iter().all(|k| k.status != JobStatus::Done));
+        assert!(kids.iter().any(|k| k.status == JobStatus::Error));
+        let parent = store.get(&job.id).expect("parent");
+        assert_eq!((parent.child_done, parent.child_total), (3, 3));
+        // UNIVERSAL: Error giữ nguyên hết (không gọn) để retry/review.
+        let ejob = store.enqueue(JobKind::Copy, Some("/a".into()), Some("/b".into()));
+        store.set_children_from_items(
+            &ejob.id,
+            vec![ManifestItem { path: "bad".into(), is_dir: false }],
+        );
+        store.update_child_progress(&ejob.id, 0, JobStatus::Error, Some("boom".to_string()));
+        store.update(&ejob.id, |j| j.status = JobStatus::Error);
+        let ekids = store.children_of(&ejob.id);
+        assert_eq!(ekids.len(), 1);
         let _ = std::fs::remove_file(&path);
     }
 }

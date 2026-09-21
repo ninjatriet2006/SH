@@ -3,7 +3,7 @@
 - Mục đích: Đọc danh sách ứng dụng đã cài từ Desktop Entry (chuẩn FreeDesktop.org).
 - Trách nhiệm: Quét các thư mục `applications/`, phân tích `.desktop`, lọc mục bị ẩn
   và mục cần terminal, sắp xếp theo tên để hiển thị trong hộp thoại "Open With".
-- Tương tác: Gọi từ `core::sys::sys_list_apps`.
+- Tương tác: Gọi từ `actions::view::sys_list_apps`.
 
 Điểm cần lưu ý khi phân tích `.desktop` (đã kiểm chứng trên máy thật):
   * File có nhiều section: `[Desktop Entry]` rồi tới các `[Desktop Action ...]`.
@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::core::sys::DesktopApp;
+use crate::actions::view::DesktopApp;
 
 /// Danh sách thư mục chứa Desktop Entry theo chuẩn XDG, xếp theo thứ tự ưu tiên
 /// (mục của người dùng ghi đè mục hệ thống nếu cùng tên file).

@@ -2,7 +2,7 @@
 [INTEGRITY NOTES]
 - Mục đích: Trial S1 bóc đặc tả `list_files` thành plan thuần (`lsjson --max-depth 1`).
 - Trách nhiệm: parse → build_target → chọn lệnh `lsjson`; khớp `match` trên `RemoteKind`.
-- Tương tác: Chỉ gọi hàm thuần `logic::file_ops::parse_remote_path`,
+- Tương tác: Chỉ gọi hàm thuần `core::path::cut_remote_path`,
   `core::rclone_caller::build_target`. Không chạy lệnh, không wire `fs_*` cũ / IPC.
 */
 
@@ -13,7 +13,7 @@ use crate::core::rclone_caller;
 use crate::core::task::blocking;
 use crate::core::rclone_caller::build_target;
 use crate::logic::app_state::AppState;
-use crate::logic::file_ops::parse_remote_path;
+use crate::core::path::cut_remote_path;
 use crate::logic::watcher;
 use serde::Deserialize;
 
@@ -28,7 +28,7 @@ pub struct ListPlan {
 
 /// Dựng plan `list` (`lsjson --max-depth 1` + ghi chú watcher cho pane).
 pub fn plan_list(path: &str) -> Result<ListPlan, String> {
-    let (remote, real) = parse_remote_path(path);
+    let (remote, real) = cut_remote_path(path);
     let kind = RemoteKind::classify(&remote);
     let _cap = Cap::of(kind);
     let safe = if remote == "Local" && real.is_empty() {

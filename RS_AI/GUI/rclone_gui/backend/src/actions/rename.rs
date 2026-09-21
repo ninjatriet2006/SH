@@ -3,7 +3,7 @@
 - Mục đích: Trial S1 bóc đặc tả `fs_rename` (`moveto` cùng remote) thành plan thuần.
 - Trách nhiệm: phân tuyến Route × IsDir → chọn SupportRename từ cờ backend
   Move/DirMove → dựng `moveto` + sudo fallback; khớp `match` + UNIVERSAL.
-- Tương tác: Chỉ gọi hàm thuần `logic::file_ops::parse_remote_path`,
+- Tương tác: Chỉ gọi hàm thuần `core::path::cut_remote_path`,
   `core::rclone_caller::build_target`. Không chạy lệnh, không wire `fs_*` cũ / IPC.
 */
 
@@ -11,7 +11,7 @@ use crate::actions::perm::{Policy, escalate};
 use crate::actions::types::RemoteKind;
 use crate::core::{rclone_caller, task};
 use crate::core::rclone_caller::build_target;
-use crate::logic::file_ops::parse_remote_path;
+use crate::core::path::cut_remote_path;
 
 /// Tuyến đổi tên, suy từ cặp (src_remote, dst_remote) — cùng họ với `move_op::Route`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,8 +118,8 @@ pub fn plan_rename_for(
     is_dir: IsDir,
     support: SupportRename,
 ) -> Result<RenamePlan, String> {
-    let (src_remote, src_real) = parse_remote_path(old_path);
-    let (dst_remote, dst_real) = parse_remote_path(new_path);
+    let (src_remote, src_real) = cut_remote_path(old_path);
+    let (dst_remote, dst_real) = cut_remote_path(new_path);
     if src_real.is_empty() || dst_real.is_empty() {
         return Err("Thiếu đường dẫn nguồn hoặc đích khi đổi tên.".to_string());
     }
@@ -175,8 +175,8 @@ pub fn plan_rename(old_path: &str, new_path: &str) -> Result<RenamePlan, String>
 /// `Deny`/`AskOnce` trả `PERMISSION_CONSENT` để frontend park + hỏi.
 pub async fn execute_rename(old_path: String, new_path: String, policy: Policy) -> Result<(), String> {
     let plan = plan_rename(&old_path, &new_path)?;
-    let (remote, old_real) = parse_remote_path(&old_path);
-    let (_, new_real) = parse_remote_path(&new_path);
+    let (remote, old_real) = cut_remote_path(&old_path);
+    let (_, new_real) = cut_remote_path(&new_path);
     let (src, dst) = (plan.src_target.clone(), plan.dst_target.clone());
     task::blocking(move || {
         escalate(policy, &remote, "mv", &[old_real.clone(), new_real.clone()], || {

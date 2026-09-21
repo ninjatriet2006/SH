@@ -32,9 +32,7 @@ pub fn run() {
             ipc::fs_touch,
             ipc::fs_delete,
             ipc::fs_rename,
-            ipc::fs_copy,
-            ipc::fs_move,
-            ipc::fs_cancel,
+            // UNIVERSAL: fs_copy/fs_move/fs_cancel cũ đã gộp về jobs — xóa command cũ.
             ipc::fs_stat_advanced,
             ipc::fs_search,
             ipc::fs_check_conflicts,
@@ -48,7 +46,7 @@ pub fn run() {
             ipc::get_permission_policy,
             ipc::set_permission_policy,
             // ==================
-            // SYS API (Trong core/sys.rs)
+            // SYS API (S2 tách vai: actions::view + logic::clipboard/custom_action)
             // ==================
             ipc::sys_open_with,
             ipc::sys_list_apps,
@@ -109,7 +107,7 @@ pub fn run() {
             ipc::get_available_themes,
             ipc::get_available_fonts,
             // ==================
-            // JOBS API (P1 stub, song song với luồng cũ)
+            // JOBS API (đường duy nhất cho copy/move/delete/list)
             // ==================
             ipc::job_enqueue,
             ipc::job_list,
@@ -122,6 +120,10 @@ pub fn run() {
             // Inotify watcher cho thư mục Local đang xem — phát `local-dir-changed`
             // để Frontend tự nạp lại khi file đổi ngoài ứng dụng.
             logic::watcher::init(app.handle());
+            // UNIVERSAL: dọn job mồ côi (phiên trước bị giết ngang) 1 lần lúc
+            // khởi động — job Running → Error + xóa `*.partial` ở đích Local.
+            let state = app.state::<logic::app_state::AppState>();
+            state.jobs.reconcile_orphans();
             Ok(())
         })
         .run(tauri::generate_context!())

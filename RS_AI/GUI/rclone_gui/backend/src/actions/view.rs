@@ -2,14 +2,17 @@
 [INTEGRITY NOTES]
 - Mục đích: Trial S1 bóc đặc tả view-only (`view_download`) + `fs_get_thumbnail` thành plan thuần.
 - Trách nhiệm: parse → build_target → chọn `copyto`/decode ảnh; khớp `match` trên `RemoteKind`.
-- Tương tác: Chỉ gọi hàm thuần `logic::file_ops::parse_remote_path`,
+- Tương tác: Chỉ gọi hàm thuần `core::path::cut_remote_path`,
   `core::rclone_caller::build_target`. Không chạy lệnh, không wire `fs_*` cũ / IPC.
 */
 
 use crate::actions::explorer::Cap;
 use crate::actions::types::RemoteKind;
 use crate::core::rclone_caller::build_target;
-use crate::logic::file_ops::parse_remote_path;
+use crate::core::task::blocking;
+use crate::core::path::cut_remote_path;
+use serde::Serialize;
+use std::process::Command;
 
 /// Đặc tả thuần cho `thumbnail`: đường dẫn local thực + nhóm định dạng.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,7 +40,7 @@ pub enum ThumbnailGroup {
 
 /// Dựng plan `thumbnail`: chỉ hỗ trợ đường dẫn local thực; remote → lỗi.
 pub fn plan_thumbnail(path: &str) -> Result<ThumbnailPlan, String> {
-    let (remote, real) = parse_remote_path(path);
+    let (remote, real) = cut_remote_path(path);
     let kind = RemoteKind::classify(&remote);
     let _cap = Cap::of(kind);
     let local_path = match kind {
@@ -66,7 +69,7 @@ pub fn plan_thumbnail(path: &str) -> Result<ThumbnailPlan, String> {
 
 /// Dựng plan `view`: Local trả đường dẫn gốc (không tải); remote tải `copyto` về temp.
 pub fn plan_view_download(src: &str) -> Result<ViewPlan, String> {
-    let (remote, real) = parse_remote_path(src);
+    let (remote, real) = cut_remote_path(src);
     let kind = RemoteKind::classify(&remote);
     let _cap = Cap::of(kind);
     match kind {
@@ -104,6 +107,111 @@ pub fn plan_view_download(src: &str) -> Result<ViewPlan, String> {
     }
 }
 
+/// UNIVERSAL: mở file = xem (S2 tách vai, dời từ `core/sys.rs`, hành vi giữ nguyên).
+/// Khai báo cấu trúc DesktopApp để trả về cho giao diện khi chọn "Open With"
+#[derive(Serialize)]
+pub struct DesktopApp {
+    // Tên hiển thị của ứng dụng
+    pub name: String,
+    // Lệnh thực thi của ứng dụng
+    pub exec: String,
+    // Đường dẫn hoặc tên icon của ứng dụng
+    pub icon: String,
+}
+
+/// UNIVERSAL: mở file Local bằng app hệ điều hành; exec trực tiếp (không qua
+/// `sh -c`) nên tên file chứa ký tự đặc biệt không chèn thêm lệnh được.
+pub async fn sys_open_with(path: String, exec_cmd: Option<String>, app: Option<String>) -> Result<(), String> {
+    blocking(move || {
+        // Frontend gửi đường dẫn dạng "Remote::/path"; chỉ ổ Local mở được bằng app OS.
+        let (remote, real_path) = cut_remote_path(&path);
+        if remote != "Local" {
+            return Err(format!(
+                "Không thể mở trực tiếp file trên remote '{}'. Hãy copy về Local trước.",
+                remote
+            ));
+        }
+        let path = real_path;
+
+        // Ưu tiên exec_cmd, ngược lại xdg-open mặc định trên Linux.
+        let cmd = exec_cmd.or(app).unwrap_or_else(|| "xdg-open".to_string());
+
+        // Lệnh .desktop chứa placeholder (%f, %U...) và tham số sẵn có.
+        let mut parts = shell_split(&cmd);
+        if parts.is_empty() {
+            return Err("Lệnh mở file rỗng.".to_string());
+        }
+
+        let program = parts.remove(0);
+        let mut args: Vec<String> = Vec::new();
+        let mut path_injected = false;
+
+        for part in parts {
+            match part.as_str() {
+                // Placeholder theo Desktop Entry Spec: thay bằng đường dẫn file.
+                "%f" | "%F" | "%u" | "%U" => {
+                    args.push(path.clone());
+                    path_injected = true;
+                }
+                // Placeholder không dùng tới (icon, tên app...) thì bỏ qua.
+                p if p.len() == 2 && p.starts_with('%') => {}
+                other => args.push(other.to_string()),
+            }
+        }
+
+        if !path_injected {
+            args.push(path);
+        }
+
+        Command::new(&program)
+            .args(&args)
+            .spawn()
+            .map_err(|e| format!("Lỗi khi chạy '{}': {}", program, e))?;
+
+        Ok(())
+    })
+    .await
+}
+
+/// UNIVERSAL: tách chuỗi lệnh theo cú pháp shell tối giản (nháy đơn/kép, `\`).
+fn shell_split(input: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+
+    for c in input.chars() {
+        if escaped {
+            current.push(c);
+            escaped = false;
+        } else if c == '\\' && !in_single {
+            escaped = true;
+        } else if c == '\'' && !in_double {
+            in_single = !in_single;
+        } else if c == '"' && !in_single {
+            in_double = !in_double;
+        } else if c.is_whitespace() && !in_single && !in_double {
+            if !current.is_empty() {
+                parts.push(std::mem::take(&mut current));
+            }
+        } else {
+            current.push(c);
+        }
+    }
+
+    if !current.is_empty() {
+        parts.push(current);
+    }
+
+    parts
+}
+
+/// UNIVERSAL: quét Desktop Entry thật (chuẩn FreeDesktop.org) thay vì dữ liệu giả.
+pub async fn sys_list_apps() -> Result<Vec<DesktopApp>, String> {
+    blocking(|| Ok(crate::logic::desktop_apps::list())).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,5 +238,12 @@ mod tests {
             remote.rclone_args,
             vec!["copyto", "GDrive:/docs/a.txt", remote.temp_path.as_str()]
         );
+    }
+
+    #[test]
+    fn shell_split_handles_desktop_exec() {
+        assert_eq!(shell_split("xdg-open"), vec!["xdg-open"]);
+        assert_eq!(shell_split("code --wait %f"), vec!["code", "--wait", "%f"]);
+        assert_eq!(shell_split("\"/opt/My App/run\" -a"), vec!["/opt/My App/run", "-a"]);
     }
 }

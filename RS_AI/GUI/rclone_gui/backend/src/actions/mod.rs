@@ -1,7 +1,7 @@
-//! Trial copy/delete actions (S1): pure routing + `copyto`/`purge` execution,
-//! `fs_copy`/`fs_delete` cũ giữ nguyên hành vi (chưa wire).
+//! Trial copy/delete actions (S1): pure routing + `copyto`/`purge` caps,
+//! thực thi chạy qua `logic::jobs`.
 //!
-//! CỜ CÒN THIẾU (chưa đi qua arm nào, giữ nguyên hành vi `fs_move` cũ):
+//! CỜ CÒN THIẾU (jobs/queue chọn cờ, giữ nguyên hành vi cũ khi tắt):
 //! - `--dry-run`, `--interactive` (`-i`), `--backup-dir` + `--suffix`
 //! - `--immutable`, `--track-renames`, `--delete-empty-src-dirs`
 //! - `--max-delete`, `--max-transfer`, `--cutoff-mode`, `--order-by`
@@ -22,6 +22,7 @@ pub mod copy_op;
 pub mod delete_op;
 
 pub mod create;
+pub mod conflicts;
 pub mod list;
 pub mod rename;
 pub mod search;
@@ -35,11 +36,10 @@ pub mod types;
 
 pub use types::{RemoteKind, SameProvider, same_provider, same_provider_from_dump};
 
-pub use move_op::{Cap, DeleteScope, Route, SupportCopyAndDelete, SupportMove, TransferKind, execute_move};
+pub use move_op::{Cap, DeleteScope, Route, SupportCopyAndDelete, SupportMove, TransferKind};
 
-// Alias để tránh đụng tên Route/Cap/DeleteScope/TransferKind của `move_op`;
-// dùng đường dẫn đầy đủ `copy_op::Route` / `delete_op::DeleteScope` khi cần.
-pub use copy_op::{Cap as CopyCap, Route as CopyRoute, SupportCopy, TransferKind as CopyTransferKind, execute_copy};
+// UNIVERSAL: execute_copy/execute_move cũ đã gộp về jobs — chỉ giữ Route/Cap/Support*.
+pub use copy_op::{Cap as CopyCap, Route as CopyRoute, SupportCopy, TransferKind as CopyTransferKind};
 pub use delete_op::{DeleteScope as SharedDeleteScope, EmptyDirs as DeleteEmptyDirs, Route as DeleteRoute, execute_delete, execute_delete_with_empty_dirs};
 
 /// Năng lực gợi ý cho explorer (tên cũ: `explorer::Cap`).

@@ -8,7 +8,7 @@
 use crate::actions::move_op::{Cap, SupportCopyAndDelete, SupportMove};
 use crate::core::rclone_caller; // Sử dụng helper từ thư viện dùng chung
 use crate::core::task::blocking;
-use crate::logic::file_ops::parse_remote_path;
+use crate::core::path::cut_remote_path;
 use serde_json::{json, Value};
 
 // ====================================================================================
@@ -170,8 +170,8 @@ pub async fn get_backend_features(remote: String) -> Result<Value, String> {
 /// Tên hàm: check_transfer_capability
 /// Mô tả: Đánh giá khả năng copy/move giữa 2 đường dẫn thông qua rclone features.
 pub async fn check_transfer_capability(src: String, dst: String) -> Result<Value, String> {
-    let (src_remote, _) = parse_remote_path(&src);
-    let (dst_remote, _) = parse_remote_path(&dst);
+    let (src_remote, _) = cut_remote_path(&src);
+    let (dst_remote, _) = cut_remote_path(&dst);
 
     // UNIVERSAL: move-native 1 bước (`Move`/`DirMove`) khác với copy + purge
     // fallback 2 bước (`Copy` + `Purge`); tên nội bộ mới, key JSON giữ nguyên.

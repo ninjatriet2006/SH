@@ -1,4 +1,4 @@
-use crate::{actions::perm::Policy, api, core, logic::{self, app_state::AppState}};
+use crate::{actions::perm::Policy, api, logic::{self, app_state::AppState}};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -106,8 +106,7 @@ payload!(RenamePayload {
     old_path: String,
     new_path: String
 });
-payload!(TransferPayload { src: String, dst: String, task_id: Option<u32> });
-payload!(TaskPayload { task_id: u32 });
+// UNIVERSAL: TransferPayload/TaskPayload của fs_copy/fs_move/fs_cancel cũ đã gộp về jobs — xóa.
 payload!(SearchPayload {
     path: String,
     query: String
@@ -122,8 +121,8 @@ payload!(ChownPayload {
     gid: u32
 });
 payload!(OpenWithPayload { path: String, exec_cmd: Option<String>, app: Option<String> });
-payload!(ClipboardSetPayload { items: Vec<core::sys::OSClipboardItem>, is_cut: bool });
-payload!(FilesPayload { files: Vec<core::sys::SimpleFileItem> });
+payload!(ClipboardSetPayload { items: Vec<logic::clipboard::OSClipboardItem>, is_cut: bool });
+payload!(FilesPayload { files: Vec<logic::custom_action::SimpleFileItem> });
 payload!(CustomActionPayload { exec_template: String, base_path: String, file_names: Vec<String> });
 payload!(ItemPayload { item_id: String });
 payload!(AccountPayload { account: Option<String> });
@@ -215,43 +214,6 @@ pub async fn list_files(
     let request_id = validate(&request)?;
     let payload = request.payload;
     api::files::list_files(app_handle, payload.path, payload.pane)
-        .await
-        .map(|data| success(request_id, data))
-        .map_err(backend_error)
-}
-
-#[tauri::command]
-pub async fn fs_copy(
-    app_handle: tauri::AppHandle,
-    state: State<'_, AppState>,
-    request: Req<TransferPayload>,
-) -> IpcResult<()> {
-    let request_id = validate(&request)?;
-    let payload = request.payload;
-    api::files::fs_copy(app_handle, state, payload.src, payload.dst, payload.task_id)
-        .await
-        .map(|data| success(request_id, data))
-        .map_err(backend_error)
-}
-
-#[tauri::command]
-pub async fn fs_move(
-    app_handle: tauri::AppHandle,
-    state: State<'_, AppState>,
-    request: Req<TransferPayload>,
-) -> IpcResult<()> {
-    let request_id = validate(&request)?;
-    let payload = request.payload;
-    api::files::fs_move(app_handle, state, payload.src, payload.dst, payload.task_id)
-        .await
-        .map(|data| success(request_id, data))
-        .map_err(backend_error)
-}
-
-#[tauri::command]
-pub async fn fs_cancel(state: State<'_, AppState>, request: Req<TaskPayload>) -> IpcResult<()> {
-    let request_id = validate(&request)?;
-    api::files::fs_cancel(state, request.payload.task_id)
         .await
         .map(|data| success(request_id, data))
         .map_err(backend_error)
@@ -355,49 +317,49 @@ async_command!(
     sys_open_with,
     OpenWithPayload,
     (),
-    core::sys::sys_open_with,
+    crate::actions::view::sys_open_with,
     (path, exec_cmd, app)
 );
 async_command!(
     sys_list_apps,
     Empty,
-    Vec<core::sys::DesktopApp>,
-    core::sys::sys_list_apps,
+    Vec<crate::actions::view::DesktopApp>,
+    crate::actions::view::sys_list_apps,
     ()
 );
 async_command!(
     os_clipboard_set,
     ClipboardSetPayload,
     (),
-    core::sys::os_clipboard_set,
+    crate::logic::clipboard::os_clipboard_set,
     (items, is_cut)
 );
 async_command!(
     os_clipboard_get,
     Empty,
-    Option<core::sys::OSClipboardData>,
-    core::sys::os_clipboard_get,
+    Option<crate::logic::clipboard::OSClipboardData>,
+    crate::logic::clipboard::os_clipboard_get,
     ()
 );
 async_command!(
     sys_get_custom_actions,
     Empty,
-    Vec<core::sys::CustomAction>,
-    core::sys::sys_get_custom_actions,
+    Vec<crate::logic::custom_action::CustomAction>,
+    crate::logic::custom_action::sys_get_custom_actions,
     ()
 );
 async_command!(
     sys_get_valid_actions,
     FilesPayload,
-    Vec<core::sys::CustomAction>,
-    core::sys::sys_get_valid_actions,
+    Vec<crate::logic::custom_action::CustomAction>,
+    crate::logic::custom_action::sys_get_valid_actions,
     (files)
 );
 async_command!(
     sys_execute_custom_action,
     CustomActionPayload,
     (),
-    core::sys::sys_execute_custom_action,
+    crate::logic::custom_action::sys_execute_custom_action,
     (exec_template, base_path, file_names)
 );
 
@@ -603,8 +565,7 @@ sync_command!(
     ()
 );
 
-/// P1 job queue (song song, IPC cũ nguyên vẹn): enqueue/list/cancel.
-/// Stub chưa gọi actions thật (P2); worker phát event `job_update`.
+/// Job queue (đường duy nhất cho copy/move/delete/list): enqueue/list/cancel.
 #[tauri::command]
 pub async fn job_enqueue(
     app_handle: tauri::AppHandle,
@@ -615,7 +576,10 @@ pub async fn job_enqueue(
     let payload = request.payload;
     let kind = logic::jobs::JobKind::parse(&payload.kind)
         .ok_or_else(|| error(IpcErrorCode::InvalidArgument, "kind must be copy|move|delete|list"))?;
-    let job = state.jobs.enqueue(kind, payload.src, payload.dst);
+    // Đóng dấu policy hiện tại (AppState) lên job lúc đặt việc — worker chỉ đọc
+    // `job.policy`, không đọc lại state, nên đổi policy giữa chừng không phá việc cũ.
+    let policy = state.policy.lock().map(|p| *p).unwrap_or_default();
+    let job = state.jobs.enqueue_with_policy(kind, payload.src, payload.dst, policy);
     state.jobs.spawn_worker(app_handle);
     Ok(success(request_id, job))
 }

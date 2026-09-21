@@ -2,7 +2,7 @@
 [INTEGRITY NOTES]
 - Mục đích: Trial S1 bóc đặc tả `fs_search` thành plan thuần (`lsjson -R --include`).
 - Trách nhiệm: parse → build_target → chọn lệnh `lsjson`; khớp `match` trên `RemoteKind`.
-- Tương tác: Chỉ gọi hàm thuần `logic::file_ops::parse_remote_path`,
+- Tương tác: Chỉ gọi hàm thuần `core::path::cut_remote_path`,
   `core::rclone_caller::build_target`. Không chạy lệnh, không wire `fs_*` cũ / IPC.
 */
 
@@ -12,7 +12,7 @@ use crate::api::files::{FileItem, SearchResultItem};
 use crate::core::rclone_caller;
 use crate::core::task::blocking;
 use crate::core::rclone_caller::build_target;
-use crate::logic::file_ops::parse_remote_path;
+use crate::core::path::cut_remote_path;
 
 /// Đặc tả thuần cho `search`: lệnh `lsjson -R --include`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,7 +28,7 @@ pub fn plan_search(path: &str, query: &str, fast_list: bool) -> Result<SearchPla
     if query.is_empty() {
         return Err("Thiếu từ khóa tìm kiếm.".to_string());
     }
-    let (remote, real) = parse_remote_path(path);
+    let (remote, real) = cut_remote_path(path);
     let kind = RemoteKind::classify(&remote);
     let _cap = Cap::of(kind);
     let target = build_target(&remote, &real);
@@ -65,7 +65,7 @@ pub async fn execute_search(path: String, query: String) -> Result<Vec<SearchRes
         .map(|f| f.fast_list)
         .unwrap_or(false);
     let plan = plan_search(&path, &query, fast_list)?;
-    let (remote, real_path) = parse_remote_path(&path);
+    let (remote, real_path) = cut_remote_path(&path);
     blocking(move || {
         let args: Vec<&str> = plan.rclone_args.iter().map(|s| s.as_str()).collect();
         let output = rclone_caller::run_cmd(&args)?;

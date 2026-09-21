@@ -1,9 +1,10 @@
 pub mod app_state;
+pub mod clipboard;
+pub mod custom_action;
 pub mod desktop_apps;
-pub mod file_ops;
 pub mod jobs;
+pub mod process;
 pub mod queue;
-pub mod transfer;
+pub mod tracker;
 pub mod watcher;
-/// Re-export trial S1 move action để tầng `api` dùng chung khi sẵn sàng.
-pub use crate::actions::execute_move;
+// UNIVERSAL: execute_move cũ đã gộp về jobs — không re-export đường cũ.
