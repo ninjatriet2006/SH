@@ -136,35 +136,33 @@ pub fn shlex_split(input: &str) -> Vec<String> {
     let mut in_double = false;
     let mut escape_next = false;
     for c in input.chars() {
-        if escape_next {
-            current.push(c);
-            escape_next = false;
-        } else if c == '\\' {
-            if in_single {
-                current.push(c);
-            } else {
-                escape_next = true;
+        // UNIVERSAL: phẳng chuỗi else-if ký tự → match trên (escaped,in_single,in_double,c).
+        match (escape_next, in_single, in_double, c) {
+            // UNIVERSAL: ký tự sau `\` luôn literal.
+            (true, _, _, ch) => {
+                current.push(ch);
+                escape_next = false;
             }
-        } else if c == '\'' {
-            if in_double {
-                current.push(c);
-            } else {
-                in_single = !in_single;
+            // UNIVERSAL: `\` trong nháy đơn giữ nguyên; ngoài thì escape ký tự sau.
+            (false, true, _, '\\') => current.push('\\'),
+            (false, false, _, '\\') => escape_next = true,
+            // UNIVERSAL: nháy đơn trong nháy kép là literal; ngoài thì toggle.
+            (false, _, true, '\'') => current.push('\''),
+            (false, _, false, '\'') => in_single = !in_single,
+            // UNIVERSAL: nháy kép trong nháy đơn là literal; ngoài thì toggle.
+            (false, true, _, '"') => current.push('"'),
+            (false, false, _, '"') => in_double = !in_double,
+            // UNIVERSAL: trong quote → mọi ký tự (kể cả trắng) là literal.
+            (false, true, _, ch) => current.push(ch),
+            (false, false, true, ch) => current.push(ch),
+            // UNIVERSAL: trắng ngoài quote → cắt token.
+            (false, false, false, ch) if ch.is_whitespace() => {
+                if !current.is_empty() {
+                    parts.push(std::mem::take(&mut current));
+                }
             }
-        } else if c == '"' {
-            if in_single {
-                current.push(c);
-            } else {
-                in_double = !in_double;
-            }
-        } else if c.is_whitespace() {
-            if in_single || in_double {
-                current.push(c);
-            } else if !current.is_empty() {
-                parts.push(std::mem::take(&mut current));
-            }
-        } else {
-            current.push(c);
+            // UNIVERSAL: còn lại là ký tự thường.
+            (false, false, false, ch) => current.push(ch),
         }
     }
     if !current.is_empty() {

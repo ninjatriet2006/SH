@@ -94,11 +94,11 @@ pub async fn execute_delete_with_empty_dirs(
                     .args(["trash", &real_path])
                     .output()
                     .map_err(|e| format!("Lỗi khi gọi gio trash: {}", e))?;
-                if output.status.success() {
-                    Ok(())
-                } else {
-                    Err(String::from_utf8_lossy(&output.stderr).trim().to_owned())
+                // UNIVERSAL: guard sớm, phẳng else lồng.
+                if !output.status.success() {
+                    return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
                 }
+                Ok(())
             })
             .await?;
             // UNIVERSAL: Local + Trash via `gio` đã dời cả thư mục nên skip dọn rỗng.
@@ -116,11 +116,11 @@ pub async fn execute_delete_with_empty_dirs(
         (Route::Remote, DeleteScope::Trash) => {
             fastlane::fastlane(move || {
                 let output = rclone_caller::run_cmd(&["delete", &target])?;
-                if output.status.success() {
-                    Ok(())
-                } else {
-                    Err(String::from_utf8_lossy(&output.stderr).trim().to_owned())
+                // UNIVERSAL: guard sớm, phẳng else lồng.
+                if !output.status.success() {
+                    return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
                 }
+                Ok(())
             })
             .await?;
             // UNIVERSAL: dọn rỗng sau `delete` Trash thành công (cây rỗng còn lại).
@@ -131,11 +131,11 @@ pub async fn execute_delete_with_empty_dirs(
                 EmptyDirs::OnlyHere => {
                     fastlane::fastlane(move || {
                         let output = rclone_caller::run_cmd(&["rmdir", &cleanup_target])?;
-                        if output.status.success() {
-                            Ok(())
-                        } else {
-                            Err(String::from_utf8_lossy(&output.stderr).trim().to_owned())
+                        // UNIVERSAL: guard sớm, phẳng else lồng.
+                        if !output.status.success() {
+                            return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
                         }
+                        Ok(())
                     })
                     .await
                 }
@@ -143,11 +143,11 @@ pub async fn execute_delete_with_empty_dirs(
                 EmptyDirs::Recursive => {
                     fastlane::fastlane(move || {
                         let output = rclone_caller::run_cmd(&["rmdirs", &cleanup_target])?;
-                        if output.status.success() {
-                            Ok(())
-                        } else {
-                            Err(String::from_utf8_lossy(&output.stderr).trim().to_owned())
+                        // UNIVERSAL: guard sớm, phẳng else lồng.
+                        if !output.status.success() {
+                            return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
                         }
+                        Ok(())
                     })
                     .await
                 }

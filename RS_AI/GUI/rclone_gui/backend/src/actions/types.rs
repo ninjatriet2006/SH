@@ -16,7 +16,11 @@ impl RemoteKind {
         match remote {
             // UNIVERSAL: ổ máy đi qua syscall/pkexec; remote đi qua lệnh rclone.
             "Local" => Self::Local,
-            _ => Self::Remote,
+            // UNIVERSAL: tên lạ rớt về Remote như cũ (an toàn: đi qua rclone).
+            other => {
+                crate::core::debug::warn(None, "types/RemoteKind::classify", format!("remote lạ '{other}', rớt về Remote"));
+                Self::Remote
+            }
         }
     }
 }
@@ -40,7 +44,10 @@ pub fn same_provider_from_dump(src: &str, dst: &str, dump: &serde_json::Value) -
             // UNIVERSAL: cùng type (vd: drive/drive) → server-side xuyên-config được.
             (Some(a), Some(b)) => a == b,
             // UNIVERSAL: thiếu type / khác type → trung chuyển qua local như cũ.
-            _ => false,
+            (a, b) => {
+                crate::core::debug::warn(None, "types/same_provider_from_dump", format!("type lạ src={a:?} dst={b:?}, rớt về false"));
+                false
+            }
         },
     }
 }

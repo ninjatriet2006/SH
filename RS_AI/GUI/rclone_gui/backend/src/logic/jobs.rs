@@ -33,7 +33,11 @@ impl JobKind {
             "list" => Some(JobKind::List),
             // UNIVERSAL: vé điểm danh — bóc thư mục thành từng món qua `manifest()`.
             "manifest" => Some(JobKind::Manifest),
-            _ => None,
+            // UNIVERSAL: chuỗi lạ rớt về None như cũ (IPC map 400).
+            other => {
+                crate::core::debug::warn(None, "jobs/JobKind::parse", format!("kind lạ '{other}', rớt về None"));
+                None
+            }
         }
     }
 }
@@ -259,7 +263,8 @@ impl JobStore {
             JobStatus::Done | JobStatus::Error | JobStatus::Cancelled => {
                 return Err("job already finished".to_string());
             }
-            _ => {}
+            // UNIVERSAL: liệt kê đủ enum nội bộ (cấm wildcard để compiler bắt thiếu nhánh).
+            JobStatus::Queued | JobStatus::Running => {}
         }
         if let Ok(mut flags) = self.cancelled.lock() {
             flags.insert(id.to_string());
@@ -375,7 +380,8 @@ impl JobStore {
             // kind khác giữ đường cũ (nở best-effort, vỏ rỗng → chạy đơn).
             let outcome = match snapshot.kind {
                 JobKind::Copy | JobKind::Move => self.execute_job(&snapshot, &mut emit),
-                _ => {
+                // UNIVERSAL: liệt kê đủ enum nội bộ (cấm wildcard).
+                JobKind::Delete | JobKind::List | JobKind::Manifest => {
                     self.populate_children_best_effort(&snapshot);
                     if self.children_of(&id).is_empty() {
                         // UNIVERSAL: chạy thật theo kind; hủy giữa chừng → `Cancelled`,
@@ -449,7 +455,12 @@ impl JobStore {
             Ok(items) if !items.is_empty() => {
                 self.set_children_from_items(&job.id, items);
             }
-            _ => {}
+            // UNIVERSAL: vỏ rỗng giữ đường đơn như cũ (không warn: bình thường).
+            Ok(_) => {}
+            // UNIVERSAL: lỗi đọc → warn rồi giữ đường đơn như cũ.
+            Err(e) => {
+                crate::core::debug::warn(None, "jobs/populate_children", format!("manifest lỗi: {e}"));
+            }
         }
     }
 
@@ -509,7 +520,13 @@ impl JobStore {
                 Ok(items) if !items.is_empty() => {
                     self.set_children_from_items(&job.id, items);
                 }
-                _ => {
+                // UNIVERSAL: vỏ rỗng/lỗi đọc → 1 vé Whole như cũ; lỗi đọc warn.
+                Ok(_) => {
+                    let across = crate::actions::checkcap::check_cap(&src, &dst).server_side;
+                    self.set_children_bulk(&job.id, across, flags);
+                }
+                Err(e) => {
+                    crate::core::debug::warn(None, "jobs/run_transfer_job", format!("manifest lỗi: {e}"));
                     let across = crate::actions::checkcap::check_cap(&src, &dst).server_side;
                     self.set_children_bulk(&job.id, across, flags);
                 }
@@ -756,7 +773,7 @@ impl JobStore {
         let entries = match std::fs::read_dir(&dir) {
             Ok(e) => e,
             Err(e) => {
-                crate::core::log::warn(None, "jobs", format!("bỏ qua dọn .partial '{dir:?}': {e}"));
+                crate::core::debug::warn(None, "jobs", format!("bỏ qua dọn .partial '{dir:?}': {e}"));
                 return;
             }
         };
@@ -764,7 +781,7 @@ impl JobStore {
             let ent = match ent {
                 Ok(e) => e,
                 Err(e) => {
-                    crate::core::log::warn(None, "jobs", format!("bỏ qua entry .partial: {e}"));
+                    crate::core::debug::warn(None, "jobs", format!("bỏ qua entry .partial: {e}"));
                     continue;
                 }
             };
@@ -778,7 +795,7 @@ impl JobStore {
                 continue;
             }
             if let Err(e) = std::fs::remove_file(&path) {
-                crate::core::log::warn(None, "jobs", format!("không xóa được '{path:?}': {e}"));
+                crate::core::debug::warn(None, "jobs", format!("không xóa được '{path:?}': {e}"));
             }
         }
     }

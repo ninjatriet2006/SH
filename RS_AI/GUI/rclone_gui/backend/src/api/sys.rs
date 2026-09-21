@@ -15,8 +15,8 @@ pub async fn sys_open_with(
 }
 
 #[tauri::command]
-pub async fn sys_list_apps() -> Result<Vec<crate::actions::view::DesktopApp>, String> {
-    crate::actions::view::sys_list_apps().await
+pub async fn sys_list_apps() -> Result<Vec<crate::actions::system::DesktopApp>, String> {
+    crate::actions::system::sys_list_apps().await
 }
 
 #[tauri::command]

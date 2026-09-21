@@ -54,7 +54,8 @@ pub async fn open_in_terminal(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn fs_get_thumbnail(path: String) -> Result<String, String> {
+/// UNIVERSAL: đuôi ngoài whitelist trả `Ok(None)` (UI hiện icon chung), không lỗi.
+pub async fn fs_get_thumbnail(path: String) -> Result<Option<String>, String> {
     crate::actions::view::execute_thumbnail(path).await
 }
 

@@ -81,10 +81,14 @@ pub fn list_local() -> Result<Vec<TrashItemLocal>, String> {
     let info_dir = dir.join("info");
     let files_dir = dir.join("files");
 
-    // Thùng rác chưa từng được dùng → chưa có thư mục, coi như rỗng.
+    // Thùng rác chưa từng được dùng → chưa có thư mục, coi như rỗng như cũ.
     let entries = match std::fs::read_dir(&info_dir) {
         Ok(e) => e,
-        Err(_) => return Ok(Vec::new()),
+        // UNIVERSAL: lỗi IO lạ → warn rồi rớt về rỗng như cũ.
+        Err(e) => {
+            crate::core::debug::warn(None, "trash_list/list_local", format!("đọc info_dir lỗi, rớt về rỗng: {e}"));
+            return Ok(Vec::new());
+        }
     };
 
     let mut items = Vec::new();
@@ -97,7 +101,11 @@ pub fn list_local() -> Result<Vec<TrashItemLocal>, String> {
         // "a b.txt.trashinfo" → id = "a b.txt"
         let id = match info_path.file_stem().and_then(|s| s.to_str()) {
             Some(s) => s.to_string(),
-            None => continue,
+            // UNIVERSAL: tên file lạ không decode được → warn rồi bỏ qua như cũ.
+            None => {
+                crate::core::debug::warn(None, "trash_list/list_local", format!("bỏ trashinfo tên lạ: {info_path:?}"));
+                continue;
+            }
         };
 
         // Bỏ qua metadata mồ côi (không còn nội dung thật) để UI không hiện mục ảo.

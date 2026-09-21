@@ -354,10 +354,15 @@ pub(crate) fn run_streaming(
                 let _ = child.wait();
                 return Err("job cancelled".to_string());
             }
+            // UNIVERSAL: dòng lỗi đọc → warn rồi bỏ qua như cũ.
             let line = match line {
                 Ok(l) => l,
-                Err(_) => continue,
+                Err(e) => {
+                    crate::core::debug::warn(None, "copy/run_streaming", format!("bỏ dòng log lỗi: {e}"));
+                    continue;
+                }
             };
+            // UNIVERSAL: guard sớm, phẳng else lồng.
             if line.trim().is_empty() {
                 continue;
             }
@@ -366,12 +371,11 @@ pub(crate) fn run_streaming(
             on_log_line(&line);
         }
         let status = child.wait().map_err(|e| format!("Lỗi chờ rclone: {e}"))?;
-        if status.success() {
-            Ok(())
-        } else if tail.is_empty() {
-            Err(format!("rclone {cmd} thất bại"))
-        } else {
-            Err(tail)
+        // UNIVERSAL: match phẳng tail, giữ nguyên câu lỗi cũ.
+        match (status.success(), tail.is_empty()) {
+            (true, _) => Ok(()),
+            (false, true) => Err(format!("rclone {cmd} thất bại")),
+            (false, false) => Err(tail),
         }
     };
     // UNIVERSAL: Local↔Local rớt qua `pkexec cp/mv` khi dính lỗi quyền

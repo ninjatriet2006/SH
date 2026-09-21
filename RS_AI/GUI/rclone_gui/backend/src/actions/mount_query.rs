@@ -20,7 +20,15 @@ pub fn fuse_installed() -> Result<bool, String> {
     for bin in ["fusermount3", "fusermount"] {
         match Command::new("which").arg(bin).output() {
             Ok(out) if out.status.success() => return Ok(true),
-            _ => continue,
+            // UNIVERSAL: bin vắng → warn rồi thử bin sau như cũ.
+            Ok(_) => {
+                crate::core::debug::warn(None, "mount_query/fuse_installed", format!("thiếu '{bin}', thử tiếp"));
+                continue;
+            }
+            Err(e) => {
+                crate::core::debug::warn(None, "mount_query/fuse_installed", format!("which '{bin}' lỗi: {e}"));
+                continue;
+            }
         }
     }
     Ok(false)
@@ -74,7 +82,11 @@ fn apply_exec_flags(config: &mut MountConfig, exec: &str) {
             let full = parts[i + 1].as_str();
             let (r_name, r_path) = match full.find(':') {
                 Some(idx) => (full[..idx].to_string(), full[idx + 1..].to_string()),
-                None => (full.to_string(), String::new()),
+                // UNIVERSAL: ExecStart lạ thiếu `:` → warn rồi rớt về path rỗng như cũ.
+                None => {
+                    crate::core::debug::warn(None, "mount_query/apply_exec_flags", format!("remote lạ thiếu ':': '{full}'"));
+                    (full.to_string(), String::new())
+                }
             };
             config.remote_name = r_name;
             config.remote_path = r_path.trim_start_matches('/').to_string();

@@ -1,4 +1,7 @@
-//! Log tập trung của backend (S1): file append + stderr + event `backend-log`.
+//! Sổ chẩn đoán backend (module `core::debug`, file `backend.log`, event `backend-log`).
+//!
+//! Khác với log chuyển file của tracker (dòng `--use-json-log` của rclone → % tiến
+//! độ trong `logic::tracker`): module này chỉ ghi chẩn đoán nội bộ backend.
 //!
 //! Giữ `eprintln!` để log vẫn thấy khi chạy dev; file append nằm trong thư
 //! mục config của app; event chỉ emit khi có `AppHandle` (best-effort).

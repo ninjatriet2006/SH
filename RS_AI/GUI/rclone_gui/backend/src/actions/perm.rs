@@ -30,7 +30,11 @@ impl Policy {
             "deny" => Some(Policy::Deny),
             "ask_once" => Some(Policy::AskOnce),
             "allow_system" => Some(Policy::AllowSystem),
-            _ => None,
+            // UNIVERSAL: chuỗi lạ rớt về None như cũ (IPC map 400).
+            other => {
+                crate::core::debug::warn(None, "perm/Policy::parse", format!("policy lạ '{other}', rớt về None"));
+                None
+            }
         }
     }
 
@@ -114,7 +118,11 @@ fn run_pkexec(action: &str, args: &[String]) -> Result<(), String> {
             "write" => {
                 return Err("Không đủ quyền ghi tệp này. Hãy đổi quyền hoặc chọn vị trí khác.".into());
             }
-            _ => return Err("Hành động sudo không được hỗ trợ".into()),
+            // UNIVERSAL: action lạ → warn rồi từ chối như cũ.
+            other => {
+                crate::core::debug::warn(None, "perm/run_pkexec", format!("sudo action lạ '{other}'"));
+                return Err("Hành động sudo không được hỗ trợ".into());
+            }
         }
         for arg in args {
             cmd_args.push(arg.clone());

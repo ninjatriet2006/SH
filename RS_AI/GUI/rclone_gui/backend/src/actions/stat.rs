@@ -106,7 +106,15 @@ pub async fn execute_stat(path: String) -> Result<StatInfo, String> {
             Ok(out) if out.status.success() => serde_json::from_slice::<Vec<serde_json::Value>>(&out.stdout)
                 .map(|v| v.len() as u64)
                 .unwrap_or(0),
-            _ => 0,
+            // UNIVERSAL: đếm hỏng → warn rồi rớt về 0 như cũ.
+            Ok(out) => {
+                crate::core::debug::warn(None, "stat/execute_stat", format!("lsjson đếm hỏng: ok={}", out.status.success()));
+                0
+            }
+            Err(e) => {
+                crate::core::debug::warn(None, "stat/execute_stat", format!("lsjson đếm lỗi spawn: {e}"));
+                0
+            }
         };
         let (permissions, uid, gid) = read_local_ownership(&remote, &plan.target);
         Ok(StatInfo {

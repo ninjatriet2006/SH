@@ -328,7 +328,8 @@ impl JobStore {
                         },
                     )
                 }
-                _ => Ok(()),
+                // UNIVERSAL: liệt kê đủ enum nội bộ (cấm wildcard để compiler bắt thiếu nhánh).
+                JobKind::Delete | JobKind::List | JobKind::Manifest => Ok(()),
             },
             ChildMode::Item => {
                 if child.is_dir {

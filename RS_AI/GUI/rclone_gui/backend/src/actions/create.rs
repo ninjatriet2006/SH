@@ -85,11 +85,11 @@ pub async fn execute_mkdir(path: String, policy: Policy) -> Result<(), String> {
     fastlane::fastlane(move || {
         escalate(policy, &remote, "mkdir", std::slice::from_ref(&real_path), || {
             let output = rclone_caller::run_cmd(&["mkdir", &target])?;
+            // UNIVERSAL: guard sớm, phẳng else lồng.
             if !output.status.success() {
-                Err(String::from_utf8_lossy(&output.stderr).into_owned())
-            } else {
-                Ok(())
+                return Err(String::from_utf8_lossy(&output.stderr).into_owned());
             }
+            Ok(())
         })
     })
     .await
@@ -101,8 +101,9 @@ pub async fn execute_mkdir(path: String, policy: Policy) -> Result<(), String> {
 pub async fn execute_touch(path: String, policy: Policy) -> Result<(), String> {
     let plan = plan_touch(&path)?;
     fastlane::fastlane(move || {
-        if plan.local_create {
-            std::fs::File::create(&plan.target).map(|_| ()).map_err(|e| {
+        // UNIVERSAL: match phẳng local/remote, giữ nguyên hành vi cũ.
+        match plan.local_create {
+            true => std::fs::File::create(&plan.target).map(|_| ()).map_err(|e| {
                 let msg = e.to_string();
                 // UNIVERSAL: chưa consent thì park, không tự leo thang (bản cũ không sudo).
                 if classify_permission_error(&msg) && policy != Policy::AllowSystem {
@@ -110,9 +111,8 @@ pub async fn execute_touch(path: String, policy: Policy) -> Result<(), String> {
                 } else {
                     msg
                 }
-            })
-        } else {
-            rclone_caller::spawn_cmd(&["touch", &plan.target])
+            }),
+            false => rclone_caller::spawn_cmd(&["touch", &plan.target]),
         }
     })
     .await

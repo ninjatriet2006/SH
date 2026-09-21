@@ -11,7 +11,6 @@ use crate::actions::types::RemoteKind;
 use crate::core::rclone_caller::build_target;
 use crate::logic::fastlane::fastlane;
 use crate::core::path::cut_remote_path;
-use serde::Serialize;
 use std::process::Command;
 
 /// Đặc tả thuần cho `thumbnail`: đường dẫn local thực + nhóm định dạng.
@@ -36,6 +35,9 @@ pub enum ThumbnailGroup {
     Video,
     Pdf,
     Image,
+    /// UNIVERSAL: đuôi ngoài whitelist — không phải lỗi, chỉ là không có gì để xem.
+    /// Trả `Ok(None)` im lặng để UI hiện icon chung, khỏi báo lỗi suốt ngày.
+    Unsupported,
 }
 
 /// Dựng plan `thumbnail`: chỉ hỗ trợ đường dẫn local thực; remote → lỗi.
@@ -61,30 +63,43 @@ pub fn plan_thumbnail(path: &str) -> Result<ThumbnailPlan, String> {
         // UNIVERSAL: video qua `ffmpegthumbnailer`, pdf qua `pdftoppm`.
         "mp4" | "mkv" | "avi" | "mov" | "webm" => ThumbnailGroup::Video,
         "pdf" => ThumbnailGroup::Pdf,
-        // UNIVERSAL: còn lại thử decode ảnh trực tiếp (`image` crate).
-        _ => ThumbnailGroup::Image,
+        // UNIVERSAL: chỉ đuôi ảnh đã biết mới decode (`image` crate).
+        "png" | "jpg" | "jpeg" | "gif" | "bmp" | "ico" | "tiff" | "tif" | "webp" => ThumbnailGroup::Image,
+        // UNIVERSAL: đuôi ngoài whitelist (zip, txt...) — không phải lỗi nên
+        // không warn (kẻo sổ đầy): đánh dấu Unsupported, execute trả Ok(None).
+        // Muốn hỗ trợ đuôi mới thì thêm vào 2 nhánh trên (whitelist là danh sách).
+        _ => ThumbnailGroup::Unsupported,
     };
     Ok(ThumbnailPlan { local_path, group })
 }
 
 /// UNIVERSAL: thực thi thumbnail từ `plan_thumbnail` (video→ffmpegthumbnailer,
-/// pdf→pdftoppm, còn lại→image crate; trả data URI base64).
-pub async fn execute_thumbnail(path: String) -> Result<String, String> {
+/// pdf→pdftoppm, ảnh→image crate; trả data URI base64).
+/// Đuôi ngoài whitelist → `Ok(None)` im lặng (UI hiện icon chung), KHÔNG phải lỗi.
+pub async fn execute_thumbnail(path: String) -> Result<Option<String>, String> {
     fastlane(move || {
         use base64::{engine::general_purpose::STANDARD, Engine as _};
         use std::io::Cursor;
 
         let plan = plan_thumbnail(&path)?;
+        if plan.group == ThumbnailGroup::Unsupported {
+            return Ok(None);
+        }
         match plan.group {
             // UNIVERSAL: video qua `ffmpegthumbnailer`, hỏng thì rơi xuống decode ảnh.
             ThumbnailGroup::Video => {
                 let output = Command::new("ffmpegthumbnailer")
                     .args(["-i", &plan.local_path, "-o", "-", "-s", "64", "-c", "jpeg", "-f"])
                     .output();
-                if let Ok(out) = output {
-                    if out.status.success() {
+                // UNIVERSAL: match phẳng, hỏng → rơi xuống decode ảnh như cũ.
+                match output {
+                    Ok(out) if out.status.success() => {
                         let base64_str = STANDARD.encode(&out.stdout);
-                        return Ok(format!("data:image/jpeg;base64,{}", base64_str));
+                        return Ok(Some(format!("data:image/jpeg;base64,{}", base64_str)));
+                    }
+                    // UNIVERSAL: hỏng ffmpegthumbnailer → warn rồi rơi xuống decode ảnh như cũ.
+                    other => {
+                        crate::core::debug::warn(None, "view/execute_thumbnail", format!("ffmpegthumbnailer hỏng: ok={}", other.as_ref().map(|o| o.status.success()).unwrap_or(false)));
                     }
                 }
             }
@@ -96,15 +111,22 @@ pub async fn execute_thumbnail(path: String) -> Result<String, String> {
                         &plan.local_path,
                     ])
                     .output();
-                if let Ok(out) = output {
-                    if out.status.success() {
+                // UNIVERSAL: match phẳng, hỏng → rơi xuống decode ảnh như cũ.
+                match output {
+                    Ok(out) if out.status.success() => {
                         let base64_str = STANDARD.encode(&out.stdout);
-                        return Ok(format!("data:image/jpeg;base64,{}", base64_str));
+                        return Ok(Some(format!("data:image/jpeg;base64,{}", base64_str)));
+                    }
+                    // UNIVERSAL: hỏng pdftoppm → warn rồi rơi xuống decode ảnh như cũ.
+                    other => {
+                        crate::core::debug::warn(None, "view/execute_thumbnail", format!("pdftoppm hỏng: ok={}", other.as_ref().map(|o| o.status.success()).unwrap_or(false)));
                     }
                 }
             }
             // UNIVERSAL: còn lại thử decode ảnh trực tiếp (`image` crate).
             ThumbnailGroup::Image => {}
+            // UNIVERSAL: đã chặn Unsupported ở trên — nhánh này không tới được.
+            ThumbnailGroup::Unsupported => return Ok(None),
         }
 
         let img = image::open(&plan.local_path).map_err(|e| format!("Lỗi mở ảnh: {}", e))?;
@@ -114,7 +136,7 @@ pub async fn execute_thumbnail(path: String) -> Result<String, String> {
             .write_to(&mut buffer, image::ImageFormat::Jpeg)
             .map_err(|e| format!("Lỗi tạo thumb: {}", e))?;
         let base64_str = STANDARD.encode(buffer.get_ref());
-        Ok(format!("data:image/jpeg;base64,{}", base64_str))
+        Ok(Some(format!("data:image/jpeg;base64,{}", base64_str)))
     })
     .await
 }
@@ -160,19 +182,8 @@ pub fn plan_view_download(src: &str) -> Result<ViewPlan, String> {
 }
 
 /// UNIVERSAL: mở file = xem (S2 tách vai, dời từ `core/sys.rs`, hành vi giữ nguyên).
-/// Khai báo cấu trúc DesktopApp để trả về cho giao diện khi chọn "Open With"
-#[derive(Serialize)]
-pub struct DesktopApp {
-    // Tên hiển thị của ứng dụng
-    pub name: String,
-    // Lệnh thực thi của ứng dụng
-    pub exec: String,
-    // Đường dẫn hoặc tên icon của ứng dụng
-    pub icon: String,
-}
-
-/// UNIVERSAL: mở file Local bằng app hệ điều hành; exec trực tiếp (không qua
-/// `sh -c`) nên tên file chứa ký tự đặc biệt không chèn thêm lệnh được.
+/// UNIVERSAL: DTO "Open With" (`DesktopApp`) + `sys_list_apps` đã dời về 1 nơi
+/// làm thật `actions::system` — xóa vỏ chuyển tay, `api::sys` gọi thẳng system.
 pub async fn sys_open_with(path: String, exec_cmd: Option<String>, app: Option<String>) -> Result<(), String> {
     fastlane(move || {
         // Frontend gửi đường dẫn dạng "Remote::/path"; chỉ ổ Local mở được bằng app OS.
@@ -234,21 +245,29 @@ fn shell_split(input: &str) -> Vec<String> {
     let mut escaped = false;
 
     for c in input.chars() {
-        if escaped {
-            current.push(c);
-            escaped = false;
-        } else if c == '\\' && !in_single {
-            escaped = true;
-        } else if c == '\'' && !in_double {
-            in_single = !in_single;
-        } else if c == '"' && !in_single {
-            in_double = !in_double;
-        } else if c.is_whitespace() && !in_single && !in_double {
-            if !current.is_empty() {
-                parts.push(std::mem::take(&mut current));
+        // UNIVERSAL: phẳng else-if ký tự → match trên (escaped,in_single,in_double,c).
+        match (escaped, in_single, in_double, c) {
+            // UNIVERSAL: ký tự sau `\` luôn literal.
+            (true, _, _, ch) => {
+                current.push(ch);
+                escaped = false;
             }
-        } else {
-            current.push(c);
+            // UNIVERSAL: `\` ngoài nháy đơn thì escape ký tự sau.
+            (false, false, _, '\\') => escaped = true,
+            (false, true, _, '\\') => current.push('\\'),
+            // UNIVERSAL: nháy đơn/kép toggle khi ngoài quote đối ứng.
+            (false, _, false, '\'') => in_single = !in_single,
+            (false, _, _, '\'') => current.push('\''),
+            (false, false, _, '"') => in_double = !in_double,
+            (false, _, _, '"') => current.push('"'),
+            // UNIVERSAL: trắng ngoài quote → cắt token; trong quote là literal.
+            (false, false, false, ch) if ch.is_whitespace() => {
+                if !current.is_empty() {
+                    parts.push(std::mem::take(&mut current));
+                }
+            }
+            // UNIVERSAL: còn lại là ký tự thường/literal trong quote.
+            (_, _, _, ch) => current.push(ch),
         }
     }
 
@@ -259,11 +278,6 @@ fn shell_split(input: &str) -> Vec<String> {
     parts
 }
 
-/// UNIVERSAL: quét Desktop Entry thật (chuẩn FreeDesktop.org) thay vì dữ liệu giả.
-pub async fn sys_list_apps() -> Result<Vec<DesktopApp>, String> {
-    fastlane(|| Ok(crate::logic::desktop_apps::list())).await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,6 +285,22 @@ mod tests {
     #[test]
     fn thumbnail_remote_rejected() {
         assert!(plan_thumbnail("GDrive::/a.png").is_err());
+    }
+
+    #[test]
+    fn thumbnail_known_image_ok_and_unknown_ext_unsupported() {
+        assert!(plan_thumbnail("Local::/tmp/a.png").is_ok());
+        assert!(plan_thumbnail("Local::/tmp/a.JPG").is_ok());
+        // UNIVERSAL: đuôi ngoài whitelist không phải lỗi — plan vẫn Ok nhóm Unsupported.
+        let plan = plan_thumbnail("Local::/tmp/a.zip").expect("zip plan");
+        assert_eq!(plan.group, ThumbnailGroup::Unsupported);
+    }
+
+    #[tokio::test]
+    async fn thumbnail_unsupported_returns_none_silently() {
+        // UNIVERSAL: không xem được ≠ lỗi — UI hiện icon chung, khỏi báo suốt ngày.
+        let out = execute_thumbnail("Local::/tmp/a.zip".to_string()).await.expect("no error");
+        assert!(out.is_none());
     }
 
     #[test]

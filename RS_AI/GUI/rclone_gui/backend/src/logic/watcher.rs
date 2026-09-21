@@ -15,7 +15,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::core::log::{self, Level};
+use crate::core::debug::{self, Level};
 use crate::logic::app_state::AppState;
 
 /// Khoảng thời gian gộp các sự kiện liên tiếp (debounce).
@@ -37,7 +37,7 @@ pub fn init(app: &AppHandle) {
             let event: notify::Event = match res {
                 Ok(e) => e,
                 Err(e) => {
-                    log::warn(Some(&app_for_thread), "watcher", format!("lỗi theo dõi thư mục: {e:?}"));
+                    debug::warn(Some(&app_for_thread), "watcher", format!("lỗi theo dõi thư mục: {e:?}"));
                     continue;
                 }
             };
@@ -67,7 +67,7 @@ pub fn init(app: &AppHandle) {
         }
         Err(e) => {
             // Không phải lỗi chí tử: ứng dụng vẫn dùng được, chỉ mất tự làm mới.
-            log::log(Some(app), Level::Error, "watcher", format!("không khởi tạo được inotify watcher: {e}"));
+            debug::log(Some(app), Level::Error, "watcher", format!("không khởi tạo được inotify watcher: {e}"));
         }
     }
 }
@@ -118,7 +118,7 @@ pub fn watch_pane(state: &AppState, pane: &str, local_path: Option<&str>) {
     if let Some(new_path) = local_path {
         // NonRecursive: chỉ quan tâm biến động ngay trong thư mục đang hiển thị.
         if let Err(e) = watcher.watch(Path::new(new_path), RecursiveMode::NonRecursive) {
-            log::warn(None, "watcher", format!("không theo dõi được '{new_path}': {e}"));
+            debug::warn(None, "watcher", format!("không theo dõi được '{new_path}': {e}"));
         }
     }
 }

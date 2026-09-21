@@ -26,6 +26,8 @@ pub fn percent_decode(input: &str) -> String {
     let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
+        // UNIVERSAL: `%` hỏng (thiếu hex/không phải hex — dữ liệu .trashinfo lạ) —
+        // không phải lỗi nên giữ nguyên ký tự im lặng, khỏi warn đầy sổ.
         if bytes[i] == b'%' && i + 2 < bytes.len() {
             let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or("");
             if let Ok(byte) = u8::from_str_radix(hex, 16) {

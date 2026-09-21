@@ -197,11 +197,14 @@ pub fn check_trash_cap(backend_type: &str) -> TrashCap {
             can_cleanup: true,
         },
         // UNIVERSAL: còn lại không có khái niệm thùng rác trong rclone.
-        _ => TrashCap {
-            trashed_only: None,
-            can_restore: false,
-            can_cleanup: false,
-        },
+        other => {
+            crate::core::debug::warn(None, "checkcap/check_trash_cap", format!("backend lạ '{other}', rớt về không-trash"));
+            TrashCap {
+                trashed_only: None,
+                can_restore: false,
+                can_cleanup: false,
+            }
+        }
     }
 }
 
