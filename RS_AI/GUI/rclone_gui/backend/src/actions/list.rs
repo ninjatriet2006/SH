@@ -10,7 +10,7 @@ use crate::actions::explorer::Cap;
 use crate::actions::types::RemoteKind;
 use crate::api::files::FileItem;
 use crate::core::rclone_caller;
-use crate::core::task::blocking;
+use crate::logic::fastlane::fastlane;
 use crate::core::rclone_caller::build_target;
 use crate::logic::app_state::AppState;
 use crate::core::path::cut_remote_path;
@@ -71,7 +71,7 @@ struct RcloneFile {
     IsDir: bool,
 }
 
-/// S2: thực thi list — `plan_list` + watcher pane + `blocking` run + parse + sort cũ.
+/// S2: thực thi list — `plan_list` + watcher pane + `fastlane` run + parse + sort cũ.
 /// UNIVERSAL: Local gắn watcher theo pane; remote cloud ngừng watch.
 pub async fn execute_list(
     app_handle: tauri::AppHandle,
@@ -84,7 +84,7 @@ pub async fn execute_list(
         let state = app_handle.state::<AppState>();
         watcher::watch_pane(&state, pane, plan.watch_path.as_deref());
     }
-    let files = blocking(move || {
+    let files = fastlane(move || {
         let args: Vec<&str> = plan.rclone_args.iter().map(|s| s.as_str()).collect();
         let output = rclone_caller::run_cmd(&args)?;
         if !output.status.success() {

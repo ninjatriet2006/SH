@@ -10,7 +10,7 @@ use crate::actions::explorer::Cap;
 use crate::actions::types::RemoteKind;
 use crate::api::files::StatInfo;
 use crate::core::rclone_caller;
-use crate::core::task::blocking;
+use crate::logic::fastlane::fastlane;
 use crate::core::rclone_caller::build_target;
 use crate::core::path::cut_remote_path;
 use serde::Deserialize;
@@ -72,7 +72,7 @@ fn read_local_ownership(remote: &str, target: &str) -> (u32, u32, u32) {
     (0, 0, 0)
 }
 
-/// S2: thực thi stat — `plan_stat` (fast-list từ cờ engine) + `blocking` run + parse cũ.
+/// S2: thực thi stat — `plan_stat` (fast-list từ cờ engine) + `fastlane` run + parse cũ.
 /// UNIVERSAL: `size --json` + đếm `lsjson -R --dirs-only`; ownership chỉ Local.
 pub async fn execute_stat(path: String) -> Result<StatInfo, String> {
     let fast_list = crate::settings::engine::load_engine_flags()
@@ -80,7 +80,7 @@ pub async fn execute_stat(path: String) -> Result<StatInfo, String> {
         .unwrap_or(false);
     let plan = plan_stat(&path, fast_list)?;
     let (remote, _) = cut_remote_path(&path);
-    blocking(move || {
+    fastlane(move || {
         let mut size_cmd = vec!["size"];
         size_cmd.extend(plan.size_args.iter().map(|s| s.as_str()));
         let output = rclone_caller::run_cmd(&size_cmd)?;

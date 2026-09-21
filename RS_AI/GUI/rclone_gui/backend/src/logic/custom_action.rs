@@ -3,7 +3,7 @@
  * không phải thao tác OS thô. Stub rỗng, chưa đọc config (giữ nguyên hành vi).
  */
 
-use crate::core::task::blocking;
+use crate::logic::fastlane::fastlane;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 
@@ -88,7 +88,7 @@ pub async fn sys_execute_custom_action(
 
     let cmd = exec_template.replace("%f", &paths_str);
 
-    blocking(move || {
+    fastlane(move || {
         Command::new("sh")
             .arg("-c")
             .arg(cmd)

@@ -3,7 +3,7 @@
 - Mục đích: Xoá vĩnh viễn từng mục + dọn sạch thùng rác Local/Remote (S1 unify).
 - Trách nhiệm: Phân tuyến (Route) → chọn nhánh Local/Remote bằng `match` + UNIVERSAL;
   xoá vĩnh viễn dùng chung [`DeleteScope`], dọn sạch dùng chung [`EmptyDirs`].
-- Tương tác: Tầng `api::trash` bọc mỏng qua `core::task::blocking`. Không đụng IPC/frontend.
+- Tương tác: Tầng `api::trash` bọc mỏng qua `logic::fastlane::fastlane`. Không đụng IPC/frontend.
   Xoá từng mục remote cần cờ `--<backend>-trashed-only`; dọn sạch qua `rclone cleanup`
   khi backend có tính năng `CleanUp`.
 */

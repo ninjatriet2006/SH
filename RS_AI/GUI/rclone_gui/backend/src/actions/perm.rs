@@ -254,7 +254,7 @@ pub fn plan_chown(path: &str, uid: u32, gid: u32) -> Result<ChownPlan, String> {
 /// `Deny`/`AskOnce` trả `PERMISSION_CONSENT` để frontend park + hỏi.
 pub async fn execute_chmod(path: String, mode: u32, policy: Policy) -> Result<(), String> {
     let plan = plan_chmod(&path, mode)?;
-    crate::core::task::blocking(move || {
+    crate::logic::fastlane::fastlane(move || {
         #[cfg(unix)]
         {
             escalate(policy, "Local", "chmod", &[plan.octal.clone(), plan.real_path.clone()], || {
@@ -284,7 +284,7 @@ pub async fn execute_chown(path: String, uid: u32, gid: u32, policy: Policy) -> 
             path
         ));
     }
-    crate::core::task::blocking(move || {
+    crate::logic::fastlane::fastlane(move || {
         #[cfg(target_os = "linux")]
         {
             let output = std::process::Command::new("pkexec")

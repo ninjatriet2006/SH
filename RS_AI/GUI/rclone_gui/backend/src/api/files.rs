@@ -9,7 +9,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::actions::perm::Policy;
-use crate::core::task::blocking;
+use crate::logic::fastlane::fastlane;
 use std::process::Command;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -128,7 +128,7 @@ fn xdg_user_dir(key: &str, home: &str) -> Option<String> {
 /// Mô tả: Danh sách thư mục người dùng chuẩn XDG để dựng mục "Truy cập nhanh".
 /// Chỉ trả về thư mục thực sự tồn tại, nên không hiện mục dẫn tới đường dẫn rỗng.
 pub async fn get_user_places() -> Result<Vec<UserPlace>, String> {
-    blocking(|| {
+    fastlane(|| {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
 
         let mut places = vec![UserPlace {
@@ -172,7 +172,7 @@ pub async fn get_user_places() -> Result<Vec<UserPlace>, String> {
 }
 
 pub async fn open_in_terminal(path: String) -> Result<(), String> {
-    blocking(move || {
+    fastlane(move || {
         #[cfg(target_os = "windows")]
         {
             Command::new("cmd")
@@ -224,7 +224,7 @@ pub async fn open_in_terminal(path: String) -> Result<(), String> {
 }
 
 pub async fn fs_get_thumbnail(path: String) -> Result<String, String> {
-    blocking(move || {
+    fastlane(move || {
         use base64::{engine::general_purpose::STANDARD, Engine as _};
         use std::io::Cursor;
         use std::path::Path;

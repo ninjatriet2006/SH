@@ -3,7 +3,7 @@
  * temp là logic nghiệp vụ, không phải syscall OS thô.
  */
 
-use crate::core::task::blocking;
+use crate::logic::fastlane::fastlane;
 use serde::{Deserialize, Serialize};
 use std::env;
 
@@ -23,7 +23,7 @@ pub struct OSClipboardData {
 
 /// UNIVERSAL: lưu clipboard vào file JSON trong thư mục tạm hệ điều hành.
 pub async fn os_clipboard_set(items: Vec<OSClipboardItem>, is_cut: bool) -> Result<(), String> {
-    blocking(move || {
+    fastlane(move || {
         let data = OSClipboardData { items, is_cut };
         // UNIVERSAL: serialize không bao giờ fail với struct này nhưng vẫn map_err thay vì unwrap.
         let json = serde_json::to_string(&data).map_err(|e| e.to_string())?;
@@ -37,7 +37,7 @@ pub async fn os_clipboard_set(items: Vec<OSClipboardItem>, is_cut: bool) -> Resu
 
 /// UNIVERSAL: đọc clipboard, chưa copy gì → `None`.
 pub async fn os_clipboard_get() -> Result<Option<OSClipboardData>, String> {
-    blocking(|| {
+    fastlane(|| {
         let path = env::temp_dir().join("rclone_gui_clipboard.json");
 
         if path.exists() {

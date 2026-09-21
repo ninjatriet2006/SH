@@ -9,7 +9,8 @@
 use crate::actions::ops::Cap;
 use crate::actions::perm::{Policy, classify_permission_error, escalate};
 use crate::actions::types::RemoteKind;
-use crate::core::{rclone_caller, task};
+use crate::core::rclone_caller;
+use crate::logic::fastlane;
 use crate::core::rclone_caller::build_target;
 use crate::core::path::cut_remote_path;
 
@@ -81,7 +82,7 @@ pub async fn execute_mkdir(path: String, policy: Policy) -> Result<(), String> {
     let plan = plan_mkdir(&path)?;
     let (remote, real_path) = cut_remote_path(&path);
     let target = plan.target.clone();
-    task::blocking(move || {
+    fastlane::fastlane(move || {
         escalate(policy, &remote, "mkdir", std::slice::from_ref(&real_path), || {
             let output = rclone_caller::run_cmd(&["mkdir", &target])?;
             if !output.status.success() {
@@ -99,7 +100,7 @@ pub async fn execute_mkdir(path: String, policy: Policy) -> Result<(), String> {
 /// lỗi quyền khi chưa consent trả `PERMISSION_CONSENT` (cũ không sudo nên không pkexec).
 pub async fn execute_touch(path: String, policy: Policy) -> Result<(), String> {
     let plan = plan_touch(&path)?;
-    task::blocking(move || {
+    fastlane::fastlane(move || {
         if plan.local_create {
             std::fs::File::create(&plan.target).map(|_| ()).map_err(|e| {
                 let msg = e.to_string();

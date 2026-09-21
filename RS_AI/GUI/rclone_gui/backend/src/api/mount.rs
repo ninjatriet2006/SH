@@ -8,7 +8,7 @@ Trách nhiệm:
 Các module tương tác: lib.rs, frontend (qua Tauri command), bridge/mount_api.ts
 */
 
-use crate::core::task::blocking;
+use crate::logic::fastlane::fastlane;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -40,7 +40,7 @@ pub struct SystemdServiceInfo {
 
 /// Kiểm tra hệ thống đã cài đặt FUSE chưa
 pub async fn check_fuse_installed() -> Result<bool, String> {
-    blocking(|| {
+    fastlane(|| {
         // Kiểm tra fuse hoặc fuse3 hoặc fusermount
         let fuse3 = Command::new("which").arg("fusermount3").output();
         let fuse = Command::new("which").arg("fusermount").output();
@@ -131,7 +131,7 @@ pub async fn create_mount_service(config: MountConfig, confirmed: bool) -> Resul
     if !config.is_user_level {
         require_confirmation(confirmed)?;
     }
-    blocking(move || {
+    fastlane(move || {
         let service_path = get_service_path(&config.service_name, config.is_user_level)?;
 
         // Lấy đường dẫn thực tế của rclone
@@ -242,7 +242,7 @@ pub async fn delete_mount_service(service_name: String, is_user: bool, confirmed
         .await
         .ok();
 
-    blocking(move || {
+    fastlane(move || {
         let service_path = get_service_path(&service_name, is_user)?;
 
         if !is_user {
@@ -282,7 +282,7 @@ pub async fn manage_mount_service(
     if !is_user || matches!(action.as_str(), "stop" | "disable" | "restart") {
         require_confirmation(confirmed)?;
     }
-    blocking(move || {
+    fastlane(move || {
         let mut cmd = if is_user {
             let mut c = Command::new("systemctl");
             c.arg("--user");
@@ -311,7 +311,7 @@ pub async fn manage_mount_service(
 /// Lấy danh sách các file .service từ user và system
 pub async fn get_mount_service_config(service_name: String, is_user: bool) -> Result<MountConfig, String> {
     validate_service_name(&service_name)?;
-    blocking(move || {
+    fastlane(move || {
         let service_path = get_service_path(&service_name, is_user)?;
         if !service_path.exists() {
             return Err(format!("Service file not found at: {:?}", service_path));
@@ -394,7 +394,7 @@ pub async fn get_mount_service_config(service_name: String, is_user: bool) -> Re
 }
 
 pub async fn list_mount_services() -> Result<Vec<SystemdServiceInfo>, String> {
-    blocking(|| {
+    fastlane(|| {
         let mut services = Vec::new();
 
         // Scan user services

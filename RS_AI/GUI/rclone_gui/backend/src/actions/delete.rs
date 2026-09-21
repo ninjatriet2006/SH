@@ -4,12 +4,13 @@
   `execute_delete`, cộng thêm nhánh Trash; `fs_delete` cũ giữ nguyên hành vi.
 - Trách nhiệm: Phân tuyến (Route) + loại target (IsDir) + phạm vi xóa (DeleteScope) → chọn lệnh.
 - Tương tác: Gọi `core::path::cut_remote_path` + `actions::perm::escalate`,
-  `core::{rclone_caller, task::blocking}`. `DeleteScope` dùng chung cho copy/move/delete (S2).
+  `core::rclone_caller + logic::fastlane::fastlane`. `DeleteScope` dùng chung cho copy/move/delete (S2).
   Không đụng move/copy/ipc/frontend.
 */
 
 pub use crate::actions::types::{DeleteScope, EmptyDirs};
-use crate::core::{rclone_caller, task};
+use crate::core::rclone_caller;
+use crate::logic::fastlane;
 use crate::core::path::cut_remote_path;
 
 /// Tuyến xóa, suy từ remote chứa target (`"Local"` = ổ máy).
@@ -88,7 +89,7 @@ pub async fn execute_delete_with_empty_dirs(
     match (route, scope) {
         // UNIVERSAL: Local + Trash — `gio trash` đưa vào thùng rác FreeDesktop, khôi phục được.
         (Route::Local, DeleteScope::Trash) => {
-            task::blocking(move || {
+            fastlane::fastlane(move || {
                 let output = std::process::Command::new("gio")
                     .args(["trash", &real_path])
                     .output()
@@ -113,7 +114,7 @@ pub async fn execute_delete_with_empty_dirs(
         // UNIVERSAL: Remote + Trash — `rclone delete` đệ quy file; backend hỗ trợ
         // trash (vd. Drive) sẽ trash thay vì xóa hẳn. Cây thư mục rỗng có thể còn lại.
         (Route::Remote, DeleteScope::Trash) => {
-            task::blocking(move || {
+            fastlane::fastlane(move || {
                 let output = rclone_caller::run_cmd(&["delete", &target])?;
                 if output.status.success() {
                     Ok(())
@@ -128,7 +129,7 @@ pub async fn execute_delete_with_empty_dirs(
                 EmptyDirs::Keep => Ok(()),
                 // UNIVERSAL: chỉ dọn đúng target rỗng sau Trash (`rmdir` không đệ quy).
                 EmptyDirs::OnlyHere => {
-                    task::blocking(move || {
+                    fastlane::fastlane(move || {
                         let output = rclone_caller::run_cmd(&["rmdir", &cleanup_target])?;
                         if output.status.success() {
                             Ok(())
@@ -140,7 +141,7 @@ pub async fn execute_delete_with_empty_dirs(
                 }
                 // UNIVERSAL: dọn đệ quy cây rỗng sau Trash (`rmdirs` leo lên cha).
                 EmptyDirs::Recursive => {
-                    task::blocking(move || {
+                    fastlane::fastlane(move || {
                         let output = rclone_caller::run_cmd(&["rmdirs", &cleanup_target])?;
                         if output.status.success() {
                             Ok(())
@@ -159,7 +160,7 @@ pub async fn execute_delete_with_empty_dirs(
             match is_dir {
                 // UNIVERSAL: thư mục — `purge` xóa đệ quy; rớt qua `deletefile` nếu đoán sai kiểu.
                 true => {
-                    task::blocking(move || {
+                    fastlane::fastlane(move || {
                         // UNIVERSAL: hành vi cũ = AllowSystem (tự pkexec khi lỗi quyền Local).
                         crate::actions::perm::escalate(
                             crate::actions::perm::Policy::AllowSystem,
@@ -191,7 +192,7 @@ pub async fn execute_delete_with_empty_dirs(
                 }
                 // UNIVERSAL: file — `deletefile` xóa đúng một file; rớt qua `purge` nếu đoán sai kiểu.
                 false => {
-                    task::blocking(move || {
+                    fastlane::fastlane(move || {
                         // UNIVERSAL: hành vi cũ = AllowSystem (tự pkexec khi lỗi quyền Local).
                         crate::actions::perm::escalate(
                             crate::actions::perm::Policy::AllowSystem,

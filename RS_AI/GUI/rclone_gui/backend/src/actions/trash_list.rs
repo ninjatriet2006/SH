@@ -2,7 +2,7 @@
 [INTEGRITY NOTES]
 - Mục đích: Liệt kê thùng rác Local (chuẩn FreeDesktop) + Remote (rclone) (S1 unify).
 - Trách nhiệm: Phân tuyến (Route) → chọn nhánh Local/Remote bằng `match` + UNIVERSAL.
-- Tương tác: Tầng `api::trash` bọc mỏng qua `core::task::blocking`. Không đụng IPC/frontend.
+- Tương tác: Tầng `api::trash` bọc mỏng qua `logic::fastlane::fastlane`. Không đụng IPC/frontend.
   Helpers dùng chung (`trash_dir`, `percent_*`, `remote_type`, `trashed_only_flag`,
   `list_local_inner`) để `trash_restore`/`trash_delete` tái sử dụng.
 */

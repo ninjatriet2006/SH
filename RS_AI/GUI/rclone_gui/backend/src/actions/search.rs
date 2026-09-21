@@ -10,7 +10,7 @@ use crate::actions::explorer::Cap;
 use crate::actions::types::RemoteKind;
 use crate::api::files::{FileItem, SearchResultItem};
 use crate::core::rclone_caller;
-use crate::core::task::blocking;
+use crate::logic::fastlane::fastlane;
 use crate::core::rclone_caller::build_target;
 use crate::core::path::cut_remote_path;
 
@@ -58,7 +58,7 @@ pub fn plan_search(path: &str, query: &str, fast_list: bool) -> Result<SearchPla
     })
 }
 
-/// S2: thực thi search — `plan_search` (fast-list từ cờ engine) + `blocking` run + parse cũ.
+/// S2: thực thi search — `plan_search` (fast-list từ cờ engine) + `fastlane` run + parse cũ.
 /// UNIVERSAL: cả Local và remote đều tìm qua `lsjson` đệ quy.
 pub async fn execute_search(path: String, query: String) -> Result<Vec<SearchResultItem>, String> {
     let fast_list = crate::settings::engine::load_engine_flags()
@@ -66,7 +66,7 @@ pub async fn execute_search(path: String, query: String) -> Result<Vec<SearchRes
         .unwrap_or(false);
     let plan = plan_search(&path, &query, fast_list)?;
     let (remote, real_path) = cut_remote_path(&path);
-    blocking(move || {
+    fastlane(move || {
         let args: Vec<&str> = plan.rclone_args.iter().map(|s| s.as_str()).collect();
         let output = rclone_caller::run_cmd(&args)?;
         if !output.status.success() {

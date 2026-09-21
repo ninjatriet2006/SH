@@ -9,7 +9,7 @@
 use crate::actions::{trash_delete, trash_list, trash_restore};
 use crate::actions::types::{DeleteScope, EmptyDirs};
 use crate::api::files::FileItem;
-use crate::core::task::blocking;
+use crate::logic::fastlane::fastlane;
 use serde::Serialize;
 
 // ====================================================================================
@@ -29,25 +29,25 @@ pub struct TrashItemLocal {
 /// Tên hàm: fs_trash_list_local
 /// Mô tả: Lấy danh sách mục trong thùng rác cục bộ, mới xoá xếp trước.
 pub async fn fs_trash_list_local() -> Result<Vec<TrashItemLocal>, String> {
-    blocking(trash_list::list_local).await
+    fastlane(trash_list::list_local).await
 }
 
 /// Tên hàm: fs_trash_restore_local
 /// Mô tả: Khôi phục một mục từ thùng rác cục bộ về vị trí gốc.
 pub async fn fs_trash_restore_local(item_id: String) -> Result<(), String> {
-    blocking(move || trash_restore::restore_local(&item_id)).await
+    fastlane(move || trash_restore::restore_local(&item_id)).await
 }
 
 /// Tên hàm: fs_trash_delete_local
 /// Mô tả: Xoá vĩnh viễn một mục khỏi thùng rác cục bộ.
 pub async fn fs_trash_delete_local(item_id: String) -> Result<(), String> {
-    blocking(move || trash_delete::delete_local(&item_id, DeleteScope::NoTrash)).await
+    fastlane(move || trash_delete::delete_local(&item_id, DeleteScope::NoTrash)).await
 }
 
 /// Tên hàm: fs_trash_empty_local
 /// Mô tả: Xoá vĩnh viễn toàn bộ mục trong thùng rác cục bộ.
 pub async fn fs_trash_empty_local() -> Result<(), String> {
-    blocking(move || trash_delete::empty_local(EmptyDirs::Recursive)).await
+    fastlane(move || trash_delete::empty_local(EmptyDirs::Recursive)).await
 }
 
 // ====================================================================================
@@ -67,28 +67,28 @@ fn require_remote(account: Option<String>) -> Result<String, String> {
 /// Mô tả: Liệt kê các mục trong thùng rác của remote (Google Drive, Jottacloud, PikPak).
 pub async fn fs_trash_list_remote_terminal(account: Option<String>) -> Result<Vec<FileItem>, String> {
     let remote = require_remote(account)?;
-    blocking(move || trash_list::list_remote(&remote)).await
+    fastlane(move || trash_list::list_remote(&remote)).await
 }
 
 /// Tên hàm: fs_trash_restore_remote_terminal
 /// Mô tả: Khôi phục một mục trong thùng rác đám mây về vị trí gốc (chỉ Drive).
 pub async fn fs_trash_restore_remote_terminal(account: Option<String>, path: String) -> Result<(), String> {
     let remote = require_remote(account)?;
-    blocking(move || trash_restore::restore_remote(&remote, &path)).await
+    fastlane(move || trash_restore::restore_remote(&remote, &path)).await
 }
 
 /// Tên hàm: fs_trash_delete_remote_terminal
 /// Mô tả: Xoá vĩnh viễn một mục đang ở trong thùng rác đám mây.
 pub async fn fs_trash_delete_remote_terminal(account: Option<String>, path: String) -> Result<(), String> {
     let remote = require_remote(account)?;
-    blocking(move || trash_delete::delete_remote(&remote, &path, DeleteScope::NoTrash)).await
+    fastlane(move || trash_delete::delete_remote(&remote, &path, DeleteScope::NoTrash)).await
 }
 
 /// Tên hàm: fs_trash_empty_remote_terminal
 /// Mô tả: Dọn sạch toàn bộ thùng rác đám mây (`rclone cleanup`).
 pub async fn fs_trash_empty_remote_terminal(account: Option<String>) -> Result<(), String> {
     let remote = require_remote(account)?;
-    blocking(move || trash_delete::empty_remote(&remote, EmptyDirs::Recursive)).await
+    fastlane(move || trash_delete::empty_remote(&remote, EmptyDirs::Recursive)).await
 }
 
 #[cfg(test)]

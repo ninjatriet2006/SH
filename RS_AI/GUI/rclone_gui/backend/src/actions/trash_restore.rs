@@ -2,7 +2,7 @@
 [INTEGRITY NOTES]
 - Mục đích: Khôi phục mục từ thùng rác Local (`gio`) + Remote (`drive untrash`) (S1 unify).
 - Trách nhiệm: Phân tuyến (Route) → chọn nhánh Local/Remote bằng `match` + UNIVERSAL.
-- Tương tác: Tầng `api::trash` bọc mỏng qua `core::task::blocking`. Không đụng IPC/frontend.
+- Tương tác: Tầng `api::trash` bọc mỏng qua `logic::fastlane::fastlane`. Không đụng IPC/frontend.
   Giữ nguyên tắc backend-hỗ-trợ: restore remote chỉ `drive` (`backend untrash`).
 */
 

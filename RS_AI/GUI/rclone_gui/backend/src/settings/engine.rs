@@ -1,14 +1,14 @@
 //! Cờ toàn cục cho engine transfer (S2: đã wire vào transfer/plans).
 //!
-//! Hành vi config cũ (rclone.conf INI) giữ nguyên trong [`super::config_manager`];
+//! Hành vi config cũ (rclone.conf INI) giữ nguyên trong [`crate::logic::config_manager`];
 //! module này chỉ quản lý `GlobalFlags` lưu JSON trong thư mục config của app.
+//! UNIVERSAL: module thuần SYNC — ipc gọi thì bọc [`crate::logic::fastlane::fastlane`] ở ngoài.
 
-use crate::core::task::blocking;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-/// Cờ toàn cục áp cho mọi transfer (S2 đã wire: xem `logic::transfer`).
+/// Cờ toàn cục áp cho mọi transfer (S2 đã wire: xem `logic::tracker`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GlobalFlags {
     pub transfers: u32,
@@ -90,20 +90,6 @@ pub fn save_engine_flags(flags: &GlobalFlags) -> Result<(), String> {
     let content =
         serde_json::to_string_pretty(flags).map_err(|e| format!("Lỗi mã hoá cấu hình engine: {}", e))?;
     fs::write(&path, content).map_err(|e| format!("Lỗi ghi {}: {}", path.display(), e))
-}
-
-/// IPC get: trả cờ hiện tại (thiếu tệp → default).
-pub async fn get_engine_flags() -> Result<GlobalFlags, String> {
-    blocking(load_engine_flags).await
-}
-
-/// IPC set: kiểm tra, lưu rồi trả cờ đã lưu.
-pub async fn set_engine_flags(flags: GlobalFlags) -> Result<GlobalFlags, String> {
-    blocking(move || {
-        save_engine_flags(&flags)?;
-        Ok(flags)
-    })
-    .await
 }
 
 #[cfg(test)]

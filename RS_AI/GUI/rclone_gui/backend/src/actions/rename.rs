@@ -9,7 +9,8 @@
 
 use crate::actions::perm::{Policy, escalate};
 use crate::actions::types::RemoteKind;
-use crate::core::{rclone_caller, task};
+use crate::core::rclone_caller;
+use crate::logic::fastlane;
 use crate::core::rclone_caller::build_target;
 use crate::core::path::cut_remote_path;
 
@@ -178,7 +179,7 @@ pub async fn execute_rename(old_path: String, new_path: String, policy: Policy) 
     let (remote, old_real) = cut_remote_path(&old_path);
     let (_, new_real) = cut_remote_path(&new_path);
     let (src, dst) = (plan.src_target.clone(), plan.dst_target.clone());
-    task::blocking(move || {
+    fastlane::fastlane(move || {
         escalate(policy, &remote, "mv", &[old_real.clone(), new_real.clone()], || {
             let output = rclone_caller::run_cmd(&["moveto", &src, &dst])?;
             if !output.status.success() {

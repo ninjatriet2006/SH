@@ -4,7 +4,7 @@
 //! (`[remote]` + `key = value`); module này giữ nguyên ngữ nghĩa INI đó,
 //! chỉ thêm snapshot khôi phục và xuất/nhập từng remote cho mọi backend.
 
-use crate::core::task::blocking;
+use crate::logic::fastlane::fastlane;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -344,43 +344,43 @@ fn merge_section(content: &str, name: &str, ini: &str) -> Result<String, String>
 /// IPC cũ: đọc toàn bộ config.
 pub async fn get_config_content() -> Result<String, String> {
     let mgr = ConfigManager::new();
-    blocking(move || mgr.read()).await
+    fastlane(move || mgr.read()).await
 }
 
 /// IPC cũ: ghi đè config (tự snapshot bản cũ, giữ tối đa N=10).
 pub async fn set_config_content(content: String) -> Result<(), String> {
     let mgr = ConfigManager::new();
-    blocking(move || mgr.write_with_snapshot(content)).await
+    fastlane(move || mgr.write_with_snapshot(content)).await
 }
 
 /// IPC cũ: sắp xếp lại remote.
 pub async fn reorder_config(names: Vec<String>) -> Result<(), String> {
     let mgr = ConfigManager::new();
-    blocking(move || mgr.reorder(names)).await
+    fastlane(move || mgr.reorder(names)).await
 }
 
 /// IPC mới: liệt kê snapshot (cũ → mới).
 pub async fn list_config_snapshots() -> Result<Vec<String>, String> {
     let mgr = ConfigManager::new();
-    blocking(move || mgr.list_snapshots()).await
+    fastlane(move || mgr.list_snapshots()).await
 }
 
 /// IPC mới: khôi phục snapshot.
 pub async fn restore_config_snapshot(name: String) -> Result<(), String> {
     let mgr = ConfigManager::new();
-    blocking(move || mgr.restore_snapshot(&name)).await
+    fastlane(move || mgr.restore_snapshot(&name)).await
 }
 
 /// IPC mới: xuất một remote thành đoạn INI.
 pub async fn export_config_remote(name: String) -> Result<String, String> {
     let mgr = ConfigManager::new();
-    blocking(move || mgr.export_remote(&name)).await
+    fastlane(move || mgr.export_remote(&name)).await
 }
 
 /// IPC mới: nhập thêm một remote từ đoạn INI.
 pub async fn import_config_remote(name: String, ini: String) -> Result<(), String> {
     let mgr = ConfigManager::new();
-    blocking(move || mgr.import_remote_merge(&name, &ini)).await
+    fastlane(move || mgr.import_remote_merge(&name, &ini)).await
 }
 
 #[cfg(test)]

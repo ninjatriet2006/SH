@@ -19,7 +19,7 @@ pub async fn check_conflicts(
     srcs: Vec<String>,
     dest_path: String,
 ) -> Result<Vec<ConflictInfo>, String> {
-    crate::core::task::blocking(move || {
+    crate::logic::fastlane::fastlane(move || {
         // UNIVERSAL: đệ quy + fast-list khi bật cờ engine; tắt thì giữ args cũ.
         let fast_list = crate::settings::engine::load_engine_flags()
             .map(|f| f.fast_list)

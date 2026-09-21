@@ -414,39 +414,39 @@ async_command!(
     (account)
 );
 
-async_command!(list_remotes, Empty, Vec<Value>, api::remotes::list_remotes, ());
-async_command!(get_providers, Empty, String, api::remotes::get_providers, ());
+async_command!(list_remotes, Empty, Vec<Value>, api::remote_manager::list_remotes, ());
+async_command!(get_providers, Empty, String, api::remote_manager::get_providers, ());
 async_command!(
     create_remote,
     RemoteCreatePayload,
     String,
-    api::remotes::create_remote,
+    api::remote_manager::create_remote,
     (name, provider, options)
 );
 async_command!(
     update_remote,
     RemoteUpdatePayload,
     String,
-    api::remotes::update_remote,
+    api::remote_manager::update_remote,
     (name, options)
 );
-async_command!(delete_remote, NamePayload, String, api::remotes::delete_remote, (name));
+async_command!(delete_remote, NamePayload, String, api::remote_manager::delete_remote, (name));
 async_command!(
     get_backend_features,
     RemotePayload,
     Value,
-    api::remotes::get_backend_features,
+    api::remote_manager::get_backend_features,
     (remote)
 );
 async_command!(
     check_transfer_capability,
     CapabilityPayload,
     Value,
-    api::remotes::check_transfer_capability,
+    api::remote_manager::check_transfer_capability,
     (src, dst)
 );
-async_command!(rclone_about, RemotePayload, Value, api::remotes::rclone_about, (remote));
-async_command!(rclone_size, RemotePayload, Value, api::remotes::rclone_size, (remote));
+async_command!(rclone_about, RemotePayload, Value, api::remote_manager::rclone_about, (remote));
+async_command!(rclone_size, RemotePayload, Value, api::remote_manager::rclone_size, (remote));
 
 async_command!(check_fuse_installed, Empty, bool, api::mount::check_fuse_installed, ());
 async_command!(
@@ -485,55 +485,68 @@ async_command!(
     (service_name, is_user)
 );
 
-async_command!(get_config_content, Empty, String, crate::settings::config_manager::get_config_content, ());
+async_command!(get_config_content, Empty, String, crate::logic::config_manager::get_config_content, ());
 async_command!(
     set_config_content,
     ContentPayload,
     (),
-    crate::settings::config_manager::set_config_content,
+    crate::logic::config_manager::set_config_content,
     (content)
 );
-async_command!(reorder_config, NamesPayload, (), crate::settings::config_manager::reorder_config, (names));
+async_command!(reorder_config, NamesPayload, (), crate::logic::config_manager::reorder_config, (names));
 async_command!(
     list_config_snapshots,
     Empty,
     Vec<String>,
-    crate::settings::config_manager::list_config_snapshots,
+    crate::logic::config_manager::list_config_snapshots,
     ()
 );
 async_command!(
     restore_config_snapshot,
     SnapshotPayload,
     (),
-    crate::settings::config_manager::restore_config_snapshot,
+    crate::logic::config_manager::restore_config_snapshot,
     (name)
 );
 async_command!(
     export_config_remote,
     NamePayload,
     String,
-    crate::settings::config_manager::export_config_remote,
+    crate::logic::config_manager::export_config_remote,
     (name)
 );
 async_command!(
     import_config_remote,
     ImportRemotePayload,
     (),
-    crate::settings::config_manager::import_config_remote,
+    crate::logic::config_manager::import_config_remote,
     (name, ini)
 );
+// UNIVERSAL: engine thuần SYNC — ipc bọc fastlane ở ngoài (việc hỏi-nhanh).
+async fn get_engine_flags_inner() -> Result<crate::settings::engine::GlobalFlags, String> {
+    crate::logic::fastlane::fastlane(crate::settings::engine::load_engine_flags).await
+}
+async fn set_engine_flags_inner(
+    flags: crate::settings::engine::GlobalFlags,
+) -> Result<crate::settings::engine::GlobalFlags, String> {
+    crate::logic::fastlane::fastlane(move || {
+        crate::settings::engine::save_engine_flags(&flags)?;
+        Ok(flags)
+    })
+    .await
+}
 async_command!(
     get_engine_flags,
     Empty,
     crate::settings::engine::GlobalFlags,
-    crate::settings::engine::get_engine_flags,
+    get_engine_flags_inner,
     ()
 );
 async_command!(
     set_engine_flags,
     EngineFlagsPayload,
     crate::settings::engine::GlobalFlags,
-    crate::settings::engine::set_engine_flags,
+    set_engine_flags_inner,
     (flags)
 );
 sync_command!(

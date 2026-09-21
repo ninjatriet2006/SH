@@ -9,7 +9,7 @@
 use crate::actions::explorer::Cap;
 use crate::actions::types::RemoteKind;
 use crate::core::rclone_caller::build_target;
-use crate::core::task::blocking;
+use crate::logic::fastlane::fastlane;
 use crate::core::path::cut_remote_path;
 use serde::Serialize;
 use std::process::Command;
@@ -122,7 +122,7 @@ pub struct DesktopApp {
 /// UNIVERSAL: mở file Local bằng app hệ điều hành; exec trực tiếp (không qua
 /// `sh -c`) nên tên file chứa ký tự đặc biệt không chèn thêm lệnh được.
 pub async fn sys_open_with(path: String, exec_cmd: Option<String>, app: Option<String>) -> Result<(), String> {
-    blocking(move || {
+    fastlane(move || {
         // Frontend gửi đường dẫn dạng "Remote::/path"; chỉ ổ Local mở được bằng app OS.
         let (remote, real_path) = cut_remote_path(&path);
         if remote != "Local" {
@@ -209,7 +209,7 @@ fn shell_split(input: &str) -> Vec<String> {
 
 /// UNIVERSAL: quét Desktop Entry thật (chuẩn FreeDesktop.org) thay vì dữ liệu giả.
 pub async fn sys_list_apps() -> Result<Vec<DesktopApp>, String> {
-    blocking(|| Ok(crate::logic::desktop_apps::list())).await
+    fastlane(|| Ok(crate::logic::desktop_apps::list())).await
 }
 
 #[cfg(test)]
