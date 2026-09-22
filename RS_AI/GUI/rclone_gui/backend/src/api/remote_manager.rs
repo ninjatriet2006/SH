@@ -49,6 +49,15 @@ pub async fn get_backend_features(remote: String) -> Result<Value, String> {
     fastlane(move || checkfeature::query_backend_features(&remote)).await
 }
 
+/// UNIVERSAL: toàn bộ 52 cờ `Features` đã parse thành struct (thay vì JSON thô)
+/// — frontend/bridge đọc field typed, không mò key PascalCase.
+#[tauri::command]
+pub async fn get_feature_flags(
+    remote: String,
+) -> Result<crate::actions::checkfeature::BackendFeatures, String> {
+    fastlane(move || checkfeature::query_feature_flags(&remote)).await
+}
+
 #[tauri::command]
 pub async fn check_transfer_capability(src: String, dst: String) -> Result<Value, String> {
     fastlane(move || checkfeature::query_transfer_options(&src, &dst)).await

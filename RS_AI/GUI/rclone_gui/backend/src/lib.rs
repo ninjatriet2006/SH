@@ -74,6 +74,7 @@ pub fn run() {
             api::remote_manager::update_remote,
             api::remote_manager::delete_remote,
             api::remote_manager::get_backend_features,
+            api::remote_manager::get_feature_flags,
             api::remote_manager::check_transfer_capability,
             api::remote_manager::rclone_about,
             api::remote_manager::rclone_size,

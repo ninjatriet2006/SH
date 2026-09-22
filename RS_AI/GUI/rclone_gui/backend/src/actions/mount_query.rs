@@ -201,4 +201,29 @@ mod tests {
         assert_eq!(parsed.buffer_size, "16M");
         assert!(parsed.allow_other && parsed.read_only);
     }
+
+    #[test]
+    fn exec_without_colon_falls_back_to_empty_path() {
+        // UNIVERSAL loại 2: ExecStart lạ thiếu `:` → warn + tên giữ nguyên,
+        // path rỗng (không đoán bậy đường mount).
+        let mut cfg = MountConfig {
+            service_name: "x".to_string(),
+            is_user_level: true,
+            remote_name: String::new(),
+            remote_path: "cu".to_string(),
+            mount_path: String::new(),
+            description: String::new(),
+            vfs_cache_mode: String::new(),
+            vfs_cache_max_size: String::new(),
+            vfs_cache_max_age: String::new(),
+            dir_cache_time: String::new(),
+            buffer_size: String::new(),
+            allow_other: false,
+            read_only: false,
+        };
+        apply_exec_flags(&mut cfg, "rclone mount la_thieu_haimux /mnt/x");
+        assert_eq!(cfg.remote_name, "la_thieu_haimux");
+        assert!(cfg.remote_path.is_empty());
+        assert_eq!(cfg.mount_path, "/mnt/x");
+    }
 }

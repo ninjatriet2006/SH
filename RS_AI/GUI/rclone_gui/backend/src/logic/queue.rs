@@ -138,6 +138,30 @@ fn join_child(base: &str, rel: &str) -> String {
     }
 }
 
+/// UNIVERSAL tối ưu: dựng vé transfer THUẦN từ vé con đã đóng dấu (không
+/// spawn, không đọc settings — test được trực tiếp). `across`/`engine_flags`
+/// lấy đúng tem JOB đóng lúc dispatch (trước đây tính lại mỗi vé = N lần
+/// spawn `config dump` + đọc flags, lại còn vứt tem đi).
+pub(super) fn build_child_ticket(
+    src: &str,
+    dst: &str,
+    child: &QueueItem,
+    policy: Policy,
+) -> TransferTicket {
+    TransferTicket {
+        src: src.to_string(),
+        dst: dst.to_string(),
+        rel: child.path.clone(),
+        mode: match child.mode {
+            ChildMode::Whole => TransferMode::Whole,
+            ChildMode::Item => TransferMode::Item,
+        },
+        across: child.across,
+        engine_flags: child.engine_flags.clone(),
+        policy,
+    }
+}
+
 /// UNIVERSAL S2: chạy một vé con copy/move bằng actions `execute_*` (QUEUE chỉ
 /// điều phối, không tự spawn rclone, không tự parse — actions phun dòng thô,
 /// queue hỏi `Tracker` (nơi duy nhất tính %) rồi ghi vào Job).
@@ -156,21 +180,9 @@ pub(super) fn run_child_transfer(
     should_cancel: impl Fn() -> bool,
     on_log_line: impl FnMut(&str),
 ) -> Result<(), String> {
-    // UNIVERSAL: check_cap là não chung (UI hỏi + đường chạy hỏi) — across
-    // lấy từ Cap.server_side, giữ bulk/item/policy/progress/cancel như cũ.
-    let cap = crate::actions::checkcap::check_cap(src, dst);
-    let ticket = TransferTicket {
-        src: src.to_string(),
-        dst: dst.to_string(),
-        rel: child.path.clone(),
-        mode: match child.mode {
-            ChildMode::Whole => TransferMode::Whole,
-            ChildMode::Item => TransferMode::Item,
-        },
-        across: cap.server_side,
-        engine_flags: child.engine_flags.clone(),
-        policy,
-    };
+    // UNIVERSAL: vé đã đóng dấu đủ (across/engine_flags do JOB tính 1 lần lúc
+    // dispatch) — dựng vé thuần rồi chạy, không hỏi lại não mỗi vé con.
+    let ticket = build_child_ticket(src, dst, child, policy);
     if is_copy {
         crate::actions::copy_op::execute_copy(ticket, should_cancel, on_log_line)
     } else {
@@ -182,7 +194,8 @@ pub(super) fn run_child_transfer(
 /// (cùng ngữ nghĩa nhánh `NoTrash` của `execute_delete`: xóa vĩnh viễn như
 /// `fs_delete` — `deletefile` → rớt `purge` + sudo fallback).
 /// UNIVERSAL: `policy` từ `job.policy` — chưa consent trả `PERMISSION_CONSENT`.
-pub(super) fn run_child_delete(src: &str, rel: &str, policy: Policy) -> Result<(), String> {
+/// UNIVERSAL tối ưu: `is_dir` lấy từ vé (manifest đã biết) để khỏi probe lại.
+pub(super) fn run_child_delete(src: &str, rel: &str, is_dir: bool, policy: Policy) -> Result<(), String> {
     let (remote, real) = crate::core::path::cut_remote_path(src);
     let full = join_child(&real, rel);
     // UNIVERSAL: dựng lại chuỗi gốc cho actions parse (`Remote::/path`, Local trần).
@@ -191,7 +204,7 @@ pub(super) fn run_child_delete(src: &str, rel: &str, policy: Policy) -> Result<(
     } else {
         format!("{remote}::{full}")
     };
-    crate::actions::delete_op::execute_delete_sync(&path, policy)
+    crate::actions::delete_op::execute_delete_sync(&path, policy, Some(is_dir))
 }
 
 impl JobStore {
@@ -211,6 +224,9 @@ impl JobStore {
 
     /// UNIVERSAL S2: cập nhật một vé con + tiến độ cha (`child_done`,
     /// `progress` = con xong / tổng con), persist cả 2 tầng.
+    /// UNIVERSAL tối ưu: persist THƯA — mỗi 10 vé + vé lỗi/hủy + vé cuối cùng
+    /// (kết cục job trong `run_queue_sync` luôn persist qua `update()` nên
+    /// không mất an toàn khi crash giữa chừng: vé dở `reconcile_orphans` dọn).
     pub(super) fn update_child_progress(
         &self,
         job_id: &str,
@@ -218,6 +234,7 @@ impl JobStore {
         status: JobStatus,
         err: Option<String>,
     ) -> Option<Job> {
+        const PERSIST_EVERY: usize = 10;
         let (done, total) = {
             let mut kids = self.children.lock().ok()?;
             let list = kids.get_mut(job_id)?;
@@ -229,7 +246,7 @@ impl JobStore {
             let done = list.iter().filter(|k| matches!(k.status, JobStatus::Done)).count();
             (done, total)
         };
-        self.update(job_id, |j| {
+        let updated = self.apply_update(job_id, |j| {
             j.child_done = done;
             j.child_total = total;
             j.progress = if total == 0 {
@@ -237,13 +254,25 @@ impl JobStore {
             } else {
                 ((done as u64 * 100 / total as u64).min(100)) as u8
             };
-        })
+        });
+        if updated.is_some()
+            && (done % PERSIST_EVERY == 0
+                || done == total
+                || !matches!(status, JobStatus::Done))
+        {
+            self.persist();
+        }
+        updated
     }
 
     /// UNIVERSAL S2: chạy tuần tự từng vé con; dừng ở con lỗi/hủy đầu tiên,
     /// lỗi con thành lỗi cha để UI thấy thay vì `Done` giả.
     pub(super) fn execute_children(&self, job: &Job) -> Result<(), String> {
-        let total = self.children_of(&job.id).len();
+        let total = self
+            .children
+            .lock()
+            .map(|m| m.get(&job.id).map(|l| l.len()).unwrap_or(0))
+            .unwrap_or(0);
         for idx in 0..total {
             if self.is_cancel_requested(&job.id) {
                 return Err("job cancelled".to_string());
@@ -254,8 +283,14 @@ impl JobStore {
                     k.status = JobStatus::Running;
                 }
             }
-            let child = self.children_of(&job.id).get(idx).cloned();
-            let child = match child {
+            let child = match self
+                .children
+                .lock()
+                .ok()
+                .and_then(|m| m.get(&job.id)?.get(idx).cloned())
+            {
+                // UNIVERSAL tối ưu: clone đúng 1 vé (trước đây clone cả vec mỗi
+                // vòng → O(n²) với n vé con).
                 Some(c) => c,
                 None => continue,
             };
@@ -345,7 +380,7 @@ impl JobStore {
                     JobKind::List | JobKind::Manifest => Ok(()),
                     JobKind::Delete => {
                         let src = job.src.clone().unwrap_or_default();
-                        run_child_delete(&src, &child.path, job.policy)
+                        run_child_delete(&src, &child.path, child.is_dir, job.policy)
                     }
                     JobKind::Copy | JobKind::Move => {
                         let cmd = if job.kind == JobKind::Copy { "copyto" } else { "moveto" };
@@ -377,6 +412,7 @@ impl JobStore {
 mod tests {
     use super::*;
     use crate::logic::jobs::{JobKind, JobStatus, JobStore};
+    use crate::settings::engine::{EngineSettings, EngineSwitches, EngineTuning};
     use std::path::PathBuf;
 
     fn temp_store(name: &str) -> (JobStore, PathBuf) {
@@ -463,6 +499,8 @@ mod tests {
                 ManifestItem { path: "A".into(), is_dir: true },
                 ManifestItem { path: "a.txt".into(), is_dir: false },
             ],
+            false,
+            crate::settings::engine::EngineSettings::default(),
         );
         assert_eq!(kids.len(), 3);
         assert!(kids[0].is_dir);
@@ -480,6 +518,84 @@ mod tests {
         store.update_child_progress(&job.id, 2, JobStatus::Done, None);
         let done = store.get(&job.id).expect("done");
         assert_eq!((done.child_done, done.child_total, done.progress), (3, 3, 100));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn children_stamp_dispatch_flags_not_default() {
+        // UNIVERSAL tối ưu (mục 1): vé Item mang đúng cờ dispatch (dry_run/
+        // backup_dir/across), không còn gán default rồi lờ cài đặt người dùng.
+        let (store, path) = temp_store("stamp_flags");
+        let job = store.enqueue(JobKind::Copy, Some("/a".into()), Some("/b".into()));
+        let flags = EngineSettings {
+            switches: EngineSwitches { dry_run: true, ..Default::default() },
+            tuning: EngineTuning {
+                backup_dir: Some("/tmp/bk".to_string()),
+                ..Default::default()
+            },
+        };
+        let kids = store.set_children_from_items(
+            &job.id,
+            vec![ManifestItem { path: "f.txt".into(), is_dir: false }],
+            true,
+            flags,
+        );
+        assert!(kids[0].across, "across dispatch phai duoc dong dau");
+        assert!(kids[0].engine_flags.switches.dry_run);
+        assert_eq!(
+            kids[0].engine_flags.tuning.backup_dir.as_deref(),
+            Some("/tmp/bk")
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn build_child_ticket_uses_stamped_across() {
+        // UNIVERSAL tối ưu (mục 2): vé transfer lấy across ĐÚNG tem vé con
+        // (không hỏi lại não mỗi vé → hết N spawn `config dump`).
+        let child = QueueItem {
+            job_id: "j".into(),
+            path: "sub/f.txt".into(),
+            is_dir: false,
+            status: JobStatus::Queued,
+            error: None,
+            mode: ChildMode::Item,
+            across: true,
+            engine_flags: EngineSettings::default(),
+        };
+        let t = build_child_ticket("A::/a", "B::/b", &child, Policy::AskOnce);
+        assert_eq!((t.src.as_str(), t.dst.as_str()), ("A::/a", "B::/b"));
+        assert_eq!(t.rel, "sub/f.txt");
+        assert!(matches!(t.mode, TransferMode::Item));
+        assert!(t.across, "across phai lay tu tem, khong tinh lai");
+        assert_eq!(t.policy, Policy::AskOnce);
+        // Whole map sang Whole.
+        let mut whole = child.clone();
+        whole.mode = ChildMode::Whole;
+        let t2 = build_child_ticket("A::/a", "B::/b", &whole, Policy::Deny);
+        assert!(matches!(t2.mode, TransferMode::Whole));
+    }
+
+    #[test]
+    fn progress_counts_twelve_children_pure() {
+        // UNIVERSAL tối ưu (mục 5): đếm tiến độ đúng qua nhiều vé (persist thưa
+        // không làm sai số đếm); thuần store, không cần rclone.
+        let (store, path) = temp_store("twelve");
+        let job = store.enqueue(JobKind::Copy, Some("/a".into()), Some("/b".into()));
+        let items: Vec<ManifestItem> = (0..12)
+            .map(|i| ManifestItem { path: format!("f{i}.txt"), is_dir: false })
+            .collect();
+        store.set_children_from_items(
+            &job.id,
+            items,
+            false,
+            EngineSettings::default(),
+        );
+        for idx in 0..12 {
+            store.update_child_progress(&job.id, idx, JobStatus::Done, None);
+        }
+        let done = store.get(&job.id).expect("done");
+        assert_eq!((done.child_done, done.child_total, done.progress), (12, 12, 100));
         let _ = std::fs::remove_file(&path);
     }
 }

@@ -343,6 +343,14 @@ mod tests {
     }
 
     #[test]
+    fn run_pkexec_rejects_weird_action_without_spawning() {
+        // UNIVERSAL loại 2: sudo action lạ → warn + Err TRƯỚC khi spawn (không
+        // bao giờ chạy pkexec với action không rõ).
+        let err = run_pkexec("rm_rf_may_chu", &[]).expect_err("phai tu choi");
+        assert!(err.contains("không được hỗ trợ"), "unexpected: {err}");
+    }
+
+    #[test]
     fn classify_detects_permission_errors() {
         assert!(classify_permission_error("permission denied (os error 13)"));
         assert!(classify_permission_error("Access is denied"));

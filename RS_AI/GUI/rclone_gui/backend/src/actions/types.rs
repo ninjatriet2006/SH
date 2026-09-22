@@ -158,6 +158,15 @@ mod tests {
     }
 
     #[test]
+    fn classify_falls_back_to_remote_for_weird_name() {
+        // UNIVERSAL loại 2: tên remote lạ → warn + rớt về Remote (đi qua rclone, an toàn).
+        assert_eq!(RemoteKind::classify("Local"), RemoteKind::Local);
+        assert_eq!(RemoteKind::classify("GDrive"), RemoteKind::Remote);
+        assert_eq!(RemoteKind::classify(""), RemoteKind::Remote);
+        assert_eq!(RemoteKind::classify("local"), RemoteKind::Remote);
+    }
+
+    #[test]
     fn test_is_dir_distinguishes_file_and_dir() {
         use crate::core::rclone_caller::run_cmd;
         // Chỉ chạy nếu có rclone trong PATH.

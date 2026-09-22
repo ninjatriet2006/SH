@@ -70,10 +70,4 @@ mod tests {
         assert_eq!(out[0].get("name").and_then(|v| v.as_str()), Some("a"));
         assert_eq!(out[1].get("name").and_then(|v| v.as_str()), Some("b"));
     }
-
-    #[tokio::test]
-    async fn test_list_remotes() {
-        let result = list_remotes();
-        println!("Result: {:?}", result);
-    }
 }

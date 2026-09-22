@@ -36,12 +36,22 @@ impl Route {
 /// cùng ngữ nghĩa nhánh `NoTrash` của `execute_delete` (xóa vĩnh viễn như
 /// `fs_delete`): phán đoán kiểu trước qua `is_dir` rồi `purge`/`deletefile` +
 /// thử lệnh còn lại, qua `perm::escalate` với policy đã đóng dấu lúc dispatch.
-pub fn execute_delete_sync(path: &str, policy: crate::actions::perm::Policy) -> Result<(), String> {
+pub fn execute_delete_sync(
+    path: &str,
+    policy: crate::actions::perm::Policy,
+    is_dir: Option<bool>,
+) -> Result<(), String> {
     let (remote, real_path) = cut_remote_path(path);
     let target = rclone_caller::build_target(&remote, &real_path);
     // UNIVERSAL: chạm Tier route để giữ một nguồn sự thật về tuyến xóa.
     let _ = Route::classify(&remote);
-    let is_dir = crate::actions::types::is_dir(&target).unwrap_or(true);
+    // UNIVERSAL tối ưu: vé con đã biết kiểu từ manifest (`is_dir` trên vé) thì
+    // dùng luôn, khỏi spawn `lsjson --stat` hỏi lại; đường đơn không biết thì
+    // mới probe (rớt về thư mục khi probe hỏng, giữ hành vi cũ).
+    let is_dir = match is_dir {
+        Some(v) => v,
+        None => crate::actions::types::is_dir(&target).unwrap_or(true),
+    };
     // UNIVERSAL: thư mục `purge` trước, file `deletefile` trước; rớt qua lệnh
     // còn lại khi phán đoán kiểu sai (giữ đúng thứ tự `fs_delete` cũ).
     let (first, second) = if is_dir {

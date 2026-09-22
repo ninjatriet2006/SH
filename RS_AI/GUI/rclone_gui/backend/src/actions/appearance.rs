@@ -344,6 +344,15 @@ mod tests {
         }
     }
 
+    #[test]
+    fn resolve_source_dir_falls_back_for_weird_group() {
+        // UNIVERSAL loại 2: tên nhóm lạ → warn + rớt về resource_dir mặc định.
+        assert_eq!(
+            resolve_source_dir("nhom_la"),
+            crate::core::resources::resource_dir("nhom_la")
+        );
+    }
+
     /// KIỂM THỰC DỤNG trên thư mục release THẬT: IN RA kết quả đọc được (không
     /// chỉ pass/fail) để người/AI đối chiếu với đĩa. Chạy kèm `-- --nocapture`.
     /// Ấn định vị trí bằng path TƯƠNG ĐỐI từ repo (không ghi cứng /home).

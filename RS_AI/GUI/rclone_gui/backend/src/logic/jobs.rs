@@ -198,7 +198,16 @@ impl JobStore {
     /// UNIVERSAL S2: dựng vé con từ `ManifestItem` đã xếp (dir trước file sau);
     /// cập nhật `child_total` của cha + persist. Pure, dùng cho test.
     /// Mỗi vé mang `mode=Item` tường minh (tầng con chạy lệnh đơn cho `path`).
-    pub fn set_children_from_items(&self, id: &str, mut items: Vec<ManifestItem>) -> Vec<QueueItem> {
+    /// UNIVERSAL tối ưu: `flags`/`across` do JOB đóng dấu 1 lần lúc dispatch
+    /// (vé nào cũng mang cờ thật — trước đây Item bị gán default, bỏ qua cài
+    /// đặt dry_run/backup_dir của người dùng).
+    pub fn set_children_from_items(
+        &self,
+        id: &str,
+        mut items: Vec<ManifestItem>,
+        across: bool,
+        flags: crate::settings::engine::EngineSettings,
+    ) -> Vec<QueueItem> {
         sort_manifest(&mut items);
         let kids: Vec<QueueItem> = items
             .into_iter()
@@ -209,8 +218,8 @@ impl JobStore {
                 status: JobStatus::Queued,
                 error: None,
                 mode: ChildMode::Item,
-                across: false,
-                engine_flags: crate::settings::engine::EngineSettings::default(),
+                across,
+                engine_flags: flags.clone(),
             })
             .collect();
         let total = kids.len();
@@ -308,20 +317,23 @@ impl JobStore {
 
     // UNIVERSAL S2: tầng con (`queue.rs`) cập nhật tiến độ cha qua đây.
     pub(super) fn update(&self, id: &str, f: impl FnOnce(&mut Job)) -> Option<Job> {
-        let updated = if let Ok(mut inner) = self.inner.lock() {
-            if let Some(job) = inner.get_mut(id) {
-                f(job);
-                Some(job.clone())
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let updated = self.apply_update(id, f);
         if updated.is_some() {
             self.persist();
         }
         updated
+    }
+
+    /// UNIVERSAL tối ưu: đột biến state KHÔNG ghi đĩa (để `update_child_progress`
+    /// tự quyết nhịp persist thưa); `update()` = apply + persist ngay.
+    pub(super) fn apply_update(&self, id: &str, f: impl FnOnce(&mut Job)) -> Option<Job> {
+        if let Ok(mut inner) = self.inner.lock() {
+            if let Some(job) = inner.get_mut(id) {
+                f(job);
+                return Some(job.clone());
+            }
+        }
+        None
     }
 
     /// UNIVERSAL: smart compact — cha `Done` thì XÓA vé con `Done`, GIỮ vé con
@@ -507,7 +519,11 @@ impl JobStore {
         };
         match manifest(src) {
             Ok(items) if !items.is_empty() => {
-                self.set_children_from_items(&job.id, items);
+                // UNIVERSAL tối ưu: Delete/List/Manifest không dùng across/
+                // engine_flags (vé con chạy NoTrash/no-op) nên đóng dấu
+                // across=false + flags thật cho đồng đều (không default).
+                let flags = crate::settings::engine::load_engine_flags().unwrap_or_default();
+                self.set_children_from_items(&job.id, items, false, flags);
             }
             // UNIVERSAL: vỏ rỗng giữ đường đơn như cũ (không warn: bình thường).
             Ok(_) => {}
@@ -564,24 +580,25 @@ impl JobStore {
         // UNIVERSAL: đọc cờ engine 1 lần duy nhất lúc dispatch; lỗi đọc →
         // default (giữ hành vi cũ: bóc con, không across).
         let flags = crate::settings::engine::load_engine_flags().unwrap_or_default();
+        // UNIVERSAL tối ưu: across (não check_cap) tính 1 LẦN ở đây cho cả job
+        // rồi đóng dấu mọi vé — tầng con chỉ đọc vé, không hỏi lại mỗi vé
+        // (trước đây mỗi vé con spawn `config dump` + đọc flags lại).
+        let across = crate::actions::checkcap::check_cap(&src, &dst).server_side;
         // UNIVERSAL: não chung check_cap (UI hỏi + đường chạy hỏi) — across
         // lấy từ Cap.server_side; bulk/item/policy/progress/cancel giữ nguyên.
         if flags.switches.bulk_transfer {
-            let across = crate::actions::checkcap::check_cap(&src, &dst).server_side;
             self.set_children_bulk(&job.id, across, flags);
         } else {
             match manifest(&src) {
                 Ok(items) if !items.is_empty() => {
-                    self.set_children_from_items(&job.id, items);
+                    self.set_children_from_items(&job.id, items, across, flags);
                 }
                 // UNIVERSAL: vỏ rỗng/lỗi đọc → 1 vé Whole như cũ; lỗi đọc warn.
                 Ok(_) => {
-                    let across = crate::actions::checkcap::check_cap(&src, &dst).server_side;
                     self.set_children_bulk(&job.id, across, flags);
                 }
                 Err(e) => {
                     crate::core::debug::warn(None, "jobs/run_transfer_job", format!("manifest lỗi: {e}"));
-                    let across = crate::actions::checkcap::check_cap(&src, &dst).server_side;
                     self.set_children_bulk(&job.id, across, flags);
                 }
             }
@@ -598,7 +615,7 @@ impl JobStore {
         if self.is_cancel_requested(&job.id) {
             return Err("job cancelled".to_string());
         }
-        crate::actions::delete_op::execute_delete_sync(&src, job.policy)
+        crate::actions::delete_op::execute_delete_sync(&src, job.policy, None)
     }
 
     /// UNIVERSAL: list thật — dựng plan dùng chung rồi chạy `lsjson`, JSON hỏng
@@ -938,6 +955,42 @@ mod tests {
     }
 
     #[test]
+    fn lifecycle_lines_share_job_id_in_backend_log() {
+        // UNIVERSAL loại 1: vòng đời job TỰ GOM — mọi dòng log của 1 job mang
+        // cùng tag job.id trong backend.log. Chạy job lỗi nhanh, đọc file log
+        // THẬT, IN các dòng ra để đối chiếu (không chỉ pass/fail).
+        if !rclone_present() {
+            return;
+        }
+        let (store, path) = temp_store("lifecycle_log");
+        let missing = std::env::temp_dir().join("rclone_gui_jobs_missing_lifecycle");
+        let _ = std::fs::remove_dir_all(&missing);
+        let job = store.enqueue(JobKind::List, Some(missing.to_string_lossy().into_owned()), None);
+        store.run_queue_sync(None::<fn(Job)>);
+        assert_eq!(store.get(&job.id).map(|j| j.status), Some(JobStatus::Error));
+
+        // Dòng log dạng `[LEVEL][tag] message` — gom đúng các dòng mang id này
+        // (id duy nhất theo millis nên không lẫn với test chạy song song).
+        let log_path = crate::core::debug::log_file_path();
+        let content = std::fs::read_to_string(&log_path).expect("doc duoc backend.log");
+        let needle = format!("[{}]", job.id);
+        let lines: Vec<&str> = content.lines().filter(|l| l.contains(&needle)).collect();
+        println!("[REAL lifecycle {}] {} dong:", job.id, lines.len());
+        for l in &lines {
+            println!("  {l}");
+        }
+        assert!(
+            lines.iter().any(|l| l.contains("BẮT ĐẦU")),
+            "thieu dong START mang job.id"
+        );
+        assert!(
+            lines.iter().any(|l| l.contains("LỖI") && l.contains("con")),
+            "thieu dong END LOI mang job.id (tu gom hong)"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
     fn cancel_queued_marks_cancelled_and_skips_worker() {
         let (store, path) = temp_store("cancel");
         let job = store.enqueue(JobKind::Move, Some("/a".into()), Some("/b".into()));
@@ -1010,6 +1063,8 @@ mod tests {
                 ManifestItem { path: "f1".into(), is_dir: false },
                 ManifestItem { path: "f2".into(), is_dir: false },
             ],
+            false,
+            crate::settings::engine::EngineSettings::default(),
         );
         assert_eq!(n.len(), 3);
         assert!(n.iter().all(|k| k.mode == ChildMode::Item && !k.across));
@@ -1065,6 +1120,8 @@ mod tests {
         store.set_children_from_items(
             &job.id,
             vec![ManifestItem { path: "f.txt".into(), is_dir: false }],
+            false,
+            crate::settings::engine::EngineSettings::default(),
         );
         store.persist();
         let text = std::fs::read_to_string(&path).expect("persisted");
@@ -1098,6 +1155,8 @@ mod tests {
                 ManifestItem { path: "d".into(), is_dir: true },
                 ManifestItem { path: "f".into(), is_dir: false },
             ],
+            false,
+            crate::settings::engine::EngineSettings::default(),
         );
         store.request_cancel(&job.id).expect("cancel ok");
         assert!(store.children_of(&job.id).iter().all(|k| k.status == JobStatus::Cancelled));
@@ -1185,6 +1244,8 @@ mod tests {
                 ManifestItem { path: "ok2".into(), is_dir: false },
                 ManifestItem { path: "bad".into(), is_dir: false },
             ],
+            false,
+            crate::settings::engine::EngineSettings::default(),
         );
         store.update_child_progress(&job.id, 0, JobStatus::Done, None);
         store.update_child_progress(
@@ -1210,6 +1271,8 @@ mod tests {
         store.set_children_from_items(
             &ejob.id,
             vec![ManifestItem { path: "bad".into(), is_dir: false }],
+            false,
+            crate::settings::engine::EngineSettings::default(),
         );
         store.update_child_progress(&ejob.id, 0, JobStatus::Error, Some("boom".to_string()));
         store.update(&ejob.id, |j| j.status = JobStatus::Error);
