@@ -116,7 +116,7 @@ pub enum EmptyDirs {
     Recursive,
 }
 
-/// Một font chữ cho UI (DTO gốc ở thợ `types`, quét bởi `api::fonts_loader`).
+/// Một font chữ cho UI (DTO gốc ở thợ `types`, quét bởi `actions::appearance`).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FontInfo {
     pub id: String,
@@ -125,7 +125,7 @@ pub struct FontInfo {
     pub src_path: Option<String>,
 }
 
-/// Một theme giao diện (DTO gốc ở thợ `types`, quét bởi `api::themes_loader`).
+/// Một theme giao diện (DTO gốc ở thợ `types`, quét bởi `actions::appearance`).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ThemeInfo {
     pub id: String,

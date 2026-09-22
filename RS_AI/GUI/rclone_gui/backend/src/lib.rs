@@ -100,13 +100,16 @@ pub fn run() {
             api::config::set_engine_flags,
             api::config::get_debug_settings,
             api::config::set_debug_settings,
+            api::config::get_backend_log,
             // ==================
-            // LANG API
+            // APPEARANCE API (ngôn ngữ / theme / font + lựa chọn đã lưu)
             // ==================
-            api::langs_loader::get_available_langs,
-            api::langs_loader::get_lang_content,
-            api::themes_loader::get_available_themes,
-            api::fonts_loader::get_available_fonts,
+            api::appearance_manager::get_available_langs,
+            api::appearance_manager::get_lang_content,
+            api::appearance_manager::get_available_themes,
+            api::appearance_manager::get_available_fonts,
+            api::appearance_manager::get_appearance,
+            api::appearance_manager::set_appearance,
             // ==================
             // JOBS API (đường duy nhất cho copy/move/delete/list)
             // ==================

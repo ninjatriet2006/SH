@@ -63,6 +63,13 @@ pub async fn get_debug_settings() -> Result<crate::settings::diagnostics::DebugS
     fastlane(crate::settings::diagnostics::load_debug_settings).await
 }
 
+/// UNIVERSAL: đọc lịch sử `backend.log` cho DebugView (event `backend-log` chỉ
+/// đẩy dòng mới; lệnh này lấy phần đã ghi trước khi FE bật nghe).
+#[tauri::command]
+pub async fn get_backend_log() -> Result<String, String> {
+    fastlane(crate::core::debug::read_log).await
+}
+
 #[tauri::command]
 pub async fn set_debug_settings(
     settings: crate::settings::diagnostics::DebugSettings,

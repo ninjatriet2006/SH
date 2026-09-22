@@ -62,6 +62,19 @@ pub fn log_file_path() -> PathBuf {
     config_dir().join("backend.log")
 }
 
+/// UNIVERSAL: đọc toàn bộ `backend.log` cho DebugView xem LỊCH SỬ (event
+/// `backend-log` chỉ đẩy dòng MỚI nên FE bật muộn sẽ mất phần đầu — hàm này lấp
+/// khoảng đó). Kích thước có trần nhờ cơ chế xoay vòng. Thiếu file → chuỗi rỗng
+/// (chưa có log, không phải lỗi).
+pub fn read_log() -> Result<String, String> {
+    let path = log_file_path();
+    match std::fs::read_to_string(&path) {
+        Ok(content) => Ok(content),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(format!("Lỗi đọc nhật ký {}: {}", path.display(), e)),
+    }
+}
+
 /// UNIVERSAL: dọn rác log ở RANH GIỚI job — nếu `backend.log` vượt `max_bytes`
 /// thì đổi tên thành `backend.log.old` (đè đời cũ, giữ đúng 2 đời) rồi để lần
 /// ghi kế tạo file mới. Gọi sau khi một job kết thúc để nhóm log không bị xé lẻ.

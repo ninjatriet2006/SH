@@ -12,7 +12,7 @@
 //! thẳng dưới `actions/`; hai module `explorer`/`ops` bên dưới chỉ là alias
 //! tương thích để `use crate::actions::explorer::*` / `ops::*` cũ không vỡ.
 
-#[path = "checkcap.rs"]
+pub mod appearance;
 pub mod checkcap;
 
 #[path = "move.rs"]
