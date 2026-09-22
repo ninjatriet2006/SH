@@ -1,29 +1,44 @@
-//! Lựa chọn giao diện đã lưu bền (ngôn ngữ / theme / font).
+//! Cấu hình giao diện đã lưu bền: LỰA CHỌN (lang/theme/font) + NGUỒN (thư mục
+//! tài nguyên) — lưu JSON song song `engine_flags.json` + `diagnostics.json`.
 //!
-//! UNIVERSAL: tách khỏi việc ĐỌC tài nguyên (`actions::appearance` lo quét
-//! `langs/`/`themes/`/`fonts/`). Module này chỉ GIỮ LỰA CHỌN người dùng đã
-//! chọn, lưu JSON song song `engine_flags.json` + `diagnostics.json` để mở lại
-//! app giữ nguyên giao diện. Thuần SYNC — ipc bọc `fastlane` ở ngoài.
+//! UNIVERSAL: hai nhóm tách bạch trong một file "appearance". Nhóm LỰA CHỌN là
+//! đang chọn cái nào (rỗng = "none" → frontend quyết mặc định). Nhóm NGUỒN là
+//! thư mục quét `langs/`/`themes/`/`fonts/` (rỗng = vị trí đóng gói mặc định qua
+//! `core::resources`; điền = quét đúng thư mục đó — cho người dùng trỏ thư mục
+//! riêng, và cho test ẤN ĐỊNH path từ code).
 //!
-//! An toàn: giao diện lưu bền là ĐÚNG (khác quyền vượt cấp — cái đó chỉ ở RAM).
+//! Việc ĐỌC file do `actions::appearance` lo; module này chỉ GIỮ lựa chọn/nguồn.
+//! Thuần SYNC — ipc bọc `fastlane` ở ngoài.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-/// Lựa chọn giao diện. Rỗng = chưa chọn → frontend tự quyết mặc định (danh sách
-/// từ `actions::appearance`), backend không đoán hộ.
+/// Lựa chọn + nguồn giao diện. Mọi field rỗng = mặc định (chưa chọn / vị trí
+/// đóng gói), nên file cũ thiếu field vẫn đọc được.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct AppearanceSettings {
+    // ----- Nhóm LỰA CHỌN (rỗng = none = frontend quyết) -----
     /// Mã ngôn ngữ đang chọn (vd `vi`, `en`); rỗng = chưa chọn.
     #[serde(default)]
     pub lang: String,
-    /// Id theme đang chọn (vd `default`); rỗng = chưa chọn.
+    /// Id theme đang chọn (vd `neon`); rỗng = chưa chọn.
     #[serde(default)]
     pub theme: String,
-    /// Id font đang chọn (vd `default`); rỗng = chưa chọn.
+    /// Id font đang chọn; rỗng = chưa chọn.
     #[serde(default)]
     pub font: String,
+
+    // ----- Nhóm NGUỒN (rỗng = vị trí đóng gói mặc định) -----
+    /// Thư mục chứa file ngôn ngữ; rỗng = `resource_dir("langs")`.
+    #[serde(default)]
+    pub langs_dir: String,
+    /// Thư mục chứa file theme; rỗng = `resource_dir("themes")`.
+    #[serde(default)]
+    pub themes_dir: String,
+    /// Thư mục chứa file font; rỗng = `resource_dir("fonts")`.
+    #[serde(default)]
+    pub fonts_dir: String,
 }
 
 fn app_config_dir() -> PathBuf {
@@ -51,6 +66,13 @@ fn valid_id(value: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
+/// UNIVERSAL: thư mục nguồn rỗng = mặc định (hợp lệ); điền thì phải là thư mục
+/// CÓ THẬT (không trỏ vào chỗ trống/không tồn tại).
+fn valid_dir(value: &str) -> bool {
+    let v = value.trim();
+    v.is_empty() || PathBuf::from(v).is_dir()
+}
+
 fn validate(settings: &AppearanceSettings) -> Result<(), String> {
     if !valid_id(&settings.lang) {
         return Err(format!("lang không hợp lệ: {}", settings.lang));
@@ -60,6 +82,15 @@ fn validate(settings: &AppearanceSettings) -> Result<(), String> {
     }
     if !valid_id(&settings.font) {
         return Err(format!("font không hợp lệ: {}", settings.font));
+    }
+    if !valid_dir(&settings.langs_dir) {
+        return Err(format!("langs_dir không phải thư mục tồn tại: {}", settings.langs_dir));
+    }
+    if !valid_dir(&settings.themes_dir) {
+        return Err(format!("themes_dir không phải thư mục tồn tại: {}", settings.themes_dir));
+    }
+    if !valid_dir(&settings.fonts_dir) {
+        return Err(format!("fonts_dir không phải thư mục tồn tại: {}", settings.fonts_dir));
     }
     Ok(())
 }
@@ -96,14 +127,15 @@ mod tests {
     fn default_is_all_empty() {
         let s = AppearanceSettings::default();
         assert!(s.lang.is_empty() && s.theme.is_empty() && s.font.is_empty());
+        assert!(s.langs_dir.is_empty() && s.themes_dir.is_empty() && s.fonts_dir.is_empty());
     }
 
     #[test]
     fn empty_or_partial_json_loads() {
-        // UNIVERSAL: file thiếu field → rỗng (chưa chọn), không lỗi.
+        // UNIVERSAL: file thiếu field → rỗng (chưa chọn / mặc định), không lỗi.
         let s: AppearanceSettings = serde_json::from_str(r#"{"theme":"neon"}"#).expect("loads");
         assert_eq!(s.theme, "neon");
-        assert!(s.lang.is_empty() && s.font.is_empty());
+        assert!(s.lang.is_empty() && s.font.is_empty() && s.themes_dir.is_empty());
     }
 
     #[test]
@@ -114,16 +146,30 @@ mod tests {
         s = AppearanceSettings::default();
         s.theme = "a/b".to_string();
         assert!(validate(&s).is_err());
-        // Rỗng vẫn hợp lệ (chưa chọn).
         assert!(validate(&AppearanceSettings::default()).is_ok());
     }
 
     #[test]
-    fn roundtrip_preserves_choice() {
+    fn source_dir_empty_ok_but_nonexistent_rejected() {
+        // UNIVERSAL: rỗng = mặc định (ok); điền path không tồn tại → từ chối.
+        let mut s = AppearanceSettings::default();
+        s.themes_dir = "/khong/ton/tai/chac_chan_123".to_string();
+        assert!(validate(&s).is_err());
+        // Thư mục thật (temp) thì hợp lệ.
+        s = AppearanceSettings::default();
+        s.themes_dir = std::env::temp_dir().to_string_lossy().into_owned();
+        assert!(validate(&s).is_ok());
+    }
+
+    #[test]
+    fn roundtrip_preserves_choice_and_source() {
         let s = AppearanceSettings {
             lang: "vi".to_string(),
-            theme: "default".to_string(),
+            theme: "neon".to_string(),
             font: "dejavusans".to_string(),
+            langs_dir: "/opt/langs".to_string(),
+            themes_dir: String::new(),
+            fonts_dir: String::new(),
         };
         let json = serde_json::to_string(&s).expect("serialize");
         let back: AppearanceSettings = serde_json::from_str(&json).expect("deserialize");
