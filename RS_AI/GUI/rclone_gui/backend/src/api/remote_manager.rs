@@ -7,7 +7,8 @@
 */
 
 // Worker actions gọi qua path module (không alias, không import trùng tên lệnh).
-use crate::actions::{checkfeature, checksize, remote_edit, remote_view};
+use crate::actions::{checksize, remote_edit, remote_view};
+use crate::actions::{feature::checkcap, feature::getfeature};
 use crate::logic::fastlane::fastlane;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -46,7 +47,7 @@ pub async fn delete_remote(name: String) -> Result<String, String> {
 
 #[tauri::command]
 pub async fn get_backend_features(remote: String) -> Result<Value, String> {
-    fastlane(move || checkfeature::query_backend_features(&remote)).await
+    fastlane(move || getfeature::query_backend_features(&remote)).await
 }
 
 /// UNIVERSAL: toàn bộ 52 cờ `Features` đã parse thành struct (thay vì JSON thô)
@@ -54,13 +55,13 @@ pub async fn get_backend_features(remote: String) -> Result<Value, String> {
 #[tauri::command]
 pub async fn get_feature_flags(
     remote: String,
-) -> Result<crate::actions::checkfeature::BackendFeatures, String> {
-    fastlane(move || checkfeature::query_feature_flags(&remote)).await
+) -> Result<crate::actions::getfeature::BackendFeatures, String> {
+    fastlane(move || crate::actions::getfeature::query_feature_flags(&remote)).await
 }
 
 #[tauri::command]
 pub async fn check_transfer_capability(src: String, dst: String) -> Result<Value, String> {
-    fastlane(move || checkfeature::query_transfer_options(&src, &dst)).await
+    fastlane(move || Ok(checkcap::query_transfer_options(&src, &dst))).await
 }
 
 #[tauri::command]

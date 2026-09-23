@@ -13,7 +13,11 @@
 //! tương thích để `use crate::actions::explorer::*` / `ops::*` cũ không vỡ.
 
 pub mod appearance;
-pub mod checkcap;
+pub mod feature;
+
+// UNIVERSAL: đường dùng cũ giữ nguyên (`crate::actions::checkcap::...`) để
+// logic/api không phải sửa — nhóm feature re-export lại tên module.
+pub use feature::{checkcap, combinefeature, getfeature};
 
 #[path = "move.rs"]
 pub mod move_op;
@@ -32,9 +36,9 @@ pub mod mount_control;
 pub mod mount_editor;
 pub mod mount_query;
 pub mod rename;
+pub mod rclone_stream;
 pub mod remote_view;
 pub mod remote_edit;
-pub mod checkfeature;
 pub mod checksize;
 pub mod search;
 pub mod stat;

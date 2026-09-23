@@ -1,19 +1,20 @@
 /*
 [INTEGRITY NOTES]
-- Mục đích: Thợ kiểm tra năng lực backend (S2) — logic gọi rclone backend/features + năng lực move/copy.
-- Trách nhiệm: Hàm đồng bộ thuần (chạy trong `fastlane` do tầng `api::remote_manager` bọc).
-- Tương tác: Chỉ `api::remote_manager` gọi sang; không đụng IPC/frontend.
+- Mục đích: Tầng Actions — ÁNH XẠ cờ native của rclone (`backend features`
+  → struct typed đủ 52 cờ). Chỉ lấy + bóc, KHÔNG quyết định gì.
+- Trách nhiệm: `BackendFeatures` 1-1 với JSON rclone; `parse_feature_flags`
+  thuần; `query_feature_flags` chạy lệnh thật. Mọi tổ hợp/quyết định nằm ở
+  `super::combinefeature`.
+- Tương tác: `api::remote_manager::get_feature_flags` gọi xuống.
 */
 
-use crate::actions::checkcap::check_cap;
 use crate::core::rclone_caller;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 
-/// UNIVERSAL: toàn bộ 52 cờ `Features` của `rclone backend features` — model
-/// 1-1 với rclone gốc (không lược). Thiếu key/lệch kiểu → `false` (rclone thêm
-/// cờ mới không làm vỡ parse cũ). Hai ngoại lệ đặt tên: `Move` (từ khóa Rust →
-/// `move_native`) và `BucketBasedRootOK` (rclone viết hoa K).
+/// UNIVERSAL: toàn bộ 52 cờ `Features` của rclone — model 1-1, không lược.
+/// Thiếu key/lệch kiểu → `false` (rclone thêm cờ mới không vỡ parse cũ).
+/// Hai ngoại lệ đặt tên: `Move` (từ khóa Rust) và `BucketBasedRootOK` (hoa K).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct BackendFeatures {
@@ -71,32 +72,26 @@ pub struct BackendFeatures {
     #[serde(default)] pub write_mime_type: bool,
 }
 
-impl BackendFeatures {
-    /// UNIVERSAL: backend đổi tên tại chỗ được (Move hoặc DirMove).
-    pub fn support_move(&self) -> bool {
-        self.move_native || self.dir_move
-    }
-    /// UNIVERSAL: backend sao chép tại chỗ được (cờ `Copy` gốc).
-    pub fn support_copy(&self) -> bool {
-        self.copy
-    }
-    /// UNIVERSAL: backend dọn được (Purge) — fallback copy+purge cho move.
-    pub fn support_purge(&self) -> bool {
-        self.purge
-    }
-    /// UNIVERSAL: backend dọn sạch thùng rác được (CleanUp).
-    pub fn support_cleanup(&self) -> bool {
-        self.clean_up
-    }
-}
-
 /// UNIVERSAL: bóc object `Features` thành struct đủ 52 cờ (thuần, test được).
 /// Rác/thiếu key → `false` từng cờ, không lỗi cả cụm.
 pub fn parse_feature_flags(features: &Value) -> BackendFeatures {
     serde_json::from_value(features.clone()).unwrap_or_default()
 }
 
-/// Toàn bộ 52 cờ `Features` của một remote (đồng bộ; tầng api bọc `fastlane`).
+/// Features backend của một remote (JSON THÔ để hiển thị; đồng bộ, api bọc `fastlane`).
+pub fn query_backend_features(remote: &str) -> Result<Value, String> {
+    // UNIVERSAL: đuôi ":" báo cho rclone biết đây là một remote.
+    let remote_with_colon = format!("{}:", remote);
+    let output = rclone_caller::run_cmd(&["backend", "features", &remote_with_colon])?;
+    if !output.status.success() {
+        let err_msg = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Lỗi rclone: {}", err_msg));
+    }
+    let json_str = String::from_utf8_lossy(&output.stdout);
+    serde_json::from_str(&json_str).map_err(|e| format!("Lỗi phân tích JSON: {}", e))
+}
+
+/// Toàn bộ 52 cờ `Features` của một remote (struct typed; đồng bộ, api bọc `fastlane`).
 /// Lỗi rclone/JSON thiếu `Features` → `Err` rõ (không đoán).
 pub fn query_feature_flags(remote: &str) -> Result<BackendFeatures, String> {
     // UNIVERSAL: đuôi ":" báo cho rclone biết đây là một remote.
@@ -114,57 +109,10 @@ pub fn query_feature_flags(remote: &str) -> Result<BackendFeatures, String> {
         .ok_or_else(|| format!("Thiếu object Features cho remote '{remote}'"))
 }
 
-/// Features backend của một remote (đồng bộ; tầng api bọc `fastlane`).
-pub fn query_backend_features(remote: &str) -> Result<Value, String> {
-    // UNIVERSAL: đuôi ":" báo cho rclone biết đây là một remote.
-    let remote_with_colon = format!("{}:", remote);
-    let output = rclone_caller::run_cmd(&["backend", "features", &remote_with_colon])?;
-    if !output.status.success() {
-        let err_msg = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Lỗi rclone: {}", err_msg));
-    }
-    let json_str = String::from_utf8_lossy(&output.stdout);
-    serde_json::from_str(&json_str).map_err(|e| format!("Lỗi phân tích JSON: {}", e))
-}
-
-/// Năng lực move/copy giữa 2 đường dẫn (đồng bộ; tầng api bọc `fastlane`).
-// UNIVERSAL: check_cap là não chung (UI hỏi + đường chạy hỏi); đây chỉ dịch
-// Cap ra 3 cờ JSON cũ (key giữ nguyên cho frontend/IPC).
-pub fn query_transfer_options(src: &str, dst: &str) -> Result<Value, String> {
-    let cap = check_cap(src, dst);
-    Ok(json!({
-        "canMove": cap.support_move,
-        "canCopy": cap.support_move || cap.support_copy_and_delete,
-        "canCopyDelete": cap.support_copy_and_delete
-    }))
-}
-
-/// Tên cũ giữ lại cho tương thích (IPC/frontend không đổi).
-pub fn transfer_capability(src: &str, dst: &str) -> Result<Value, String> {
-    query_transfer_options(src, dst)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn capability_local_same_remote_allows_move_copy() {
-        // UNIVERSAL: cùng Local luôn move-native + copy, không cần hỏi backend.
-        let v = transfer_capability("Local::/a", "Local::/b").expect("capability");
-        assert_eq!(v.get("canMove").and_then(|x| x.as_bool()), Some(true));
-        assert_eq!(v.get("canCopy").and_then(|x| x.as_bool()), Some(true));
-    }
-
-    #[test]
-    fn capability_cross_remote_denies_all() {
-        // UNIVERSAL: não chung check_cap — DiffCloud khác hãng/tắt cờ thì
-        // không move-native lẫn copy-purge (trung chuyển qua local).
-        let v = transfer_capability("A::/a", "B::/b").expect("capability");
-        assert_eq!(v.get("canMove").and_then(|x| x.as_bool()), Some(false));
-        assert_eq!(v.get("canCopy").and_then(|x| x.as_bool()), Some(false));
-        assert_eq!(v.get("canCopyDelete").and_then(|x| x.as_bool()), Some(false));
-    }
+    use serde_json::json;
 
     /// Snapshot THẬT (đóng băng từ `rclone backend features /tmp`): đủ 52 cờ,
     /// local có Move/DirMove nhưng KHÔNG Copy/Purge/CleanUp/ServerSide.
@@ -187,9 +135,6 @@ mod tests {
         assert!(f.move_native && f.dir_move);
         assert!(!f.copy && !f.purge && !f.clean_up && !f.server_side_across_configs);
         assert!(f.is_local);
-        // Accessor quyết định đọc đúng cờ gốc.
-        assert!(f.support_move());
-        assert!(!f.support_copy() && !f.support_purge() && !f.support_cleanup());
     }
 
     #[test]

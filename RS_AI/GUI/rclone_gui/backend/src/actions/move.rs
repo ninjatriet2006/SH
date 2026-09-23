@@ -2,13 +2,13 @@
 [INTEGRITY NOTES]
 - Mục đích: THỰC THI move (nơi duy nhất gọi rclone move).
 - Trách nhiệm: `execute_move` NHẬN VÉ ĐÃ ĐÓNG DẤU (`TransferTicket` — không đọc
-  engine settings), dùng chung lõi streaming `copy_op::run_streaming` với lệnh
+  engine settings), gọi máy rclone chung `rclone_stream::exec` với lệnh
   `moveto` + sudo fallback `mv`.
 - Tương tác: `logic::queue` gọi `execute_move` như `execute_copy`. Không đụng copy/ipc/frontend.
 */
 // UNIVERSAL: actions tay trắng về % — chỉ GỌI rclone + phun dòng log THÔ vào
 // sink (tính % là việc DUY NHẤT của tracker, queue hỏi tracker rồi ghi Job)
-// + hủy êm + escalate (xem `copy_op::run_streaming`); não Route/Cap/check_cap
+// + hủy êm + escalate (xem `super::rclone_stream::exec`); não Route/Cap/check_cap
 // nằm ở `checkcap` (file này chỉ giữ thực thi + re-export tương thích).
 // UNIVERSAL: checkcap là não chung duy nhất; move chỉ lo chạy.
 
@@ -23,46 +23,15 @@ pub enum TransferKind {
     Move,
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::actions::copy_op::{item_args, whole_args};
-
-    #[test]
-    fn move_diffcloud_args_same_vs_diff_provider() {
-        use crate::settings::engine::{EngineSettings, EngineSwitches};
-        // UNIVERSAL: cùng hãng + bật cờ engine → có cờ xuyên-config trong args rclone.
-        let on = EngineSettings {
-            switches: EngineSwitches { server_side_across: true, ..Default::default() },
-            ..Default::default()
-        };
-        let same_args = whole_args("moveto", "A:/a", "B:/b", &on, true);
-        assert!(same_args.contains(&"--server-side-across-configs".to_string()));
-        // UNIVERSAL: khác hãng / tắt cờ → args giữ nguyên, không có cờ.
-        let diff_args = whole_args("moveto", "A:/a", "B:/b", &on, false);
-        assert!(!diff_args.contains(&"--server-side-across-configs".to_string()));
-        let off = EngineSettings::default();
-        let off_args = whole_args("moveto", "A:/a", "B:/b", &off, true);
-        assert!(!off_args.contains(&"--server-side-across-configs".to_string()));
-    }
-
-    #[test]
-    fn move_item_args_stay_single_with_json_log() {
-        // UNIVERSAL: vé từng món là lệnh đơn nhưng vẫn json-log để stream tiến độ.
-        use crate::settings::engine::EngineSettings;
-        let args = item_args("moveto", "A:/a", "B:/b", &EngineSettings::default());
-        assert_eq!(&args[0..3], &["moveto", "A:/a", "B:/b"]);
-        assert!(args.contains(&"--use-json-log".to_string()));
-        assert!(!args.iter().any(|a| a.starts_with("--transfers=")));
-    }
-}
-
 /// UNIVERSAL: thực thi move từ VÉ ĐÃ ĐÓNG DẤU (worker sync, test sync) —
-/// chung lõi streaming với copy (`rclone moveto`, sudo fallback `pkexec mv`);
+/// gọi máy rclone chung (`rclone moveto`, sudo fallback `pkexec mv`);
 /// phun log thô qua `on_log_line` (tay trắng về %, tracker tính sau).
+/// Vé bị đọc các field: `src`/`dst`, `mode` (+`rel`), `engine_flags` + `across`,
+/// `policy` — chi tiết xem doc máy chung `rclone_stream::exec`.
 pub fn execute_move(
     ticket: TransferTicket,
     should_cancel: impl Fn() -> bool,
     on_log_line: impl FnMut(&str),
 ) -> Result<(), String> {
-    super::copy_op::run_streaming("moveto", "mv", &ticket, should_cancel, on_log_line)
+    super::rclone_stream::exec("moveto", "mv", &ticket, should_cancel, on_log_line)
 }

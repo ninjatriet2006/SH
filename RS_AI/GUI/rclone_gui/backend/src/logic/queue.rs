@@ -6,6 +6,7 @@
 
 use super::jobs::{Job, JobKind, JobStatus, JobStore};
 use crate::actions::perm::Policy;
+use crate::actions::rclone_stream::join_child;
 use crate::logic::tracker::{Tracker, TransferMode, TransferTicket};
 use serde::{Deserialize, Serialize};
 
@@ -126,22 +127,11 @@ pub fn manifest(src: &str) -> Result<Vec<ManifestItem>, String> {
     parse_manifest_json(&String::from_utf8_lossy(&out.stdout))
 }
 
-/// UNIVERSAL S2: nối đường dẫn base với path tương đối của vé con
-/// (giữ `/` phân cách, không phụ thuộc OS vì remote dùng `/`).
-fn join_child(base: &str, rel: &str) -> String {
-    let b = base.trim_end_matches('/');
-    let r = rel.trim_start_matches('/');
-    if b.is_empty() {
-        format!("/{r}")
-    } else {
-        format!("{b}/{r}")
-    }
-}
-
 /// UNIVERSAL tối ưu: dựng vé transfer THUẦN từ vé con đã đóng dấu (không
 /// spawn, không đọc settings — test được trực tiếp). `across`/`engine_flags`
 /// lấy đúng tem JOB đóng lúc dispatch (trước đây tính lại mỗi vé = N lần
 /// spawn `config dump` + đọc flags, lại còn vứt tem đi).
+/// UNIVERSAL: `join_child` dùng chung từ `actions::rclone_stream` (1 mối).
 pub(super) fn build_child_ticket(
     src: &str,
     dst: &str,
@@ -425,14 +415,6 @@ mod tests {
         crate::core::rclone_caller::run_cmd(&["version"])
             .map(|o| o.status.success())
             .unwrap_or(false)
-    }
-
-    #[test]
-    fn child_path_join_keeps_slash_sep() {
-        // UNIVERSAL S2: nối base + rel vé con, giữ `/` vì remote dùng `/`.
-        assert_eq!(join_child("/a/b", "c/d.txt"), "/a/b/c/d.txt");
-        assert_eq!(join_child("/a/b/", "/c.txt"), "/a/b/c.txt");
-        assert_eq!(join_child("", "c.txt"), "/c.txt");
     }
 
     #[test]
