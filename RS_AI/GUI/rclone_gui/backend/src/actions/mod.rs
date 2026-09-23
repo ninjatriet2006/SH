@@ -54,11 +54,9 @@ pub use types::{RemoteKind, SameProvider, same_provider, same_provider_from_dump
 
 pub use move_op::{Cap, DeleteScope, Route, SupportCopyAndDelete, SupportMove, TransferKind};
 
-// UNIVERSAL: execute_copy/execute_move cũ đã gộp về jobs — chỉ giữ Route/Cap/Support*.
-pub use copy_op::{Cap as CopyCap, Route as CopyRoute, SupportCopy, TransferKind as CopyTransferKind};
+// UNIVERSAL: copy chỉ còn thực thi (+ TransferKind giữ chỗ); Route/Cap bản sao
+// đã xoá — não duy nhất ở feature::checkcap, khỏi song sinh.
 pub use delete_op::{DeleteScope as SharedDeleteScope, EmptyDirs as DeleteEmptyDirs, Route as DeleteRoute, execute_delete, execute_delete_with_empty_dirs};
-// UNIVERSAL: TrashCap 1 não cho thùng rác remote (checkcap là nguồn duy nhất).
-pub use checkcap::{TrashCap, check_trash_cap};
 // UNIVERSAL: worker tên gọn cho `api::remote_manager` (gọi qua path module, không alias).
 pub use checksize::{about, size};
 pub use remote_edit::{create_remote, delete_remote, update_remote};

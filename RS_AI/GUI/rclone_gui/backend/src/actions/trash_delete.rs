@@ -8,12 +8,10 @@
   khi backend có tính năng `CleanUp`.
 */
 
-pub use super::trash_list::Route;
+use super::trash_list::Route;
 pub use crate::actions::types::{DeleteScope, EmptyDirs};
 use super::trash_list::{remote_type, trash_dir};
-use crate::actions::checkcap::check_trash_cap;
 use crate::core::rclone_caller;
-use serde_json::Value;
 
 /// Xoá vĩnh viễn một mục local khỏi thùng rác (bỏ cả nội dung và metadata).
 /// (đồng bộ; tầng api bọc `fastlane`).
@@ -22,32 +20,33 @@ pub fn delete_local(id: &str, scope: DeleteScope) -> Result<(), String> {
         // UNIVERSAL: mục đã ở trong thùng rác — chuyển vào trash lần nữa là vô nghĩa.
         DeleteScope::Trash => Err("Mục đã nằm trong thùng rác, chỉ xoá vĩnh viễn được.".to_string()),
         // UNIVERSAL: NoTrash — xoá cả nội dung `Trash/files` lẫn metadata `.trashinfo`.
+        // UNIVERSAL: thụt lề phẳng theo nhánh (sửa từ bản lệch cũ).
         DeleteScope::NoTrash => {
-    if id.is_empty() {
-        return Err("Thiếu định danh mục cần xoá.".to_string());
-    }
-    // Chặn path traversal: `id` phải là một tên đơn, không chứa phân cách.
-    if id.contains('/') || id.contains('\\') || id == "." || id == ".." {
-        return Err(format!("Định danh không hợp lệ: '{}'", id));
-    }
+            if id.is_empty() {
+                return Err("Thiếu định danh mục cần xoá.".to_string());
+            }
+            // Chặn path traversal: `id` phải là một tên đơn, không chứa phân cách.
+            if id.contains('/') || id.contains('\\') || id == "." || id == ".." {
+                return Err(format!("Định danh không hợp lệ: '{}'", id));
+            }
 
-    let dir = trash_dir()?;
-    let target = dir.join("files").join(id);
-    let info = dir.join("info").join(format!("{}.trashinfo", id));
+            let dir = trash_dir()?;
+            let target = dir.join("files").join(id);
+            let info = dir.join("info").join(format!("{}.trashinfo", id));
 
-    if !target.exists() && !info.exists() {
-        return Err(format!("Không tìm thấy '{}' trong thùng rác.", id));
-    }
+            if !target.exists() && !info.exists() {
+                return Err(format!("Không tìm thấy '{}' trong thùng rác.", id));
+            }
 
-    if target.is_dir() {
-        std::fs::remove_dir_all(&target).map_err(|e| format!("Lỗi xoá thư mục: {}", e))?;
-    } else if target.exists() {
-        std::fs::remove_file(&target).map_err(|e| format!("Lỗi xoá tệp: {}", e))?;
-    }
+            if target.is_dir() {
+                std::fs::remove_dir_all(&target).map_err(|e| format!("Lỗi xoá thư mục: {}", e))?;
+            } else if target.exists() {
+                std::fs::remove_file(&target).map_err(|e| format!("Lỗi xoá tệp: {}", e))?;
+            }
 
-    // Metadata mồ côi sẽ làm `list()` bỏ qua mục đó, nhưng vẫn nên dọn sạch.
-    let _ = std::fs::remove_file(&info);
-    Ok(())
+            // Metadata mồ côi sẽ làm `list()` bỏ qua mục đó, nhưng vẫn nên dọn sạch.
+            let _ = std::fs::remove_file(&info);
+            Ok(())
         }
     }
 }
@@ -71,20 +70,24 @@ pub fn delete_remote(remote: &str, path: &str, scope: DeleteScope) -> Result<(),
     }
 
     let backend = remote_type(remote)?;
-    let flag = check_trash_cap(&backend).trashed_only.ok_or_else(|| {
-        format!(
-            "rclone không hỗ trợ xoá từng mục trong thùng rác cho loại '{}'. Hãy dùng 'Dọn sạch thùng rác'.",
-            backend
-        )
-    })?;
+    // UNIVERSAL không-bịa: cùng quy ước `--{type}-trashed-only` như list (xem
+    // `trash_list::trashed_only_flag`) — rclone tự xác nhận lúc chạy.
+    let flag = super::trash_list::trashed_only_flag(&backend)?;
 
     let target = format!("{}:{}", remote, path);
     let is_dir = crate::actions::types::is_dir(&target).unwrap_or(false);
     let cmd = if is_dir { "purge" } else { "deletefile" };
 
-    let output = rclone_caller::run_cmd(&[cmd, &target, flag])?;
+    let output = rclone_caller::run_cmd(&[cmd, &target, &flag])?;
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        // UNIVERSAL: flag lạ với backend này = không có khái niệm xóa-trash
+        // (đã xác minh chữ `unknown flag` với Box thật) — mapping dùng chung.
+        if let Some(clean) =
+            super::trash_list::map_unknown_flag(&backend, &err, "xoá từng mục trong")
+        {
+            return Err(format!("{clean} Hãy dùng 'Dọn sạch thùng rác'."));
+        }
         return Err(if err.is_empty() {
             format!("Xoá vĩnh viễn '{}' thất bại: {}", path, output.status)
         } else {
@@ -127,31 +130,17 @@ pub fn empty_remote(remote: &str, empty: EmptyDirs) -> Result<(), String> {
     }
     let target = format!("{}:", remote);
 
-    // UNIVERSAL: 1 não TrashCap chặn sớm backend không có thùng rác (lỗi rõ như cũ).
-    let backend = remote_type(remote)?;
-    if !check_trash_cap(&backend).can_cleanup {
+    // UNIVERSAL không-bịa: gate bằng cờ `CleanUp` THẬT qua cache (không hỏi
+    // được → false → từ chối như bảng cũ). Bỏ double-check đọc trực tiếp vì
+    // cùng 1 cờ — trùng lặp; lệnh `cleanup` cuối cùng vẫn là trọng tài thật.
+    let can_cleanup = crate::actions::feature::checkcap::backend_features_cached(remote)
+        .map(|f| f.clean_up)
+        .unwrap_or(false);
+    if !can_cleanup {
         return Err(format!(
             "Remote '{}' không hỗ trợ dọn sạch thùng rác (CleanUp).",
             remote
         ));
-    }
-
-    if let Ok(output) = rclone_caller::run_cmd(&["backend", "features", &target]) {
-        if output.status.success() {
-            if let Ok(v) = serde_json::from_slice::<Value>(&output.stdout) {
-                let can_cleanup = v
-                    .get("Features")
-                    .and_then(|f| f.get("CleanUp"))
-                    .and_then(|b| b.as_bool())
-                    .unwrap_or(true);
-                if !can_cleanup {
-                    return Err(format!(
-                        "Remote '{}' không hỗ trợ dọn sạch thùng rác (CleanUp).",
-                        remote
-                    ));
-                }
-            }
-        }
     }
 
     let output = rclone_caller::run_cmd(&["cleanup", &target])?;

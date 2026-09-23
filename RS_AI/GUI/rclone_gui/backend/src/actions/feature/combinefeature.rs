@@ -13,7 +13,8 @@ use super::getfeature::BackendFeatures;
 
 /// UNIVERSAL: backend dời tại chỗ được theo LOẠI nguồn (không gộp OR —
 /// `Move` là dời file, `DirMove` là dời thư mục, backend có thể chỉ có một
-/// trong hai; mẫu đúng theo `SupportRename::of_backend` của rename).
+/// trong hai). Dùng chung cho move-native VÀ rename-native (rename chính là
+/// `moveto` cùng remote) — không đẻ hàm riêng trùng bảng chân lý.
 pub fn move_splitter(f: &BackendFeatures, is_dir: bool) -> bool {
     if is_dir {
         f.dir_move

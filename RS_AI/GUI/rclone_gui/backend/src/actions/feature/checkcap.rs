@@ -30,8 +30,8 @@ fn feature_cache() -> &'static Mutex<HashMap<String, (BackendFeatures, Instant)>
 }
 
 /// UNIVERSAL: cờ native của một remote qua cache — `"Local"` và remote lỗi
-/// trả `None` ngay (không spawn), để tầng quyết định rớt về route-cứng.
-fn backend_features_cached(remote: &str) -> Option<BackendFeatures> {
+/// trả `None` ngay (không spawn), để tầng quyết định rớt về fallback.
+pub(crate) fn backend_features_cached(remote: &str) -> Option<BackendFeatures> {
     if remote == "Local" || remote.is_empty() {
         return None;
     }
@@ -264,50 +264,6 @@ pub fn query_transfer_options(src: &str, dst: &str) -> serde_json::Value {
     })
 }
 
-/// UNIVERSAL: TrashCap là não chung DUY NHẤT cho thùng rác remote —
-/// `trash_list`/`trash_restore`/`trash_delete` đều hỏi đây, THUẦN tính toán.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TrashCap {
-    /// Cờ `--<backend>-trashed-only` để nhắm đúng bản trong thùng rác.
-    pub trashed_only: Option<&'static str>,
-    /// Có khôi phục được (`backend untrash`) hay không.
-    pub can_restore: bool,
-    /// Có dọn sạch được (`cleanup`/`CleanUp`) hay không.
-    pub can_cleanup: bool,
-}
-
-/// UNIVERSAL: 1 não cho năng lực thùng rác theo loại backend.
-pub fn check_trash_cap(backend_type: &str) -> TrashCap {
-    match backend_type {
-        // UNIVERSAL: Drive đủ cả 3 (xem + khôi phục + dọn sạch).
-        "drive" => TrashCap {
-            trashed_only: Some("--drive-trashed-only"),
-            can_restore: true,
-            can_cleanup: true,
-        },
-        // UNIVERSAL: Jottacloud/PikPak xem + dọn sạch, không khôi phục.
-        "jottacloud" => TrashCap {
-            trashed_only: Some("--jottacloud-trashed-only"),
-            can_restore: false,
-            can_cleanup: true,
-        },
-        "pikpak" => TrashCap {
-            trashed_only: Some("--pikpak-trashed-only"),
-            can_restore: false,
-            can_cleanup: true,
-        },
-        // UNIVERSAL: còn lại không có khái niệm thùng rác trong rclone.
-        other => {
-            crate::core::debug::warn(None, "checkcap/check_trash_cap", format!("backend lạ '{other}', rớt về không-trash"));
-            TrashCap {
-                trashed_only: None,
-                can_restore: false,
-                can_cleanup: false,
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -321,25 +277,6 @@ mod tests {
         assert!(!Route::DiffCloud.cap_with_provider(SameProvider(false), true).server_side);
         assert!(!Route::DiffCloud.cap_with_provider(SameProvider(true), false).server_side);
         assert!(!Route::DiffCloud.cap().server_side);
-    }
-
-    #[test]
-    fn trash_cap_covers_supported_backends() {
-        // UNIVERSAL: drive đủ cả 3; jotta/pikpak thiếu restore; còn lại đều không.
-        let d = check_trash_cap("drive");
-        assert_eq!(d.trashed_only, Some("--drive-trashed-only"));
-        assert!(d.can_restore && d.can_cleanup);
-        let j = check_trash_cap("jottacloud");
-        assert_eq!(j.trashed_only, Some("--jottacloud-trashed-only"));
-        assert!(!j.can_restore && j.can_cleanup);
-        let p = check_trash_cap("pikpak");
-        assert_eq!(p.trashed_only, Some("--pikpak-trashed-only"));
-        assert!(!p.can_restore && p.can_cleanup);
-        for b in ["dropbox", "onedrive", "s3", ""] {
-            let c = check_trash_cap(b);
-            assert_eq!(c.trashed_only, None);
-            assert!(!c.can_restore && !c.can_cleanup);
-        }
     }
 
     /// Snapshot THẬT đóng băng từ `rclone backend features /tmp` (đủ 52 cờ).

@@ -5,10 +5,9 @@
 - Tương tác: Tầng `api::trash_manager` bọc mỏng qua `logic::fastlane::fastlane`. Không đụng IPC/frontend.
   Helpers dùng chung (`trash_dir`, `remote_type`, `list_local`) để
   `trash_restore`/`trash_delete` tái sử dụng (`percent_*` ở `core::path`,
-  `trashed-only` hỏi `checkcap::check_trash_cap`).
+  `trashed-only` dựng theo quy ước rclone, rclone tự xác nhận lúc chạy).
 */
 
-use crate::actions::checkcap::check_trash_cap;
 use super::list::FileItem;
 use serde::Serialize;
 use crate::core::rclone_caller;
@@ -146,22 +145,53 @@ pub fn list_local() -> Result<Vec<TrashItemLocal>, String> {
 /// Liệt kê các mục đang ở trong thùng rác của remote.
 /// `FileItem.uuid` giữ đường dẫn tương đối để các thao tác sau định vị chính xác.
 /// (đồng bộ; tầng api bọc `blocking`).
+/// UNIVERSAL không-bịa: dựng tên flag `--{type}-trashed-only` theo quy ước
+/// rclone (thuần, test được). ĐÚNG/SAI do rclone quyết lúc chạy (unknown-flag),
+/// hàm này chỉ chặn type chứa ký tự lạ để khỏi ráp lệnh bậy.
+pub fn trashed_only_flag(backend_type: &str) -> Result<String, String> {
+    let t = backend_type.trim();
+    if t.is_empty()
+        || !t
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(format!("Loại backend không hợp lệ: '{backend_type}'"));
+    }
+    Ok(format!("--{t}-trashed-only"))
+}
+
+/// UNIVERSAL không-bịa: dịch lỗi `unknown flag` của rclone thành câu rõ
+/// (backend nào, việc gì không được) — dùng chung cho list/delete (2 chỗ gọi
+/// 1 mối, khỏi viết trùng mapping). Không phải unknown-flag thì `None`.
+pub(crate) fn map_unknown_flag(backend: &str, stderr: &str, action_verb: &str) -> Option<String> {
+    if stderr.contains("unknown flag") {
+        Some(format!(
+            "rclone không hỗ trợ {action_verb} thùng rác cho loại '{backend}'."
+        ))
+    } else {
+        None
+    }
+}
+
 pub fn list_remote(remote: &str) -> Result<Vec<FileItem>, String> {
     if Route::classify(remote) == Route::Local {
         return Err("Tuyến Local phải dùng `list_local`.".to_string());
     }
     let backend = remote_type(remote)?;
-    let flag = check_trash_cap(&backend).trashed_only.ok_or_else(|| {
-        format!(
-            "rclone không hỗ trợ xem thùng rác cho loại '{}'. Chỉ Google Drive, Jottacloud và PikPak có tính năng này.",
-            backend
-        )
-    })?;
-
+    // UNIVERSAL không-bịa: dựng `--{type}-trashed-only` theo đúng quy ước đặt
+    // tên flag của rclone, rồi để rclone TỰ XÁC NHẬN (flag lạ → lỗi
+    // `unknown flag` → báo không hỗ trợ). Không ghi tay bảng backend nào.
+    let flag = trashed_only_flag(&backend)?;
     let target = format!("{}:", remote);
-    let output = rclone_caller::run_cmd(&["lsjson", &target, "--max-depth", "1", flag])?;
+    let output = rclone_caller::run_cmd(&["lsjson", &target, "--max-depth", "1", &flag])?;
     if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+        let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        // UNIVERSAL: rclone không biết flag này = backend không có khái niệm
+        // xem-trash (đã xác minh chữ `unknown flag` với Box thật).
+        if let Some(clean) = map_unknown_flag(&backend, &err, "xem") {
+            return Err(clean);
+        }
+        return Err(err);
     }
 
     let items: Vec<Value> =
@@ -199,5 +229,16 @@ mod tests {
     fn route_classifies_local_vs_remote() {
         assert_eq!(Route::classify("Local"), Route::Local);
         assert_eq!(Route::classify("GDrive"), Route::Remote);
+    }
+
+    #[test]
+    fn trashed_only_flag_builds_from_type_and_rejects_junk() {
+        // UNIVERSAL không-bịa: tên flag suy từ type (drive/jotta/pikpak/box
+        // đều đúng pattern); type rác bị chặn trước khi ráp lệnh.
+        assert_eq!(trashed_only_flag("drive").as_deref(), Ok("--drive-trashed-only"));
+        assert_eq!(trashed_only_flag("Box").as_deref(), Ok("--Box-trashed-only"));
+        assert!(trashed_only_flag("").is_err());
+        assert!(trashed_only_flag("../etc").is_err());
+        assert!(trashed_only_flag("a/b").is_err());
     }
 }

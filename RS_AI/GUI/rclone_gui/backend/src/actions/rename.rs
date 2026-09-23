@@ -33,6 +33,8 @@ pub enum IsDir {
 
 /// UNIVERSAL: rename-native 1 bước — backend có `Move` (file) hoặc `DirMove` (dir)
 /// nên `rclone moveto` đổi tên tại chỗ, không cần tải lại dữ liệu.
+/// Vỏ bool cho `plan_rename_for`; suy từ cờ thật bằng `combinefeature::move_splitter`
+/// (rename chính là moveto cùng remote — không tự suy tại đây để khỏi song sinh).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SupportRename(pub bool);
 
@@ -45,18 +47,6 @@ pub struct Cap {
     pub sudo_fallback: bool,
     /// Backend hỗ trợ rename-native (`Move` cho file / `DirMove` cho dir).
     pub support_rename: bool,
-}
-
-impl SupportRename {
-    /// Suy từ cờ backend `Move`/`DirMove` theo loại nguồn.
-    pub fn of_backend(mv: bool, dir_mv: bool, is_dir: IsDir) -> Self {
-        match is_dir {
-            // UNIVERSAL: file đổi tên qua backend `Move`.
-            IsDir::File => Self(mv),
-            // UNIVERSAL: thư mục đổi tên qua backend `DirMove`.
-            IsDir::Dir => Self(dir_mv),
-        }
-    }
 }
 
 impl Route {
@@ -203,18 +193,25 @@ mod tests {
 
     #[test]
     fn rename_dir_needs_dirmove_flag() {
+        // UNIVERSAL: đáp án rename-native suy bằng `combinefeature::move_splitter`
+        // (không tự suy tại đây để khỏi song sinh bảng chân lý).
+        use crate::actions::feature::combinefeature::move_splitter;
+        use crate::actions::feature::getfeature::parse_feature_flags;
+        use serde_json::json;
+        let no_dirmove = parse_feature_flags(&json!({"Move": true, "DirMove": false}));
         assert!(plan_rename_for(
             "GDrive::/a",
             "GDrive::/b",
             IsDir::Dir,
-            SupportRename::of_backend(true, false, IsDir::Dir),
+            SupportRename(move_splitter(&no_dirmove, true)),
         )
         .is_err());
+        let full = parse_feature_flags(&json!({"Move": true, "DirMove": true}));
         assert!(plan_rename_for(
             "GDrive::/a",
             "GDrive::/b",
             IsDir::Dir,
-            SupportRename::of_backend(true, true, IsDir::Dir),
+            SupportRename(move_splitter(&full, true)),
         )
         .is_ok());
     }
