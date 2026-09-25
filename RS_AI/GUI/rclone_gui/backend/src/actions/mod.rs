@@ -22,8 +22,7 @@ pub use feature::{checkcap, combinefeature, getfeature};
 pub mod streaming;
 pub use streaming::{copy_op, move_op, rclone_stream};
 
-#[path = "delete.rs"]
-pub mod delete_op;
+pub use instant::{delete, delete_op};
 
 pub mod instant;
 pub use instant::{mkdir, touch, rclone_instant};
