@@ -39,7 +39,7 @@ pub mod remote_edit;
 pub mod information;
 pub use information as checksize;
 pub mod search;
-pub mod stat;
+pub use information::stat;
 pub mod system;
 pub mod view;
 pub mod perm;

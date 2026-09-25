@@ -28,11 +28,16 @@ pub fn plan_size(input: &str) -> Result<SizePlan, String> {
     }
 
     let (remote, path) = if trimmed.contains("::") {
-        cut_remote_path(trimmed)
+        let (r, p) = cut_remote_path(trimmed);
+        if r == "Local" {
+            ("Local".to_string(), super::expand_local_path(&p))
+        } else {
+            (r, p)
+        }
     } else if trimmed == "Local" || trimmed == "Local:" {
         ("Local".to_string(), "/".to_string())
     } else if trimmed.starts_with('/') || trimmed.starts_with('.') || trimmed.starts_with('~') {
-        ("Local".to_string(), trimmed.to_string())
+        ("Local".to_string(), super::expand_local_path(trimmed))
     } else {
         let clean = trimmed.trim_end_matches(':');
         (clean.to_string(), String::new())
@@ -66,46 +71,7 @@ pub fn plan_size(input: &str) -> Result<SizePlan, String> {
 /// Đo kích thước hệ thống/remote qua `rclone size --json`.
 pub fn execute_size(input: &str) -> Result<Value, String> {
     let plan = plan_size(input)?;
-
-    crate::core::debug::info(
-        None,
-        "actions/information/size",
-        format!("BẮT ĐẦU Size | target='{}'", plan.target),
-    );
-    let start = std::time::Instant::now();
-
-    let output = rclone_caller::run_cmd(&["size", &plan.target, "--json"]);
-    let res = match output {
-        Ok(out) => {
-            if !out.status.success() {
-                let err_msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                Err(format!("Lỗi rclone size: {err_msg}"))
-            } else {
-                let json_str = String::from_utf8_lossy(&out.stdout);
-                serde_json::from_str(&json_str).map_err(|e| format!("Lỗi phân tích JSON size: {e}"))
-            }
-        }
-        Err(e) => Err(format!("Lỗi thực thi rclone size: {e}")),
-    };
-
-    match &res {
-        Ok(_) => {
-            crate::core::debug::info(
-                None,
-                "actions/information/size",
-                format!("XONG Size | target='{}' ({:.2?})", plan.target, start.elapsed()),
-            );
-        }
-        Err(e) => {
-            crate::core::debug::error(
-                None,
-                "actions/information/size",
-                format!("LỖI Size | target='{}' | err={} ({:.2?})", plan.target, e, start.elapsed()),
-            );
-        }
-    }
-
-    res
+    super::run_json_query("size", &plan.target)
 }
 
 /// Alias tương thích.
@@ -137,6 +103,14 @@ mod tests {
         let plan = plan_size("Local::/tmp/test").expect("plan");
         assert_eq!(plan.route, RemoteKind::Local);
         assert_eq!(plan.target, "/tmp/test");
+    }
+
+    #[test]
+    fn plan_size_expands_tilde() {
+        let plan = plan_size("~/test").expect("plan");
+        assert_eq!(plan.route, RemoteKind::Local);
+        assert!(!plan.target.starts_with('~'));
+        assert!(plan.target.ends_with("/test"));
     }
 
     #[test]

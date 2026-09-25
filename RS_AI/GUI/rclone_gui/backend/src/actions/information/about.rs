@@ -34,11 +34,16 @@ pub fn plan_about(input: &str) -> Result<AboutPlan, String> {
     }
 
     let (remote, path) = if trimmed.contains("::") {
-        cut_remote_path(trimmed)
+        let (r, p) = cut_remote_path(trimmed);
+        if r == "Local" {
+            ("Local".to_string(), super::expand_local_path(&p))
+        } else {
+            (r, p)
+        }
     } else if trimmed == "Local" || trimmed == "Local:" {
         ("Local".to_string(), "/".to_string())
     } else if trimmed.starts_with('/') || trimmed.starts_with('.') || trimmed.starts_with('~') {
-        ("Local".to_string(), trimmed.to_string())
+        ("Local".to_string(), super::expand_local_path(trimmed))
     } else {
         let clean = trimmed.trim_end_matches(':');
         (clean.to_string(), String::new())
@@ -79,46 +84,7 @@ pub fn execute_about(input: &str) -> Result<Value, String> {
     if !plan.allowed {
         return Err(format!("{} không hỗ trợ xem dung lượng (About).", plan.remote));
     }
-
-    crate::core::debug::info(
-        None,
-        "actions/information/about",
-        format!("BẮT ĐẦU About | target='{}'", plan.target),
-    );
-    let start = std::time::Instant::now();
-
-    let output = rclone_caller::run_cmd(&["about", &plan.target, "--json"]);
-    let res = match output {
-        Ok(out) => {
-            if !out.status.success() {
-                let err_msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                Err(format!("Lỗi rclone about: {err_msg}"))
-            } else {
-                let json_str = String::from_utf8_lossy(&out.stdout);
-                serde_json::from_str(&json_str).map_err(|e| format!("Lỗi phân tích JSON about: {e}"))
-            }
-        }
-        Err(e) => Err(format!("Lỗi thực thi rclone about: {e}")),
-    };
-
-    match &res {
-        Ok(_) => {
-            crate::core::debug::info(
-                None,
-                "actions/information/about",
-                format!("XONG About | target='{}' ({:.2?})", plan.target, start.elapsed()),
-            );
-        }
-        Err(e) => {
-            crate::core::debug::error(
-                None,
-                "actions/information/about",
-                format!("LỖI About | target='{}' | err={} ({:.2?})", plan.target, e, start.elapsed()),
-            );
-        }
-    }
-
-    res
+    super::run_json_query("about", &plan.target)
 }
 
 /// Alias tương thích.
@@ -163,6 +129,19 @@ mod tests {
         let plan_raw = plan_about("/var/log").expect("plan");
         assert_eq!(plan_raw.route, RemoteKind::Local);
         assert_eq!(plan_raw.target, "/var/log");
+    }
+
+    #[test]
+    fn plan_about_expands_tilde() {
+        let plan = plan_about("~/MyDocs").expect("plan");
+        assert_eq!(plan.route, RemoteKind::Local);
+        assert!(!plan.target.starts_with('~'));
+        assert!(plan.target.ends_with("/MyDocs"));
+
+        let plan_colon = plan_about("Local::~/MyDocs").expect("plan");
+        assert_eq!(plan_colon.route, RemoteKind::Local);
+        assert!(!plan_colon.target.starts_with('~'));
+        assert!(plan_colon.target.ends_with("/MyDocs"));
     }
 
     #[test]
