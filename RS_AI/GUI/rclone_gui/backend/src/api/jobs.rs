@@ -16,6 +16,7 @@ pub async fn job_enqueue(
     kind: String,
     src: Option<String>,
     dst: Option<String>,
+    skip_paths: Option<Vec<String>>,
 ) -> Result<crate::logic::jobs::Job, String> {
     let parsed =
         crate::logic::jobs::JobKind::parse(&kind)
@@ -23,7 +24,9 @@ pub async fn job_enqueue(
     // Đóng dấu policy hiện tại (AppState) lên job lúc đặt việc — worker chỉ đọc
     // `job.policy`, không đọc lại state, nên đổi policy giữa chừng không phá việc cũ.
     let policy = state.policy.lock().map(|p| *p).unwrap_or_default();
-    let job = state.jobs.enqueue_with_policy(parsed, src, dst, policy);
+    // UNIVERSAL worker-check: danh sách rel bỏ qua (modal thu từ user, rỗng =
+    // mặc định Replace); worker check tươi từng vé rồi áp.
+    let job = state.jobs.enqueue_with_policy(parsed, src, dst, policy, skip_paths.unwrap_or_default());
     state.jobs.spawn_worker(app_handle);
     Ok(job)
 }

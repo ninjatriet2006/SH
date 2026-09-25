@@ -9,6 +9,37 @@ use crate::actions::perm::Policy;
 use crate::actions::rclone_stream::join_child;
 use crate::logic::tracker::{Tracker, TransferMode, TransferTicket};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+/// UNIVERSAL worker-check: vé rel có nằm trong vùng skip không (khớp đúng
+/// hoặc tiền tố `skip/` — skip dir cha thì cả cây con nghỉ).
+pub(super) fn child_skipped(skip_paths: &[String], rel: &str) -> bool {
+    skip_paths.iter().any(|s| {
+        let s = s.trim().trim_matches('/');
+        !s.is_empty() && (rel == s || rel.starts_with(&format!("{s}/")))
+    })
+}
+
+/// UNIVERSAL worker-check: loại trùng của 1 vé (None = mới toanh hoặc
+/// dir/dir merge → chạy; còn lại áp policy).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ChildConflict {
+    FileFile,
+    FileDir,
+    DirFile,
+}
+
+/// UNIVERSAL worker-check: tra 1 vé vào map đích (thuần, test được).
+/// `dest_is_dir=None` = đích chưa có → không trùng.
+pub(super) fn child_conflict(child_is_dir: bool, dest_is_dir: Option<bool>) -> Option<ChildConflict> {
+    match (child_is_dir, dest_is_dir) {
+        (_, None) => None,
+        (false, Some(false)) => Some(ChildConflict::FileFile),
+        (false, Some(true)) => Some(ChildConflict::FileDir),
+        (true, Some(false)) => Some(ChildConflict::DirFile),
+        (true, Some(true)) => None,
+    }
+}
 
 /// UNIVERSAL S2: chế độ chạy của vé con — tường minh trên vé, QUEUE chỉ làm theo.
 /// - `Whole`: nguyên khối, toàn bộ src→dst một lệnh (`across` + snapshot cờ
@@ -198,6 +229,43 @@ pub(super) fn run_child_delete(src: &str, rel: &str, is_dir: bool, policy: Polic
 }
 
 impl JobStore {
+    /// UNIVERSAL worker-check: đích Whole có tồn tại không (probe `is_dir`
+    /// ĐÚNG 1 lần/job, gọi lười khi gặp vé Whole đầu tiên; dst thiếu → false).
+    fn dst_exists(dst: Option<&str>) -> bool {
+        let Some(d) = dst else {
+            return false;
+        };
+        let (remote, real) = crate::core::path::cut_remote_path(d);
+        let target = crate::core::rclone_caller::build_target(&remote, &real);
+        crate::actions::types::is_dir(&target).unwrap_or(false)
+    }
+
+    /// UNIVERSAL worker-check: map đích (rel → is_dir) quét ĐÚNG 1 lần/job
+    /// lúc chạy (manifest dst; dst chưa có/lỗi đọc → map rỗng = khỏi check).
+    /// Resume mất map (không persist) thì quét lại 1 lần ở đây — vẫn chặn trên
+    /// 1/job, không bao giờ N lần.
+    fn dest_map_for(&self, job_id: &str, dst: Option<&str>) -> HashMap<String, bool> {
+        if let Some(hit) = self
+            .dest_maps
+            .lock()
+            .ok()
+            .and_then(|m| m.get(job_id).cloned())
+        {
+            return hit;
+        }
+        let mut map = HashMap::new();
+        if let Some(d) = dst {
+            // UNIVERSAL: dst chưa có là bình thường (copy mới) → map rỗng, im lặng.
+            if let Ok(items) = manifest(d) {
+                map = items.into_iter().map(|m| (m.path, m.is_dir)).collect();
+            }
+        }
+        if let Ok(mut maps) = self.dest_maps.lock() {
+            maps.insert(job_id.to_string(), map.clone());
+        }
+        map
+    }
+
     /// UNIVERSAL S2: đánh dấu vé con chưa xong thành `Cancelled` (hủy theo cha).
     pub(super) fn mark_children_cancelled(&self, id: &str) {
         if let Ok(mut kids) = self.children.lock() {
@@ -257,12 +325,23 @@ impl JobStore {
 
     /// UNIVERSAL S2: chạy tuần tự từng vé con; dừng ở con lỗi/hủy đầu tiên,
     /// lỗi con thành lỗi cha để UI thấy thay vì `Done` giả.
+    /// UNIVERSAL worker-check: chỉ Copy/Move mới check trùng đích (Delete/List
+    /// không đáp sang đâu). Dest map quét 1 lần/job; Whole probe đích 1 lần/job.
     pub(super) fn execute_children(&self, job: &Job) -> Result<(), String> {
         let total = self
             .children
             .lock()
             .map(|m| m.get(&job.id).map(|l| l.len()).unwrap_or(0))
             .unwrap_or(0);
+        let checks = matches!(job.kind, JobKind::Copy | JobKind::Move);
+        let dest_map = if checks {
+            self.dest_map_for(&job.id, job.dst.as_deref())
+        } else {
+            HashMap::new()
+        };
+        // UNIVERSAL worker-check: Whole không tra map được (rel rỗng) — probe
+        // đích 1 lần/job khi gặp vé Whole đầu tiên (None = chưa probe).
+        let mut whole_dst_exists: Option<bool> = None;
         for idx in 0..total {
             if self.is_cancel_requested(&job.id) {
                 return Err("job cancelled".to_string());
@@ -284,6 +363,42 @@ impl JobStore {
                 Some(c) => c,
                 None => continue,
             };
+            // UNIVERSAL worker-check: trùng đích thì áp policy đóng dấu — skip
+            // (kể cả tiền tố cây con) thì bỏ vé + đếm, còn lại (mặc định Replace)
+            // ghi log rồi chạy đè tại đó tuỳ ý. Lệnh lặp không modal vẫn chảy.
+            if checks {
+                let conflicted = match child.mode {
+                    ChildMode::Item => child_conflict(child.is_dir, dest_map.get(&child.path).copied()).is_some(),
+                    ChildMode::Whole => {
+                        if whole_dst_exists.is_none() {
+                            whole_dst_exists = Some(Self::dst_exists(job.dst.as_deref()));
+                        }
+                        whole_dst_exists.unwrap_or(false)
+                    }
+                };
+                if conflicted {
+                    if child_skipped(&job.skip_paths, &child.path) {
+                        self.update_child_progress(
+                            &job.id,
+                            idx,
+                            JobStatus::Cancelled,
+                            Some("bỏ qua theo policy conflict".to_string()),
+                        );
+                        self.apply_update(&job.id, |j| j.skipped += 1);
+                        crate::core::debug::info(
+                            None,
+                            &job.id,
+                            format!("  con {}/{} bỏ qua (policy) | {}", idx + 1, total, child.path),
+                        );
+                        continue;
+                    }
+                    crate::core::debug::info(
+                        None,
+                        &job.id,
+                        format!("  con {}/{} trùng, ghi đè | {}", idx + 1, total, child.path),
+                    );
+                }
+            }
             // UNIVERSAL: Mức B — nhật ký từng vé con, cùng tag `job-...` với cha
             // để lọc 1 job ra thấy trọn các bước con (con thứ mấy/tổng + path).
             let pos = format!("con {}/{}", idx + 1, total);
@@ -578,6 +693,92 @@ mod tests {
         }
         let done = store.get(&job.id).expect("done");
         assert_eq!((done.child_done, done.child_total, done.progress), (12, 12, 100));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn child_skipped_matches_exact_and_prefix() {
+        // UNIVERSAL worker-check: khớp đúng rel hoặc tiền tố cây con; rỗng và
+        // khoảng trắng không skip bậy.
+        let skips = vec!["d".to_string(), "f.txt".to_string()];
+        assert!(child_skipped(&skips, "d"));
+        assert!(child_skipped(&skips, "d/sub/f.txt"));
+        assert!(child_skipped(&skips, "f.txt"));
+        assert!(!child_skipped(&skips, "other.txt"));
+        assert!(!child_skipped(&skips, "dd/f.txt"));
+        assert!(!child_skipped(&[], "d"));
+        assert!(!child_skipped(&["  ".to_string()], "d"));
+    }
+
+    #[test]
+    fn child_conflict_covers_five_arms() {
+        // UNIVERSAL worker-check: đủ 5 tay — mới/merge thì None (chạy),
+        // còn lại ra đúng loại để log + áp policy.
+        use ChildConflict::*;
+        assert_eq!(child_conflict(false, None), None);
+        assert_eq!(child_conflict(true, None), None);
+        assert_eq!(child_conflict(true, Some(true)), None);
+        assert_eq!(child_conflict(false, Some(false)), Some(FileFile));
+        assert_eq!(child_conflict(false, Some(true)), Some(FileDir));
+        assert_eq!(child_conflict(true, Some(false)), Some(DirFile));
+    }
+
+    #[test]
+    fn worker_skips_stamped_paths_without_spawning() {
+        // UNIVERSAL worker-check: vé trùng + nằm trong skip_paths thì bỏ qua
+        // (Cancelled + đếm skipped), KHÔNG spawn rclone — chạy offline được.
+        // dest map cắm tay để khỏi quét đĩa.
+        let (store, path) = temp_store("skip_offline");
+        let job = store.enqueue_with_policy(
+            JobKind::Copy,
+            Some("/a".into()),
+            Some("/b".into()),
+            Policy::AskOnce,
+            vec!["d".to_string()],
+        );
+        store.set_children_from_items(
+            &job.id,
+            vec![
+                ManifestItem { path: "d/f.txt".into(), is_dir: false },
+                ManifestItem { path: "ok.txt".into(), is_dir: false },
+            ],
+            false,
+            EngineSettings::default(),
+        );
+        // Dest có d/f.txt (trùng) nhưng không có ok.txt (mới).
+        if let Ok(mut maps) = store.dest_maps.lock() {
+            maps.insert(
+                job.id.clone(),
+                [("d/f.txt".to_string(), false)].into_iter().collect(),
+            );
+        }
+        // ok.txt không trùng → chạy thật → thiếu rclone thì bỏ qua test.
+        if !rclone_present() {
+            let _ = std::fs::remove_file(&path);
+            return;
+        }
+        store.execute_children(&store.get(&job.id).expect("job"));
+        let kids = store.children_of(&job.id);
+        let skipped = kids.iter().find(|k| k.path == "d/f.txt").expect("ve d");
+        assert_eq!(skipped.status, JobStatus::Cancelled);
+        let mid = store.get(&job.id).expect("mid");
+        assert_eq!(mid.skipped, 1, "dem dung 1 ve skip");
+        println!("[REAL worker-skip] d/f.txt=Cancelled skipped=1");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn old_job_json_without_skip_fields_still_loads() {
+        // UNIVERSAL: file persist cũ thiếu skip_paths/skipped vẫn nạp (default).
+        let path = std::env::temp_dir().join(format!(
+            "rclone_gui_queue_test_skipcompat_{}.json",
+            std::process::id()
+        ));
+        let raw = r#"{"jobs": [{"id": "j1", "kind": "copy", "src": "/a", "dst": "/b", "status": "queued", "progress": 0, "error": null, "child_done": 0, "child_total": 0, "policy": "ask_once"}], "children": {}}"#;
+        std::fs::write(&path, raw).expect("seed");
+        let loaded = JobStore::with_path(path.clone());
+        let j = loaded.get("j1").expect("job cu");
+        assert!(j.skip_paths.is_empty() && j.skipped == 0);
         let _ = std::fs::remove_file(&path);
     }
 }

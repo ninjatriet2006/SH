@@ -6,12 +6,10 @@
   `core::rclone_caller::build_target`. Không chạy lệnh, không wire `fs_*` cũ / IPC.
 */
 
-use crate::actions::ops::Cap;
 use crate::actions::perm::{Policy, classify_permission_error, escalate};
 use crate::actions::types::RemoteKind;
 use crate::core::rclone_caller;
 use crate::logic::fastlane;
-use crate::core::rclone_caller::build_target;
 use crate::core::path::cut_remote_path;
 
 /// Đặc tả thuần cho `mkdir`: target rclone + lệnh + sudo fallback.
@@ -37,8 +35,7 @@ pub fn plan_mkdir(path: &str) -> Result<MkdirPlan, String> {
         return Err("Thiếu đường dẫn cần tạo.".to_string());
     }
     let kind = RemoteKind::classify(&remote);
-    let _cap = Cap::of(kind);
-    let target = build_target(&remote, &real);
+    let target = rclone_caller::build_target(&remote, &real);
     let rclone_args = vec!["mkdir".to_string(), target.clone()];
     let sudo_action = match kind {
         // UNIVERSAL: Local `mkdir -p` qua pkexec khi thiếu quyền.
@@ -60,8 +57,7 @@ pub fn plan_touch(path: &str) -> Result<TouchPlan, String> {
         return Err("Thiếu đường dẫn cần tạo tệp.".to_string());
     }
     let kind = RemoteKind::classify(&remote);
-    let _cap = Cap::of(kind);
-    let target = build_target(&remote, &real);
+    let target = rclone_caller::build_target(&remote, &real);
     let (rclone_args, local_create) = match kind {
         // UNIVERSAL: Local tạo file qua `File::create`, giữ `touch` làm tài liệu.
         RemoteKind::Local => (vec!["touch".to_string(), target.clone()], true),
@@ -82,8 +78,11 @@ pub async fn execute_mkdir(path: String, policy: Policy) -> Result<(), String> {
     let plan = plan_mkdir(&path)?;
     let (remote, real_path) = cut_remote_path(&path);
     let target = plan.target.clone();
+    // UNIVERSAL: đọc sudo_action từ plan (Local="mkdir", remote=None→"mkdir" giữ
+    // nguyên vì `escalate` chỉ sudo khi remote=="Local", chuỗi này không tới pkexec).
+    let sudo_action = plan.sudo_action.unwrap_or("mkdir");
     fastlane::fastlane(move || {
-        escalate(policy, &remote, "mkdir", std::slice::from_ref(&real_path), || {
+        escalate(policy, &remote, sudo_action, std::slice::from_ref(&real_path), || {
             let output = rclone_caller::run_cmd(&["mkdir", &target])?;
             // UNIVERSAL: guard sớm, phẳng else lồng.
             if !output.status.success() {
@@ -112,7 +111,14 @@ pub async fn execute_touch(path: String, policy: Policy) -> Result<(), String> {
                     msg
                 }
             }),
-            false => rclone_caller::spawn_cmd(&["touch", &plan.target]),
+            false => {
+                // UNIVERSAL: chờ kết quả như mkdir (bắn-quên sẽ nuốt lỗi rclone).
+                let output = rclone_caller::run_cmd(&["touch", &plan.target])?;
+                if !output.status.success() {
+                    return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+                }
+                Ok(())
+            }
         }
     })
     .await

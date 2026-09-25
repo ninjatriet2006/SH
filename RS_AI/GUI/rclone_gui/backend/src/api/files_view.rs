@@ -12,11 +12,10 @@ use crate::actions::system::UserPlace;
 
 #[tauri::command]
 pub async fn fs_check_conflicts(
-    app_handle: tauri::AppHandle,
     srcs: Vec<String>,
     dest_path: String,
 ) -> Result<Vec<ConflictInfo>, String> {
-    crate::actions::conflicts::check_conflicts(app_handle, srcs, dest_path).await
+    crate::actions::conflicts::check_conflicts(srcs, dest_path).await
 }
 
 #[tauri::command]

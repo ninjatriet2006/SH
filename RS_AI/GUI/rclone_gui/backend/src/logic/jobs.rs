@@ -75,6 +75,14 @@ pub struct Job {
     /// vẫn nạp nhờ `default` = `AskOnce`.
     #[serde(default)]
     pub policy: Policy,
+    /// UNIVERSAL worker-check: rel vé con phải bỏ (khớp tiền tố — skip "a"
+    /// thì "a/b/f" cũng nghỉ, vì con của thằng bị skip). Rỗng = không skip,
+    /// mặc định Replace (kiểm tươi rồi chép đè tại đó tuỳ ý).
+    #[serde(default)]
+    pub skip_paths: Vec<String>,
+    /// UNIVERSAL: số vé đã bỏ theo policy (hiện lên `job_update` cho UI thấy).
+    #[serde(default)]
+    pub skipped: usize,
 }
 
 /// UNIVERSAL: parser log transfer sống ở `super::tracker` (thư viện đọc log
@@ -100,6 +108,9 @@ pub struct JobStore {
     queue: Mutex<VecDeque<String>>,
     // UNIVERSAL S2: cờ hủy cho `queue.rs` đọc khi chạy từng vé con.
     pub(super) cancelled: Mutex<HashSet<String>>,
+    // UNIVERSAL worker-check: map đích (rel → is_dir) quét 1 lần/job lúc chạy
+    // (không persist — resume thì quét lại; xem `queue::dest_map_for`).
+    pub(super) dest_maps: Mutex<HashMap<String, HashMap<String, bool>>>,
     running: AtomicBool,
     path: PathBuf,
     id_counter: AtomicU64,
@@ -118,6 +129,7 @@ impl JobStore {
             children: Mutex::new(HashMap::new()),
             queue: Mutex::new(VecDeque::new()),
             cancelled: Mutex::new(HashSet::new()),
+            dest_maps: Mutex::new(HashMap::new()),
             running: AtomicBool::new(false),
             path,
             id_counter: AtomicU64::new(0),
@@ -139,7 +151,7 @@ impl JobStore {
     /// UNIVERSAL: đường cũ — policy mặc định (`AskOnce`); luồng có consent
     /// dùng `enqueue_with_policy` để đóng dấu từ `AppState.policy`.
     pub fn enqueue(&self, kind: JobKind, src: Option<String>, dst: Option<String>) -> Job {
-        self.enqueue_with_policy(kind, src, dst, Policy::default())
+        self.enqueue_with_policy(kind, src, dst, Policy::default(), Vec::new())
     }
 
     /// UNIVERSAL: thêm job + đóng dấu policy lúc dispatch (IPC `job_enqueue`
@@ -151,6 +163,7 @@ impl JobStore {
         src: Option<String>,
         dst: Option<String>,
         policy: Policy,
+        skip_paths: Vec<String>,
     ) -> Job {
         let job = Job {
             id: self.next_id(),
@@ -163,6 +176,8 @@ impl JobStore {
             child_done: 0,
             child_total: 0,
             policy,
+            skip_paths,
+            skipped: 0,
         };
         if let Ok(mut inner) = self.inner.lock() {
             inner.insert(job.id.clone(), job.clone());
@@ -1215,9 +1230,16 @@ mod tests {
         let (store, path) = temp_store("policy_stamp");
         let plain = store.enqueue(JobKind::Copy, Some("/a".into()), Some("/b".into()));
         assert_eq!(plain.policy, Policy::AskOnce);
-        let denied =
-            store.enqueue_with_policy(JobKind::Move, Some("/a".into()), Some("/b".into()), Policy::Deny);
+        let denied = store.enqueue_with_policy(
+            JobKind::Move,
+            Some("/a".into()),
+            Some("/b".into()),
+            Policy::Deny,
+            vec!["skip/me.txt".to_string()],
+        );
         assert_eq!(denied.policy, Policy::Deny);
+        assert_eq!(denied.skip_paths, vec!["skip/me.txt".to_string()]);
+        assert_eq!(denied.skipped, 0);
         assert_eq!(store.get(&denied.id).map(|j| j.policy), Some(Policy::Deny));
         // UNIVERSAL: legacy JSON không có `policy` → default AskOnce, IPC đọc được.
         let legacy = serde_json::json!({

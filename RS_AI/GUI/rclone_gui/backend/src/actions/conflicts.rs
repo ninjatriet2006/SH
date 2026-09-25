@@ -2,22 +2,28 @@
 [INTEGRITY NOTES]
 - Mục đích: Kiểm tra xung đột hash giữa source và dest trước copy/move.
 - Trách nhiệm: `lsjson` đích cấp 1 + `lsjson -R` đệ quy khi cả 2 là thư mục.
-- Tương tác: Gọi `core::{path, rclone_caller, task}`, `actions::types::is_dir`.
-  `api::files_view::fs_check_conflicts` là command mỏng gọi sang. Không đụng frontend.
+- Tương tác: Gọi `core::{path, rclone_caller}`, `logic::fastlane`,
+  `actions::types::is_dir`. `api::files_view::fs_check_conflicts` là command
+  mỏng gọi sang. Không đụng frontend.
 */
 // UNIVERSAL: bê nguyên văn logic `logic::file_ops::check_conflicts` (giữ hành vi).
-// TODO(S2): dùng chung manifest/máy quét `logic::queue::manifest` khi rẻ.
+// UNIVERSAL: KHÔNG gộp vào `logic::queue::manifest` dù quét giống nhau —
+// manifest `filter_map` nuốt mục thiếu tên IM LẶNG, còn đây phải warn từng mục
+// lạ theo luật default-debug (thấy ở `child_conflicts`). Gộp là mất chẩn đoán.
 
 use crate::core::path::cut_remote_path;
 use serde::{Deserialize, Serialize};
 
 /// Một xung đột src/dest (DTO gốc ở thợ `conflicts`).
+/// `src_is_dir`/`dest_is_dir` cho biết ca xung đột (file/file = ghi đè,
+/// lệch loại = chép sẽ hỏng tùy backend) — dir/dir không có mục riêng.
 #[derive(Serialize, Deserialize, Clone, Debug)]
-#[allow(non_snake_case)]
 pub struct ConflictInfo {
     pub relative_path: String,
     pub src_full_path: String,
     pub dest_full_path: String,
+    pub src_is_dir: bool,
+    pub dest_is_dir: bool,
 }
 
 /// UNIVERSAL: map tên cấp 1 → IsDir từ `lsjson` (thuần, dễ test).
@@ -53,11 +59,21 @@ pub fn join_dest_item(dest_real: &str, base_name: &str) -> String {
 }
 
 /// UNIVERSAL: 1 xung đột trực tiếp (file/file, file/dir, dir/file — thuần).
-pub fn direct_conflict(base_name: &str, src_target: &str, dest_item_target: &str) -> ConflictInfo {
+/// `src_is_dir`/`dest_is_dir` ghi rõ ca nào (UI/backend-aware phân biệt
+/// "sẽ hỏng" với "sẽ ghi đè"); dir/dir không qua đây (merge, chỉ báo file con).
+pub fn direct_conflict(
+    base_name: &str,
+    src_target: &str,
+    dest_item_target: &str,
+    src_is_dir: bool,
+    dest_is_dir: bool,
+) -> ConflictInfo {
     ConflictInfo {
         relative_path: base_name.to_string(),
         src_full_path: src_target.to_string(),
         dest_full_path: dest_item_target.to_string(),
+        src_is_dir,
+        dest_is_dir,
     }
 }
 
@@ -87,6 +103,10 @@ pub fn child_conflicts(
             relative_path: format!("{}/{}", base_name, s_path),
             src_full_path: format!("{}/{}", src_target, s_path),
             dest_full_path: format!("{}/{}", dest_item_target, s_path),
+            // UNIVERSAL: hai scan đệ quy đều `--files-only` nên mục giao nhau
+            // luôn là file/file — không cần tra loại, đóng dấu thẳng.
+            src_is_dir: false,
+            dest_is_dir: false,
         });
     }
     out
@@ -103,7 +123,6 @@ pub fn dest_names(d_items: Vec<serde_json::Value>) -> std::collections::HashSet<
 /// Mô tả: Kích hoạt `rclone check` ngầm để đệ quy kiểm tra xung đột hash giữa source và dest.
 /// Trả về mảng các đường dẫn file con bị khác hash.
 pub async fn check_conflicts(
-    _app_handle: tauri::AppHandle,
     srcs: Vec<String>,
     dest_path: String,
 ) -> Result<Vec<ConflictInfo>, String> {
@@ -128,8 +147,10 @@ pub async fn check_conflicts(
         }
 
         let json_str = String::from_utf8_lossy(&output.stdout);
-        // UNIVERSAL: JSON hỏng -> giữ hành vi cũ (nuốt lỗi, trả rỗng).
+        // UNIVERSAL: JSON rclone hỏng là bất thường (không phải vỏ rỗng) → warn
+        // rồi rớt về rỗng để UI không treo (giữ hành vi cũ, thêm dấu vết).
         let Ok(items) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) else {
+            crate::core::debug::warn(None, "conflicts/check_conflicts", "lsjson đích JSON hỏng, rớt về rỗng");
             return Ok(conflicts);
         };
         let existing_items = existing_map(items);
@@ -162,28 +183,39 @@ pub async fn check_conflicts(
                     };
                     let src_files_out = crate::core::rclone_caller::run_cmd(&src_args);
                     let dest_files_out = crate::core::rclone_caller::run_cmd(&dest_args);
-                    // UNIVERSAL: lỗi spawn -> nuốt như cũ.
+                    // UNIVERSAL: spawn hỏng giữa chừng là bất thường → warn rồi bỏ
+                    // mục này (giữ hành vi cũ là qua mục sau, thêm dấu vết).
                     let (Ok(s_out), Ok(d_out)) = (src_files_out, dest_files_out) else {
+                        crate::core::debug::warn(None, "conflicts/check_conflicts", format!("spawn lsjson lỗi cho '{base_name}', bỏ qua"));
                         continue;
                     };
-                    // UNIVERSAL: lệnh lỗi -> nuốt như cũ.
+                    // UNIVERSAL: rclone báo lỗi giữa chừng → warn rồi bỏ mục này.
                     if !(s_out.status.success() && d_out.status.success()) {
+                        crate::core::debug::warn(None, "conflicts/check_conflicts", format!("lsjson lỗi cho '{base_name}', bỏ qua"));
                         continue;
                     }
                     let s_json = String::from_utf8_lossy(&s_out.stdout);
                     let d_json = String::from_utf8_lossy(&d_out.stdout);
-                    // UNIVERSAL: JSON hỏng -> nuốt như cũ.
+                    // UNIVERSAL: JSON hỏng giữa chừng → warn rồi bỏ mục này.
                     let (Ok(s_items), Ok(d_items)) = (
                         serde_json::from_str::<Vec<serde_json::Value>>(&s_json),
                         serde_json::from_str::<Vec<serde_json::Value>>(&d_json),
                     ) else {
+                        crate::core::debug::warn(None, "conflicts/check_conflicts", format!("JSON hỏng cho '{base_name}', bỏ qua"));
                         continue;
                     };
                     let d_names = dest_names(d_items);
                     conflicts.extend(child_conflicts(base_name, &src_target, &dest_item_target, s_items, &d_names));
                 }
-                // UNIVERSAL: trực tiếp (file/file, file/dir, dir/file).
-                _ => conflicts.push(direct_conflict(base_name, &src_target, &dest_item_target)),
+                // UNIVERSAL: trực tiếp (file/file, file/dir, dir/file) — ghi rõ
+                // ca nào để UI phân biệt "sẽ hỏng" với "sẽ ghi đè".
+                _ => conflicts.push(direct_conflict(
+                    base_name,
+                    &src_target,
+                    &dest_item_target,
+                    src_is_dir,
+                    is_dest_dir,
+                )),
             }
         }
 
@@ -213,8 +245,12 @@ mod tests {
         assert_eq!(join_dest_item("/", "a"), "a");
         assert_eq!(join_dest_item("/d/", "a"), "/d/a");
         assert_eq!(join_dest_item("/d", "a"), "/d/a");
-        let c = direct_conflict("a", "S:/a", "D:/a");
+        let c = direct_conflict("a", "S:/a", "D:/a", false, false);
         assert_eq!(c.relative_path, "a");
+        assert!(!c.src_is_dir && !c.dest_is_dir);
+        // UNIVERSAL: ca lệch loại ghi đúng cờ (UI/backend-aware phân biệt).
+        let df = direct_conflict("d", "S:/d", "D:/d", false, true);
+        assert!(!df.src_is_dir && df.dest_is_dir);
         let dset: std::collections::HashSet<String> = ["x".to_string()].into_iter().collect();
         let kids = child_conflicts(
             "d",
@@ -225,5 +261,13 @@ mod tests {
         );
         assert_eq!(kids.len(), 1);
         assert_eq!(kids[0].relative_path, "d/x");
+        // UNIVERSAL: dest_names bóc đúng tập Path, bỏ mục thiếu tên.
+        let names = dest_names(vec![
+            serde_json::json!({"Path": "a/b.txt"}),
+            serde_json::json!({"Name": "lonely"}),
+            serde_json::json!({}),
+        ]);
+        assert!(names.contains("a/b.txt"));
+        assert_eq!(names.len(), 1);
     }
 }

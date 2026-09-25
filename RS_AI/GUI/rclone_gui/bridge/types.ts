@@ -18,6 +18,8 @@ export interface ConflictInfo {
   relative_path: string;
   src_full_path: string;
   dest_full_path: string;
+  src_is_dir: boolean;
+  dest_is_dir: boolean;
 }
 
 /** Thống kê `fs_stat_advanced` (`actions::stat::StatInfo`). */
@@ -102,6 +104,8 @@ export interface Job {
   child_done: number;
   child_total: number;
   policy: PermissionPolicy;
+  skip_paths: string[];
+  skipped: number;
 }
 
 /** Cấu hình engine (`settings::engine::EngineSettings`, JSON PHẲNG). */
