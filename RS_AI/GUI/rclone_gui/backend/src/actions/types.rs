@@ -11,16 +11,12 @@ pub enum RemoteKind {
 }
 
 impl RemoteKind {
-    /// Phân loại từ tên remote đã parse.
+    /// Phân loại từ tên remote đã parse (`"Local"` = ổ máy, còn lại là remote rclone).
     pub fn classify(remote: &str) -> Self {
-        match remote {
-            // UNIVERSAL: ổ máy đi qua syscall/pkexec; remote đi qua lệnh rclone.
-            "Local" => Self::Local,
-            // UNIVERSAL: tên lạ rớt về Remote như cũ (an toàn: đi qua rclone).
-            other => {
-                crate::core::debug::warn(None, "types/RemoteKind::classify", format!("remote lạ '{other}', rớt về Remote"));
-                Self::Remote
-            }
+        if remote == "Local" {
+            Self::Local
+        } else {
+            Self::Remote
         }
     }
 }
@@ -158,8 +154,8 @@ mod tests {
     }
 
     #[test]
-    fn classify_falls_back_to_remote_for_weird_name() {
-        // UNIVERSAL loại 2: tên remote lạ → warn + rớt về Remote (đi qua rclone, an toàn).
+    fn classify_distinguishes_local_and_remotes() {
+        // UNIVERSAL: Local = ổ máy; các remote khác ("GDrive", rỗng, v.v.) đi qua rclone.
         assert_eq!(RemoteKind::classify("Local"), RemoteKind::Local);
         assert_eq!(RemoteKind::classify("GDrive"), RemoteKind::Remote);
         assert_eq!(RemoteKind::classify(""), RemoteKind::Remote);
