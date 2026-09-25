@@ -1,10 +1,10 @@
 /*
 [INTEGRITY NOTES]
 - Mục đích: Trial S1 bóc đặc tả `fs_rename` (`moveto` cùng remote) thành plan thuần.
-- Trách nhiệm: phân tuyến Route × IsDir → chọn SupportRename từ cờ backend
-  Move/DirMove → dựng `moveto` + sudo fallback; khớp `match` + UNIVERSAL.
-- Tương tác: Chỉ gọi hàm thuần `core::path::cut_remote_path`,
-  `core::rclone_caller::build_target`. Không chạy lệnh, không wire `fs_*` cũ / IPC.
+- Trách nhiệm: phân tuyến Route (dùng chung checkcap::Route) × IsDir → chọn SupportRename
+  từ cờ backend Move/DirMove → dựng `moveto` + sudo fallback; ghi log qua `core::debug`.
+- Tương tác: Gọi `crate::actions::checkcap::Route`, `core::path::cut_remote_path`,
+  `core::rclone_caller::build_target`, `logic::fastlane`, `actions::perm::escalate`, `core::debug`.
 */
 
 use crate::actions::perm::{Policy, escalate};
@@ -14,15 +14,8 @@ use crate::logic::fastlane;
 use crate::core::rclone_caller::build_target;
 use crate::core::path::cut_remote_path;
 
-/// Tuyến đổi tên, suy từ cặp (src_remote, dst_remote) — cùng họ với `move_op::Route`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Route {
-    LocalLocal,
-    LocalCloud,
-    CloudLocal,
-    SameCloud,
-    DiffCloud,
-}
+/// Tuyến đổi tên dùng chung từ `feature::checkcap` (1 não duy nhất, khỏi song sinh).
+pub use crate::actions::checkcap::Route;
 
 /// Phân biệt file/dir để chọn cờ backend `Move` hay `DirMove`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,7 +31,7 @@ pub enum IsDir {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SupportRename(pub bool);
 
-/// Năng lực gợi ý cho từng tuyến đổi tên (tài liệu; chưa đổi cờ rclone).
+/// Năng lực gợi ý cho từng tuyến đổi tên.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Cap {
     /// Có thể server-side (không tải qua máy local) hay không.
@@ -49,44 +42,12 @@ pub struct Cap {
     pub support_rename: bool,
 }
 
-impl Route {
-    /// Phân tuyến từ tên remote đã parse (`"Local"` = ổ máy).
-    pub fn classify(src_remote: &str, dst_remote: &str) -> Self {
-        match (src_remote == "Local", dst_remote == "Local", src_remote == dst_remote) {
-            // UNIVERSAL: cả hai đầu là ổ máy — `moveto` + fallback `pkexec mv`.
-            (true, true, _) => Self::LocalLocal,
-            // UNIVERSAL: đẩy từ đĩa lên cloud — upload đổi tên, không sudo.
-            (true, false, _) => Self::LocalCloud,
-            // UNIVERSAL: kéo từ cloud về đĩa — download đổi tên, không sudo.
-            (false, true, _) => Self::CloudLocal,
-            // UNIVERSAL: cùng một remote — backend thường rename server-side nhanh.
-            (false, false, true) => Self::SameCloud,
-            // UNIVERSAL: khác remote cloud — phải re-upload qua máy local.
-            (false, false, false) => Self::DiffCloud,
-        }
-    }
-
-    /// Năng lực gợi ý cho từng tuyến × hỗ trợ backend.
-    pub fn cap(self, support: SupportRename) -> Cap {
-        let base_server_side = match self {
-            // UNIVERSAL: Local↔Local đi qua syscall/rename; server-side vô nghĩa.
-            Self::LocalLocal => false,
-            // UNIVERSAL: Local↔Cloud là upload/download; rclone tải thẳng.
-            Self::LocalCloud | Self::CloudLocal => false,
-            // UNIVERSAL: cùng backend có thể rename server-side, không qua local.
-            Self::SameCloud => true,
-            // UNIVERSAL: khác backend phải trung chuyển qua máy.
-            Self::DiffCloud => false,
-        };
-        let sudo_fallback = match self {
-            // UNIVERSAL: Local→Local rớt quyền thì thử `pkexec mv`.
-            Self::LocalLocal => true,
-            // UNIVERSAL: các tuyến còn lại qua rclone, không sudo.
-            Self::LocalCloud | Self::CloudLocal | Self::SameCloud | Self::DiffCloud => false,
-        };
+impl Cap {
+    /// Suy năng lực đổi tên từ tuyến Route và cờ hỗ trợ rename.
+    pub fn for_route(route: Route, support: SupportRename) -> Self {
         Cap {
-            server_side: base_server_side,
-            sudo_fallback,
+            server_side: matches!(route, Route::SameCloud),
+            sudo_fallback: matches!(route, Route::LocalLocal),
             support_rename: support.0,
         }
     }
@@ -116,7 +77,7 @@ pub fn plan_rename_for(
     }
     let route = Route::classify(&src_remote, &dst_remote);
     let kind = RemoteKind::classify(&src_remote);
-    let cap = route.cap(support);
+    let cap = Cap::for_route(route, support);
     if !cap.support_rename {
         let what = match is_dir {
             // UNIVERSAL: file cần backend `Move`.
@@ -169,7 +130,15 @@ pub async fn execute_rename(old_path: String, new_path: String, policy: Policy) 
     let (remote, old_real) = cut_remote_path(&old_path);
     let (_, new_real) = cut_remote_path(&new_path);
     let (src, dst) = (plan.src_target.clone(), plan.dst_target.clone());
-    fastlane::fastlane(move || {
+
+    crate::core::debug::info(
+        None,
+        "actions/instant/rename",
+        format!("BẮT ĐẦU Rename | '{}' -> '{}'", src, dst),
+    );
+    let start = std::time::Instant::now();
+
+    let res = fastlane::fastlane(move || {
         escalate(policy, &remote, "mv", &[old_real.clone(), new_real.clone()], || {
             let output = rclone_caller::run_cmd(&["moveto", &src, &dst])?;
             if !output.status.success() {
@@ -179,7 +148,26 @@ pub async fn execute_rename(old_path: String, new_path: String, policy: Policy) 
             }
         })
     })
-    .await
+    .await;
+
+    match &res {
+        Ok(()) => {
+            crate::core::debug::info(
+                None,
+                "actions/instant/rename",
+                format!("XONG Rename | '{}' -> '{}' ({:.2?})", plan.src_target, plan.dst_target, start.elapsed()),
+            );
+        }
+        Err(e) => {
+            crate::core::debug::error(
+                None,
+                "actions/instant/rename",
+                format!("LỖI Rename | '{}' -> '{}' | err={} ({:.2?})", plan.src_target, plan.dst_target, e, start.elapsed()),
+            );
+        }
+    }
+
+    res
 }
 
 #[cfg(test)]

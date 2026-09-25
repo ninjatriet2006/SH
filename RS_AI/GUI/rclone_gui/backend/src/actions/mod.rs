@@ -34,7 +34,7 @@ pub mod list;
 pub mod mount_control;
 pub mod mount_editor;
 pub mod mount_query;
-pub mod rename;
+pub use instant::rename;
 pub mod remote_view;
 pub mod remote_edit;
 pub mod checksize;
