@@ -19,16 +19,15 @@ pub mod feature;
 // logic/api không phải sửa — nhóm feature re-export lại tên module.
 pub use feature::{checkcap, combinefeature, getfeature};
 
-#[path = "move.rs"]
-pub mod move_op;
-
-#[path = "copy.rs"]
-pub mod copy_op;
+pub mod streaming;
+pub use streaming::{copy_op, move_op, rclone_stream};
 
 #[path = "delete.rs"]
 pub mod delete_op;
 
-pub mod create;
+pub mod instant;
+pub use instant::{mkdir, touch, rclone_instant};
+pub use instant as create;
 pub mod conflicts;
 pub mod list;
 // UNIVERSAL S2 mount micro: query/editor/control (api/mount_manager bọc fastlane).
@@ -36,7 +35,6 @@ pub mod mount_control;
 pub mod mount_editor;
 pub mod mount_query;
 pub mod rename;
-pub mod rclone_stream;
 pub mod remote_view;
 pub mod remote_edit;
 pub mod checksize;
@@ -137,6 +135,9 @@ pub mod ops {
     pub use super::create;
     pub use super::rename;
     pub use super::OpsCap as Cap;
-    pub use super::create::{MkdirPlan, TouchPlan, execute_mkdir, execute_touch, plan_mkdir, plan_touch};
+    pub use super::create::{
+        CreateKind, CreatePlan, MkdirPlan, TouchPlan, execute_create, execute_mkdir, execute_touch,
+        plan_create, plan_mkdir, plan_touch,
+    };
     pub use super::rename::{IsDir, RenamePlan, SupportRename, execute_rename, plan_rename, plan_rename_for};
 }

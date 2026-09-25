@@ -14,7 +14,7 @@
 
 pub use crate::actions::types::DeleteScope;
 /// UNIVERSAL: re-export tương thích — code ngoài `move_op::{Cap,Route,...}` không vỡ.
-pub use super::checkcap::{Cap, Route, SupportCopyAndDelete, SupportMove, check_cap, check_cap_with_flags};
+pub use crate::actions::checkcap::{Cap, Route, SupportCopyAndDelete, SupportMove, check_cap, check_cap_with_flags};
 use crate::logic::tracker::TransferTicket;
 
 /// Loại transfer mà module này phục vụ (giữ chỗ để S2 gộp copy/move chung).
