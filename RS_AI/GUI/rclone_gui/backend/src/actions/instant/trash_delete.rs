@@ -8,9 +8,8 @@
   khi backend có tính năng `CleanUp`.
 */
 
-use super::trash_list::Route;
+use crate::actions::information::trash_list::{self, Route, remote_type, trash_dir};
 pub use crate::actions::types::{DeleteScope, EmptyDirs};
-use super::trash_list::{remote_type, trash_dir};
 use crate::core::rclone_caller;
 
 /// Xoá vĩnh viễn một mục local khỏi thùng rác (bỏ cả nội dung và metadata).
@@ -72,7 +71,7 @@ pub fn delete_remote(remote: &str, path: &str, scope: DeleteScope) -> Result<(),
     let backend = remote_type(remote)?;
     // UNIVERSAL không-bịa: cùng quy ước `--{type}-trashed-only` như list (xem
     // `trash_list::trashed_only_flag`) — rclone tự xác nhận lúc chạy.
-    let flag = super::trash_list::trashed_only_flag(&backend)?;
+    let flag = trash_list::trashed_only_flag(&backend)?;
 
     let target = format!("{}:{}", remote, path);
     let is_dir = crate::actions::types::is_dir(&target).unwrap_or(false);
@@ -84,7 +83,7 @@ pub fn delete_remote(remote: &str, path: &str, scope: DeleteScope) -> Result<(),
         // UNIVERSAL: flag lạ với backend này = không có khái niệm xóa-trash
         // (đã xác minh chữ `unknown flag` với Box thật) — mapping dùng chung.
         if let Some(clean) =
-            super::trash_list::map_unknown_flag(&backend, &err, "xoá từng mục trong")
+            trash_list::map_unknown_flag(&backend, &err, "xoá từng mục trong")
         {
             return Err(format!("{clean} Hãy dùng 'Dọn sạch thùng rác'."));
         }
@@ -102,7 +101,7 @@ pub fn delete_remote(remote: &str, path: &str, scope: DeleteScope) -> Result<(),
 /// Xoá vĩnh viễn toàn bộ mục local trong thùng rác.
 pub fn empty_local(empty: EmptyDirs) -> Result<(), String> {
     // UNIVERSAL: Local dọn sạch bằng cách xoá từng mục (files + info).
-    let items = super::trash_list::list_local()?;
+    let items = trash_list::list_local()?;
     let mut errors = Vec::new();
     for item in &items {
         if let Err(e) = delete_local(&item.id, DeleteScope::NoTrash) {

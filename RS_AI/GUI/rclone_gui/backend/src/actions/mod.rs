@@ -22,30 +22,27 @@ pub use feature::{checkcap, combinefeature, getfeature};
 pub mod streaming;
 pub use streaming::{copy_op, move_op, rclone_stream};
 
-pub use instant::{delete, delete_op};
-
 pub mod instant;
-pub use instant::{mkdir, touch, rclone_instant};
+pub use instant::{
+    delete, delete_op, mkdir, rclone_instant, rename, touch,
+    trash_delete, trash_restore,
+};
 pub use instant as create;
-pub mod conflicts;
-pub mod list;
+
+pub mod information;
+pub use information::{
+    about, conflicts, hash, list, search, size, stat, trash_list, view,
+};
+pub use information as checksize;
+
 // UNIVERSAL S2 mount micro: query/editor/control (api/mount_manager bọc fastlane).
 pub mod mount_control;
 pub mod mount_editor;
 pub mod mount_query;
-pub use instant::rename;
 pub mod remote_view;
 pub mod remote_edit;
-pub mod information;
-pub use information as checksize;
-pub mod search;
-pub use information::stat;
 pub mod system;
-pub mod view;
 pub mod perm;
-pub mod trash_delete;
-pub mod trash_list;
-pub mod trash_restore;
 pub mod types;
 
 pub use types::{RemoteKind, SameProvider, same_provider, same_provider_from_dump};
@@ -56,8 +53,6 @@ pub use delete_op::{
     DeleteScope as SharedDeleteScope, EmptyDirs as DeleteEmptyDirs, Route as DeleteRoute,
     execute_delete_sync,
 };
-// UNIVERSAL: worker tên gọn cho `api::remote_manager` (gọi qua path module, không alias).
-pub use checksize::{about, size};
 pub use remote_edit::{create_remote, delete_remote, update_remote};
 pub use remote_view::{get_providers, list_remotes};
 

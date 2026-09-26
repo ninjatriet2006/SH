@@ -257,34 +257,31 @@ pub fn plan_chown(path: &str, uid: u32, gid: u32) -> Result<ChownPlan, String> {
     }
 }
 
-/// Thực thi `chmod`: chạy [`plan_chmod`] + syscall `set_permissions` + sudo fallback.
+/// Thực thi `chmod` đồng bộ: chạy [`plan_chmod`] + syscall `set_permissions` + sudo fallback.
 /// UNIVERSAL: `AllowSystem` giữ hành vi `fs_chmod` cũ (tự `pkexec chmod`);
 /// `Deny`/`AskOnce` trả `PERMISSION_CONSENT` để frontend park + hỏi.
-pub async fn execute_chmod(path: String, mode: u32, policy: Policy) -> Result<(), String> {
-    let plan = plan_chmod(&path, mode)?;
-    crate::logic::fastlane::fastlane(move || {
-        #[cfg(unix)]
-        {
-            escalate(policy, "Local", "chmod", &[plan.octal.clone(), plan.real_path.clone()], || {
-                use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&plan.real_path, std::fs::Permissions::from_mode(plan.safe_mode))
-                    .map_err(|e| e.to_string())
-            })
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = policy;
-            Err("Đổi quyền chỉ được hỗ trợ trên hệ điều hành Unix.".to_string())
-        }
-    })
-    .await
+pub fn execute_chmod_sync(path: &str, mode: u32, policy: Policy) -> Result<(), String> {
+    let plan = plan_chmod(path, mode)?;
+    #[cfg(unix)]
+    {
+        escalate(policy, "Local", "chmod", &[plan.octal.clone(), plan.real_path.clone()], || {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&plan.real_path, std::fs::Permissions::from_mode(plan.safe_mode))
+                .map_err(|e| e.to_string())
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = policy;
+        Err("Đổi quyền chỉ được hỗ trợ trên hệ điều hành Unix.".to_string())
+    }
 }
 
-/// Thực thi `chown`: chạy [`plan_chown`] + `pkexec chown uid:gid`.
+/// Thực thi `chown` đồng bộ: chạy [`plan_chown`] + `pkexec chown uid:gid`.
 /// UNIVERSAL: giữ nguyên `fs_chown_with_policy` cũ — chưa consent thì park ngay
 /// (`PERMISSION_CONSENT`), không chạm pkexec; `AllowSystem` đi thẳng pkexec.
-pub async fn execute_chown(path: String, uid: u32, gid: u32, policy: Policy) -> Result<(), String> {
-    let plan = plan_chown(&path, uid, gid)?;
+pub fn execute_chown_sync(path: &str, uid: u32, gid: u32, policy: Policy) -> Result<(), String> {
+    let plan = plan_chown(path, uid, gid)?;
     // UNIVERSAL: chown luôn cần root — chưa consent thì park ngay, không chạm pkexec.
     if policy != Policy::AllowSystem {
         return Err(format!(
@@ -292,29 +289,26 @@ pub async fn execute_chown(path: String, uid: u32, gid: u32, policy: Policy) -> 
             path
         ));
     }
-    crate::logic::fastlane::fastlane(move || {
-        #[cfg(target_os = "linux")]
-        {
-            let output = std::process::Command::new("pkexec")
-                .args(["chown", &plan.spec, &plan.real_path])
-                .output()
-                .map_err(|e| format!("Lỗi gọi pkexec: {}", e))?;
-            if !output.status.success() {
-                let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                return Err(if err.is_empty() {
-                    "Thao tác pkexec bị huỷ hoặc lỗi phân quyền.".to_string()
-                } else {
-                    err
-                });
-            }
-            Ok(())
+    #[cfg(target_os = "linux")]
+    {
+        let output = std::process::Command::new("pkexec")
+            .args(["chown", &plan.spec, &plan.real_path])
+            .output()
+            .map_err(|e| format!("Lỗi gọi pkexec: {}", e))?;
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(if err.is_empty() {
+                "Thao tác pkexec bị huỷ hoặc lỗi phân quyền.".to_string()
+            } else {
+                err
+            });
         }
-        #[cfg(not(target_os = "linux"))]
-        {
-            Err("Đổi chủ sở hữu chỉ được hỗ trợ trên Linux.".to_string())
-        }
-    })
-    .await
+        Ok(())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err("Đổi chủ sở hữu chỉ được hỗ trợ trên Linux.".to_string())
+    }
 }
 
 #[cfg(test)]

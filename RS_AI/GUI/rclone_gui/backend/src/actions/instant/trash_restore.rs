@@ -6,8 +6,7 @@
   Backend nào có `untrash` thì rclone tự làm, không gate bảng tay.
 */
 
-use super::trash_list::Route;
-use super::trash_list::percent_encode;
+use crate::actions::information::trash_list::{Route, percent_encode};
 use crate::core::rclone_caller;
 use serde_json::Value;
 

@@ -1,15 +1,31 @@
-//! Nhóm Information Actions: kiểm tra dung lượng (`about`) và kích thước (`size`).
-//! Bọc qua fastlane tại `api::remote_manager`.
+//! Nhóm Information Actions: tất cả các thao tác ĐỌC / KHẢO SÁT / TRA CỨU (100% Read-Only).
+//! Bọc qua fastlane để chạy song song trên threadpool, không block Tokio runtime.
 
 pub mod about;
+pub mod conflicts;
 pub mod hash;
+pub mod list;
+pub mod search;
 pub mod size;
 pub mod stat;
+pub mod trash_list;
+pub mod view;
 
 pub use about::{AboutPlan, about, execute_about, plan_about};
+pub use conflicts::{ConflictInfo, PreJobConflictInfo, check_conflicts, check_rename_conflict};
 pub use hash::{IntegrityCheckResult, execute_check_integrity, execute_hashsum, get_supported_hashes};
+pub use list::{FileItem, ListPlan, execute_list, plan_list};
+pub use search::{SearchPlan, SearchResultItem, execute_search, plan_search};
 pub use size::{SizePlan, execute_size, plan_size, size};
 pub use stat::{StatInfo, StatPlan, execute_stat, plan_stat};
+pub use trash_list::{
+    Route as TrashRoute, TrashItemLocal, list_local as trash_list_local,
+    list_remote as trash_list_remote,
+};
+pub use view::{
+    ThumbnailGroup, ThumbnailPlan, ViewPlan, execute_thumbnail, plan_thumbnail,
+    plan_view_download, sys_open_with,
+};
 
 use crate::core::rclone_caller;
 use serde_json::Value;

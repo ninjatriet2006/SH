@@ -13,21 +13,21 @@ use tauri::State;
 
 /// S2: chmod tôn trọng policy — policy đọc từ State.
 #[tauri::command]
-pub async fn fs_chmod(state: State<'_, AppState>, path: String, mode: u32) -> Result<(), String> {
+pub fn fs_chmod(state: State<'_, AppState>, path: String, mode: u32) -> Result<(), String> {
     let policy = state.policy.lock().map(|p| *p).unwrap_or_default();
-    crate::actions::perm::execute_chmod(path, mode, policy).await
+    crate::actions::instant::execute_chmod_sync(&path, mode, policy)
 }
 
 /// S2: chown tôn trọng policy — policy đọc từ State.
 #[tauri::command]
-pub async fn fs_chown(
+pub fn fs_chown(
     state: State<'_, AppState>,
     path: String,
     uid: u32,
     gid: u32,
 ) -> Result<(), String> {
     let policy = state.policy.lock().map(|p| *p).unwrap_or_default();
-    crate::actions::perm::execute_chown(path, uid, gid, policy).await
+    crate::actions::instant::execute_chown_sync(&path, uid, gid, policy)
 }
 
 /// S2: đọc policy hiện tại (`deny`/`ask_once`/`allow_system`).
