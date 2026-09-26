@@ -1,17 +1,17 @@
-//! Sổ chẩn đoán backend (module `core::debug`, file `backend.log`, event `backend-log`).
+//! Sổ chẩn đoán backend (module `core::debug`, file `backend.log`).
 //!
 //! Khác với log chuyển file của tracker (dòng `--use-json-log` của rclone → % tiến
 //! độ trong `logic::tracker`): module này chỉ ghi chẩn đoán nội bộ backend.
 //!
 //! Giữ `eprintln!` để log vẫn thấy khi chạy dev; file append nằm trong thư
-//! mục config của app; event chỉ emit khi có `AppHandle` (best-effort).
+//! mục config của app (`backend.log`). Frontend đọc qua API `get_backend_log`.
+//! Tuyệt đối không truyền thẳng/emit event lên frontend.
 
 use serde::Serialize;
 use std::fmt;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
-use tauri::{AppHandle, Emitter};
 
 /// Mức log dùng chung cho backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -38,14 +38,6 @@ impl fmt::Display for Level {
     }
 }
 
-/// Payload của event `backend-log` gửi lên Frontend.
-#[derive(Debug, Clone, Serialize)]
-pub struct LogEvent {
-    pub level: Level,
-    pub tag: String,
-    pub message: String,
-}
-
 fn config_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("XDG_CONFIG_HOME") {
         let dir = dir.trim();
@@ -62,9 +54,8 @@ pub fn log_file_path() -> PathBuf {
     config_dir().join("backend.log")
 }
 
-/// UNIVERSAL: đọc toàn bộ `backend.log` cho DebugView xem LỊCH SỬ (event
-/// `backend-log` chỉ đẩy dòng MỚI nên FE bật muộn sẽ mất phần đầu — hàm này lấp
-/// khoảng đó). Kích thước có trần nhờ cơ chế xoay vòng. Thiếu file → chuỗi rỗng
+/// UNIVERSAL: đọc toàn bộ `backend.log` cho DebugView xem LỊCH SỬ.
+/// Kích thước có trần nhờ cơ chế xoay vòng. Thiếu file → chuỗi rỗng
 /// (chưa có log, không phải lỗi).
 pub fn read_log() -> Result<String, String> {
     let path = log_file_path();
@@ -96,9 +87,8 @@ fn rotate_path_if_oversized(path: &std::path::Path, max_bytes: u64) {
     let _ = std::fs::rename(path, &old);
 }
 
-/// Ghi một dòng log: file append (best-effort) + `eprintln!` + event
-/// `backend-log` khi có handle (best-effort, thiếu thì bỏ qua).
-pub fn log(handle: Option<&AppHandle>, level: Level, tag: &str, message: impl AsRef<str>) {
+/// Ghi một dòng log: file append (best-effort) + `eprintln!`.
+pub fn log(level: Level, tag: &str, message: impl AsRef<str>) {
     let msg = message.as_ref();
     let line = format!("[{}][{}] {}", level, tag, msg);
     eprintln!("{line}");
@@ -110,31 +100,21 @@ pub fn log(handle: Option<&AppHandle>, level: Level, tag: &str, message: impl As
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
         let _ = writeln!(f, "{line}");
     }
-    if let Some(app) = handle {
-        let _ = app.emit(
-            "backend-log",
-            LogEvent {
-                level,
-                tag: tag.to_string(),
-                message: msg.to_string(),
-            },
-        );
-    }
 }
 
 /// Shortcut cho [`log`] với [`Level::Info`].
-pub fn info(handle: Option<&AppHandle>, tag: &str, message: impl AsRef<str>) {
-    log(handle, Level::Info, tag, message);
+pub fn info(tag: &str, message: impl AsRef<str>) {
+    log(Level::Info, tag, message);
 }
 
 /// Shortcut cho [`log`] với [`Level::Warn`].
-pub fn warn(handle: Option<&AppHandle>, tag: &str, message: impl AsRef<str>) {
-    log(handle, Level::Warn, tag, message);
+pub fn warn(tag: &str, message: impl AsRef<str>) {
+    log(Level::Warn, tag, message);
 }
 
 /// Shortcut cho [`log`] với [`Level::Error`].
-pub fn error(handle: Option<&AppHandle>, tag: &str, message: impl AsRef<str>) {
-    log(handle, Level::Error, tag, message);
+pub fn error(tag: &str, message: impl AsRef<str>) {
+    log(Level::Error, tag, message);
 }
 
 /// UNIVERSAL: định dạng thời lượng gọn cho dòng nhật ký vòng đời job:
@@ -168,7 +148,7 @@ mod tests {
     #[test]
     fn log_without_handle_does_not_panic() {
         // Ghi file + eprintln, không emit event.
-        log(None, Level::Info, "test", "hello");
+        log(Level::Info, "test", "hello");
     }
 
     #[test]

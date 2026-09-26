@@ -12,7 +12,7 @@ pub mod trash_list;
 pub mod view;
 
 pub use about::{AboutPlan, about, execute_about, plan_about};
-pub use conflicts::{ConflictInfo, PreJobConflictInfo, check_conflicts, check_rename_conflict};
+pub use conflicts::{ConflictInfo, check_conflicts, check_rename_conflict};
 pub use hash::{IntegrityCheckResult, execute_check_integrity, execute_hashsum, get_supported_hashes};
 pub use list::{FileItem, ListPlan, execute_list, plan_list};
 pub use search::{SearchPlan, SearchResultItem, execute_search, plan_search};
@@ -34,7 +34,6 @@ use serde_json::Value;
 /// đo lường thời gian và ghi nhận log chẩn đoán qua `core::debug`.
 pub(crate) fn run_json_query(cmd: &str, target: &str) -> Result<Value, String> {
     crate::core::debug::info(
-        None,
         &format!("actions/information/{cmd}"),
         format!("BẮT ĐẦU {} | target='{}'", cmd, target),
     );
@@ -53,14 +52,12 @@ pub(crate) fn run_json_query(cmd: &str, target: &str) -> Result<Value, String> {
     match &res {
         Ok(_) => {
             crate::core::debug::info(
-                None,
                 &format!("actions/information/{cmd}"),
                 format!("XONG {} | target='{}' ({:.2?})", cmd, target, start.elapsed()),
             );
         }
         Err(e) => {
             crate::core::debug::error(
-                None,
                 &format!("actions/information/{cmd}"),
                 format!("LỖI {} | target='{}' | err={} ({:.2?})", cmd, target, e, start.elapsed()),
             );

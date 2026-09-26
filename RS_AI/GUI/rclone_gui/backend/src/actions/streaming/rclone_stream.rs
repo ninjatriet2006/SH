@@ -172,7 +172,7 @@ pub(crate) fn exec(
             let line = match line {
                 Ok(l) => l,
                 Err(e) => {
-                    crate::core::debug::warn(None, "rclone_stream/exec", format!("bỏ dòng log lỗi: {e}"));
+                    crate::core::debug::warn("rclone_stream/exec", format!("bỏ dòng log lỗi: {e}"));
                     continue;
                 }
             };

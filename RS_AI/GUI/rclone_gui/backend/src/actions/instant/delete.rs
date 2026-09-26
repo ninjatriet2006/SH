@@ -100,7 +100,6 @@ pub fn execute_delete_sync(
     let target = &plan.target;
 
     crate::core::debug::info(
-        None,
         "actions/instant/delete",
         format!("BẮT ĐẦU DeleteSync | target='{}' is_dir={}", target, plan.is_dir),
     );
@@ -111,14 +110,12 @@ pub fn execute_delete_sync(
     match &res {
         Ok(()) => {
             crate::core::debug::info(
-                None,
                 "actions/instant/delete",
                 format!("XONG DeleteSync | target='{}' ({:.2?})", target, start.elapsed()),
             );
         }
         Err(e) => {
             crate::core::debug::error(
-                None,
                 "actions/instant/delete",
                 format!("LỖI DeleteSync | target='{}' | err={} ({:.2?})", target, e, start.elapsed()),
             );

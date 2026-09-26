@@ -87,7 +87,6 @@ pub async fn execute_stat(path: String) -> Result<StatInfo, String> {
     let plan = plan_stat(&path, fast_list)?;
 
     crate::core::debug::info(
-        None,
         "actions/information/stat",
         format!("BẮT ĐẦU Stat | target='{}'", plan.target),
     );
@@ -115,7 +114,6 @@ pub async fn execute_stat(path: String) -> Result<StatInfo, String> {
             }
             Ok(out) => {
                 crate::core::debug::warn(
-                    None,
                     "actions/information/stat",
                     format!("lsjson đếm thư mục hỏng: ok={}", out.status.success()),
                 );
@@ -123,7 +121,6 @@ pub async fn execute_stat(path: String) -> Result<StatInfo, String> {
             }
             Err(e) => {
                 crate::core::debug::warn(
-                    None,
                     "actions/information/stat",
                     format!("lsjson đếm thư mục lỗi spawn: {e}"),
                 );
@@ -146,7 +143,6 @@ pub async fn execute_stat(path: String) -> Result<StatInfo, String> {
     match &res {
         Ok(info) => {
             crate::core::debug::info(
-                None,
                 "actions/information/stat",
                 format!(
                     "XONG Stat | target='{}' size={} files={} dirs={} ({:.2?})",
@@ -156,7 +152,6 @@ pub async fn execute_stat(path: String) -> Result<StatInfo, String> {
         }
         Err(e) => {
             crate::core::debug::error(
-                None,
                 "actions/information/stat",
                 format!("LỖI Stat | target='{}' | err={} ({:.2?})", plan.target, e, start.elapsed()),
             );

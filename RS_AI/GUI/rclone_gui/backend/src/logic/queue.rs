@@ -386,14 +386,12 @@ impl JobStore {
                         );
                         self.apply_update(&job.id, |j| j.skipped += 1);
                         crate::core::debug::info(
-                            None,
                             &job.id,
                             format!("  con {}/{} bỏ qua (policy) | {}", idx + 1, total, child.path),
                         );
                         continue;
                     }
                     crate::core::debug::info(
-                        None,
                         &job.id,
                         format!("  con {}/{} trùng, ghi đè | {}", idx + 1, total, child.path),
                     );
@@ -405,16 +403,16 @@ impl JobStore {
             match self.execute_child(job, &child) {
                 Ok(()) => {
                     self.update_child_progress(&job.id, idx, JobStatus::Done, None);
-                    crate::core::debug::info(None, &job.id, format!("  {pos} xong | {}", child.path));
+                    crate::core::debug::info(&job.id, format!("  {pos} xong | {}", child.path));
                 }
                 Err(e) if e == "job cancelled" || self.is_cancel_requested(&job.id) => {
                     self.update_child_progress(&job.id, idx, JobStatus::Cancelled, None);
-                    crate::core::debug::info(None, &job.id, format!("  {pos} hủy | {}", child.path));
+                    crate::core::debug::info(&job.id, format!("  {pos} hủy | {}", child.path));
                     return Err("job cancelled".to_string());
                 }
                 Err(e) => {
                     self.update_child_progress(&job.id, idx, JobStatus::Error, Some(e.clone()));
-                    crate::core::debug::error(None, &job.id, format!("  {pos} LỖI | {} | {e}", child.path));
+                    crate::core::debug::error(&job.id, format!("  {pos} LỖI | {} | {e}", child.path));
                     // Vé còn lại chưa chạy → cancelled theo cha lỗi.
                     if let Ok(mut kids) = self.children.lock() {
                         if let Some(list) = kids.get_mut(&job.id) {

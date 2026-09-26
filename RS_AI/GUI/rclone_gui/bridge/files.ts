@@ -85,22 +85,22 @@ export async function getTempDir(): Promise<string> {
 
 /** Tạo thư mục (qua hàng chờ Job Queue). */
 export async function makeDir(path: string): Promise<Job> {
-  return await jobEnqueue({ kind: 'mkdir', src: path });
+  return await jobEnqueue('mkdir', path);
 }
 
 /** Tạo file rỗng (qua hàng chờ Job Queue). */
 export async function touchFile(path: string): Promise<Job> {
-  return await jobEnqueue({ kind: 'touch', src: path });
+  return await jobEnqueue('touch', path);
 }
 
 /** Xoá vĩnh viễn (qua hàng chờ Job Queue, tôn trọng policy hiện tại). */
 export async function deletePath(path: string): Promise<Job> {
-  return await jobEnqueue({ kind: 'delete', src: path });
+  return await jobEnqueue('delete', path);
 }
 
 /** Đổi tên/di chuyển trong cùng chỗ (qua hàng chờ Job Queue). */
 export async function renamePath(oldPath: string, newPath: string): Promise<Job> {
-  return await jobEnqueue({ kind: 'rename', src: oldPath, dst: newPath });
+  return await jobEnqueue('rename', oldPath, newPath);
 }
 
 /** Đổi mode POSIX — chỉ ổ Local. */

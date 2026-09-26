@@ -85,7 +85,7 @@ pub fn list_local() -> Result<Vec<TrashItemLocal>, String> {
         Ok(e) => e,
         // UNIVERSAL: lỗi IO lạ → warn rồi rớt về rỗng như cũ.
         Err(e) => {
-            crate::core::debug::warn(None, "trash_list/list_local", format!("đọc info_dir lỗi, rớt về rỗng: {e}"));
+            crate::core::debug::warn("trash_list/list_local", format!("đọc info_dir lỗi, rớt về rỗng: {e}"));
             return Ok(Vec::new());
         }
     };
@@ -102,7 +102,7 @@ pub fn list_local() -> Result<Vec<TrashItemLocal>, String> {
             Some(s) => s.to_string(),
             // UNIVERSAL: tên file lạ không decode được → warn rồi bỏ qua như cũ.
             None => {
-                crate::core::debug::warn(None, "trash_list/list_local", format!("bỏ trashinfo tên lạ: {info_path:?}"));
+                crate::core::debug::warn("trash_list/list_local", format!("bỏ trashinfo tên lạ: {info_path:?}"));
                 continue;
             }
         };

@@ -41,7 +41,7 @@ impl JobKind {
             "touch" => Some(JobKind::Touch),
             // UNIVERSAL: chuỗi lạ rớt về None như cũ (IPC map 400).
             other => {
-                crate::core::debug::warn(None, "jobs/JobKind::parse", format!("kind lạ '{other}', rớt về None"));
+                crate::core::debug::warn("jobs/JobKind::parse", format!("kind lạ '{other}', rớt về None"));
                 None
             }
         }
@@ -474,7 +474,6 @@ impl JobStore {
             // trọn hành trình 1 job (chống phân mảnh khi nhiều job chạy chung).
             let started_at = std::time::Instant::now();
             crate::core::debug::info(
-                None,
                 &id,
                 format!(
                     "BẮT ĐẦU {:?} | {} → {}",
@@ -567,24 +566,24 @@ impl JobStore {
         let dur = crate::core::debug::human_elapsed(elapsed);
         let Some(job) = job else {
             // Mất state cuối (lock hỏng thoáng qua) — vẫn ghi 1 dòng để không nuốt.
-            crate::core::debug::warn(None, id, format!("KẾT THÚC (mất state) | {dur}"));
+            crate::core::debug::warn(id, format!("KẾT THÚC (mất state) | {dur}"));
             return;
         };
         let progress = format!("{}/{} con | {}%", job.child_done, job.child_total, job.progress);
         match job.status {
             JobStatus::Done => {
-                crate::core::debug::info(None, id, format!("XONG {:?} | {progress} | {dur}", job.kind));
+                crate::core::debug::info(id, format!("XONG {:?} | {progress} | {dur}", job.kind));
             }
             JobStatus::Cancelled => {
-                crate::core::debug::info(None, id, format!("HỦY {:?} | {progress} | {dur}", job.kind));
+                crate::core::debug::info(id, format!("HỦY {:?} | {progress} | {dur}", job.kind));
             }
             JobStatus::Error => {
                 let reason = job.error.as_deref().unwrap_or("(không rõ)");
-                crate::core::debug::error(None, id, format!("LỖI {:?} | {progress} | {dur} | {reason}", job.kind));
+                crate::core::debug::error(id, format!("LỖI {:?} | {progress} | {dur} | {reason}", job.kind));
             }
             // Job vẫn Queued/Running lúc END là bất thường (state chưa chốt) → warn.
             JobStatus::Queued | JobStatus::Running => {
-                crate::core::debug::warn(None, id, format!("KẾT THÚC BẤT THƯỜNG {:?}={:?} | {progress} | {dur}", job.kind, job.status));
+                crate::core::debug::warn(id, format!("KẾT THÚC BẤT THƯỜNG {:?}={:?} | {progress} | {dur}", job.kind, job.status));
             }
         }
     }
@@ -615,7 +614,7 @@ impl JobStore {
             Ok(_) => {}
             // UNIVERSAL: lỗi đọc → warn rồi giữ đường đơn như cũ.
             Err(e) => {
-                crate::core::debug::warn(None, "jobs/populate_children", format!("manifest lỗi: {e}"));
+                crate::core::debug::warn("jobs/populate_children", format!("manifest lỗi: {e}"));
             }
         }
     }
@@ -687,7 +686,7 @@ impl JobStore {
                     self.set_children_bulk(&job.id, across, flags);
                 }
                 Err(e) => {
-                    crate::core::debug::warn(None, "jobs/run_transfer_job", format!("manifest lỗi: {e}"));
+                    crate::core::debug::warn("jobs/run_transfer_job", format!("manifest lỗi: {e}"));
                     self.set_children_bulk(&job.id, across, flags);
                 }
             }
@@ -980,7 +979,7 @@ impl JobStore {
         let entries = match std::fs::read_dir(&dir) {
             Ok(e) => e,
             Err(e) => {
-                crate::core::debug::warn(None, "jobs", format!("bỏ qua dọn .partial '{dir:?}': {e}"));
+                crate::core::debug::warn("jobs", format!("bỏ qua dọn .partial '{dir:?}': {e}"));
                 return;
             }
         };
@@ -988,7 +987,7 @@ impl JobStore {
             let ent = match ent {
                 Ok(e) => e,
                 Err(e) => {
-                    crate::core::debug::warn(None, "jobs", format!("bỏ qua entry .partial: {e}"));
+                    crate::core::debug::warn("jobs", format!("bỏ qua entry .partial: {e}"));
                     continue;
                 }
             };
@@ -1002,7 +1001,7 @@ impl JobStore {
                 continue;
             }
             if let Err(e) = std::fs::remove_file(&path) {
-                crate::core::debug::warn(None, "jobs", format!("không xóa được '{path:?}': {e}"));
+                crate::core::debug::warn("jobs", format!("không xóa được '{path:?}': {e}"));
             }
         }
     }

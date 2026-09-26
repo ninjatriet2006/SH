@@ -99,7 +99,7 @@ pub async fn execute_thumbnail(path: String) -> Result<Option<String>, String> {
                     }
                     // UNIVERSAL: hỏng ffmpegthumbnailer → warn rồi rơi xuống decode ảnh như cũ.
                     other => {
-                        crate::core::debug::warn(None, "view/execute_thumbnail", format!("ffmpegthumbnailer hỏng: ok={}", other.as_ref().map(|o| o.status.success()).unwrap_or(false)));
+                        crate::core::debug::warn("view/execute_thumbnail", format!("ffmpegthumbnailer hỏng: ok={}", other.as_ref().map(|o| o.status.success()).unwrap_or(false)));
                     }
                 }
             }
@@ -119,7 +119,7 @@ pub async fn execute_thumbnail(path: String) -> Result<Option<String>, String> {
                     }
                     // UNIVERSAL: hỏng pdftoppm → warn rồi rơi xuống decode ảnh như cũ.
                     other => {
-                        crate::core::debug::warn(None, "view/execute_thumbnail", format!("pdftoppm hỏng: ok={}", other.as_ref().map(|o| o.status.success()).unwrap_or(false)));
+                        crate::core::debug::warn("view/execute_thumbnail", format!("pdftoppm hỏng: ok={}", other.as_ref().map(|o| o.status.success()).unwrap_or(false)));
                     }
                 }
             }

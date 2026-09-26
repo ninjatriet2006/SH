@@ -32,7 +32,7 @@ impl Policy {
             "allow_system" => Some(Policy::AllowSystem),
             // UNIVERSAL: chuỗi lạ rớt về None như cũ (IPC map 400).
             other => {
-                crate::core::debug::warn(None, "perm/Policy::parse", format!("policy lạ '{other}', rớt về None"));
+                crate::core::debug::warn("perm/Policy::parse", format!("policy lạ '{other}', rớt về None"));
                 None
             }
         }
@@ -120,7 +120,7 @@ fn run_pkexec(action: &str, args: &[String]) -> Result<(), String> {
             }
             // UNIVERSAL: action lạ → warn rồi từ chối như cũ.
             other => {
-                crate::core::debug::warn(None, "perm/run_pkexec", format!("sudo action lạ '{other}'"));
+                crate::core::debug::warn("perm/run_pkexec", format!("sudo action lạ '{other}'"));
                 return Err("Hành động sudo không được hỗ trợ".into());
             }
         }

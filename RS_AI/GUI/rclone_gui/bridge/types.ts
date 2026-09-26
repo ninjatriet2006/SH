@@ -195,14 +195,6 @@ export interface SizeInfo {
   count?: number;
   bytes?: number;
   sizeless?: number;
-}
-
-/** Sự kiện nhật ký backend (`core::debug::LogEvent`). */
-export interface BackendLogEvent {
-  level: 'Info' | 'Warn' | 'Error';
-  tag: string;
-  message: string;
-}
 
 /** Kết quả so sánh toàn vẹn (`actions::information::hash::IntegrityCheckResult`). */
 export interface IntegrityCheckResult {

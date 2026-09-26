@@ -1,4 +1,4 @@
-import { debugStore, LogEntry } from '../services/debugStore';
+import { debugStore, loadBackendLogs, LogEntry } from '../services/debugStore';
 
 export class DebugView {
   private container: HTMLElement;
@@ -13,6 +13,7 @@ export class DebugView {
       <div class="pane-toolbar">
         <div class="nemo-nav-group">
           <button class="btn btn-primary" id="btn-debug-clear">🗑️ Xoá Log</button>
+          <button class="btn btn-secondary" id="btn-debug-load-backend" style="margin-left: 8px;">📥 Tải Log Backend</button>
           <label style="display:flex; align-items:center; gap: 5px; margin-left: 10px; cursor: pointer;">
             <input type="checkbox" id="cb-debug-autoscroll" checked> Tự động cuộn (Auto-scroll)
           </label>
@@ -31,6 +32,10 @@ export class DebugView {
       debugStore.clear();
     });
 
+    this.container.querySelector('#btn-debug-load-backend')?.addEventListener('click', () => {
+      void loadBackendLogs();
+    });
+
     const autoScrollCb = this.container.querySelector('#cb-debug-autoscroll') as HTMLInputElement;
     if (autoScrollCb) {
       autoScrollCb.addEventListener('change', (e) => {
@@ -43,6 +48,9 @@ export class DebugView {
     
     // Initial render
     this.renderLogs(debugStore.getLogs());
+
+    // Tải log từ file backend.log qua API khi mở DebugView
+    void loadBackendLogs();
   }
 
   private renderLogs(logs: LogEntry[]) {

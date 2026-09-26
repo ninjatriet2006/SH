@@ -67,21 +67,6 @@ class TransferManager {
   constructor() {
     // Đăng ký vẽ từ event backend; fire-and-forget (init() hydrate + đảm bảo lại).
     void this.ensureSubscribed();
-    // IPC cũ: giữ listener `transfer_progress` làm fallback cho backend cũ phát
-    // tiến trình theo id số — map best-effort sang task có id trùng chuỗi.
-    void listen('transfer_progress', (event: any) => {
-      const payload = event.payload;
-      if (payload && payload.id !== undefined && payload.stats) {
-        const task = this.tasks.get(String(payload.id));
-        if (task && task.status === 'running') {
-          task.bytesDone = payload.stats.bytes ?? task.bytesDone;
-          task.totalBytes = payload.stats.totalBytes ?? task.totalBytes;
-          task.speed = payload.stats.speed ?? task.speed;
-          if (task.totalBytes > 0) task.progress = task.bytesDone / task.totalBytes;
-          if (this.onUpdate) this.onUpdate();
-        }
-      }
-    }).then((fn: any) => { this.unlistens.push(fn); }).catch(() => undefined);
   }
 
   async init() {

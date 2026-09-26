@@ -13,7 +13,7 @@ pub use rclone_instant::{CreateKind, CreatePlan, execute_create_sync, plan_creat
 pub use mkdir::{MkdirPlan, execute_mkdir_sync, plan_mkdir};
 pub use touch::{TouchPlan, execute_touch_sync, plan_touch};
 pub use rename::{
-    Cap as RenameCap, IsDir, RenamePlan, SupportRename, execute_rename_sync,
+    IsDir, RenamePlan, SupportRename, execute_rename_sync,
     plan_rename, plan_rename_for,
 };
 pub use delete::{

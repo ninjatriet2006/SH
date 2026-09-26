@@ -11,6 +11,14 @@
 //! S1 flatten: `explorer/{list,stat,search,view}` + `ops/{create,rename}` nằm
 //! thẳng dưới `actions/`; hai module `explorer`/`ops` bên dưới chỉ là alias
 //! tương thích để `use crate::actions::explorer::*` / `ops::*` cũ không vỡ.
+//!
+//! QUY ƯỚC PHÂN HOẠCH VÀ BỌC RUNTIME:
+//! - Nhóm `instant` (mkdir, touch, rename, delete, trash_*):
+//!   Thực thi sync thuần túy, KHÔNG tự ý bọc fastlane. Được gọi tuần tự bởi worker của
+//!   `JobStore` (FIFO queue) để bảo đảm tính toàn vẹn và trật tự đột biến filesystem.
+//! - Nhóm `information` (stat, size, hash, list, search, view, conflicts, trash_list):
+//!   Thao tác khảo sát/tra cứu 100% Read-Only. Được bọc `async + fastlane` khi API Tauri gọi
+//!   để chạy song song trên blocking thread pool, phản hồi UI tức thì không qua hàng đợi job.
 
 pub mod appearance;
 pub mod feature;

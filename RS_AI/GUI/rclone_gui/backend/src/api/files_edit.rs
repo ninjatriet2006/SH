@@ -12,6 +12,8 @@ use tauri::State;
 
 
 /// S2: chmod tôn trọng policy — policy đọc từ State.
+/// GHI CHÚ RUNTIME: Lệnh synchronous chạy trên blocking thread pool của Tauri (`spawn_blocking`).
+/// Không bọc async/fastlane do là thao tác biến đổi POSIX nhanh trên Local FS.
 #[tauri::command]
 pub fn fs_chmod(state: State<'_, AppState>, path: String, mode: u32) -> Result<(), String> {
     let policy = state.policy.lock().map(|p| *p).unwrap_or_default();
@@ -19,6 +21,8 @@ pub fn fs_chmod(state: State<'_, AppState>, path: String, mode: u32) -> Result<(
 }
 
 /// S2: chown tôn trọng policy — policy đọc từ State.
+/// GHI CHÚ RUNTIME: Tương tự `fs_chmod`, lệnh synchronous chạy trên blocking thread pool
+/// của Tauri, xử lý leo quyền sudo (nếu cần) và gán quyền sở hữu Local FS.
 #[tauri::command]
 pub fn fs_chown(
     state: State<'_, AppState>,

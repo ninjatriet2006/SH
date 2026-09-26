@@ -27,9 +27,6 @@ pub struct ConflictInfo {
     pub dest_is_dir: bool,
 }
 
-/// Alias ngữ nghĩa mới cho hệ thống Job:
-pub type PreJobConflictInfo = ConflictInfo;
-
 /// UNIVERSAL: map tên cấp 1 → IsDir từ `lsjson` (thuần, dễ test).
 pub fn existing_map(items: Vec<serde_json::Value>) -> std::collections::HashMap<String, bool> {
     items
@@ -95,7 +92,7 @@ pub fn child_conflicts(
         let s_path = match s_item.get("Path").and_then(|v| v.as_str()) {
             Some(p) => p,
             None => {
-                crate::core::debug::warn(None, "conflicts/child_conflicts", "mục lsjson thiếu Path, bỏ qua");
+                crate::core::debug::warn("conflicts/child_conflicts", "mục lsjson thiếu Path, bỏ qua");
                 continue;
             }
         };
@@ -154,7 +151,7 @@ pub async fn check_conflicts(
         // UNIVERSAL: JSON rclone hỏng là bất thường (không phải vỏ rỗng) → warn
         // rồi rớt về rỗng để UI không treo (giữ hành vi cũ, thêm dấu vết).
         let Ok(items) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) else {
-            crate::core::debug::warn(None, "conflicts/check_conflicts", "lsjson đích JSON hỏng, rớt về rỗng");
+            crate::core::debug::warn("conflicts/check_conflicts", "lsjson đích JSON hỏng, rớt về rỗng");
             return Ok(conflicts);
         };
         let existing_items = existing_map(items);
@@ -190,12 +187,12 @@ pub async fn check_conflicts(
                     // UNIVERSAL: spawn hỏng giữa chừng là bất thường → warn rồi bỏ
                     // mục này (giữ hành vi cũ là qua mục sau, thêm dấu vết).
                     let (Ok(s_out), Ok(d_out)) = (src_files_out, dest_files_out) else {
-                        crate::core::debug::warn(None, "conflicts/check_conflicts", format!("spawn lsjson lỗi cho '{base_name}', bỏ qua"));
+                        crate::core::debug::warn("conflicts/check_conflicts", format!("spawn lsjson lỗi cho '{base_name}', bỏ qua"));
                         continue;
                     };
                     // UNIVERSAL: rclone báo lỗi giữa chừng → warn rồi bỏ mục này.
                     if !(s_out.status.success() && d_out.status.success()) {
-                        crate::core::debug::warn(None, "conflicts/check_conflicts", format!("lsjson lỗi cho '{base_name}', bỏ qua"));
+                        crate::core::debug::warn("conflicts/check_conflicts", format!("lsjson lỗi cho '{base_name}', bỏ qua"));
                         continue;
                     }
                     let s_json = String::from_utf8_lossy(&s_out.stdout);
@@ -205,7 +202,7 @@ pub async fn check_conflicts(
                         serde_json::from_str::<Vec<serde_json::Value>>(&s_json),
                         serde_json::from_str::<Vec<serde_json::Value>>(&d_json),
                     ) else {
-                        crate::core::debug::warn(None, "conflicts/check_conflicts", format!("JSON hỏng cho '{base_name}', bỏ qua"));
+                        crate::core::debug::warn("conflicts/check_conflicts", format!("JSON hỏng cho '{base_name}', bỏ qua"));
                         continue;
                     };
                     let d_names = dest_names(d_items);
@@ -227,9 +224,6 @@ pub async fn check_conflicts(
     })
     .await
 }
-
-/// Alias ngữ nghĩa cho tiền kiểm tra chuyển file (PreJob Transfer Conflicts):
-pub use check_conflicts as check_transfer_conflicts;
 
 /// Tiền kiểm tra xung đột cho thao tác Đổi tên (PreJob Rename Conflict Check).
 /// Trả về Some(ConflictInfo) nếu đích đã tồn tại (xung đột), hoặc None nếu đích an toàn.

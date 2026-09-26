@@ -99,7 +99,6 @@ pub fn execute_create_sync(plan: &CreatePlan, policy: Policy) -> Result<(), Stri
     let rclone_args = &plan.rclone_args;
 
     crate::core::debug::info(
-        None,
         "actions/instant",
         format!("BẮT ĐẦU {} | target='{}'", kind_str, target),
     );
@@ -128,14 +127,12 @@ pub fn execute_create_sync(plan: &CreatePlan, policy: Policy) -> Result<(), Stri
     match &res {
         Ok(()) => {
             crate::core::debug::info(
-                None,
                 "actions/instant",
                 format!("XONG {} | target='{}' ({:.2?})", kind_str, plan.target, start.elapsed()),
             );
         }
         Err(e) => {
             crate::core::debug::error(
-                None,
                 "actions/instant",
                 format!("LỖI {} | target='{}' | err={} ({:.2?})", kind_str, plan.target, e, start.elapsed()),
             );

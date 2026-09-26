@@ -46,7 +46,6 @@ pub fn execute_hashsum(path: &str, hash_type: &str) -> Result<String, String> {
     }
 
     crate::core::debug::info(
-        None,
         "actions/information/hash",
         format!("BẮT ĐẦU Hashsum ({}) | target='{}'", hash_type, target),
     );
@@ -56,7 +55,6 @@ pub fn execute_hashsum(path: &str, hash_type: &str) -> Result<String, String> {
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
         crate::core::debug::error(
-            None,
             "actions/information/hash",
             format!("LỖI Hashsum ({}) | target='{}' | err={}", hash_type, target, err),
         );
@@ -73,7 +71,6 @@ pub fn execute_hashsum(path: &str, hash_type: &str) -> Result<String, String> {
         .to_string();
 
     crate::core::debug::info(
-        None,
         "actions/information/hash",
         format!("XONG Hashsum ({}) | hash='{}' ({:.2?})", hash_type, hash_value, start.elapsed()),
     );
@@ -139,7 +136,6 @@ pub fn execute_check_integrity(src: &str, dst: &str) -> Result<IntegrityCheckRes
     let dst_target = dst_info.target;
 
     crate::core::debug::info(
-        None,
         "actions/information/hash",
         format!("BẮT ĐẦU CheckIntegrity | src='{}' dst='{}'", src_target, dst_target),
     );
@@ -173,7 +169,6 @@ pub fn execute_check_integrity(src: &str, dst: &str) -> Result<IntegrityCheckRes
     };
 
     crate::core::debug::info(
-        None,
         "actions/information/hash",
         format!("XONG CheckIntegrity | success={} matches={} diffs={} ({:.2?})", success, matches, differences, start.elapsed()),
     );

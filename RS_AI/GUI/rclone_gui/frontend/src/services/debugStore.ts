@@ -53,18 +53,18 @@ class DebugStore {
 
 export const debugStore = new DebugStore();
 
-// Hook event `backend-log` từ Rust (best-effort: ngoài Tauri thì bỏ qua).
-export function subscribeBackendLogs(): void {
-  if (typeof window === 'undefined') return;
-  import('@tauri-apps/api/event')
-    .then(({ listen }) =>
-      listen<{ level: string; tag: string; message: string }>('backend-log', (event) => {
-        const { level, tag, message } = event.payload ?? ({} as any);
-        debugStore.log('BACKEND', `[${level ?? '?'}][${tag ?? '?'}]`, String(message ?? ''));
-      }),
-    )
-    .catch(() => {});
+// Tải nhật ký backend từ file qua API get_backend_log (kéo theo yêu cầu, không truyền thẳng qua event).
+export async function loadBackendLogs(): Promise<void> {
+  try {
+    const { getBackendLog } = await import('../../../bridge/config');
+    const raw = await getBackendLog();
+    if (!raw) return;
+    const lines = raw.trim().split('\n');
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      debugStore.log('BACKEND', 'FILE', line);
+    }
+  } catch (e) {
+    console.error('Lỗi khi tải nhật ký backend:', e);
+  }
 }
-
-// Tự nối khi chạy trong app; lỗi/thiếu Tauri đều bỏ qua.
-void subscribeBackendLogs();

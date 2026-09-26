@@ -22,11 +22,11 @@ pub fn fuse_installed() -> Result<bool, String> {
             Ok(out) if out.status.success() => return Ok(true),
             // UNIVERSAL: bin vắng → warn rồi thử bin sau như cũ.
             Ok(_) => {
-                crate::core::debug::warn(None, "mount_query/fuse_installed", format!("thiếu '{bin}', thử tiếp"));
+                crate::core::debug::warn("mount_query/fuse_installed", format!("thiếu '{bin}', thử tiếp"));
                 continue;
             }
             Err(e) => {
-                crate::core::debug::warn(None, "mount_query/fuse_installed", format!("which '{bin}' lỗi: {e}"));
+                crate::core::debug::warn("mount_query/fuse_installed", format!("which '{bin}' lỗi: {e}"));
                 continue;
             }
         }
@@ -84,7 +84,7 @@ fn apply_exec_flags(config: &mut MountConfig, exec: &str) {
                 Some(idx) => (full[..idx].to_string(), full[idx + 1..].to_string()),
                 // UNIVERSAL: ExecStart lạ thiếu `:` → warn rồi rớt về path rỗng như cũ.
                 None => {
-                    crate::core::debug::warn(None, "mount_query/apply_exec_flags", format!("remote lạ thiếu ':': '{full}'"));
+                    crate::core::debug::warn("mount_query/apply_exec_flags", format!("remote lạ thiếu ':': '{full}'"));
                     (full.to_string(), String::new())
                 }
             };

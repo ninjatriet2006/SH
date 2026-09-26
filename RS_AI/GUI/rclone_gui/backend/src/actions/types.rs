@@ -41,7 +41,7 @@ pub fn same_provider_from_dump(src: &str, dst: &str, dump: &serde_json::Value) -
             (Some(a), Some(b)) => a == b,
             // UNIVERSAL: thiếu type / khác type → trung chuyển qua local như cũ.
             (a, b) => {
-                crate::core::debug::warn(None, "types/same_provider_from_dump", format!("type lạ src={a:?} dst={b:?}, rớt về false"));
+                crate::core::debug::warn("types/same_provider_from_dump", format!("type lạ src={a:?} dst={b:?}, rớt về false"));
                 false
             }
         },

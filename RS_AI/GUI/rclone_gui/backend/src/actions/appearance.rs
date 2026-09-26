@@ -27,7 +27,7 @@ fn resolve_source_dir(name: &str) -> PathBuf {
             "fonts" => a.fonts_dir,
             // UNIVERSAL: tên nhóm lạ (không phải 3 loại) — cảnh báo rồi rớt mặc định.
             other => {
-                crate::core::debug::warn(None, "appearance/resolve_source_dir", format!("nhóm tài nguyên lạ '{other}'"));
+                crate::core::debug::warn("appearance/resolve_source_dir", format!("nhóm tài nguyên lạ '{other}'"));
                 String::new()
             }
         })
@@ -117,7 +117,7 @@ pub fn scan_themes_in(dir: &Path) -> Vec<ThemeInfo> {
                 // UNIVERSAL: file theme đọc lỗi → warn rồi bỏ qua (đồng bộ với
                 // core::resources), tránh theme biến mất khỏi UI không dấu vết.
                 Err(e) => {
-                    crate::core::debug::warn(None, "appearance/scan_themes", format!("bỏ qua theme đọc lỗi {}: {}", path.display(), e));
+                    crate::core::debug::warn("appearance/scan_themes", format!("bỏ qua theme đọc lỗi {}: {}", path.display(), e));
                     continue;
                 }
             };
@@ -125,7 +125,7 @@ pub fn scan_themes_in(dir: &Path) -> Vec<ThemeInfo> {
                 Ok(t) => t,
                 // UNIVERSAL: JSON theme hỏng → warn kèm tên file rồi bỏ qua.
                 Err(e) => {
-                    crate::core::debug::warn(None, "appearance/scan_themes", format!("bỏ qua theme JSON hỏng {}: {}", path.display(), e));
+                    crate::core::debug::warn("appearance/scan_themes", format!("bỏ qua theme JSON hỏng {}: {}", path.display(), e));
                     continue;
                 }
             };

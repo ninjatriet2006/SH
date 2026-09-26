@@ -138,7 +138,6 @@ pub fn execute_rename_sync(old_path: &str, new_path: &str, policy: Policy) -> Re
     let (src, dst) = (plan.src_target.clone(), plan.dst_target.clone());
 
     crate::core::debug::info(
-        None,
         "actions/instant/rename",
         format!("BẮT ĐẦU RenameSync | '{}' -> '{}'", src, dst),
     );
@@ -156,14 +155,12 @@ pub fn execute_rename_sync(old_path: &str, new_path: &str, policy: Policy) -> Re
     match &res {
         Ok(()) => {
             crate::core::debug::info(
-                None,
                 "actions/instant/rename",
                 format!("XONG RenameSync | '{}' -> '{}' ({:.2?})", plan.src_target, plan.dst_target, start.elapsed()),
             );
         }
         Err(e) => {
             crate::core::debug::error(
-                None,
                 "actions/instant/rename",
                 format!("LỖI RenameSync | '{}' -> '{}' | err={} ({:.2?})", plan.src_target, plan.dst_target, e, start.elapsed()),
             );
