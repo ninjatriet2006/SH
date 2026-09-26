@@ -20,7 +20,7 @@ pub async fn job_enqueue(
 ) -> Result<crate::logic::jobs::Job, String> {
     let parsed =
         crate::logic::jobs::JobKind::parse(&kind)
-            .ok_or_else(|| "kind must be copy|move|delete|list".to_string())?;
+            .ok_or_else(|| "kind must be copy|move|delete|list|manifest|rename|mkdir|touch".to_string())?;
     // Đóng dấu policy hiện tại (AppState) lên job lúc đặt việc — worker chỉ đọc
     // `job.policy`, không đọc lại state, nên đổi policy giữa chừng không phá việc cũ.
     let policy = state.policy.lock().map(|p| *p).unwrap_or_default();
@@ -47,3 +47,48 @@ pub async fn job_cancel(
 ) -> Result<crate::logic::jobs::Job, String> {
     state.jobs.request_cancel(&job_id)
 }
+
+/// Lấy danh sách ID các job đang chờ trong hàng đợi theo thứ tự thực thi.
+#[tauri::command]
+pub fn job_get_queue(
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    Ok(state.jobs.get_queue())
+}
+
+/// Đổi thứ tự toàn bộ hàng đợi theo mảng ID được cấp.
+#[tauri::command]
+pub fn job_reorder(
+    state: State<'_, AppState>,
+    ordered_ids: Vec<String>,
+) -> Result<(), String> {
+    state.jobs.reorder_queue(&ordered_ids)
+}
+
+/// Đẩy job lên trước 1 vị trí trong hàng đợi.
+#[tauri::command]
+pub fn job_move_up(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<(), String> {
+    state.jobs.move_job_up(&job_id)
+}
+
+/// Đẩy job xuống sau 1 vị trí trong hàng đợi.
+#[tauri::command]
+pub fn job_move_down(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<(), String> {
+    state.jobs.move_job_down(&job_id)
+}
+
+/// Đưa job lên đầu hàng đợi chờ.
+#[tauri::command]
+pub fn job_move_to_top(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<(), String> {
+    state.jobs.move_job_to_top(&job_id)
+}
+

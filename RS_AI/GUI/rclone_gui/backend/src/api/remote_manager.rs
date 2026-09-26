@@ -73,3 +73,22 @@ pub async fn rclone_about(remote: String) -> Result<Value, String> {
 pub async fn rclone_size(remote: String) -> Result<Value, String> {
     fastlane(move || checksize::size(&remote)).await
 }
+
+#[tauri::command]
+pub async fn get_file_hash(path: String, hash_type: String) -> Result<String, String> {
+    fastlane(move || crate::actions::information::hash::execute_hashsum(&path, &hash_type)).await
+}
+
+#[tauri::command]
+pub async fn get_remote_hashes(remote: String) -> Result<Vec<String>, String> {
+    fastlane(move || Ok(crate::actions::information::hash::get_supported_hashes(&remote))).await
+}
+
+#[tauri::command]
+pub async fn check_files_integrity(
+    src: String,
+    dst: String,
+) -> Result<crate::actions::information::hash::IntegrityCheckResult, String> {
+    fastlane(move || crate::actions::information::hash::execute_check_integrity(&src, &dst)).await
+}
+

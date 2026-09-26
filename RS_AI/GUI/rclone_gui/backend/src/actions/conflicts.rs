@@ -1,12 +1,13 @@
 /*
 [INTEGRITY NOTES]
-- Mục đích: Kiểm tra xung đột hash giữa source và dest trước copy/move.
-- Trách nhiệm: `lsjson` đích cấp 1 + `lsjson -R` đệ quy khi cả 2 là thư mục.
+- Mục đích: Tiền kiểm tra xung đột va chạm đường dẫn (PreJobConflicts: Name/Path Collision)
+  trước khi tạo Job (Transfer/Rename).
+- Trách nhiệm: Quét `lsjson` đích cấp 1 + `lsjson -R` đệ quy khi cả 2 là thư mục;
+  kiểm tra va chạm tồn tại tệp đích cho Rename.
 - Tương tác: Gọi `core::{path, rclone_caller}`, `logic::fastlane`,
   `actions::types::is_dir`. `api::files_view::fs_check_conflicts` là command
   mỏng gọi sang. Không đụng frontend.
 */
-// UNIVERSAL: bê nguyên văn logic `logic::file_ops::check_conflicts` (giữ hành vi).
 // UNIVERSAL: KHÔNG gộp vào `logic::queue::manifest` dù quét giống nhau —
 // manifest `filter_map` nuốt mục thiếu tên IM LẶNG, còn đây phải warn từng mục
 // lạ theo luật default-debug (thấy ở `child_conflicts`). Gộp là mất chẩn đoán.
@@ -14,7 +15,7 @@
 use crate::core::path::cut_remote_path;
 use serde::{Deserialize, Serialize};
 
-/// Một xung đột src/dest (DTO gốc ở thợ `conflicts`).
+/// Một xung đột src/dest (DTO gốc ở thợ `PreJobConflicts`).
 /// `src_is_dir`/`dest_is_dir` cho biết ca xung đột (file/file = ghi đè,
 /// lệch loại = chép sẽ hỏng tùy backend) — dir/dir không có mục riêng.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -25,6 +26,9 @@ pub struct ConflictInfo {
     pub src_is_dir: bool,
     pub dest_is_dir: bool,
 }
+
+/// Alias ngữ nghĩa mới cho hệ thống Job:
+pub type PreJobConflictInfo = ConflictInfo;
 
 /// UNIVERSAL: map tên cấp 1 → IsDir từ `lsjson` (thuần, dễ test).
 pub fn existing_map(items: Vec<serde_json::Value>) -> std::collections::HashMap<String, bool> {
@@ -120,8 +124,8 @@ pub fn dest_names(d_items: Vec<serde_json::Value>) -> std::collections::HashSet<
         .collect()
 }
 /// Tên hàm: check_conflicts
-/// Mô tả: Kích hoạt `rclone check` ngầm để đệ quy kiểm tra xung đột hash giữa source và dest.
-/// Trả về mảng các đường dẫn file con bị khác hash.
+/// Mô tả: Quét va chạm tên và đường dẫn (Name/Path Collision) giữa nguồn và đích trước khi tạo Job Transfer.
+/// Trả về mảng các xung đột đường dẫn tệp/thư mục.
 pub async fn check_conflicts(
     srcs: Vec<String>,
     dest_path: String,
@@ -224,6 +228,47 @@ pub async fn check_conflicts(
     .await
 }
 
+/// Alias ngữ nghĩa cho tiền kiểm tra chuyển file (PreJob Transfer Conflicts):
+pub use check_conflicts as check_transfer_conflicts;
+
+/// Tiền kiểm tra xung đột cho thao tác Đổi tên (PreJob Rename Conflict Check).
+/// Trả về Some(ConflictInfo) nếu đích đã tồn tại (xung đột), hoặc None nếu đích an toàn.
+pub fn check_rename_conflict(old_path: &str, new_path: &str) -> Result<Option<ConflictInfo>, String> {
+    if old_path == new_path {
+        return Ok(None);
+    }
+    let (src_remote, src_real) = cut_remote_path(old_path);
+    let (dst_remote, dst_real) = cut_remote_path(new_path);
+    if src_real.is_empty() || dst_real.is_empty() {
+        return Err("Thiếu đường dẫn nguồn hoặc đích khi kiểm tra đổi tên.".to_string());
+    }
+    let src_target = crate::core::rclone_caller::build_target(&src_remote, &src_real);
+    let dst_target = crate::core::rclone_caller::build_target(&dst_remote, &dst_real);
+
+    let (dst_exists, dst_is_dir) = if dst_remote == "Local" {
+        let p = std::path::Path::new(&dst_real);
+        (p.exists(), p.is_dir())
+    } else {
+        match crate::actions::types::is_dir(&dst_target) {
+            Some(is_dir) => (true, is_dir),
+            None => (false, false),
+        }
+    };
+
+    if !dst_exists {
+        return Ok(None);
+    }
+
+    let src_is_dir = if src_remote == "Local" {
+        std::path::Path::new(&src_real).is_dir()
+    } else {
+        crate::actions::types::is_dir(&src_target).unwrap_or(false)
+    };
+
+    let base_name = base_name_of(&dst_real);
+    Ok(Some(direct_conflict(base_name, &src_target, &dst_target, src_is_dir, dst_is_dir)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -270,4 +315,39 @@ mod tests {
         assert!(names.contains("a/b.txt"));
         assert_eq!(names.len(), 1);
     }
+
+    #[test]
+    fn test_check_rename_conflict() {
+        let temp_dir = std::env::temp_dir();
+        let src = temp_dir.join("test_conflict_src.txt");
+        let dst = temp_dir.join("test_conflict_dst.txt");
+        let non_exist = temp_dir.join("test_conflict_non_exist.txt");
+        let _ = std::fs::write(&src, b"source");
+        let _ = std::fs::write(&dst, b"dest");
+
+        let src_str = format!("Local::{}", src.to_string_lossy());
+        let dst_str = format!("Local::{}", dst.to_string_lossy());
+        let non_exist_str = format!("Local::{}", non_exist.to_string_lossy());
+
+        // Same path -> None
+        let same = check_rename_conflict(&src_str, &src_str).expect("check");
+        assert!(same.is_none());
+
+        // Target does not exist -> None
+        let safe = check_rename_conflict(&src_str, &non_exist_str).expect("check");
+        assert!(safe.is_none());
+
+        // Target exists -> Some(conflict)
+        let conflict = check_rename_conflict(&src_str, &dst_str).expect("check");
+        assert!(conflict.is_some());
+        let c = conflict.unwrap();
+        assert_eq!(c.relative_path, "test_conflict_dst.txt");
+        assert!(!c.src_is_dir);
+        assert!(!c.dest_is_dir);
+
+        // Dọn dẹp
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
 }
+

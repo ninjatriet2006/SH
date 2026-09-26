@@ -10,7 +10,6 @@
 use crate::actions::perm::{Policy, escalate};
 use crate::actions::types::RemoteKind;
 use crate::core::rclone_caller;
-use crate::logic::fastlane;
 use crate::core::rclone_caller::build_target;
 use crate::core::path::cut_remote_path;
 
@@ -122,52 +121,66 @@ pub fn plan_rename(old_path: &str, new_path: &str) -> Result<RenamePlan, String>
     plan_rename_for(old_path, new_path, IsDir::File, SupportRename(true))
 }
 
-/// Thực thi `rename`: chạy [`plan_rename`] + `rclone moveto` + sudo fallback.
-/// UNIVERSAL: `AllowSystem` giữ hành vi `fs_rename` cũ (tự `pkexec mv`);
-/// `Deny`/`AskOnce` trả `PERMISSION_CONSENT` để frontend park + hỏi.
-pub async fn execute_rename(old_path: String, new_path: String, policy: Policy) -> Result<(), String> {
-    let plan = plan_rename(&old_path, &new_path)?;
-    let (remote, old_real) = cut_remote_path(&old_path);
-    let (_, new_real) = cut_remote_path(&new_path);
+/// Thực thi đổi tên đồng bộ (dùng cho worker job hoặc gọi trực tiếp, không bọc fastlane).
+/// Chặn tự ghi đè khi đích đã tồn tại; no-op khi nguồn và đích trùng nhau.
+pub fn execute_rename_sync(old_path: &str, new_path: &str, policy: Policy) -> Result<(), String> {
+    if old_path == new_path {
+        return Ok(());
+    }
+    let plan = plan_rename(old_path, new_path)?;
+    let (remote, old_real) = cut_remote_path(old_path);
+    let (dst_remote, new_real) = cut_remote_path(new_path);
     let (src, dst) = (plan.src_target.clone(), plan.dst_target.clone());
+
+    // UNIVERSAL: Kiểm tra đích đã tồn tại chưa để chặn việc rclone moveto âm thầm ghi đè.
+    let dst_exists = if dst_remote == "Local" {
+        std::path::Path::new(&new_real).exists()
+    } else {
+        crate::actions::types::is_dir(&dst).is_some()
+    };
+    if dst_exists {
+        return Err("Đích đã tồn tại tệp hoặc thư mục cùng tên. Không thể đổi tên.".to_string());
+    }
 
     crate::core::debug::info(
         None,
         "actions/instant/rename",
-        format!("BẮT ĐẦU Rename | '{}' -> '{}'", src, dst),
+        format!("BẮT ĐẦU RenameSync | '{}' -> '{}'", src, dst),
     );
     let start = std::time::Instant::now();
 
-    let res = fastlane::fastlane(move || {
-        escalate(policy, &remote, "mv", &[old_real.clone(), new_real.clone()], || {
-            let output = rclone_caller::run_cmd(&["moveto", &src, &dst])?;
-            if !output.status.success() {
-                Err(String::from_utf8_lossy(&output.stderr).into_owned())
-            } else {
-                Ok(())
-            }
-        })
-    })
-    .await;
+    let res = escalate(policy, &remote, "mv", &[old_real.clone(), new_real.clone()], || {
+        let output = rclone_caller::run_cmd(&["moveto", &src, &dst])?;
+        if !output.status.success() {
+            Err(String::from_utf8_lossy(&output.stderr).into_owned())
+        } else {
+            Ok(())
+        }
+    });
 
     match &res {
         Ok(()) => {
             crate::core::debug::info(
                 None,
                 "actions/instant/rename",
-                format!("XONG Rename | '{}' -> '{}' ({:.2?})", plan.src_target, plan.dst_target, start.elapsed()),
+                format!("XONG RenameSync | '{}' -> '{}' ({:.2?})", plan.src_target, plan.dst_target, start.elapsed()),
             );
         }
         Err(e) => {
             crate::core::debug::error(
                 None,
                 "actions/instant/rename",
-                format!("LỖI Rename | '{}' -> '{}' | err={} ({:.2?})", plan.src_target, plan.dst_target, e, start.elapsed()),
+                format!("LỖI RenameSync | '{}' -> '{}' | err={} ({:.2?})", plan.src_target, plan.dst_target, e, start.elapsed()),
             );
         }
     }
 
     res
+}
+
+/// Thực thi `rename` (tương thích API async): chuyển giao thực thi đồng bộ [`execute_rename_sync`].
+pub async fn execute_rename(old_path: String, new_path: String, policy: Policy) -> Result<(), String> {
+    execute_rename_sync(&old_path, &new_path, policy)
 }
 
 #[cfg(test)]
@@ -203,4 +216,31 @@ mod tests {
         )
         .is_ok());
     }
+
+    #[test]
+    fn rename_same_path_noop() {
+        let res = execute_rename_sync("Local::/tmp/some_file", "Local::/tmp/some_file", Policy::AllowSystem);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn rename_target_already_exists_fails_safely() {
+        let temp_dir = std::env::temp_dir();
+        let src = temp_dir.join("test_rename_src.txt");
+        let dst = temp_dir.join("test_rename_dst.txt");
+        let _ = std::fs::write(&src, b"source");
+        let _ = std::fs::write(&dst, b"existing destination");
+
+        let src_str = format!("Local::{}", src.to_string_lossy());
+        let dst_str = format!("Local::{}", dst.to_string_lossy());
+
+        let res = execute_rename_sync(&src_str, &dst_str, Policy::AllowSystem);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Đích đã tồn tại"));
+
+        // Dọn dẹp
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
 }
+

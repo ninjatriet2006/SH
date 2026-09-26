@@ -7,10 +7,13 @@ pub mod rename;
 pub mod delete;
 pub mod rclone_instant;
 
-pub use rclone_instant::{CreateKind, CreatePlan, execute_create, plan_create};
-pub use mkdir::{MkdirPlan, execute_mkdir, plan_mkdir};
-pub use touch::{TouchPlan, execute_touch, plan_touch};
-pub use rename::{Cap as RenameCap, IsDir, RenamePlan, SupportRename, execute_rename, plan_rename, plan_rename_for};
+pub use rclone_instant::{CreateKind, CreatePlan, execute_create, execute_create_sync, plan_create};
+pub use mkdir::{MkdirPlan, execute_mkdir, execute_mkdir_sync, plan_mkdir};
+pub use touch::{TouchPlan, execute_touch, execute_touch_sync, plan_touch};
+pub use rename::{
+    Cap as RenameCap, IsDir, RenamePlan, SupportRename, execute_rename, execute_rename_sync,
+    plan_rename, plan_rename_for,
+};
 pub use delete::{
     DeletePlan, DeleteScope, EmptyDirs, Route as DeleteRoute, execute_delete, execute_delete_sync,
     execute_delete_with_empty_dirs, plan_delete,

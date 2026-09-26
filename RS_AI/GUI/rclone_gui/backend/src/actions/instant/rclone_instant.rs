@@ -14,7 +14,6 @@ use crate::actions::perm::{Policy, classify_permission_error, escalate};
 use crate::actions::types::RemoteKind;
 use crate::core::path::cut_remote_path;
 use crate::core::rclone_caller;
-use crate::logic::fastlane;
 
 /// Phân loại đối tượng tạo: thư mục (`Dir`) hoặc tệp rỗng (`File`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,20 +83,20 @@ pub fn plan_create(kind: CreateKind, path: &str) -> Result<CreatePlan, String> {
 }
 
 /// Cỗ máy thực thi chung cho họ tạo (`mkdir` / `touch`):
-/// - Chạy trong worker `fastlane` không chặn UI.
+/// - Chạy đồng bộ trực tiếp (dùng cho worker job hoặc gọi trực tiếp, không bọc fastlane).
 /// - Đồng nhất quản lý quyền: Local `File::create` hoặc rclone qua `perm::escalate`.
 /// - Ghi nhận nhật ký bắt đầu/kết thúc/lỗi vào `core::debug` (hiển thị trên DebugView).
-pub async fn execute_create(plan: CreatePlan, policy: Policy) -> Result<(), String> {
+pub fn execute_create_sync(plan: &CreatePlan, policy: Policy) -> Result<(), String> {
     let kind_str = match plan.kind {
         CreateKind::Dir => "Dir",
         CreateKind::File => "File",
     };
-    let target = plan.target.clone();
-    let remote = plan.remote.clone();
-    let real_path = plan.real_path.clone();
+    let target = &plan.target;
+    let remote = &plan.remote;
+    let real_path = &plan.real_path;
     let sudo_action = plan.sudo_action.unwrap_or("mkdir");
     let is_local_create = plan.local_create;
-    let rclone_args = plan.rclone_args.clone();
+    let rclone_args = &plan.rclone_args;
 
     crate::core::debug::info(
         None,
@@ -106,28 +105,25 @@ pub async fn execute_create(plan: CreatePlan, policy: Policy) -> Result<(), Stri
     );
     let start = std::time::Instant::now();
 
-    let res = fastlane::fastlane(move || {
-        if is_local_create {
-            std::fs::File::create(&target).map(|_| ()).map_err(|e| {
-                let msg = e.to_string();
-                if classify_permission_error(&msg) && policy != Policy::AllowSystem {
-                    format!("PERMISSION_CONSENT: {}.", msg)
-                } else {
-                    msg
-                }
-            })
-        } else {
-            let args_ref: Vec<&str> = rclone_args.iter().map(|s| s.as_str()).collect();
-            escalate(policy, &remote, sudo_action, std::slice::from_ref(&real_path), || {
-                let output = rclone_caller::run_cmd(&args_ref)?;
-                if !output.status.success() {
-                    return Err(String::from_utf8_lossy(&output.stderr).into_owned());
-                }
-                Ok(())
-            })
-        }
-    })
-    .await;
+    let res = if is_local_create {
+        std::fs::File::create(target).map(|_| ()).map_err(|e| {
+            let msg = e.to_string();
+            if classify_permission_error(&msg) && policy != Policy::AllowSystem {
+                format!("PERMISSION_CONSENT: {}.", msg)
+            } else {
+                msg
+            }
+        })
+    } else {
+        let args_ref: Vec<&str> = rclone_args.iter().map(|s| s.as_str()).collect();
+        escalate(policy, remote, sudo_action, std::slice::from_ref(real_path), || {
+            let output = rclone_caller::run_cmd(&args_ref)?;
+            if !output.status.success() {
+                return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+            }
+            Ok(())
+        })
+    };
 
     match &res {
         Ok(()) => {
@@ -147,4 +143,9 @@ pub async fn execute_create(plan: CreatePlan, policy: Policy) -> Result<(), Stri
     }
 
     res
+}
+
+/// Thực thi tạo (tương thích API async): chuyển giao thực thi đồng bộ [`execute_create_sync`].
+pub async fn execute_create(plan: CreatePlan, policy: Policy) -> Result<(), String> {
+    execute_create_sync(&plan, policy)
 }

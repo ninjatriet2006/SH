@@ -78,6 +78,9 @@ pub fn run() {
             api::remote_manager::check_transfer_capability,
             api::remote_manager::rclone_about,
             api::remote_manager::rclone_size,
+            api::remote_manager::get_file_hash,
+            api::remote_manager::get_remote_hashes,
+            api::remote_manager::check_files_integrity,
             // ==================
             // MOUNT API
             // ==================
@@ -112,11 +115,16 @@ pub fn run() {
             api::appearance_manager::get_appearance,
             api::appearance_manager::set_appearance,
             // ==================
-            // JOBS API (đường duy nhất cho copy/move/delete/list)
+            // JOBS API (đường duy nhất cho copy/move/delete/list/rename/mkdir/touch)
             // ==================
             api::jobs::job_enqueue,
             api::jobs::job_list,
             api::jobs::job_cancel,
+            api::jobs::job_get_queue,
+            api::jobs::job_reorder,
+            api::jobs::job_move_up,
+            api::jobs::job_move_down,
+            api::jobs::job_move_to_top,
         ])
         .setup(|app| {
             if let Ok(path) = app.path().resource_dir() {

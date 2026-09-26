@@ -5,7 +5,7 @@
 - Tương tác: Được gọi bởi `api::files_edit::fs_touch`.
 */
 
-use super::rclone_instant::{CreateKind, CreatePlan, execute_create, plan_create};
+use super::rclone_instant::{CreateKind, CreatePlan, plan_create};
 use crate::actions::perm::Policy;
 
 /// Đặc tả thuần cho `touch`: target rclone + lệnh.
@@ -31,12 +31,17 @@ pub fn plan_touch(path: &str) -> Result<TouchPlan, String> {
     plan_create(CreateKind::File, path).map(Into::into)
 }
 
-/// Thực thi `touch`: chạy [`plan_create`] với [`CreateKind::File`] + gọi [`execute_create`].
+/// Thực thi `touch` đồng bộ (dùng cho worker job hoặc gọi trực tiếp, không bọc fastlane).
+pub fn execute_touch_sync(path: &str, policy: Policy) -> Result<(), String> {
+    let plan = plan_create(CreateKind::File, path)?;
+    super::rclone_instant::execute_create_sync(&plan, policy)
+}
+
+/// Thực thi `touch` (tương thích API async): chuyển giao thực thi đồng bộ [`execute_touch_sync`].
 /// UNIVERSAL: Local qua `File::create`, remote qua `rclone touch`;
 /// lỗi quyền khi chưa consent trả `PERMISSION_CONSENT`.
 pub async fn execute_touch(path: String, policy: Policy) -> Result<(), String> {
-    let plan = plan_create(CreateKind::File, &path)?;
-    execute_create(plan, policy).await
+    execute_touch_sync(&path, policy)
 }
 
 #[cfg(test)]

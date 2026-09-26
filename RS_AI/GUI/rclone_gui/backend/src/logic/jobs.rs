@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Loại việc worker P2 chạy thật (copy/move/delete/list/manifest).
+/// Loại việc worker P2 chạy thật (copy/move/delete/list/manifest/rename/mkdir/touch).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JobKind {
@@ -21,6 +21,9 @@ pub enum JobKind {
     Delete,
     List,
     Manifest,
+    Rename,
+    Mkdir,
+    Touch,
 }
 
 impl JobKind {
@@ -33,6 +36,9 @@ impl JobKind {
             "list" => Some(JobKind::List),
             // UNIVERSAL: vé điểm danh — bóc thư mục thành từng món qua `manifest()`.
             "manifest" => Some(JobKind::Manifest),
+            "rename" => Some(JobKind::Rename),
+            "mkdir" => Some(JobKind::Mkdir),
+            "touch" => Some(JobKind::Touch),
             // UNIVERSAL: chuỗi lạ rớt về None như cũ (IPC map 400).
             other => {
                 crate::core::debug::warn(None, "jobs/JobKind::parse", format!("kind lạ '{other}', rớt về None"));
@@ -325,6 +331,68 @@ impl JobStore {
         self.get(id).ok_or_else(|| "job not found".to_string())
     }
 
+    /// Lấy danh sách ID các job đang chờ trong hàng đợi theo thứ tự thực thi.
+    pub fn get_queue(&self) -> Vec<String> {
+        self.queue.lock().map(|q| q.iter().cloned().collect()).unwrap_or_default()
+    }
+
+    /// Đổi thứ tự toàn bộ hàng đợi theo danh sách `ordered_ids` được cấp.
+    /// Yêu cầu danh sách phải chứa đúng và đủ các ID đang chờ trong hàng đợi.
+    pub fn reorder_queue(&self, ordered_ids: &[String]) -> Result<(), String> {
+        let mut q = self.queue.lock().map_err(|_| "Không thể khóa hàng đợi".to_string())?;
+        let current_set: HashSet<String> = q.iter().cloned().collect();
+        if ordered_ids.len() != current_set.len() {
+            return Err("Danh sách reorder không khớp số lượng công việc trong hàng đợi".to_string());
+        }
+        for id in ordered_ids {
+            if !current_set.contains(id) {
+                return Err(format!("ID '{id}' không tồn tại trong hàng đợi hoặc bị trùng lặp"));
+            }
+        }
+        *q = VecDeque::from(ordered_ids.to_vec());
+        drop(q);
+        self.persist();
+        Ok(())
+    }
+
+    /// Đẩy một job lên trước 1 vị trí trong hàng đợi chờ.
+    pub fn move_job_up(&self, id: &str) -> Result<(), String> {
+        let mut q = self.queue.lock().map_err(|_| "Không thể khóa hàng đợi".to_string())?;
+        let idx = q.iter().position(|x| x == id).ok_or_else(|| format!("Job '{id}' không có trong hàng đợi"))?;
+        if idx > 0 {
+            q.swap(idx, idx - 1);
+            drop(q);
+            self.persist();
+        }
+        Ok(())
+    }
+
+    /// Đẩy một job xuống sau 1 vị trí trong hàng đợi chờ.
+    pub fn move_job_down(&self, id: &str) -> Result<(), String> {
+        let mut q = self.queue.lock().map_err(|_| "Không thể khóa hàng đợi".to_string())?;
+        let idx = q.iter().position(|x| x == id).ok_or_else(|| format!("Job '{id}' không có trong hàng đợi"))?;
+        if idx + 1 < q.len() {
+            q.swap(idx, idx + 1);
+            drop(q);
+            self.persist();
+        }
+        Ok(())
+    }
+
+    /// Đưa một job lên đầu hàng đợi chờ (vị trí tiếp theo sẽ được thực thi khi job hiện tại xong).
+    pub fn move_job_to_top(&self, id: &str) -> Result<(), String> {
+        let mut q = self.queue.lock().map_err(|_| "Không thể khóa hàng đợi".to_string())?;
+        let idx = q.iter().position(|x| x == id).ok_or_else(|| format!("Job '{id}' không có trong hàng đợi"))?;
+        if idx > 0 {
+            if let Some(item) = q.remove(idx) {
+                q.push_front(item);
+            }
+            drop(q);
+            self.persist();
+        }
+        Ok(())
+    }
+
     // UNIVERSAL S2: tầng con (`queue.rs`) đọc cờ hủy khi chạy từng vé.
     pub(super) fn is_cancel_requested(&self, id: &str) -> bool {
         self.cancelled.lock().map(|f| f.contains(id)).unwrap_or(false)
@@ -432,6 +500,9 @@ impl JobStore {
                         // tiến độ cha = tổng con xong; cancel/error theo cha.
                         self.execute_children(&snapshot)
                     }
+                }
+                JobKind::Rename | JobKind::Mkdir | JobKind::Touch => {
+                    self.execute_job(&snapshot, &mut emit)
                 }
             };
             // UNIVERSAL S2: sau vòng con vẫn đẩy tiến độ cha qua emit từng vé
@@ -565,6 +636,9 @@ impl JobStore {
             JobKind::List => self.run_list_job(job),
             // UNIVERSAL: vé điểm danh — quét `lsjson -R` thành từng món.
             JobKind::Manifest => self.run_manifest_job(job),
+            JobKind::Rename => self.run_rename_job(job),
+            JobKind::Mkdir => self.run_mkdir_job(job),
+            JobKind::Touch => self.run_touch_job(job),
         }
     }
 
@@ -666,6 +740,31 @@ impl JobStore {
         Ok(())
     }
 
+    fn run_rename_job(&self, job: &Job) -> Result<(), String> {
+        let src = job.src.clone().ok_or_else(|| "rename job missing src".to_string())?;
+        let dst = job.dst.clone().ok_or_else(|| "rename job missing dst".to_string())?;
+        if self.is_cancel_requested(&job.id) {
+            return Err("job cancelled".to_string());
+        }
+        crate::actions::instant::execute_rename_sync(&src, &dst, job.policy)
+    }
+
+    fn run_mkdir_job(&self, job: &Job) -> Result<(), String> {
+        let src = job.src.clone().ok_or_else(|| "mkdir job missing src".to_string())?;
+        if self.is_cancel_requested(&job.id) {
+            return Err("job cancelled".to_string());
+        }
+        crate::actions::instant::execute_mkdir_sync(&src, job.policy)
+    }
+
+    fn run_touch_job(&self, job: &Job) -> Result<(), String> {
+        let src = job.src.clone().ok_or_else(|| "touch job missing src".to_string())?;
+        if self.is_cancel_requested(&job.id) {
+            return Err("job cancelled".to_string());
+        }
+        crate::actions::instant::execute_touch_sync(&src, job.policy)
+    }
+
     /// Spawn worker tuần tự nếu chưa chạy; gọi từ IPC sau `enqueue`.
     pub fn spawn_worker(self: &Arc<Self>, app: tauri::AppHandle) {
         if self.running.swap(true, Ordering::SeqCst) {
@@ -691,12 +790,18 @@ impl JobStore {
         struct Snapshot<'a> {
             jobs: Vec<Job>,
             children: &'a HashMap<String, Vec<QueueItem>>,
+            queue: &'a VecDeque<String>,
         }
         let jobs: Vec<Job> = self.list();
-        let text = match self.children.lock() {
-            Ok(kids) => serde_json::to_string(&Snapshot { jobs, children: &kids }),
+        let q_lock = match self.queue.lock() {
+            Ok(q) => q,
             Err(_) => return,
         };
+        let text = match self.children.lock() {
+            Ok(kids) => serde_json::to_string(&Snapshot { jobs, children: &kids, queue: &q_lock }),
+            Err(_) => return,
+        };
+        drop(q_lock);
         let text = match text {
             Ok(text) => text,
             Err(_) => return,
@@ -715,7 +820,7 @@ impl JobStore {
             Ok(text) => text,
             Err(_) => return,
         };
-        // UNIVERSAL S2: đọc format mới `{jobs, children}`; rớt về mảng cũ
+        // UNIVERSAL S2: đọc format mới `{jobs, children, queue}`; rớt về mảng cũ
         // `Vec<Job>` để giữ tương thích file persist trước đây.
         #[derive(serde::Deserialize)]
         struct Snapshot {
@@ -723,16 +828,14 @@ impl JobStore {
             jobs: Vec<Job>,
             #[serde(default)]
             children: HashMap<String, Vec<QueueItem>>,
+            #[serde(default)]
+            queue: Vec<String>,
         }
-        let (mut jobs, kids): (Vec<Job>, HashMap<String, Vec<QueueItem>>) =
+        let (mut jobs, kids, queue_order): (Vec<Job>, HashMap<String, Vec<QueueItem>>, Vec<String>) =
             if let Ok(snap) = serde_json::from_str::<Snapshot>(&text) {
-                // Phân biệt mảng cũ (parse Snapshot thất bại thường) — nhưng mảng
-                // `[]` cũng parse được thành Snapshot rỗng nên thử Vec trước khi
-                // tin Snapshot có dữ liệu? Ưu tiên: nếu jobs rỗng + text là mảng
-                // thì vẫn đúng. Chỉ cần fallback khi Snapshot lỗi.
-                (snap.jobs, snap.children)
+                (snap.jobs, snap.children, snap.queue)
             } else if let Ok(legacy) = serde_json::from_str::<Vec<Job>>(&text) {
-                (legacy, HashMap::new())
+                (legacy, HashMap::new(), Vec::new())
             } else {
                 return;
             };
@@ -742,13 +845,27 @@ impl JobStore {
             self.children.lock(),
         ) {
             for job in jobs.drain(..) {
-                // UNIVERSAL: giữ nguyên status đĩa (kể cả `Running` mồ côi) để
-                // `reconcile_orphans()` chạy 1 lần lúc khởi động quyết định
-                // (đánh `Error` + dọn `.partial`); chỉ `Queued` mới vào hàng chờ.
-                if job.status == JobStatus::Queued {
-                    q.push_back(job.id.clone());
-                }
                 inner.insert(job.id.clone(), job);
+            }
+            if !queue_order.is_empty() {
+                for id in &queue_order {
+                    if let Some(job) = inner.get(id) {
+                        if job.status == JobStatus::Queued {
+                            q.push_back(id.clone());
+                        }
+                    }
+                }
+                for job in inner.values() {
+                    if job.status == JobStatus::Queued && !queue_order.contains(&job.id) {
+                        q.push_back(job.id.clone());
+                    }
+                }
+            } else {
+                for job in inner.values() {
+                    if job.status == JobStatus::Queued {
+                        q.push_back(job.id.clone());
+                    }
+                }
             }
             for (id, mut list) in kids {
                 for k in list.iter_mut() {
@@ -1033,6 +1150,9 @@ mod tests {
         assert_eq!(JobKind::parse("LIST"), Some(JobKind::List));
         // UNIVERSAL: vé điểm danh là kind hợp lệ của P2.
         assert_eq!(JobKind::parse("manifest"), Some(JobKind::Manifest));
+        assert_eq!(JobKind::parse("rename"), Some(JobKind::Rename));
+        assert_eq!(JobKind::parse("mkdir"), Some(JobKind::Mkdir));
+        assert_eq!(JobKind::parse("touch"), Some(JobKind::Touch));
         assert_eq!(JobKind::parse("bogus"), None);
     }
 
@@ -1300,6 +1420,90 @@ mod tests {
         store.update(&ejob.id, |j| j.status = JobStatus::Error);
         let ekids = store.children_of(&ejob.id);
         assert_eq!(ekids.len(), 1);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn queue_reordering_and_movement() {
+        let (store, path) = temp_store("queue_reorder");
+        let j1 = store.enqueue(JobKind::Copy, Some("/a".into()), Some("/b".into()));
+        let j2 = store.enqueue(JobKind::Rename, Some("/b".into()), Some("/c".into()));
+        let j3 = store.enqueue(JobKind::Mkdir, Some("/d".into()), None);
+        let j4 = store.enqueue(JobKind::Touch, Some("/e".into()), None);
+
+        assert_eq!(store.get_queue(), vec![j1.id.clone(), j2.id.clone(), j3.id.clone(), j4.id.clone()]);
+
+        // Move j3 up
+        assert!(store.move_job_up(&j3.id).is_ok());
+        assert_eq!(store.get_queue(), vec![j1.id.clone(), j3.id.clone(), j2.id.clone(), j4.id.clone()]);
+
+        // Move j3 to top
+        assert!(store.move_job_to_top(&j3.id).is_ok());
+        assert_eq!(store.get_queue(), vec![j3.id.clone(), j1.id.clone(), j2.id.clone(), j4.id.clone()]);
+
+        // Move j3 to top again (no-op)
+        assert!(store.move_job_to_top(&j3.id).is_ok());
+        assert_eq!(store.get_queue(), vec![j3.id.clone(), j1.id.clone(), j2.id.clone(), j4.id.clone()]);
+
+        // Move j3 down
+        assert!(store.move_job_down(&j3.id).is_ok());
+        assert_eq!(store.get_queue(), vec![j1.id.clone(), j3.id.clone(), j2.id.clone(), j4.id.clone()]);
+
+        // Reorder queue with valid permutation
+        let new_order = vec![j4.id.clone(), j2.id.clone(), j1.id.clone(), j3.id.clone()];
+        assert!(store.reorder_queue(&new_order).is_ok());
+        assert_eq!(store.get_queue(), new_order);
+
+        // Reorder queue with invalid permutation (wrong length or unknown id)
+        assert!(store.reorder_queue(&[j4.id.clone(), j2.id.clone()]).is_err());
+        assert!(store.reorder_queue(&[j4.id.clone(), j2.id.clone(), j1.id.clone(), "unknown".into()]).is_err());
+
+        // Verify persistence of queue order
+        let store2 = JobStore::with_path(path.clone());
+        assert_eq!(store2.get_queue(), new_order);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn worker_runs_mkdir_touch_rename_sequentially() {
+        if !rclone_present() {
+            return;
+        }
+        let temp_dir = std::env::temp_dir().join(format!("rclone_gui_instant_jobs_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).expect("temp dir");
+
+        let folder = temp_dir.join("subfolder");
+        let file_src = folder.join("test_file.txt");
+        let file_renamed = folder.join("renamed_file.txt");
+
+        let (store, path) = temp_store("instant_worker");
+        // 1. Mkdir
+        let j_mkdir = store.enqueue(JobKind::Mkdir, Some(format!("Local::{}", folder.display())), None);
+        // 2. Touch
+        let j_touch = store.enqueue(JobKind::Touch, Some(format!("Local::{}", file_src.display())), None);
+        // 3. Rename
+        let j_rename = store.enqueue(
+            JobKind::Rename,
+            Some(format!("Local::{}", file_src.display())),
+            Some(format!("Local::{}", file_renamed.display())),
+        );
+
+        // Run worker
+        store.run_queue_sync(None::<fn(Job)>);
+
+        // Verify jobs finished as Done
+        assert_eq!(store.get(&j_mkdir.id).unwrap().status, JobStatus::Done);
+        assert_eq!(store.get(&j_touch.id).unwrap().status, JobStatus::Done);
+        assert_eq!(store.get(&j_rename.id).unwrap().status, JobStatus::Done);
+
+        // Verify files on disk
+        assert!(folder.exists() && folder.is_dir());
+        assert!(!file_src.exists());
+        assert!(file_renamed.exists());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
         let _ = std::fs::remove_file(&path);
     }
 }

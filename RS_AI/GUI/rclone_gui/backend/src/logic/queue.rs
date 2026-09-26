@@ -475,14 +475,14 @@ impl JobStore {
                     )
                 }
                 // UNIVERSAL: liệt kê đủ enum nội bộ (cấm wildcard để compiler bắt thiếu nhánh).
-                JobKind::Delete | JobKind::List | JobKind::Manifest => Ok(()),
+                JobKind::Delete | JobKind::List | JobKind::Manifest | JobKind::Rename | JobKind::Mkdir | JobKind::Touch => Ok(()),
             },
             ChildMode::Item => {
                 if child.is_dir {
                     return Ok(());
                 }
                 match job.kind {
-                    JobKind::List | JobKind::Manifest => Ok(()),
+                    JobKind::List | JobKind::Manifest | JobKind::Rename | JobKind::Mkdir | JobKind::Touch => Ok(()),
                     JobKind::Delete => {
                         let src = job.src.clone().unwrap_or_default();
                         run_child_delete(&src, &child.path, child.is_dir, job.policy)

@@ -5,7 +5,7 @@
 - Tương tác: Được gọi bởi `api::files_edit::fs_mkdir`.
 */
 
-use super::rclone_instant::{CreateKind, CreatePlan, execute_create, plan_create};
+use super::rclone_instant::{CreateKind, CreatePlan, plan_create};
 use crate::actions::perm::Policy;
 
 /// Đặc tả thuần cho `mkdir`: target rclone + lệnh + sudo fallback.
@@ -31,12 +31,17 @@ pub fn plan_mkdir(path: &str) -> Result<MkdirPlan, String> {
     plan_create(CreateKind::Dir, path).map(Into::into)
 }
 
-/// Thực thi `mkdir`: chạy [`plan_create`] với [`CreateKind::Dir`] + gọi [`execute_create`].
+/// Thực thi `mkdir` đồng bộ (dùng cho worker job hoặc gọi trực tiếp, không bọc fastlane).
+pub fn execute_mkdir_sync(path: &str, policy: Policy) -> Result<(), String> {
+    let plan = plan_create(CreateKind::Dir, path)?;
+    super::rclone_instant::execute_create_sync(&plan, policy)
+}
+
+/// Thực thi `mkdir` (tương thích API async): chuyển giao thực thi đồng bộ [`execute_mkdir_sync`].
 /// UNIVERSAL: `AllowSystem` giữ hành vi cũ (tự `pkexec mkdir -p`);
 /// `Deny`/`AskOnce` trả `PERMISSION_CONSENT` để frontend park + hỏi.
 pub async fn execute_mkdir(path: String, policy: Policy) -> Result<(), String> {
-    let plan = plan_create(CreateKind::Dir, &path)?;
-    execute_create(plan, policy).await
+    execute_mkdir_sync(&path, policy)
 }
 
 #[cfg(test)]

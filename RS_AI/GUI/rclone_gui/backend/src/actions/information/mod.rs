@@ -2,10 +2,12 @@
 //! Bọc qua fastlane tại `api::remote_manager`.
 
 pub mod about;
+pub mod hash;
 pub mod size;
 pub mod stat;
 
 pub use about::{AboutPlan, about, execute_about, plan_about};
+pub use hash::{IntegrityCheckResult, execute_check_integrity, execute_hashsum, get_supported_hashes};
 pub use size::{SizePlan, execute_size, plan_size, size};
 pub use stat::{StatInfo, StatPlan, execute_stat, plan_stat};
 
