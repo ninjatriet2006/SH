@@ -1,7 +1,45 @@
 /*
- * Kiểu dữ liệu dùng chung — khớp 1-1 với struct serde của backend.
- * Bridge KHÔNG import type từ frontend: đây là hợp đồng dây độc lập.
+[INTEGRITY NOTES]
+- Mục đích: Định nghĩa các kiểu dữ liệu (Interfaces/Types) TypeScript và hàm gọi `invokeCommand` Enveloped IPC.
+- Trách nhiệm: Đồng bộ 1-1 với struct và enum serde của Backend Rust (theo chuẩn `subscription_manager_gui`).
+- Tương tác: Được Import bởi tất cả các module Bridge (`*_bridge.ts`) và Frontend Store/Component.
+*/
+
+import { invoke } from '@tauri-apps/api/core';
+
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+export type Req<T> = { schema_version: 1; request_id: string | null; payload: T };
+export type Res<T> = { schema_version: 1; request_id: string | null; data: T };
+export type IpcErrorCode =
+  | 'invalid_argument'
+  | 'not_found'
+  | 'conflict'
+  | 'unauthorized'
+  | 'forbidden'
+  | 'unavailable'
+  | 'io'
+  | 'validation'
+  | 'cancelled'
+  | 'internal';
+
+export type IpcError = {
+  code: IpcErrorCode;
+  message: string;
+  retryable: boolean;
+  details: JsonValue | null;
+};
+
+export type Empty = Record<string, never>;
+
+/**
+ * Gọi lệnh Tauri Command theo chuẩn Enveloped IPC Pattern (A.1 Contract).
+ * Tự động bọc `Req<P>` và bóc tách `Res<T>.data`.
  */
+export async function invokeCommand<T, P = Empty>(command: string, payload: P = {} as P): Promise<T> {
+  const request: Req<P> = { schema_version: 1, request_id: null, payload };
+  const response = await invoke<Res<T>>(command, { request });
+  return response.data;
+}
 
 /** Một file/thư mục do `list_files` trả (`actions::list::FileItem`). */
 export interface FileItem {
@@ -190,11 +228,12 @@ export interface AboutInfo {
   other?: number;
 }
 
-/** Đếm (`rclone_size`). */
+/** Đếm (`rclone size`). */
 export interface SizeInfo {
   count?: number;
   bytes?: number;
   sizeless?: number;
+}
 
 /** Kết quả so sánh toàn vẹn (`actions::information::hash::IntegrityCheckResult`). */
 export interface IntegrityCheckResult {
@@ -203,4 +242,84 @@ export interface IntegrityCheckResult {
   differences: number;
   errors: number;
   message: string;
+}
+
+/** Toàn bộ 52 cờ Features của remote. */
+export interface FeatureFlags {
+  about: boolean;
+  bucket_based: boolean;
+  bucket_based_root_ok: boolean;
+  can_have_empty_directories: boolean;
+  case_insensitive: boolean;
+  change_notify: boolean;
+  chunk_writer_doesnt_seek: boolean;
+  clean_up: boolean;
+  command: boolean;
+  copy: boolean;
+  dir_cache_flush: boolean;
+  dir_mod_time_updates_on_write: boolean;
+  dir_move: boolean;
+  dir_set_mod_time: boolean;
+  disconnect: boolean;
+  double_slash: boolean;
+  duplicate_files: boolean;
+  filter_aware: boolean;
+  get_tier: boolean;
+  is_local: boolean;
+  list_p: boolean;
+  list_r: boolean;
+  merge_dirs: boolean;
+  mkdir_metadata: boolean;
+  move_native: boolean;
+  no_multi_threading: boolean;
+  open_chunk_writer: boolean;
+  open_writer_at: boolean;
+  overlay: boolean;
+  partial_uploads: boolean;
+  public_link: boolean;
+  purge: boolean;
+  put_stream: boolean;
+  put_unchecked: boolean;
+  read_dir_metadata: boolean;
+  read_metadata: boolean;
+  read_mime_type: boolean;
+  server_side_across_configs: boolean;
+  set_tier: boolean;
+  set_wrapper: boolean;
+  shutdown: boolean;
+  slow_hash: boolean;
+  slow_mod_time: boolean;
+  un_wrap: boolean;
+  user_dir_metadata: boolean;
+  user_info: boolean;
+  user_metadata: boolean;
+  wrap_fs: boolean;
+  write_dir_metadata: boolean;
+  write_dir_set_mod_time: boolean;
+  write_metadata: boolean;
+  write_mime_type: boolean;
+}
+
+export interface RemoteConfig {
+  name: string;
+  type: string;
+  [key: string]: unknown;
+}
+
+export interface ProviderOption {
+  Name: string;
+  Help: string;
+  Type: string;
+  Required: boolean;
+  Advanced: boolean;
+  IsPassword?: boolean;
+  DefaultStr?: string;
+  Examples?: Array<{ Value: string; Help: string }>;
+}
+
+export interface ProviderInfo {
+  Name: string;
+  Description: string;
+  Prefix: string;
+  Options: ProviderOption[];
 }

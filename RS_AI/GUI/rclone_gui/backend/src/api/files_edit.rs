@@ -1,54 +1,70 @@
 /*
 [INTEGRITY NOTES]
 - Mục đích: API Endpoints chỉnh-sửa File (Command Tauri).
-- Trách nhiệm: Nhận arg trực tiếp từ Frontend, gọi tầng `logic`/`actions`.
-- Tương tác: bare-core — lệnh trần `Result<T, String>`, không bao thư.
+- Trách nhiệm: Nhận Enveloped IPC `Req<T>`, gọi tầng `logic`/`actions`, trả `IpcResult<T>`.
+- Chuẩn hóa: Enveloped IPC Pattern (A.1 Contract) tương thích chuẩn `subscription_manager_gui`.
 */
 
 use crate::actions::perm::Policy;
+use crate::ipc::{command_result, Empty, IpcErrorCode, IpcResult, Req};
 use crate::logic::app_state::AppState;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
-
-
-/// S2: chmod tôn trọng policy — policy đọc từ State.
-/// GHI CHÚ RUNTIME: Lệnh synchronous chạy trên blocking thread pool của Tauri (`spawn_blocking`).
-/// Không bọc async/fastlane do là thao tác biến đổi POSIX nhanh trên Local FS.
-#[tauri::command]
-pub fn fs_chmod(state: State<'_, AppState>, path: String, mode: u32) -> Result<(), String> {
-    let policy = state.policy.lock().map(|p| *p).unwrap_or_default();
-    crate::actions::instant::execute_chmod_sync(&path, mode, policy)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FsChmodRequest {
+    pub path: String,
+    pub mode: u32,
 }
 
-/// S2: chown tôn trọng policy — policy đọc từ State.
-/// GHI CHÚ RUNTIME: Tương tự `fs_chmod`, lệnh synchronous chạy trên blocking thread pool
-/// của Tauri, xử lý leo quyền sudo (nếu cần) và gán quyền sở hữu Local FS.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FsChownRequest {
+    pub path: String,
+    pub uid: u32,
+    pub gid: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetPermissionPolicyRequest {
+    pub policy: String,
+}
+
 #[tauri::command]
-pub fn fs_chown(
+pub fn fs_chmod(state: State<'_, AppState>, request: Req<FsChmodRequest>) -> IpcResult<()> {
+    command_result(request, IpcErrorCode::Forbidden, |p| {
+        let policy = state.policy.lock().map(|pol| *pol).unwrap_or_default();
+        crate::actions::instant::execute_chmod_sync(&p.path, p.mode, policy)
+    })
+}
+
+#[tauri::command]
+pub fn fs_chown(state: State<'_, AppState>, request: Req<FsChownRequest>) -> IpcResult<()> {
+    command_result(request, IpcErrorCode::Forbidden, |p| {
+        let policy = state.policy.lock().map(|pol| *pol).unwrap_or_default();
+        crate::actions::instant::execute_chown_sync(&p.path, p.uid, p.gid, policy)
+    })
+}
+
+#[tauri::command]
+pub fn get_permission_policy(state: State<'_, AppState>, request: Req<Empty>) -> IpcResult<String> {
+    command_result(request, IpcErrorCode::Internal, |_| {
+        let policy = state.policy.lock().map(|pol| *pol).unwrap_or_default();
+        Ok(policy.as_str().to_string())
+    })
+}
+
+#[tauri::command]
+pub fn set_permission_policy(
     state: State<'_, AppState>,
-    path: String,
-    uid: u32,
-    gid: u32,
-) -> Result<(), String> {
-    let policy = state.policy.lock().map(|p| *p).unwrap_or_default();
-    crate::actions::instant::execute_chown_sync(&path, uid, gid, policy)
-}
-
-/// S2: đọc policy hiện tại (`deny`/`ask_once`/`allow_system`).
-#[tauri::command]
-pub fn get_permission_policy(state: State<'_, AppState>) -> Result<String, String> {
-    let policy = state.policy.lock().map(|p| *p).unwrap_or_default();
-    Ok(policy.as_str().to_string())
-}
-
-/// S2: đặt policy — sai chuỗi trả lỗi String trần.
-#[tauri::command]
-pub fn set_permission_policy(state: State<'_, AppState>, policy: String) -> Result<String, String> {
-    let parsed = Policy::parse(policy.trim())
-        .ok_or_else(|| "policy must be deny|ask_once|allow_system".to_string())?;
-    *state
-        .policy
-        .lock()
-        .map_err(|_| "policy lock poisoned".to_string())? = parsed;
-    Ok(parsed.as_str().to_string())
+    request: Req<SetPermissionPolicyRequest>,
+) -> IpcResult<String> {
+    command_result(request, IpcErrorCode::InvalidArgument, |p| {
+        let parsed = Policy::parse(p.policy.trim())
+            .ok_or_else(|| "policy must be deny|ask_once|allow_system".to_string())?;
+        *state
+            .policy
+            .lock()
+            .map_err(|_| "policy lock poisoned".to_string())? = parsed;
+        Ok(parsed.as_str().to_string())
+    })
 }

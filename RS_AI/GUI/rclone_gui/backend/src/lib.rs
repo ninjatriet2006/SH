@@ -12,6 +12,7 @@
 pub mod actions;
 pub mod api;
 pub mod core;
+pub mod ipc;
 pub mod logic;
 pub mod settings;
 
@@ -31,6 +32,7 @@ pub fn run() {
             api::files_view::fs_stat_advanced,
             api::files_view::fs_search,
             api::files_view::fs_check_conflicts,
+            api::files_view::fs_check_rename_conflict,
             api::files_view::get_home_dir,
             api::files_view::get_user_places,
             api::files_view::open_in_terminal,

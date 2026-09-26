@@ -1,25 +1,7 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "useDefineForClassFields": true,
-    "module": "ESNext",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "skipLibCheck": true,
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-    // `../bridge` nằm ngoài thư mục này nên phép tra node_modules mặc định
-    // (đi ngược lên từ file import) không tìm thấy frontend/node_modules.
-    // Ánh xạ tường minh để bridge được type-check thật, thay vì phải @ts-ignore.
-    "paths": {
-      "@tauri-apps/*": ["./node_modules/@tauri-apps/*"]
-    }
-  },
-  "include": ["src", "../bridge"]
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
 }

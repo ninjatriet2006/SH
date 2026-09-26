@@ -318,7 +318,9 @@ mod tests {
                 let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
                 if p.is_dir() {
                     stack.push(p);
-                } else if name.ends_with(".ts") && !name.ends_with(".test.ts") {
+                } else if (name.ends_with(".ts") || name.ends_with(".tsx"))
+                    && !name.ends_with(".test.ts")
+                {
                     // Bỏ file test: chúng cố ý chứa ID giả để kiểm tra nhánh
                     // "thiếu bản dịch", không phải ID thật của UI.
                     if let Ok(text) = fs::read_to_string(&p) {
