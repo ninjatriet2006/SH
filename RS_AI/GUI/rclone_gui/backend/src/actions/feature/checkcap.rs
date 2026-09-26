@@ -21,11 +21,12 @@ use std::time::{Duration, Instant};
 /// là tự sát). Hết hạn thì hỏi lại để bắt kịp remote đổi cấu hình.
 const FEATURE_CACHE_TTL: Duration = Duration::from_secs(300);
 
+type FeatureCache = Mutex<HashMap<String, (BackendFeatures, Instant)>>;
+
 /// UNIVERSAL: cache cờ theo tên remote (chỉ giữ lần hỏi THÀNH CÔNG; lỗi thì
 /// không ghi để lần sau thử lại, rớt về fallback route-cứng).
-fn feature_cache() -> &'static Mutex<HashMap<String, (BackendFeatures, Instant)>> {
-    static CACHE: std::sync::OnceLock<Mutex<HashMap<String, (BackendFeatures, Instant)>>> =
-        std::sync::OnceLock::new();
+fn feature_cache() -> &'static FeatureCache {
+    static CACHE: std::sync::OnceLock<FeatureCache> = std::sync::OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -66,11 +67,11 @@ pub struct Cap {
     pub sudo_fallback: bool,
     /// Backend hỗ trợ move-native (rclone `Move`/`DirMove`).
     pub support_move: bool,
-    /// Backend sao chép tại chỗ được (cờ `Copy` gốc — hồi sinh từ nhà copy).
+    /// Backend sao chép tại chỗ được (cờ `Copy` gốc làm telemetry / tài liệu năng lực native của backend đích, không dùng để chặn stream copy).
     pub support_copy: bool,
     /// Backend hỗ trợ fallback copy + purge (`Copy` + `Purge`).
     pub support_copy_and_delete: bool,
-    /// Backend dọn sạch thùng rác được (cờ `CleanUp` gốc).
+    /// Backend dọn sạch thùng rác được (cờ `CleanUp` gốc làm telemetry / tài liệu năng lực dọn rác).
     pub support_cleanup: bool,
     /// Phạm vi xóa nguồn khi fallback.
     pub delete_scope: DeleteScope,
@@ -249,7 +250,7 @@ pub fn check_cap_with_flags(src: &str, dst: &str, across_enabled: bool) -> Cap {
 
 /// Năng lực move/copy giữa 2 đường dẫn (mặt tiền trả lời của cửa quyết định).
 /// Dịch `Cap` ra 3 cờ JSON cũ (key giữ nguyên cho frontend/IPC):
-/// - canCopy: rclone luôn hỗ trợ stream copy giữa mọi remote hợp lệ.
+/// - canCopy: luôn true cho mọi đích (sai thì attempt rclone báo lỗi khi chạy).
 /// - canMove: backend hỗ trợ move native hoặc copy + delete.
 /// - canCopyDelete: backend hỗ trợ copy + purge.
 pub fn query_transfer_options(src: &str, dst: &str) -> serde_json::Value {
@@ -324,7 +325,7 @@ mod tests {
     #[test]
     fn cross_backend_takes_copy_and_cleanup_from_dst() {
         // UNIVERSAL: khác backend giữ đáp án route, chỉ support_copy/cleanup
-        // lấy theo đích (đúng ca Copy-mà-thiếu-Purge: dst có Copy → canCopy).
+        // lấy theo đích (dst có Copy/CleanUp thì ghi nhận telemetry tương ứng).
         let b = real_box_features();
         let c = cap_with_features(Route::DiffCloud, SameProvider(false), false, Some(&b));
         println!("[REAL grounded A×box] move={} copy={} copy_delete={} cleanup={}",

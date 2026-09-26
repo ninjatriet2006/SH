@@ -17,7 +17,6 @@ pub mod settings;
 
 use tauri::Manager;
 
-#[allow(deprecated)]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -28,11 +27,7 @@ pub fn run() {
             // FILES API
             // ==================
             api::files_view::list_files,
-            api::files_edit::fs_mkdir,
-            api::files_edit::fs_touch,
-            api::files_edit::fs_delete,
-            api::files_edit::fs_rename,
-            // UNIVERSAL: fs_copy/fs_move/fs_cancel cũ đã gộp về jobs — xóa command cũ.
+            // Thao tác sửa đổi file (copy, move, delete, rename, mkdir, touch) đi 100% qua JOBS API.
             api::files_view::fs_stat_advanced,
             api::files_view::fs_search,
             api::files_view::fs_check_conflicts,

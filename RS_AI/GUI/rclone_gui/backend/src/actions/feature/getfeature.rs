@@ -125,7 +125,7 @@ mod tests {
         // UNIVERSAL: snapshot thật phải ra đủ 52 cờ (serialize lại đếm đúng 52
         // key) + giá trị các cờ quyết định đúng như rclone báo.
         let f = parse_feature_flags(&real_local_features_json());
-        let back = serde_json::to_value(&f).expect("serialize");
+        let back = serde_json::to_value(f).expect("serialize");
         let n = back.as_object().map(|o| o.len()).unwrap_or(0);
         println!("[REAL feature-flags] local: {n} co");
         println!("  - Move={} DirMove={} Copy={} Purge={} CleanUp={} ServerSide={} IsLocal={}",
@@ -163,7 +163,7 @@ mod tests {
         let root: Value = serde_json::from_slice(&output.stdout).expect("JSON that tu rclone");
         let features = root.get("Features").expect("co object Features");
         let f = parse_feature_flags(features);
-        let n = serde_json::to_value(&f).expect("serialize").as_object().map(|o| o.len()).unwrap_or(0);
+        let n = serde_json::to_value(f).expect("serialize").as_object().map(|o| o.len()).unwrap_or(0);
         println!("[REAL live-features] /tmp: {n} co");
         println!("  - Move={} DirMove={} Copy={} Purge={} CleanUp={} ServerSide={} IsLocal={}",
             f.move_native, f.dir_move, f.copy, f.purge, f.clean_up,

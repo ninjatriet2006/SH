@@ -1,8 +1,8 @@
 /*
 [INTEGRITY NOTES]
 - Mục đích: THỰC THI `mkdir` (tạo thư mục).
-- Trách nhiệm: `plan_mkdir` lập kế hoạch, `execute_mkdir` gọi cỗ máy `super::rclone_instant::execute_create`.
-- Tương tác: Được gọi bởi `api::files_edit::fs_mkdir`.
+- Trách nhiệm: `plan_mkdir` lập kế hoạch, `execute_mkdir_sync` thực thi đồng bộ cho worker job.
+- Tương tác: Được gọi tuần tự bởi worker của `logic::jobs`. Không chạy qua fastlane.
 */
 
 use super::rclone_instant::{CreateKind, CreatePlan, plan_create};
@@ -31,15 +31,10 @@ pub fn plan_mkdir(path: &str) -> Result<MkdirPlan, String> {
     plan_create(CreateKind::Dir, path).map(Into::into)
 }
 
-/// Thực thi `mkdir` đồng bộ (dùng cho worker job hoặc gọi trực tiếp, không bọc fastlane).
+/// Thực thi `mkdir` đồng bộ cho worker của Job Queue.
 pub fn execute_mkdir_sync(path: &str, policy: Policy) -> Result<(), String> {
     let plan = plan_create(CreateKind::Dir, path)?;
     super::rclone_instant::execute_create_sync(&plan, policy)
-}
-
-/// Thực thi `mkdir` (tương thích API async): bọc fastlane bảo vệ async runtime khỏi blocking.
-pub async fn execute_mkdir(path: String, policy: Policy) -> Result<(), String> {
-    crate::logic::fastlane::fastlane(move || execute_mkdir_sync(&path, policy)).await
 }
 
 #[cfg(test)]

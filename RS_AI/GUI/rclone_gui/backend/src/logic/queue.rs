@@ -757,7 +757,7 @@ mod tests {
             let _ = std::fs::remove_file(&path);
             return;
         }
-        store.execute_children(&store.get(&job.id).expect("job"));
+        let _ = store.execute_children(&store.get(&job.id).expect("job"));
         let kids = store.children_of(&job.id);
         let skipped = kids.iter().find(|k| k.path == "d/f.txt").expect("ve d");
         assert_eq!(skipped.status, JobStatus::Cancelled);

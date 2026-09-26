@@ -5,7 +5,8 @@
  */
 
 import { invoke } from './ipc';
-import type { ConflictInfo, FileItem, SearchResultItem, StatInfo, UserPlace } from './types';
+import { jobEnqueue } from './jobs';
+import type { ConflictInfo, FileItem, Job, SearchResultItem, StatInfo, UserPlace } from './types';
 
 /** Liệt kê thư mục. `pane` để backend gắn watcher theo thư mục pane đang xem. */
 export async function listFiles(path: string, pane?: 'left' | 'right'): Promise<FileItem[]> {
@@ -82,24 +83,24 @@ export async function getTempDir(): Promise<string> {
   return await invoke<string>('fs_temp_dir');
 }
 
-/** Tạo thư mục (kể cả trên remote). */
-export async function makeDir(path: string): Promise<void> {
-  await invoke('fs_mkdir', { path });
+/** Tạo thư mục (qua hàng chờ Job Queue). */
+export async function makeDir(path: string): Promise<Job> {
+  return await jobEnqueue({ kind: 'mkdir', src: path });
 }
 
-/** Tạo file rỗng. */
-export async function touchFile(path: string): Promise<void> {
-  await invoke('fs_touch', { path });
+/** Tạo file rỗng (qua hàng chờ Job Queue). */
+export async function touchFile(path: string): Promise<Job> {
+  return await jobEnqueue({ kind: 'touch', src: path });
 }
 
-/** Xoá vĩnh viễn (đi qua hàng chờ job, tôn trọng policy hiện tại). */
-export async function deletePath(path: string): Promise<void> {
-  await invoke('fs_delete', { path });
+/** Xoá vĩnh viễn (qua hàng chờ Job Queue, tôn trọng policy hiện tại). */
+export async function deletePath(path: string): Promise<Job> {
+  return await jobEnqueue({ kind: 'delete', src: path });
 }
 
-/** Đổi tên/di chuyển nhanh trong cùng chỗ. */
-export async function renamePath(oldPath: string, newPath: string): Promise<void> {
-  await invoke('fs_rename', { old_path: oldPath, new_path: newPath });
+/** Đổi tên/di chuyển trong cùng chỗ (qua hàng chờ Job Queue). */
+export async function renamePath(oldPath: string, newPath: string): Promise<Job> {
+  return await jobEnqueue({ kind: 'rename', src: oldPath, dst: newPath });
 }
 
 /** Đổi mode POSIX — chỉ ổ Local. */

@@ -52,9 +52,10 @@ pub use types::{RemoteKind, SameProvider, same_provider, same_provider_from_dump
 
 pub use move_op::{Cap, DeleteScope, Route, SupportCopyAndDelete, SupportMove, TransferKind};
 
-// UNIVERSAL: copy chỉ còn thực thi (+ TransferKind giữ chỗ); Route/Cap bản sao
-// đã xoá — não duy nhất ở feature::checkcap, khỏi song sinh.
-pub use delete_op::{DeleteScope as SharedDeleteScope, EmptyDirs as DeleteEmptyDirs, Route as DeleteRoute, execute_delete, execute_delete_with_empty_dirs};
+pub use delete_op::{
+    DeleteScope as SharedDeleteScope, EmptyDirs as DeleteEmptyDirs, Route as DeleteRoute,
+    execute_delete_sync,
+};
 // UNIVERSAL: worker tên gọn cho `api::remote_manager` (gọi qua path module, không alias).
 pub use checksize::{about, size};
 pub use remote_edit::{create_remote, delete_remote, update_remote};
@@ -136,8 +137,8 @@ pub mod ops {
     pub use super::rename;
     pub use super::OpsCap as Cap;
     pub use super::create::{
-        CreateKind, CreatePlan, MkdirPlan, TouchPlan, execute_create, execute_mkdir, execute_touch,
+        CreateKind, CreatePlan, MkdirPlan, TouchPlan, execute_create_sync,
         plan_create, plan_mkdir, plan_touch,
     };
-    pub use super::rename::{IsDir, RenamePlan, SupportRename, execute_rename, plan_rename, plan_rename_for};
+    pub use super::rename::{IsDir, RenamePlan, SupportRename, execute_rename_sync, plan_rename, plan_rename_for};
 }

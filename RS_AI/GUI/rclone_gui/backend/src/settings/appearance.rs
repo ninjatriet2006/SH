@@ -140,11 +140,15 @@ mod tests {
 
     #[test]
     fn rejects_junk_id() {
-        let mut s = AppearanceSettings::default();
-        s.lang = "../etc".to_string();
+        let s = AppearanceSettings {
+            lang: "../etc".to_string(),
+            ..Default::default()
+        };
         assert!(validate(&s).is_err());
-        s = AppearanceSettings::default();
-        s.theme = "a/b".to_string();
+        let s = AppearanceSettings {
+            theme: "a/b".to_string(),
+            ..Default::default()
+        };
         assert!(validate(&s).is_err());
         assert!(validate(&AppearanceSettings::default()).is_ok());
     }
@@ -152,12 +156,16 @@ mod tests {
     #[test]
     fn source_dir_empty_ok_but_nonexistent_rejected() {
         // UNIVERSAL: rỗng = mặc định (ok); điền path không tồn tại → từ chối.
-        let mut s = AppearanceSettings::default();
-        s.themes_dir = "/khong/ton/tai/chac_chan_123".to_string();
+        let s = AppearanceSettings {
+            themes_dir: "/khong/ton/tai/chac_chan_123".to_string(),
+            ..Default::default()
+        };
         assert!(validate(&s).is_err());
         // Thư mục thật (temp) thì hợp lệ.
-        s = AppearanceSettings::default();
-        s.themes_dir = std::env::temp_dir().to_string_lossy().into_owned();
+        let s = AppearanceSettings {
+            themes_dir: std::env::temp_dir().to_string_lossy().into_owned(),
+            ..Default::default()
+        };
         assert!(validate(&s).is_ok());
     }
 

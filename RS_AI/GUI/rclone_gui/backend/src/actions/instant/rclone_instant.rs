@@ -4,9 +4,9 @@
 - Trách nhiệm:
   + `CreateKind` & `CreatePlan`: Mô hình dữ liệu chuẩn hóa cho thao tác tạo.
   + `plan_create`: Lập kế hoạch thuần túy (parse path, gắn năng lực OpsCap, chọn rclone/syscall).
-  + `execute_create`: Cỗ máy thực thi chung, quản lý fastlane, leo thang quyền (escalate),
+  + `execute_create_sync`: Cỗ máy thực thi chung đồng bộ cho worker job, leo thang quyền (escalate),
     bắt lỗi rclone/syscall và ghi nhận nhật ký chẩn đoán qua `core::debug`.
-- Tương tác: `actions::instant::{mkdir, touch}` gọi `execute_create`.
+- Tương tác: `actions::instant::{mkdir, touch}` gọi `execute_create_sync`. Không chạy qua fastlane.
 */
 
 use crate::actions::OpsCap;
@@ -145,7 +145,3 @@ pub fn execute_create_sync(plan: &CreatePlan, policy: Policy) -> Result<(), Stri
     res
 }
 
-/// Thực thi tạo (tương thích API async): chuyển giao thực thi đồng bộ [`execute_create_sync`].
-pub async fn execute_create(plan: CreatePlan, policy: Policy) -> Result<(), String> {
-    execute_create_sync(&plan, policy)
-}

@@ -1,8 +1,8 @@
 /*
 [INTEGRITY NOTES]
 - Mục đích: THỰC THI `touch` (tạo tệp rỗng).
-- Trách nhiệm: `plan_touch` lập kế hoạch, `execute_touch` gọi cỗ máy `super::rclone_instant::execute_create`.
-- Tương tác: Được gọi bởi `api::files_edit::fs_touch`.
+- Trách nhiệm: `plan_touch` lập kế hoạch, `execute_touch_sync` thực thi đồng bộ cho worker job.
+- Tương tác: Được gọi tuần tự bởi worker của `logic::jobs`. Không chạy qua fastlane.
 */
 
 use super::rclone_instant::{CreateKind, CreatePlan, plan_create};
@@ -31,15 +31,10 @@ pub fn plan_touch(path: &str) -> Result<TouchPlan, String> {
     plan_create(CreateKind::File, path).map(Into::into)
 }
 
-/// Thực thi `touch` đồng bộ (dùng cho worker job hoặc gọi trực tiếp, không bọc fastlane).
+/// Thực thi `touch` đồng bộ cho worker của Job Queue.
 pub fn execute_touch_sync(path: &str, policy: Policy) -> Result<(), String> {
     let plan = plan_create(CreateKind::File, path)?;
     super::rclone_instant::execute_create_sync(&plan, policy)
-}
-
-/// Thực thi `touch` (tương thích API async): bọc fastlane bảo vệ async runtime khỏi blocking.
-pub async fn execute_touch(path: String, policy: Policy) -> Result<(), String> {
-    crate::logic::fastlane::fastlane(move || execute_touch_sync(&path, policy)).await
 }
 
 #[cfg(test)]

@@ -106,12 +106,11 @@ mod tests {
 
     #[test]
     fn rejects_zero_and_over_cap() {
-        let mut s = DebugSettings::default();
-        s.log_rotate_mb = 0;
+        let s = DebugSettings { log_rotate_mb: 0 };
         assert!(validate(&s).is_err());
-        s.log_rotate_mb = 501;
+        let s = DebugSettings { log_rotate_mb: 501 };
         assert!(validate(&s).is_err());
-        s.log_rotate_mb = 50;
+        let s = DebugSettings { log_rotate_mb: 50 };
         assert!(validate(&s).is_ok());
     }
 }

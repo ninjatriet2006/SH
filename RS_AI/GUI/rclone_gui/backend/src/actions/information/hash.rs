@@ -18,9 +18,10 @@ use std::time::{Duration, Instant};
 /// TTL Cache cho danh sách hash hỗ trợ của remote (5 phút).
 const HASH_CACHE_TTL: Duration = Duration::from_secs(300);
 
-fn hash_cache() -> &'static Mutex<HashMap<String, (Vec<String>, Instant)>> {
-    static CACHE: std::sync::OnceLock<Mutex<HashMap<String, (Vec<String>, Instant)>>> =
-        std::sync::OnceLock::new();
+type HashCache = Mutex<HashMap<String, (Vec<String>, Instant)>>;
+
+fn hash_cache() -> &'static HashCache {
+    static CACHE: std::sync::OnceLock<HashCache> = std::sync::OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 

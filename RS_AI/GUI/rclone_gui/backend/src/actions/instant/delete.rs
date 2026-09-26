@@ -1,20 +1,16 @@
 /*
 [INTEGRITY NOTES]
-- Mục đích: Trial S1 bóc logic `fs_delete` (`purge`/`deletefile` + sudo fallback) thành
-  `execute_delete`, cộng thêm nhánh Trash; `fs_delete` cũ giữ nguyên hành vi.
+- Mục đích: THỰC THI `delete` (xóa vĩnh viễn qua rclone/escalate rm).
 - Trách nhiệm:
   + `DeletePlan` & `plan_delete`: Lập kế hoạch thuần túy (Route, DeleteScope, EmptyDirs, is_dir).
-  + `execute_delete_sync`: Bản đồng bộ cho worker job/queue (NoTrash qua escalate rm).
-  + `execute_delete_with_empty_dirs` / `execute_delete`: Bản bất đồng bộ qua fastlane.
+  + `execute_delete_sync`: Bản đồng bộ cho worker của Job Queue.
   + Ghi nhận nhật ký chẩn đoán qua `core::debug`.
-- Tương tác: Gọi `core::path::cut_remote_path`, `core::rclone_caller`, `actions::perm::escalate`,
-  `logic::fastlane`, `core::debug`. Không đụng copy/move/ipc/frontend.
+- Tương tác: Được gọi tuần tự bởi worker của `logic::jobs`. Không chạy qua fastlane.
 */
 
 pub use crate::actions::types::{DeleteScope, EmptyDirs};
 use crate::core::path::cut_remote_path;
 use crate::core::rclone_caller;
-use crate::logic::fastlane;
 
 /// Tuyến xóa dùng chung từ `actions::types::RemoteKind` (`"Local"` = ổ máy, còn lại là Remote) — 1 não duy nhất.
 pub use crate::actions::types::RemoteKind as Route;
@@ -132,110 +128,7 @@ pub fn execute_delete_sync(
     res
 }
 
-/// Thực thi xóa theo phạm vi (nhánh `NoTrash` = xóa vĩnh viễn như IPC `fs_delete` cũ).
-pub async fn execute_delete(path: String, scope: DeleteScope) -> Result<(), String> {
-    execute_delete_with_empty_dirs(path, scope, EmptyDirs::Keep).await
-}
 
-/// S1 bổ sung cờ: như [`execute_delete`], cộng dọn thư mục rỗng theo [`EmptyDirs`].
-pub async fn execute_delete_with_empty_dirs(
-    path: String,
-    scope: DeleteScope,
-    empty_dirs: EmptyDirs,
-) -> Result<(), String> {
-    let plan = plan_delete(&path, scope, empty_dirs, None)?;
-    let target = plan.target.clone();
-    let cleanup_target = target.clone();
-    let real_path = plan.real_path.clone();
-    let remote = plan.remote.clone();
-    let is_dir = plan.is_dir;
-
-    crate::core::debug::info(
-        None,
-        "actions/instant/delete",
-        format!("BẮT ĐẦU Delete | target='{}' scope={:?}", target, scope),
-    );
-    let start = std::time::Instant::now();
-
-    let res: Result<(), String> = match (plan.route, scope) {
-        // UNIVERSAL: Local + Trash — `gio trash` đưa vào thùng rác FreeDesktop.
-        (Route::Local, DeleteScope::Trash) => {
-            fastlane::fastlane(move || {
-                let output = std::process::Command::new("gio")
-                    .args(["trash", &real_path])
-                    .output()
-                    .map_err(|e| format!("Lỗi khi gọi gio trash: {}", e))?;
-                if !output.status.success() {
-                    return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
-                }
-                Ok(())
-            })
-            .await?;
-            Ok(())
-        }
-        // UNIVERSAL: Remote + Trash — `rclone delete` đệ quy file; backend hỗ trợ trash sẽ trash.
-        (Route::Remote, DeleteScope::Trash) => {
-            fastlane::fastlane(move || {
-                let output = rclone_caller::run_cmd(&["delete", &target])?;
-                if !output.status.success() {
-                    return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
-                }
-                Ok(())
-            })
-            .await?;
-            // Dọn rỗng sau delete Trash thành công (cây rỗng còn lại).
-            match empty_dirs {
-                EmptyDirs::Keep => Ok(()),
-                EmptyDirs::OnlyHere => {
-                    fastlane::fastlane(move || {
-                        let output = rclone_caller::run_cmd(&["rmdir", &cleanup_target])?;
-                        if !output.status.success() {
-                            return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
-                        }
-                        Ok(())
-                    })
-                    .await
-                }
-                EmptyDirs::Recursive => {
-                    fastlane::fastlane(move || {
-                        let output = rclone_caller::run_cmd(&["rmdirs", &cleanup_target])?;
-                        if !output.status.success() {
-                            return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
-                        }
-                        Ok(())
-                    })
-                    .await
-                }
-            }
-        }
-        // UNIVERSAL: NoTrash — xóa vĩnh viễn (thư mục: purge, file: deletefile, fallback lẫn nhau).
-        (_, DeleteScope::NoTrash) => {
-            fastlane::fastlane(move || {
-                run_delete_notrash(&remote, &real_path, &target, is_dir, crate::actions::perm::Policy::AllowSystem)
-            })
-            .await
-        }
-    };
-
-    match &res {
-        Ok(()) => {
-            crate::core::debug::info(
-                None,
-                "actions/instant/delete",
-                format!("XONG Delete | target='{}' ({:.2?})", plan.target, start.elapsed()),
-            );
-        }
-        Err(e) => {
-            crate::core::debug::error(
-                None,
-                "actions/instant/delete",
-                format!("LỖI Delete | target='{}' | err={} ({:.2?})", plan.target, e, start.elapsed()),
-            );
-        }
-    }
-
-    res
-}
 
 #[cfg(test)]
 mod tests {

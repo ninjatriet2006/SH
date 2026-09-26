@@ -4,7 +4,7 @@
 - Trách nhiệm: phân tuyến Route (dùng chung checkcap::Route) × IsDir → chọn SupportRename
   từ cờ backend Move/DirMove → dựng `moveto` + sudo fallback; ghi log qua `core::debug`.
 - Tương tác: Gọi `crate::actions::checkcap::Route`, `core::path::cut_remote_path`,
-  `core::rclone_caller::build_target`, `logic::fastlane`, `actions::perm::escalate`, `core::debug`.
+  `core::rclone_caller::build_target`, `actions::perm::escalate`, `core::debug`. Không chạy qua fastlane.
 */
 
 use crate::actions::perm::{Policy, escalate};
@@ -173,10 +173,6 @@ pub fn execute_rename_sync(old_path: &str, new_path: &str, policy: Policy) -> Re
     res
 }
 
-/// Thực thi `rename` (tương thích API async): bọc fastlane bảo vệ async runtime khỏi blocking.
-pub async fn execute_rename(old_path: String, new_path: String, policy: Policy) -> Result<(), String> {
-    crate::logic::fastlane::fastlane(move || execute_rename_sync(&old_path, &new_path, policy)).await
-}
 
 #[cfg(test)]
 mod tests {
