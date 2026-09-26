@@ -127,20 +127,15 @@ pub fn execute_rename_sync(old_path: &str, new_path: &str, policy: Policy) -> Re
     if old_path == new_path {
         return Ok(());
     }
-    let plan = plan_rename(old_path, new_path)?;
-    let (remote, old_real) = cut_remote_path(old_path);
-    let (dst_remote, new_real) = cut_remote_path(new_path);
-    let (src, dst) = (plan.src_target.clone(), plan.dst_target.clone());
-
-    // UNIVERSAL: Kiểm tra đích đã tồn tại chưa để chặn việc rclone moveto âm thầm ghi đè.
-    let dst_exists = if dst_remote == "Local" {
-        std::path::Path::new(&new_real).exists()
-    } else {
-        crate::actions::types::is_dir(&dst).is_some()
-    };
-    if dst_exists {
+    // UNIVERSAL: Kiểm tra xung đột tiền đề để chặn việc rclone moveto âm thầm ghi đè đích đã tồn tại.
+    if let Some(_conflict) = crate::actions::conflicts::check_rename_conflict(old_path, new_path)? {
         return Err("Đích đã tồn tại tệp hoặc thư mục cùng tên. Không thể đổi tên.".to_string());
     }
+
+    let plan = plan_rename(old_path, new_path)?;
+    let (remote, old_real) = cut_remote_path(old_path);
+    let (_dst_remote, new_real) = cut_remote_path(new_path);
+    let (src, dst) = (plan.src_target.clone(), plan.dst_target.clone());
 
     crate::core::debug::info(
         None,
@@ -178,9 +173,9 @@ pub fn execute_rename_sync(old_path: &str, new_path: &str, policy: Policy) -> Re
     res
 }
 
-/// Thực thi `rename` (tương thích API async): chuyển giao thực thi đồng bộ [`execute_rename_sync`].
+/// Thực thi `rename` (tương thích API async): bọc fastlane bảo vệ async runtime khỏi blocking.
 pub async fn execute_rename(old_path: String, new_path: String, policy: Policy) -> Result<(), String> {
-    execute_rename_sync(&old_path, &new_path, policy)
+    crate::logic::fastlane::fastlane(move || execute_rename_sync(&old_path, &new_path, policy)).await
 }
 
 #[cfg(test)]

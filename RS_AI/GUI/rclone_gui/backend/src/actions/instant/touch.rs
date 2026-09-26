@@ -37,11 +37,9 @@ pub fn execute_touch_sync(path: &str, policy: Policy) -> Result<(), String> {
     super::rclone_instant::execute_create_sync(&plan, policy)
 }
 
-/// Thực thi `touch` (tương thích API async): chuyển giao thực thi đồng bộ [`execute_touch_sync`].
-/// UNIVERSAL: Local qua `File::create`, remote qua `rclone touch`;
-/// lỗi quyền khi chưa consent trả `PERMISSION_CONSENT`.
+/// Thực thi `touch` (tương thích API async): bọc fastlane bảo vệ async runtime khỏi blocking.
 pub async fn execute_touch(path: String, policy: Policy) -> Result<(), String> {
-    execute_touch_sync(&path, policy)
+    crate::logic::fastlane::fastlane(move || execute_touch_sync(&path, policy)).await
 }
 
 #[cfg(test)]

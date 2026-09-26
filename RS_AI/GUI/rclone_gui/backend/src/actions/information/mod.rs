@@ -66,6 +66,71 @@ pub(crate) fn expand_local_path(path: &str) -> String {
     }
 }
 
+use crate::actions::types::RemoteKind;
+use crate::core::path::cut_remote_path;
+
+/// Kết quả chuẩn hóa đường dẫn phân tuyến cho nhóm information (`about`, `size`, `stat`, `hash`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetInfo {
+    pub remote: String,
+    pub real_path: String,
+    pub target: String,
+    pub route: RemoteKind,
+}
+
+/// Chuẩn hoá đường dẫn 4 nhánh dùng chung:
+/// 1. Cặp Remote::path hoặc Local::path
+/// 2. "Local" hoặc "Local:"
+/// 3. Đường dẫn cục bộ bắt đầu bằng /, ., ~
+/// 4. Remote trần (kết thúc hoặc không kết thúc bằng :)
+pub fn resolve_target(input: &str) -> Result<TargetInfo, String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("Thiếu tên remote hoặc đường dẫn.".to_string());
+    }
+
+    let (remote, real_path) = if trimmed.contains("::") {
+        let (r, p) = cut_remote_path(trimmed);
+        if r == "Local" {
+            ("Local".to_string(), expand_local_path(&p))
+        } else {
+            (r, p)
+        }
+    } else if trimmed == "Local" || trimmed == "Local:" {
+        ("Local".to_string(), "/".to_string())
+    } else if trimmed.starts_with('/') || trimmed.starts_with('.') || trimmed.starts_with('~') {
+        ("Local".to_string(), expand_local_path(trimmed))
+    } else {
+        let clean = trimmed.trim_end_matches(':');
+        (clean.to_string(), String::new())
+    };
+
+    let route = RemoteKind::classify(&remote);
+    let target = match route {
+        RemoteKind::Local => {
+            if real_path.is_empty() {
+                "/".to_string()
+            } else {
+                real_path.clone()
+            }
+        }
+        RemoteKind::Remote => {
+            if real_path.is_empty() {
+                format!("{remote}:")
+            } else {
+                rclone_caller::build_target(&remote, &real_path)
+            }
+        }
+    };
+
+    Ok(TargetInfo {
+        remote,
+        real_path,
+        target,
+        route,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

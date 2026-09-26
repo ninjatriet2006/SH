@@ -9,16 +9,25 @@ use crate::actions::perm::Policy;
 use crate::logic::app_state::AppState;
 use tauri::State;
 
+/// Legacy API: Tạo thư mục trực tiếp.
+/// Khuyến nghị: Frontend nên dùng `job_enqueue` với `kind: "mkdir"` để quản lý tập trung qua hàng đợi.
+#[deprecated(note = "Thao tác biến đổi tệp nên dùng job_enqueue để quản lý qua hàng đợi tập trung")]
 #[tauri::command]
 pub async fn fs_mkdir(path: String) -> Result<(), String> {
     crate::actions::create::execute_mkdir(path, Policy::AllowSystem).await
 }
 
+/// Legacy API: Tạo tệp rỗng trực tiếp.
+/// Khuyến nghị: Frontend nên dùng `job_enqueue` với `kind: "touch"` để quản lý tập trung qua hàng đợi.
+#[deprecated(note = "Thao tác biến đổi tệp nên dùng job_enqueue để quản lý qua hàng đợi tập trung")]
 #[tauri::command]
 pub async fn fs_touch(path: String) -> Result<(), String> {
     crate::actions::create::execute_touch(path, Policy::AllowSystem).await
 }
 
+/// Legacy API: Xóa tệp/thư mục trực tiếp.
+/// Khuyến nghị: Frontend nên dùng `job_enqueue` với `kind: "delete"` để quản lý tập trung qua hàng đợi.
+#[deprecated(note = "Thao tác biến đổi tệp nên dùng job_enqueue để quản lý qua hàng đợi tập trung")]
 #[tauri::command]
 pub async fn fs_delete(path: String) -> Result<(), String> {
     crate::actions::delete_op::execute_delete(
@@ -28,6 +37,9 @@ pub async fn fs_delete(path: String) -> Result<(), String> {
     .await
 }
 
+/// Legacy API: Đổi tên/di chuyển tệp trực tiếp.
+/// Khuyến nghị: Frontend nên dùng `job_enqueue` với `kind: "rename"` để quản lý tập trung qua hàng đợi.
+#[deprecated(note = "Thao tác biến đổi tệp nên dùng job_enqueue để quản lý qua hàng đợi tập trung")]
 #[tauri::command]
 pub async fn fs_rename(old_path: String, new_path: String) -> Result<(), String> {
     crate::actions::rename::execute_rename(old_path, new_path, Policy::AllowSystem).await

@@ -29,36 +29,6 @@ pub fn move_by_copy_delete(f: &BackendFeatures) -> bool {
     f.copy && f.purge
 }
 
-/// UNIVERSAL: copy được khi một trong ba đường thông — move-native, fallback
-/// copy+purge, HOẶC bare-Copy (backend có Copy mà thiếu Purge vẫn copyto được).
-/// Công thức 3 nguồn tập trung 1 mối (checkfeature chỉ gọi, không tự ráp `||`).
-pub fn can_copy(move_support: bool, copy_delete_support: bool, copy_support: bool) -> bool {
-    move_support || copy_delete_support || copy_support
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,17 +42,6 @@ mod tests {
         let f = parse_feature_flags(&json!({"Move": true, "DirMove": false}));
         assert!(move_splitter(&f, false));
         assert!(!move_splitter(&f, true));
-    }
-
-    #[test]
-    fn can_copy_covers_all_three_routes() {
-        // UNIVERSAL: ba đường thông độc lập — move-native, copy+purge, bare-Copy;
-        // tắt cả ba mới không copy được (đúng ca Copy-mà-thiếu-Purge).
-        assert!(can_copy(true, false, false));
-        assert!(can_copy(false, true, false));
-        assert!(can_copy(false, false, true));
-        assert!(!can_copy(false, false, false));
-        println!("[REAL combine-can_copy] TFF=T FTF=T FFT=T FFF=F");
     }
 
     #[test]

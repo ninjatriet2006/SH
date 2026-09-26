@@ -8,7 +8,6 @@
 */
 
 use crate::actions::types::RemoteKind;
-use crate::core::path::cut_remote_path;
 use crate::core::rclone_caller;
 use crate::logic::fastlane::fastlane;
 use serde::{Deserialize, Serialize};
@@ -38,56 +37,19 @@ pub struct StatPlan {
 /// Dựng plan `stat` (`size --json` + `lsjson -R --dirs-only`).
 /// UNIVERSAL: `fast_list` bật thì gắn `--fast-list` cho nhánh đếm đệ quy.
 pub fn plan_stat(path: &str, fast_list: bool) -> Result<StatPlan, String> {
-    let trimmed = path.trim();
-    if trimmed.is_empty() {
-        return Err("Thiếu đường dẫn để kiểm tra trạng thái (stat).".to_string());
-    }
+    let info = super::resolve_target(path)?;
 
-    let (remote, real_path) = if trimmed.contains("::") {
-        let (r, p) = cut_remote_path(trimmed);
-        if r == "Local" {
-            ("Local".to_string(), super::expand_local_path(&p))
-        } else {
-            (r, p)
-        }
-    } else if trimmed == "Local" || trimmed == "Local:" {
-        ("Local".to_string(), "/".to_string())
-    } else if trimmed.starts_with('/') || trimmed.starts_with('.') || trimmed.starts_with('~') {
-        ("Local".to_string(), super::expand_local_path(trimmed))
-    } else {
-        let clean = trimmed.trim_end_matches(':');
-        (clean.to_string(), String::new())
-    };
-
-    let route = RemoteKind::classify(&remote);
-    let target = match route {
-        RemoteKind::Local => {
-            if real_path.is_empty() {
-                "/".to_string()
-            } else {
-                real_path.clone()
-            }
-        }
-        RemoteKind::Remote => {
-            if real_path.is_empty() {
-                format!("{remote}:")
-            } else {
-                rclone_caller::build_target(&remote, &real_path)
-            }
-        }
-    };
-
-    let size_args = vec![target.clone(), "--json".to_string()];
-    let mut dirs_args = vec![target.clone(), "-R".to_string(), "--dirs-only".to_string()];
+    let size_args = vec![info.target.clone(), "--json".to_string()];
+    let mut dirs_args = vec![info.target.clone(), "-R".to_string(), "--dirs-only".to_string()];
     if fast_list {
         dirs_args.push("--fast-list".to_string());
     }
 
     Ok(StatPlan {
-        remote,
-        real_path,
-        target,
-        route,
+        remote: info.remote,
+        real_path: info.real_path,
+        target: info.target,
+        route: info.route,
         size_args,
         dirs_args,
     })

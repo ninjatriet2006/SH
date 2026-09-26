@@ -37,11 +37,9 @@ pub fn execute_mkdir_sync(path: &str, policy: Policy) -> Result<(), String> {
     super::rclone_instant::execute_create_sync(&plan, policy)
 }
 
-/// Thực thi `mkdir` (tương thích API async): chuyển giao thực thi đồng bộ [`execute_mkdir_sync`].
-/// UNIVERSAL: `AllowSystem` giữ hành vi cũ (tự `pkexec mkdir -p`);
-/// `Deny`/`AskOnce` trả `PERMISSION_CONSENT` để frontend park + hỏi.
+/// Thực thi `mkdir` (tương thích API async): bọc fastlane bảo vệ async runtime khỏi blocking.
 pub async fn execute_mkdir(path: String, policy: Policy) -> Result<(), String> {
-    execute_mkdir_sync(&path, policy)
+    crate::logic::fastlane::fastlane(move || execute_mkdir_sync(&path, policy)).await
 }
 
 #[cfg(test)]

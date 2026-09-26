@@ -9,10 +9,20 @@
 - Tương tác: Được gọi bởi `api::remote_manager` hoặc `api::files_view` qua fastlane.
 */
 
-use crate::actions::types::RemoteKind;
-use crate::core::path::cut_remote_path;
 use crate::core::rclone_caller;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+/// TTL Cache cho danh sách hash hỗ trợ của remote (5 phút).
+const HASH_CACHE_TTL: Duration = Duration::from_secs(300);
+
+fn hash_cache() -> &'static Mutex<HashMap<String, (Vec<String>, Instant)>> {
+    static CACHE: std::sync::OnceLock<Mutex<HashMap<String, (Vec<String>, Instant)>>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 /// Kết quả kiểm tra toàn vẹn giữa nguồn và đích (rclone check).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -24,49 +34,11 @@ pub struct IntegrityCheckResult {
     pub message: String,
 }
 
-/// Chuẩn hoá đường dẫn đầu vào thành target rclone hợp lệ.
-pub fn resolve_target(path: &str) -> (String, String, String) {
-    let trimmed = path.trim();
-    let (remote, real_path) = if trimmed.contains("::") {
-        let (r, p) = cut_remote_path(trimmed);
-        if r == "Local" {
-            ("Local".to_string(), super::expand_local_path(&p))
-        } else {
-            (r, p)
-        }
-    } else if trimmed == "Local" || trimmed == "Local:" {
-        ("Local".to_string(), "/".to_string())
-    } else if trimmed.starts_with('/') || trimmed.starts_with('.') || trimmed.starts_with('~') {
-        ("Local".to_string(), super::expand_local_path(trimmed))
-    } else {
-        let clean = trimmed.trim_end_matches(':');
-        (clean.to_string(), String::new())
-    };
-
-    let target = match RemoteKind::classify(&remote) {
-        RemoteKind::Local => {
-            if real_path.is_empty() {
-                "/".to_string()
-            } else {
-                real_path.clone()
-            }
-        }
-        RemoteKind::Remote => {
-            if real_path.is_empty() {
-                format!("{remote}:")
-            } else {
-                rclone_caller::build_target(&remote, &real_path)
-            }
-        }
-    };
-
-    (remote, real_path, target)
-}
-
 /// Tính mã băm (hash) của tệp tin qua `rclone hashsum <hash_type> <target>`.
 /// Các loại hash thông dụng: "md5", "sha1", "sha256", "crc32", "quickxor", "dropbox".
 pub fn execute_hashsum(path: &str, hash_type: &str) -> Result<String, String> {
-    let (_, _, target) = resolve_target(path);
+    let info = super::resolve_target(path)?;
+    let target = info.target;
     let hash_type = hash_type.trim().to_lowercase();
     if hash_type.is_empty() {
         return Err("Thiếu loại thuật toán băm (hash_type).".to_string());
@@ -109,42 +81,61 @@ pub fn execute_hashsum(path: &str, hash_type: &str) -> Result<String, String> {
 }
 
 /// Lấy danh sách các loại mã băm mà remote hỗ trợ (truy vấn `rclone backend features <remote:>`).
-/// Với Local, mặc định hỗ trợ ["md5", "sha1", "sha256", "crc32"].
+/// Với Local, truy vấn trực tiếp `rclone backend features /`.
+/// Kết quả được lưu bộ nhớ đệm TTL 5 phút để tránh spawn tiến trình lặp lại.
 pub fn get_supported_hashes(remote: &str) -> Vec<String> {
     let clean_remote = remote.trim().trim_end_matches(':');
-    if clean_remote == "Local" || clean_remote.is_empty() {
-        return vec![
-            "md5".to_string(),
-            "sha1".to_string(),
-            "sha256".to_string(),
-            "crc32".to_string(),
-        ];
+    let cache_key = if clean_remote.is_empty() || clean_remote == "Local" {
+        "Local".to_string()
+    } else {
+        clean_remote.to_string()
+    };
+
+    if let Some((hashes, at)) = hash_cache().lock().ok().and_then(|c| c.get(&cache_key).cloned()) {
+        if at.elapsed() < HASH_CACHE_TTL {
+            return hashes;
+        }
     }
 
-    let target = format!("{}:", clean_remote);
+    let target = if cache_key == "Local" {
+        "/".to_string()
+    } else {
+        format!("{}:", cache_key)
+    };
+
     let output = match rclone_caller::run_cmd(&["backend", "features", &target]) {
         Ok(out) if out.status.success() => out,
-        _ => return vec!["md5".to_string(), "sha1".to_string()],
+        _ => return Vec::new(),
     };
 
     let Ok(json) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {
-        return vec!["md5".to_string(), "sha1".to_string()];
+        return Vec::new();
     };
 
-    json.get("Hashes")
+    let hashes: Vec<String> = json.get("Hashes")
         .and_then(|h| h.as_array())
         .map(|arr| {
             arr.iter()
                 .filter_map(|v| v.as_str().map(|s| s.to_string()))
                 .collect()
         })
-        .unwrap_or_else(|| vec!["md5".to_string(), "sha1".to_string()])
+        .unwrap_or_default();
+
+    if !hashes.is_empty() {
+        if let Ok(mut cache) = hash_cache().lock() {
+            cache.insert(cache_key, (hashes.clone(), Instant::now()));
+        }
+    }
+
+    hashes
 }
 
 /// So sánh tính toàn vẹn (Integrity Check) giữa nguồn và đích qua `rclone check <src> <dst>`.
 pub fn execute_check_integrity(src: &str, dst: &str) -> Result<IntegrityCheckResult, String> {
-    let (_, _, src_target) = resolve_target(src);
-    let (_, _, dst_target) = resolve_target(dst);
+    let src_info = super::resolve_target(src)?;
+    let dst_info = super::resolve_target(dst)?;
+    let src_target = src_info.target;
+    let dst_target = dst_info.target;
 
     crate::core::debug::info(
         None,
@@ -198,17 +189,18 @@ pub fn execute_check_integrity(src: &str, dst: &str) -> Result<IntegrityCheckRes
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::actions::information::resolve_target;
 
     #[test]
     fn test_resolve_target() {
-        let (remote, real, target) = resolve_target("Local::/tmp/test.txt");
-        assert_eq!(remote, "Local");
-        assert_eq!(real, "/tmp/test.txt");
-        assert_eq!(target, "/tmp/test.txt");
+        let info = resolve_target("Local::/tmp/test.txt").expect("resolve");
+        assert_eq!(info.remote, "Local");
+        assert_eq!(info.real_path, "/tmp/test.txt");
+        assert_eq!(info.target, "/tmp/test.txt");
 
-        let (remote, _, target) = resolve_target("GDrive::/folder/a.zip");
-        assert_eq!(remote, "GDrive");
-        assert_eq!(target, "GDrive:/folder/a.zip");
+        let info2 = resolve_target("GDrive::/folder/a.zip").expect("resolve");
+        assert_eq!(info2.remote, "GDrive");
+        assert_eq!(info2.target, "GDrive:/folder/a.zip");
     }
 
     #[test]

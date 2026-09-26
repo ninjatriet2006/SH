@@ -86,7 +86,7 @@ export interface TrashItemLocal {
 }
 
 /** Loại việc (`logic::jobs::JobKind`, snake_case). */
-export type JobKind = 'copy' | 'move' | 'delete' | 'list' | 'manifest';
+export type JobKind = 'copy' | 'move' | 'delete' | 'list' | 'manifest' | 'rename' | 'mkdir' | 'touch';
 /** Trạng thái việc (`logic::jobs::JobStatus`, snake_case). */
 export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled';
 /** Chính sách quyền (`actions::perm::Policy`, snake_case). */
@@ -201,5 +201,14 @@ export interface SizeInfo {
 export interface BackendLogEvent {
   level: 'Info' | 'Warn' | 'Error';
   tag: string;
+  message: string;
+}
+
+/** Kết quả so sánh toàn vẹn (`actions::information::hash::IntegrityCheckResult`). */
+export interface IntegrityCheckResult {
+  success: boolean;
+  matches: number;
+  differences: number;
+  errors: number;
   message: string;
 }

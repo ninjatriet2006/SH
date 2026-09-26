@@ -49,3 +49,34 @@ export async function subscribeJobUpdates(cb: (job: Job) => void): Promise<Unlis
     }
   });
 }
+
+/** Lấy danh sách ID các job đang chờ trong hàng đợi theo thứ tự thực thi. */
+export async function jobGetQueue(): Promise<string[]> {
+  try {
+    return await invoke<string[]>('job_get_queue');
+  } catch (error) {
+    console.error('Lỗi job_get_queue:', error);
+    return [];
+  }
+}
+
+/** Đổi thứ tự toàn bộ hàng đợi theo mảng ID được cấp. */
+export async function jobReorder(orderedIds: string[]): Promise<void> {
+  await invoke('job_reorder', { ordered_ids: orderedIds });
+}
+
+/** Đẩy job lên trước 1 vị trí trong hàng đợi. */
+export async function jobMoveUp(jobId: string): Promise<void> {
+  await invoke('job_move_up', { job_id: jobId });
+}
+
+/** Đẩy job xuống sau 1 vị trí trong hàng đợi. */
+export async function jobMoveDown(jobId: string): Promise<void> {
+  await invoke('job_move_down', { job_id: jobId });
+}
+
+/** Đưa job lên đầu hàng đợi chờ. */
+export async function jobMoveToTop(jobId: string): Promise<void> {
+  await invoke('job_move_to_top', { job_id: jobId });
+}
+

@@ -248,18 +248,15 @@ pub fn check_cap_with_flags(src: &str, dst: &str, across_enabled: bool) -> Cap {
 }
 
 /// Năng lực move/copy giữa 2 đường dẫn (mặt tiền trả lời của cửa quyết định).
-/// Dịch `Cap` ra 3 cờ JSON cũ (key giữ nguyên cho frontend/IPC); công thức tổ
-/// hợp nằm ở `super::combinefeature::can_copy` — không tự ráp `||` tại chỗ.
+/// Dịch `Cap` ra 3 cờ JSON cũ (key giữ nguyên cho frontend/IPC):
+/// - canCopy: rclone luôn hỗ trợ stream copy giữa mọi remote hợp lệ.
+/// - canMove: backend hỗ trợ move native hoặc copy + delete.
+/// - canCopyDelete: backend hỗ trợ copy + purge.
 pub fn query_transfer_options(src: &str, dst: &str) -> serde_json::Value {
     let cap = check_cap(src, dst);
-    let can_copy = super::combinefeature::can_copy(
-        cap.support_move,
-        cap.support_copy_and_delete,
-        cap.support_copy,
-    );
     serde_json::json!({
-        "canMove": cap.support_move,
-        "canCopy": can_copy,
+        "canMove": cap.support_move || cap.support_copy_and_delete,
+        "canCopy": true,
         "canCopyDelete": cap.support_copy_and_delete
     })
 }
@@ -348,10 +345,10 @@ mod tests {
     #[test]
     fn capability_cross_remote_denies_all() {
         // UNIVERSAL: DiffCloud khác hãng/tắt cờ thì không move-native lẫn
-        // copy-purge (trung chuyển qua local).
+        // copy-purge (trung chuyển qua local), nhưng luôn copy được qua stream transfer.
         let v = query_transfer_options("A::/a", "B::/b");
         assert_eq!(v.get("canMove").and_then(|x| x.as_bool()), Some(false));
-        assert_eq!(v.get("canCopy").and_then(|x| x.as_bool()), Some(false));
+        assert_eq!(v.get("canCopy").and_then(|x| x.as_bool()), Some(true));
         assert_eq!(v.get("canCopyDelete").and_then(|x| x.as_bool()), Some(false));
     }
 }

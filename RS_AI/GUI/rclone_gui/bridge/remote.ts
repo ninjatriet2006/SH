@@ -4,7 +4,7 @@
  */
 
 import { invoke } from './ipc';
-import type { AboutInfo, SizeInfo, TransferCapability } from './types';
+import type { AboutInfo, IntegrityCheckResult, SizeInfo, TransferCapability } from './types';
 
 export interface RemoteConfig {
   name: string;
@@ -136,4 +136,27 @@ export async function getSize(remote: string): Promise<SizeInfo> {
     console.error(`Lỗi rclone_size ${remote}:`, error);
     return {};
   }
+}
+
+/** Lấy mã băm (hash) của tệp tin qua rclone hashsum. */
+export async function getFileHash(path: string, hashType: string): Promise<string> {
+  return await invoke<string>('get_file_hash', { path, hash_type: hashType });
+}
+
+/** Lấy danh sách các loại mã băm mà remote hỗ trợ. */
+export async function getRemoteHashes(remote: string): Promise<string[]> {
+  try {
+    return await invoke<string[]>('get_remote_hashes', { remote });
+  } catch (error) {
+    console.error(`Lỗi get_remote_hashes ${remote}:`, error);
+    return [];
+  }
+}
+
+/** So sánh kiểm tra toàn vẹn nội dung giữa hai nguồn (rclone check --combined). */
+export async function checkFilesIntegrity(
+  src: string,
+  dst: string,
+): Promise<IntegrityCheckResult> {
+  return await invoke<IntegrityCheckResult>('check_files_integrity', { src, dst });
 }

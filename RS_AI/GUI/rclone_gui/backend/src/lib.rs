@@ -17,6 +17,7 @@ pub mod settings;
 
 use tauri::Manager;
 
+#[allow(deprecated)]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -115,7 +116,7 @@ pub fn run() {
             api::appearance_manager::get_appearance,
             api::appearance_manager::set_appearance,
             // ==================
-            // JOBS API (đường duy nhất cho copy/move/delete/list/rename/mkdir/touch)
+            // JOBS API (hàng đợi tập trung tuần tự cho toàn bộ nhóm biến đổi tệp và streaming)
             // ==================
             api::jobs::job_enqueue,
             api::jobs::job_list,

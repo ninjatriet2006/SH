@@ -8,8 +8,6 @@
 */
 
 use crate::actions::types::RemoteKind;
-use crate::core::path::cut_remote_path;
-use crate::core::rclone_caller;
 use serde_json::Value;
 
 /// Kế hoạch đo dung lượng thuần túy.
@@ -28,52 +26,14 @@ pub fn about_allowed(flags: Option<&crate::actions::feature::getfeature::Backend
 
 /// Chuẩn hoá target và lập kế hoạch đo dung lượng thuần túy.
 pub fn plan_about(input: &str) -> Result<AboutPlan, String> {
-    let trimmed = input.trim();
-    if trimmed.is_empty() {
-        return Err("Thiếu tên remote hoặc đường dẫn để kiểm tra dung lượng.".to_string());
-    }
-
-    let (remote, path) = if trimmed.contains("::") {
-        let (r, p) = cut_remote_path(trimmed);
-        if r == "Local" {
-            ("Local".to_string(), super::expand_local_path(&p))
-        } else {
-            (r, p)
-        }
-    } else if trimmed == "Local" || trimmed == "Local:" {
-        ("Local".to_string(), "/".to_string())
-    } else if trimmed.starts_with('/') || trimmed.starts_with('.') || trimmed.starts_with('~') {
-        ("Local".to_string(), super::expand_local_path(trimmed))
-    } else {
-        let clean = trimmed.trim_end_matches(':');
-        (clean.to_string(), String::new())
-    };
-
-    let route = RemoteKind::classify(&remote);
-    let target = match route {
-        RemoteKind::Local => {
-            if path.is_empty() {
-                "/".to_string()
-            } else {
-                path
-            }
-        }
-        RemoteKind::Remote => {
-            if path.is_empty() {
-                format!("{remote}:")
-            } else {
-                rclone_caller::build_target(&remote, &path)
-            }
-        }
-    };
-
-    let cached = crate::actions::feature::checkcap::backend_features_cached(&remote);
+    let info = super::resolve_target(input)?;
+    let cached = crate::actions::feature::checkcap::backend_features_cached(&info.remote);
     let allowed = about_allowed(cached.as_ref());
 
     Ok(AboutPlan {
-        remote,
-        route,
-        target,
+        remote: info.remote,
+        route: info.route,
+        target: info.target,
         allowed,
     })
 }
