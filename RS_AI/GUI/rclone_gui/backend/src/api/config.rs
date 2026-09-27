@@ -141,6 +141,14 @@ pub async fn get_backend_log(request: Req<Empty>) -> IpcResult<String> {
 }
 
 #[tauri::command]
+pub async fn clear_backend_log(request: Req<Empty>) -> IpcResult<()> {
+    async_command_result(request, IpcErrorCode::Io, |_| async move {
+        fastlane(crate::core::debug::clear_log).await
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn set_debug_settings(
     request: Req<SetDebugSettingsRequest>,
 ) -> IpcResult<crate::settings::diagnostics::DebugSettings> {

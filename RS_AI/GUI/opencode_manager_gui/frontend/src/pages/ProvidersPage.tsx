@@ -14,10 +14,10 @@
   xoá provider ở đây cũng xoá key tương ứng trong auth.json.
 */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useDeferredValue } from 'react';
 import type { ReactNode } from 'react';
 import {
-    Plus, Edit, Trash2, RefreshCw, Plug, Boxes, Search, Star, ChevronUp, ChevronDown, AlertTriangle, Radar,
+    Plus, Edit, Trash2, RefreshCw, Boxes, Search, Star, ChevronUp, ChevronDown, AlertTriangle, Radar,
 } from 'lucide-react';
 import type { ProviderView, SaveResult } from '../../../bridge/types';
 import { useProviderStore } from '../store/useProviderStore';
@@ -41,14 +41,14 @@ const PROVIDER_COLUMNS: ResizableColumn[] = [
     { key: 'models', defaultWidth: 95, minWidth: 70 },
     { key: 'pinned', defaultWidth: 160, minWidth: 100 },
     { key: 'status', defaultWidth: 105, minWidth: 80 },
-    { key: 'actions', defaultWidth: 158, minWidth: 150 },
+    { key: 'actions', defaultWidth: 125, minWidth: 110 },
 ];
 
 export function ProvidersPage() {
     const { t } = useTranslation();
     const {
         providers, presets, statuses, checking, isLoading, isTestingAll,
-        fetchProviders, fetchPresets, save, remove, testOne, testAll,
+        fetchProviders, fetchPresets, save, remove, testAll,
         scanModels, applyModels,
     } = useProviderStore();
     const {
@@ -58,6 +58,7 @@ export function ProvidersPage() {
     const { widthOf, startResize, resetResize } = useColumnWidths('providers', PROVIDER_COLUMNS);
 
     const [query, setQuery] = useState('');
+    const deferredQuery = useDeferredValue(query);
     const [editing, setEditing] = useState<ProviderView | null>(null);
     const [isProviderModalOpen, setProviderModalOpen] = useState(false);
     const [modelsTarget, setModelsTarget] = useState<ProviderView | null>(null);
@@ -116,14 +117,14 @@ export function ProvidersPage() {
     }, [preferencesLoaded, providers, trackedProviders, scanModels, untrack]);
 
     const filtered = useMemo(() => {
-        const q = query.trim().toLowerCase();
+        const q = deferredQuery.trim().toLowerCase();
         if (!q) return providers;
         return providers.filter(p =>
             p.id.toLowerCase().includes(q)
             || p.name.toLowerCase().includes(q)
             || p.base_url.toLowerCase().includes(q)
         );
-    }, [providers, query]);
+    }, [providers, deferredQuery]);
 
     // Trong mỗi nhóm: provider có sao lên TRƯỚC (theo đúng thứ tự người dùng
     // sắp bằng mũi tên), phần còn lại giữ nguyên thứ tự gốc của danh sách.
@@ -423,14 +424,6 @@ export function ProvidersPage() {
                 </td>
                 <td>
                     <div style={{ display: 'flex', gap: '0.4rem' }}>
-                        <button
-                            className="btn"
-                            style={{ padding: '0.35rem', background: 'rgba(255,255,255,0.08)' }}
-                            onClick={() => testOne(p.id).catch(err => setNotice(String(err)))}
-                            title={t('providers.test_one')}
-                        >
-                            <Plug size={15} />
-                        </button>
                         <button
                             className="btn"
                             style={{ padding: '0.35rem', background: 'rgba(255,255,255,0.08)' }}

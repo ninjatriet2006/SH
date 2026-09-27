@@ -1,0 +1,18 @@
+{
+  "id": "test_neon",
+  "name": "🧪 Canary Test Neon",
+  "variables": {
+    "colors-neon-cyan": "#00f3ff",
+    "colors-neon-magenta": "#ff007f",
+    "colors-neon-purple": "#a855f7",
+    "colors-surface-canvas": "#090314",
+    "colors-surface-card": "#140827",
+    "colors-surface-header": "#1d0c38",
+    "colors-surface-input": "#110622",
+    "colors-text-primary": "#00ffff",
+    "colors-text-secondary": "#ff77b4",
+    "colors-text-muted": "#935fa7",
+    "colors-border-muted": "#ff007f",
+    "colors-border-active": "#00f3ff"
+  }
+}

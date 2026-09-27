@@ -7,6 +7,7 @@
 
 import {
   AlertTriangle,
+  Edit2,
   HardDrive,
   Play,
   Plus,
@@ -18,16 +19,20 @@ import {
 import React, { useEffect, useState } from 'react';
 import { CreateMountModal } from '../components/CreateMountModal';
 import { useMountsStore } from '../store/useMountsStore';
+import { useTranslation } from '../utils/i18n';
 
 export const MountsPage: React.FC = () => {
+  const { t } = useTranslation();
   const mounts = useMountsStore((state) => state.mounts);
   const fuseInstalled = useMountsStore((state) => state.fuseInstalled);
   const loadMounts = useMountsStore((state) => state.loadMounts);
   const manageMount = useMountsStore((state) => state.manageMount);
   const deleteMount = useMountsStore((state) => state.deleteMount);
+  const getServiceConfig = useMountsStore((state) => state.getServiceConfig);
   const isLoading = useMountsStore((state) => state.isLoading);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingMount, setEditingMount] = useState<import('../../../bridge/types').MountConfig | null>(null);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
 
   useEffect(() => {
@@ -59,22 +64,50 @@ export const MountsPage: React.FC = () => {
     }
   };
 
+  const handleEdit = async (serviceName: string, isUser: boolean) => {
+    try {
+      const cfg = await getServiceConfig(serviceName, isUser);
+      if (cfg) {
+        setEditingMount(cfg);
+        setShowCreateModal(true);
+      } else {
+        alert('Không thể đọc cấu hình dịch vụ mount này.');
+      }
+    } catch (err) {
+      alert(`Lỗi đọc cấu hình: ${String(err)}`);
+    }
+  };
+
   return (
     <div className="page-container">
       <div className="page-header">
         <div className="page-title">
           <HardDrive size={24} color="#38bdf8" />
-          <span>Dịch vụ Mount Systemd ({mounts.length})</span>
+          <span data-lang-id="mounts_title">
+            {t('mounts_title', 'Dịch vụ Mount')} ({mounts.length})
+          </span>
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button className="btn btn-secondary btn-sm" onClick={() => loadMounts()} disabled={isLoading}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => loadMounts()}
+            disabled={isLoading}
+            data-lang-id="mounts_refresh"
+          >
             <RefreshCw size={14} />
-            <span>Làm mới</span>
+            <span>{t('mounts_refresh', 'Làm mới')}</span>
           </button>
-          <button className="btn btn-primary btn-sm" onClick={() => setShowCreateModal(true)}>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              setEditingMount(null);
+              setShowCreateModal(true);
+            }}
+            data-lang-id="mounts_new"
+          >
             <Plus size={14} />
-            <span>Tạo Mount mới</span>
+            <span>{t('mounts_new', 'Tạo Mount mới')}</span>
           </button>
         </div>
       </div>
@@ -119,9 +152,15 @@ export const MountsPage: React.FC = () => {
             }}
           >
             <HardDrive size={48} color="rgba(255,255,255,0.1)" />
-            <p>Chưa có dịch vụ rclone mount nào trên hệ thống.</p>
-            <button className="btn btn-primary btn-sm" onClick={() => setShowCreateModal(true)}>
-              Tạo dịch vụ Mount đầu tiên
+            <p data-lang-id="mounts_empty">
+              {t('mounts_empty', 'Chưa có dịch vụ mount nào đang chạy')}
+            </p>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => setShowCreateModal(true)}
+              data-lang-id="mounts_new"
+            >
+              {t('mounts_new', 'Tạo Mount mới')}
             </button>
           </div>
         ) : (
@@ -208,6 +247,16 @@ export const MountsPage: React.FC = () => {
                         <button
                           className="btn-icon"
                           disabled={isBusy}
+                          title={t('mounts_edit', 'Sửa Mount')}
+                          onClick={() => handleEdit(m.name, m.is_user)}
+                          data-lang-id="mounts_edit"
+                        >
+                          <Edit2 size={13} />
+                        </button>
+
+                        <button
+                          className="btn-icon"
+                          disabled={isBusy}
                           title="Xoá dịch vụ mount"
                           style={{ color: 'var(--danger)' }}
                           onClick={() => handleDelete(m.name, m.is_user)}
@@ -224,7 +273,15 @@ export const MountsPage: React.FC = () => {
         )}
       </div>
 
-      {showCreateModal && <CreateMountModal onClose={() => setShowCreateModal(false)} />}
+      {showCreateModal && (
+        <CreateMountModal
+          initialConfig={editingMount}
+          onClose={() => {
+            setShowCreateModal(false);
+            setEditingMount(null);
+          }}
+        />
+      )}
     </div>
   );
 };

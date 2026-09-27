@@ -18,6 +18,17 @@ impl Default for RouteStatus {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ProtocolAdapter {
+    #[default]
+    None,
+    #[serde(rename = "openai_to_1min")]
+    OpenAiTo1Min,
+    #[serde(rename = "openai_to_anthropic")]
+    OpenAiToAnthropic,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RouteRule {
     pub id: String,
@@ -42,6 +53,12 @@ pub struct RouteRule {
     /// 0 = dùng ngưỡng của tunnel. Effective = max(route, tunnel).
     #[serde(default)]
     pub min_request_interval_ms: u64,
+    /// Bộ chuyển đổi giao thức (Protocol Conversion):
+    /// - None: Direct Passthrough (giữ nguyên payload)
+    /// - OpenAiTo1Min: OpenAI Completion <-> 1min.AI
+    /// - OpenAiToAnthropic: OpenAI Completion <-> Anthropic Messages
+    #[serde(default)]
+    pub protocol_adapter: ProtocolAdapter,
 }
 
 fn default_max_disk_log_entries() -> usize {

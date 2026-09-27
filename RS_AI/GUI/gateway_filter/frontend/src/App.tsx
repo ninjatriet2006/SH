@@ -114,6 +114,7 @@ export function App() {
                 tunnel_id: config.tunnels[0]?.id || "direct_bypass",
                 enabled: true,
                 fingerprint_index: null,
+                protocol_adapter: "none",
                 key_manager: {
                   key_file_path: "",
                   current_key_index: 0,

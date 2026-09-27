@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { GatewayConfig, RouteRule, OutboundTunnel } from "../types";
+import { invoke } from "@tauri-apps/api/core";
+import { GatewayConfig, RouteRule, OutboundTunnel, AdguardLocationItem, ProtocolAdapter } from "../types";
 
 function portFromEndpoint(ep: string): string {
   // Bóc userinfo trước để user:1234@host:1080 không match nhầm port 1234
@@ -8,10 +9,16 @@ function portFromEndpoint(ep: string): string {
   return match ? match[1] : "";
 }
 
-function adguardTemplate(port: string) {
+function adguardTemplate(port: string, location?: string) {
   const p = port || "1080";
+  let connectFlag = "";
+  if (location === "fastest") {
+    connectFlag = " -f";
+  } else if (location && location !== "random") {
+    connectFlag = ` -l "${location}"`;
+  }
   return {
-    start_command: `adguardvpn-cli config set-socks-port ${p} && adguardvpn-cli config set-mode socks && adguardvpn-cli connect`,
+    start_command: `adguardvpn-cli config set-socks-port ${p} && adguardvpn-cli config set-mode socks && adguardvpn-cli connect${connectFlag}`,
     stop_command: "adguardvpn-cli disconnect",
   };
 }
@@ -32,8 +39,11 @@ type VpnApp = "adguard" | "warp" | "direct";
 /// Không khớp preset nào → "custom" (cho sửa tay).
 function detectPreset(t: OutboundTunnel): CliPreset {
   const port = portFromEndpoint(t.endpoint || "");
-  const ag = adguardTemplate(port);
-  if (t.start_command === ag.start_command && t.stop_command === ag.stop_command) {
+  const p = port || "1080";
+  if (
+    t.start_command?.startsWith(`adguardvpn-cli config set-socks-port ${p}`) &&
+    t.stop_command === "adguardvpn-cli disconnect"
+  ) {
     return "adguard";
   }
   const w = warpTemplate(port);
@@ -61,13 +71,15 @@ function detectApp(t: OutboundTunnel): VpnApp {
 function applyApp(t: OutboundTunnel, app: VpnApp): OutboundTunnel {
   const port = portFromEndpoint(t.endpoint || "");
   if (app === "adguard") {
+    const loc = t.adguard_location || "random";
     return {
       ...t,
       protocol: "socks5",
       endpoint: `127.0.0.1:${port || "1080"}`,
       auth_user: "",
       auth_pass: "",
-      ...adguardTemplate(port),
+      adguard_location: loc,
+      ...adguardTemplate(port, loc),
     };
   }
   if (app === "warp") {
@@ -114,11 +126,29 @@ export function Modals({
   const [prevTunnelId, setPrevTunnelId] = useState<string | null>(null);
   const [tunnelMode, setTunnelMode] = useState<TunnelMode>("app");
   const [tunnelApp, setTunnelApp] = useState<VpnApp>("adguard");
+  const [adguardLocations, setAdguardLocations] = useState<AdguardLocationItem[]>([]);
+  const [loadingLocations, setLoadingLocations] = useState<boolean>(false);
+
+  const loadAdguardLocations = async () => {
+    setLoadingLocations(true);
+    try {
+      const list = await invoke<AdguardLocationItem[]>("get_adguard_locations");
+      setAdguardLocations(list || []);
+    } catch (err) {
+      console.error("Failed to load adguard locations:", err);
+    } finally {
+      setLoadingLocations(false);
+    }
+  };
+
   if ((editingTunnel?.id ?? null) !== prevTunnelId) {
     setPrevTunnelId(editingTunnel?.id ?? null);
     if (editingTunnel) {
       setTunnelMode(detectMode(editingTunnel));
       setTunnelApp(detectApp(editingTunnel));
+      if (detectApp(editingTunnel) === "adguard" && adguardLocations.length === 0) {
+        loadAdguardLocations();
+      }
     }
   }
   return (
@@ -225,6 +255,27 @@ export function Modals({
                 </select>
                 <p className="text-[10px] text-slate-500 mt-1">
                   Pinned endpoints rotate only their own profile on 401/403; Global default follows the pool active.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-slate-400 block mb-1">Protocol Adapter</label>
+                <select
+                  value={editingRoute.protocol_adapter ?? "none"}
+                  onChange={(e) =>
+                    setEditingRoute({
+                      ...editingRoute,
+                      protocol_adapter: e.target.value as ProtocolAdapter,
+                    })
+                  }
+                  className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 font-mono text-slate-200"
+                >
+                  <option value="none">None (Direct Passthrough)</option>
+                  <option value="openai_to_1min">OpenAI Completion ↔ 1min.AI</option>
+                  <option value="openai_to_anthropic">OpenAI Completion ↔ Anthropic Messages</option>
+                </select>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Chuyển đổi giao thức: Cho phép client gọi OpenAI Chat Completion nhưng Gateway tự dịch sang Provider đích (bao gồm cả SSE streaming và Models list).
                 </p>
               </div>
 
@@ -352,7 +403,10 @@ export function Modals({
                         const base = { ...editingTunnel, endpoint };
                         // App adguard/warp: dựng lại lệnh theo port mới để không lệch cổng
                         if (tunnelApp === "adguard") {
-                          setEditingTunnel({ ...base, ...adguardTemplate(portFromEndpoint(endpoint)) });
+                          setEditingTunnel({
+                            ...base,
+                            ...adguardTemplate(portFromEndpoint(endpoint), editingTunnel.adguard_location),
+                          });
                         } else if (tunnelApp === "warp") {
                           setEditingTunnel({ ...base, ...warpTemplate(portFromEndpoint(endpoint)) });
                         } else {
@@ -363,6 +417,55 @@ export function Modals({
                       className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 font-mono disabled:opacity-40"
                     />
                   </div>
+
+                  {tunnelApp === "adguard" && (
+                    <div className="col-span-2 mt-1">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-400">Vị Trí AdGuard VPN (Location)</label>
+                        <button
+                          type="button"
+                          onClick={loadAdguardLocations}
+                          disabled={loadingLocations}
+                          className="text-[11px] text-sky-400 hover:text-sky-300 flex items-center gap-1 disabled:opacity-50"
+                        >
+                          {loadingLocations ? "Đang tải vị trí..." : "🔄 Cập nhật danh sách từ CLI"}
+                        </button>
+                      </div>
+                      <select
+                        value={editingTunnel.adguard_location || "random"}
+                        onFocus={() => {
+                          if (adguardLocations.length === 0 && !loadingLocations) {
+                            loadAdguardLocations();
+                          }
+                        }}
+                        onChange={(e) => {
+                          const loc = e.target.value;
+                          const port = portFromEndpoint(editingTunnel.endpoint || "");
+                          setEditingTunnel({
+                            ...editingTunnel,
+                            adguard_location: loc,
+                            ...adguardTemplate(port, loc),
+                          });
+                        }}
+                        className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 font-mono text-slate-200"
+                      >
+                        <option value="random">🎲 Random Location (Mặc định - Đổi IP liên tục)</option>
+                        <option value="fastest">⚡ Fastest Location (Nhanh nhất - Tối ưu Ping)</option>
+                        {adguardLocations.length > 0 && (
+                          <optgroup label="Danh Sách Vị Trí Khả Dụng (Từ adguardvpn-cli)">
+                            {adguardLocations.map((item) => (
+                              <option key={item.id} value={item.id}>
+                                📍 {item.name} {item.ping_ms ? `(${item.ping_ms} ms)` : ""}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        Chế độ "Random" tự động lấy vị trí khả dụng từ AdGuard mỗi lần kết nối để chống nhận diện và cố định IP.
+                      </p>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <>

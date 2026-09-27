@@ -32,6 +32,10 @@ pub struct RequestLogContext {
     pub leaks: Vec<LeakFinding>,
     pub start_time: Instant,
     pub permit: Option<tokio::sync::OwnedSemaphorePermit>,
+    /// Bộ chuyển đổi giao thức đang kích hoạt (Protocol Adapter)
+    pub active_adapter: crate::config::ProtocolAdapter,
+    /// Tên model client đã yêu cầu (để format chuẩn lại OpenAI response)
+    pub requested_model: Option<String>,
 }
 
 /// Gửi request sang upstream server và xử lý phản hồi (hỗ trợ SSE Streaming hoặc Buffered Body)
@@ -54,7 +58,19 @@ pub async fn send_and_handle_upstream(
                 .map(|ct| ct.contains("text/event-stream"))
                 .unwrap_or(false);
 
-            let mut resp_builder = Response::builder().status(status_code);
+            let is_adapted = ctx.active_adapter != crate::config::ProtocolAdapter::None;
+
+            // Error Code Masking & Preservation:
+            // Nếu upstream trả 401 hoặc 403, chuyển mã lỗi thành 502 Bad Gateway khi trả về client
+            // để bảo vệ IDE/Client (Cursor/Cline) không tự động xóa credential hoặc popup bắt login lại,
+            // trong khi vẫn giữ nguyên vẹn 100% nội dung body JSON chi tiết từ upstream cho người dùng đọc.
+            let client_status = if status_code == 401 || status_code == 403 {
+                StatusCode::BAD_GATEWAY
+            } else {
+                StatusCode::from_u16(status_code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
+            };
+
+            let mut resp_builder = Response::builder().status(client_status);
 
             // 100% Raw Response Headers (Lọc bỏ hop-by-hop headers tránh lỗi parser HTTP client)
             let mut raw_response_headers = Vec::new();
@@ -67,6 +83,7 @@ pub async fn send_and_handle_upstream(
                     || k_lower == "content-length"
                     || k_lower == "connection"
                     || k_lower == "keep-alive"
+                    || (is_adapted && (k_lower == "content-encoding" || k_lower == "content-type"))
                 {
                     continue;
                 }
@@ -80,7 +97,112 @@ pub async fn send_and_handle_upstream(
                 let state_clone = Arc::clone(&state);
                 let req_id_clone = ctx.req_id.clone();
 
-                let teed_stream = stream.map(move |chunk_res| {
+                // Chunk Idle Timeout: Quá 45s không có chunk mới (VPN rớt ngầm/stall) -> tự động ngắt
+                // an toàn để giải phóng StreamGuard và Semaphore permit, chống tê liệt gateway!
+                let timed_stream: std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<Bytes, reqwest::Error>> + Send>> =
+                    Box::pin(futures_util::stream::unfold(stream, |mut s| async move {
+                        match tokio::time::timeout(std::time::Duration::from_secs(45), s.next()).await {
+                            Ok(Some(chunk_res)) => Some((chunk_res, s)),
+                            Ok(None) => None,
+                            Err(_) => {
+                                eprintln!(">> Upstream SSE stream idle timeout (45s) - aborting to prevent permit leak");
+                                None
+                            }
+                        }
+                    }));
+
+                // Chuyển đổi SSE qua Protocol Adapter tương ứng
+                let stream_to_tee: std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<Bytes, reqwest::Error>> + Send>> = match ctx.active_adapter {
+                    crate::config::ProtocolAdapter::OpenAiTo1Min => {
+                        let model = ctx.requested_model.clone().unwrap_or_else(|| "gpt-4o".to_string());
+                        let transformer = crate::proxy::adapters::onemin::OneMinSseTransformer::new(&model);
+                        struct OneMinState {
+                            stream: std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
+                            transformer: crate::proxy::adapters::onemin::OneMinSseTransformer,
+                            finished: bool,
+                        }
+                        let init_state = OneMinState {
+                            stream: timed_stream,
+                            transformer,
+                            finished: false,
+                        };
+                        let converted = futures_util::stream::unfold(init_state, |mut s| async move {
+                            if s.finished {
+                                return None;
+                            }
+                            loop {
+                                match s.stream.next().await {
+                                    Some(Ok(chunk)) => {
+                                        let converted_bytes = s.transformer.feed_bytes(&chunk);
+                                        if !converted_bytes.is_empty() {
+                                            return Some((Ok(Bytes::from(converted_bytes)), s));
+                                        }
+                                    }
+                                    Some(Err(e)) => {
+                                        s.finished = true;
+                                        return Some((Err(e), s));
+                                    }
+                                    None => {
+                                        s.finished = true;
+                                        let final_bytes = s.transformer.finish();
+                                        if !final_bytes.is_empty() {
+                                            return Some((Ok(Bytes::from(final_bytes)), s));
+                                        } else {
+                                            return None;
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        Box::pin(converted)
+                    }
+                    crate::config::ProtocolAdapter::OpenAiToAnthropic => {
+                        let model = ctx.requested_model.clone().unwrap_or_else(|| "claude-3-5-sonnet".to_string());
+                        let transformer = crate::proxy::adapters::anthropic::AnthropicSseTransformer::new(&model);
+                        struct AnthropicState {
+                            stream: std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
+                            transformer: crate::proxy::adapters::anthropic::AnthropicSseTransformer,
+                            finished: bool,
+                        }
+                        let init_state = AnthropicState {
+                            stream: timed_stream,
+                            transformer,
+                            finished: false,
+                        };
+                        let converted = futures_util::stream::unfold(init_state, |mut s| async move {
+                            if s.finished {
+                                return None;
+                            }
+                            loop {
+                                match s.stream.next().await {
+                                    Some(Ok(chunk)) => {
+                                        let converted_bytes = s.transformer.feed_bytes(&chunk);
+                                        if !converted_bytes.is_empty() {
+                                            return Some((Ok(Bytes::from(converted_bytes)), s));
+                                        }
+                                    }
+                                    Some(Err(e)) => {
+                                        s.finished = true;
+                                        return Some((Err(e), s));
+                                    }
+                                    None => {
+                                        s.finished = true;
+                                        let final_bytes = s.transformer.finish();
+                                        if !final_bytes.is_empty() {
+                                            return Some((Ok(Bytes::from(final_bytes)), s));
+                                        } else {
+                                            return None;
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        Box::pin(converted)
+                    }
+                    crate::config::ProtocolAdapter::None => timed_stream,
+                };
+
+                let teed_stream = stream_to_tee.map(move |chunk_res| {
                     if let Ok(ref chunk) = chunk_res {
                         let mut acc = acc_clone.lock();
                         if acc.len() < 4096 {
@@ -109,7 +231,9 @@ pub async fn send_and_handle_upstream(
                         } else {
                             truncate_log_body(&text, 2048)
                         };
-                        self.state.logs.update_response_body(&self.req_id, final_str);
+                        self.state.logs.update_response_body(&self.req_id, final_str.clone());
+                        let log_path = crate::monitor::get_traffic_log_path();
+                        crate::monitor::spawn_disk_update_response_body(log_path, self.req_id.clone(), final_str);
                     }
                 }
 
@@ -150,11 +274,42 @@ pub async fn send_and_handle_upstream(
                     leaked_findings: ctx.leaks,
                 });
 
+                if is_adapted {
+                    resp_builder = resp_builder.header("content-type", "text/event-stream; charset=utf-8");
+                    resp_builder = resp_builder.header("cache-control", "no-cache");
+                }
+
                 resp_builder.body(body).unwrap()
             } else {
                 let resp_headers = upstream_resp.headers().clone();
                 let resp_bytes = upstream_resp.bytes().await.unwrap_or_else(|_| Bytes::new());
-                let truncated_resp_body = format_logged_body(&resp_bytes, &resp_headers);
+
+                // Chuyển đổi Non-Streaming response từ Protocol Adapter sang OpenAI JSON
+                let final_bytes = match ctx.active_adapter {
+                    crate::config::ProtocolAdapter::OpenAiTo1Min if status_code == 200 => {
+                        let model = ctx.requested_model.as_deref().unwrap_or("gpt-4o");
+                        match crate::proxy::adapters::onemin::transform_response_json(&resp_bytes, model) {
+                            Ok(transformed) => Bytes::from(transformed),
+                            Err(e) => {
+                                eprintln!(">> 1min.ai transform_response_json fallback: {}, returning raw bytes", e);
+                                resp_bytes
+                            }
+                        }
+                    }
+                    crate::config::ProtocolAdapter::OpenAiToAnthropic if status_code == 200 => {
+                        let model = ctx.requested_model.as_deref().unwrap_or("claude-3-5-sonnet");
+                        match crate::proxy::adapters::anthropic::transform_response_json(&resp_bytes, model) {
+                            Ok(transformed) => Bytes::from(transformed),
+                            Err(e) => {
+                                eprintln!(">> Anthropic transform_response_json fallback: {}, returning raw bytes", e);
+                                resp_bytes
+                            }
+                        }
+                    }
+                    _ => resp_bytes,
+                };
+
+                let truncated_resp_body = format_logged_body(&final_bytes, &resp_headers);
                 let truncated_req_body = truncate_log_body(&ctx.raw_request_body, 2048);
 
                 state.record_log(RawTrafficLog {
@@ -196,7 +351,11 @@ pub async fn send_and_handle_upstream(
                     ctx.key_from_file,
                 );
 
-                resp_builder.body(Body::from(resp_bytes)).unwrap()
+                if is_adapted && status_code == 200 {
+                    resp_builder = resp_builder.header("content-type", "application/json; charset=utf-8");
+                }
+
+                resp_builder.body(Body::from(final_bytes)).unwrap()
             }
         }
         Err(err) => {

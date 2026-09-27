@@ -7,7 +7,11 @@ use super::types::{OutboundTunnel, TunnelProtocol, TunnelStatus, TunnelTestResul
 pub fn build_client(tunnel: &OutboundTunnel) -> reqwest::Client {
     let mut builder = reqwest::Client::builder()
         .use_rustls_tls()
-        .connect_timeout(std::time::Duration::from_secs(30));
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .tcp_nodelay(true)
+        .tcp_keepalive(std::time::Duration::from_secs(60))
+        .pool_idle_timeout(std::time::Duration::from_secs(90))
+        .pool_max_idle_per_host(10);
 
     // Auth proxy (nếu có user): reqwest tự gắn Proxy-Authorization cho cả
     // CONNECT tunnel lẫn plain HTTP (basic_auth native, không nhồi URL).

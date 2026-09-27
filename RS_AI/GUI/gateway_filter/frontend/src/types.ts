@@ -19,6 +19,13 @@ export interface OutboundTunnel {
   last_exit_ip?: string;
   last_latency_ms?: number;
   tags: string[];
+  adguard_location?: string;
+}
+
+export interface AdguardLocationItem {
+  id: string;
+  name: string;
+  ping_ms?: number;
 }
 
 export interface TunnelTestResult {
@@ -44,6 +51,8 @@ export interface EndpointKeyManager {
   last_switched_at?: string;
 }
 
+export type ProtocolAdapter = "none" | "openai_to_1min" | "openai_to_anthropic";
+
 export interface RouteRule {
   id: string;
   name: string;
@@ -59,6 +68,8 @@ export interface RouteRule {
   custom_auth_token?: string;
   /** Per-endpoint fingerprint (index vào fingerprint_pool). null/undefined = global default. */
   fingerprint_index?: number | null;
+  /** Protocol Adapter chuyển đổi format giữa các AI API providers */
+  protocol_adapter?: ProtocolAdapter;
 }
 
 export interface FingerprintProfile {

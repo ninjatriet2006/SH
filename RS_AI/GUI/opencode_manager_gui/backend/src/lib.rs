@@ -42,7 +42,9 @@ pub fn run() {
                 // Truyền root thực qua cùng resolver mà bản portable đang dùng.
                 std::env::set_var("OPENCODE_MANAGER_RESOURCE_DIR", resource_dir);
             }
-            app.manage(api::web_control::WebService::default());
+            let web_service = api::web_control::WebService::default();
+            web_service.set_app_handle(app.handle().clone());
+            app.manage(web_service);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

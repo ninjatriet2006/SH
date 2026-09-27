@@ -4,8 +4,9 @@ use std::sync::LazyLock;
 /// (trước đây `Regex::new()` chạy mỗi request: tốn CPU).
 /// Đặt ở module patterns riêng để mọi analyzer/sanitizer dùng chung một chuẩn.
 pub static LOCAL_PATH_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"(/home/[a-zA-Z0-9_-]+|[A-Za-z]:\\[a-zA-Z0-9_\\]+)")
-        .expect("LOCAL_PATH_REGEX must compile")
+    regex::Regex::new(
+        r#"(?:/Users/[a-zA-Z0-9_\-\.]+|/(?:home/[a-zA-Z0-9_\-\.]+|root|tmp|etc|var)(?:/[a-zA-Z0-9_\-\.]+)*|[A-Za-z]:\\\\(?:[^"\\\r\n]+\\\\)*[^"\\\r\n]+|[A-Za-z]:[/\\](?:[^"/\\\r\n]+[/\\])*[^"/\\\r\n]+)"#
+    ).expect("LOCAL_PATH_REGEX must compile")
 });
 
 /// Che path local trong body trước khi forward upstream (`mask_local_paths_in_body`).

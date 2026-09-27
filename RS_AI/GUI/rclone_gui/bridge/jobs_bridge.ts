@@ -6,7 +6,7 @@
 */
 
 import { listen, type UnlistenFn } from './ipc';
-import { invokeCommand, type Job, type JobKind } from './types';
+import { invokeCommand, type Job, type JobKind, type QueueItem } from './types';
 
 /**
  * Đặt một việc vào hàng chờ. `src`/`dst` dạng `Remote::/path` (Local trần).
@@ -83,4 +83,14 @@ export async function subscribeJobUpdates(cb: (job: Job) => void): Promise<Unlis
       console.error('job_update handler fail:', e);
     }
   });
+}
+
+/** Lấy danh sách các tiến trình / vé con (QueueItem[]) của một job. */
+export async function jobGetChildren(jobId: string): Promise<QueueItem[]> {
+  try {
+    return await invokeCommand<QueueItem[], { job_id: string }>('job_get_children', { job_id: jobId });
+  } catch (error) {
+    console.error('Lỗi job_get_children:', error);
+    return [];
+  }
 }

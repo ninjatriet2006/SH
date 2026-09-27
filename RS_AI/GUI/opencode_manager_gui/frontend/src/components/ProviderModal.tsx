@@ -14,11 +14,10 @@ Ghi chú thiết kế:
 */
 
 import React, { useEffect, useState } from 'react';
-import { X, Eye, EyeOff, Plug } from 'lucide-react';
-import type { ProviderView, PresetView, StatusView } from '../../../bridge/types';
-import { getProviderSecret, testConnection } from '../../../bridge/provider_bridge';
+import { X, Eye, EyeOff } from 'lucide-react';
+import type { ProviderView, PresetView } from '../../../bridge/types';
+import { getProviderSecret } from '../../../bridge/provider_bridge';
 import { useTranslation } from '../utils/i18n';
-import { StatusBadge } from './StatusBadge';
 import { SearchableSelect } from './SearchableSelect';
 
 interface ProviderModalProps {
@@ -40,7 +39,7 @@ interface ProviderModalProps {
 }
 
 /** Auto probe POST thực tế để tránh chọn endpoint bị WAF chặn. */
-export const NPM_OPTIONS = ['@ai-sdk/openai', '@ai-sdk/openai-compatible', '@ai-sdk/anthropic', 'auto'] as const;
+export const NPM_OPTIONS = ['@ai-sdk/openai-compatible', '@ai-sdk/openai', '@ai-sdk/anthropic', 'auto'] as const;
 
 /** Bộ ký tự an toàn cho ID provider — phải khớp `validate_custom_id` backend. */
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -48,21 +47,18 @@ const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 export function ProviderModal({ isOpen, provider, presets, onClose, onSave }: ProviderModalProps) {
     const { t } = useTranslation();
     const [presetId, setPresetId] = useState('custom');
-    const [npm, setNpm] = useState<string>('auto');
+    const [npm, setNpm] = useState<string>('@ai-sdk/openai-compatible');
     const [name, setName] = useState('');
     const [baseUrl, setBaseUrl] = useState('');
     const [apiKey, setApiKey] = useState('');
     const [customId, setCustomId] = useState('');
     const [showKey, setShowKey] = useState(false);
-    const [testStatus, setTestStatus] = useState<StatusView | null>(null);
-    const [isTesting, setIsTesting] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [notice, setNotice] = useState<string | null>(null);
 
     // Reset form mỗi lần mở để không mang dữ liệu của provider trước.
     useEffect(() => {
         if (!isOpen) return;
-        setTestStatus(null);
         setNotice(null);
         setShowKey(false);
         setIsSaving(false);
@@ -77,7 +73,7 @@ export function ProviderModal({ isOpen, provider, presets, onClose, onSave }: Pr
             setCustomId(provider.id);
         } else {
             setPresetId('custom');
-            setNpm('auto');
+            setNpm('@ai-sdk/openai-compatible');
             setName('');
             setBaseUrl('');
             setApiKey('');
@@ -115,28 +111,6 @@ export function ProviderModal({ isOpen, provider, presets, onClose, onSave }: Pr
         setShowKey(true);
     };
 
-    const handleTest = async () => {
-        let keyToTest = apiKey.trim();
-        // Sửa mà chưa nhập khoá mới → kiểm tra bằng khoá đang lưu.
-        if (!keyToTest && provider) {
-            try {
-                keyToTest = await getProviderSecret(provider.id);
-            } catch { /* để rơi vào nhánh báo thiếu bên dưới */ }
-        }
-        if (!baseUrl.trim() || !keyToTest) {
-            setNotice('Cần cả Base URL và API Key để kiểm tra.');
-            return;
-        }
-        setIsTesting(true);
-        setNotice(null);
-        try {
-            setTestStatus(await testConnection(baseUrl, keyToTest));
-        } catch (err) {
-            setNotice(err instanceof Error ? err.message : String(err));
-        } finally {
-            setIsTesting(false);
-        }
-    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -307,18 +281,6 @@ export function ProviderModal({ isOpen, provider, presets, onClose, onSave }: Pr
                         </small>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '1rem', flexWrap: 'wrap' }}>
-                        <button
-                            type="button"
-                            className="btn"
-                            style={{ background: 'rgba(255,255,255,0.08)' }}
-                            onClick={handleTest}
-                            disabled={isTesting}
-                        >
-                            <Plug size={16} /> {isTesting ? t('status.checking') : t('provider_modal.test')}
-                        </button>
-                        {testStatus && <StatusBadge kind={testStatus.kind} message={testStatus.message} />}
-                    </div>
 
                     {notice && (
                         <div style={{ marginTop: '1rem', padding: '0.6rem 0.75rem', background: 'rgba(239,68,68,0.12)', borderLeft: '3px solid var(--danger)', borderRadius: '4px', fontSize: '0.85rem' }}>

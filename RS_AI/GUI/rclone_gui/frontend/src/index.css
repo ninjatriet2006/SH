@@ -1,22 +1,23 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
-  --bg-dark: #090d16;
-  --bg-panel: rgba(17, 24, 39, 0.75);
-  --bg-card: rgba(30, 41, 59, 0.55);
-  --bg-input: rgba(15, 23, 42, 0.8);
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --primary: #6366f1;
-  --primary-hover: #818cf8;
-  --primary-light: rgba(99, 102, 241, 0.15);
-  --accent: #38bdf8;
-  --success: #10b981;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-active: rgba(99, 102, 241, 0.4);
+  /* Dynamic Token Theming (Nemo & Amber/Neon tokens) */
+  --bg-dark: var(--colors-surface-canvas, #090d16);
+  --bg-panel: var(--colors-surface-header, rgba(17, 24, 39, 0.75));
+  --bg-card: var(--colors-surface-card, rgba(30, 41, 59, 0.55));
+  --bg-input: var(--colors-surface-input, rgba(15, 23, 42, 0.8));
+  --text-primary: var(--colors-text-primary, #f8fafc);
+  --text-secondary: var(--colors-text-secondary, #94a3b8);
+  --text-muted: var(--colors-text-muted, #64748b);
+  --primary: var(--colors-neon-cyan, #6366f1);
+  --primary-hover: var(--colors-neon-cyan-hover, #818cf8);
+  --primary-light: var(--colors-surface-button-primary, rgba(99, 102, 241, 0.15));
+  --accent: var(--colors-neon-magenta, #38bdf8);
+  --success: var(--colors-neon-emerald, #10b981);
+  --warning: var(--colors-neon-amber, #f59e0b);
+  --danger: var(--colors-neon-coral, #ef4444);
+  --border: var(--colors-border-muted, rgba(255, 255, 255, 0.08));
+  --border-active: var(--colors-border-active, rgba(99, 102, 241, 0.4));
   --glass-glow: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
   --glass-blur: blur(14px);
   --radius: 12px;
@@ -35,7 +36,7 @@
 
 body {
   font-family: var(--font-family-base);
-  background: radial-gradient(circle at 15% 15%, #0f172a 0%, #030712 100%);
+  background: var(--bg-dark);
   color: var(--text-primary);
   min-height: 100vh;
   display: flex;
@@ -297,9 +298,10 @@ body {
 .explorer-container {
   display: flex;
   flex: 1;
-  gap: 0.75rem;
+  gap: 0;
   height: 100%;
   overflow: hidden;
+  position: relative;
 }
 
 .explorer-pane {
@@ -316,6 +318,49 @@ body {
 .explorer-pane.active {
   border-color: var(--border-active);
   box-shadow: 0 0 16px rgba(99, 102, 241, 0.12);
+}
+
+/* Pane Splitter (Dải phân chia tỷ lệ 2 khung) */
+.pane-splitter {
+  width: 10px;
+  margin: 0 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  user-select: none;
+  position: relative;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.pane-splitter:hover,
+.pane-splitter:active {
+  background: rgba(99, 102, 241, 0.25);
+  border-radius: 4px;
+}
+
+.pane-splitter-handle {
+  width: 3px;
+  height: 36px;
+  background: var(--border);
+  border-radius: 2px;
+  transition: all 0.15s ease;
+}
+
+.pane-splitter:hover .pane-splitter-handle,
+.pane-splitter:active .pane-splitter-handle {
+  background: var(--primary);
+  height: 54px;
+}
+
+/* Table Bottom Spacer Zone (Khoảng trống đáy để nhấp chuột phải) */
+.table-bottom-spacer {
+  height: 140px;
+  min-height: 140px;
+  width: 100%;
+  cursor: default;
 }
 
 .pane-header {
@@ -537,3 +582,118 @@ body {
     transform: scale(1);
   }
 }
+
+/* ════════════════════════════════════════════════════════════════
+   Nemo Dual Context Menu
+   ════════════════════════════════════════════════════════════════ */
+.nemo-context-menu {
+  position: fixed;
+  z-index: 9999;
+  background: var(--bg-panel);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 1px 1px var(--border);
+  padding: 0.35rem;
+  user-select: none;
+  animation: contextMenuFadeIn 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes contextMenuFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.38rem 0.65rem;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  text-align: left;
+}
+
+.context-menu-item:hover:not(:disabled) {
+  background: var(--primary-light, rgba(99, 102, 241, 0.18));
+  color: var(--primary, #6366f1);
+}
+
+.context-menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.context-menu-item .item-left {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.context-menu-item .item-hotkey {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  padding-left: 0.75rem;
+}
+
+.context-menu-item.item-danger:hover {
+  background: rgba(239, 68, 68, 0.18);
+  color: var(--danger, #ef4444);
+}
+
+.context-menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0.25rem 0.3rem;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Nemo Column Resizer
+   ════════════════════════════════════════════════════════════════ */
+.th-resizable {
+  position: relative;
+  user-select: none;
+}
+
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 10;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.col-resizer::after {
+  content: '';
+  width: 2px;
+  height: 60%;
+  background: transparent;
+  border-radius: 1px;
+  transition: background 0.15s, height 0.15s;
+}
+
+.col-resizer:hover::after,
+.col-resizer.resizing::after {
+  height: 100%;
+  background: var(--primary, #6366f1);
+  box-shadow: 0 0 6px var(--primary, #6366f1);
+}
+

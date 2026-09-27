@@ -288,16 +288,41 @@ mod tests {
 //     quét nữa — cơ chế "cung cấp rõ ràng" thay vì để nó quét tất cả).
 // CẦU: manager KHÔNG gọi mạng — đọc lại chính cache local của opencode.
 
+struct CatalogCache {
+    mtime: std::time::SystemTime,
+    len: u64,
+    data: std::collections::HashMap<String, Vec<(String, String)>>,
+}
+
+static CATALOG_CACHE: std::sync::Mutex<Option<CatalogCache>> = std::sync::Mutex::new(None);
+
 /// Đọc cache models.dev → map provider_id → (id model, tên hiển thị).
 ///
 /// File không có / hỏng → map rỗng (provider built-in vẫn hoạt động, chỉ
 /// không gợi ý được danh sách model).
+/// Có cache in-memory kiểm tra mtime + len để tránh đọc lặp lại file 4.7MB.
 pub fn catalog_models_by_provider() -> std::collections::HashMap<String, Vec<(String, String)>> {
     let mut out: std::collections::HashMap<String, Vec<(String, String)>> = std::collections::HashMap::new();
     let Some(home) = crate::config::get_home_dir() else {
         return out;
     };
     let path = home.join(".cache").join("opencode").join("models.json");
+    let Ok(meta) = std::fs::metadata(&path) else {
+        return out;
+    };
+    let Ok(mtime) = meta.modified() else {
+        return out;
+    };
+    let len = meta.len();
+
+    if let Ok(guard) = CATALOG_CACHE.lock() {
+        if let Some(entry) = guard.as_ref() {
+            if entry.mtime == mtime && entry.len == len {
+                return entry.data.clone();
+            }
+        }
+    }
+
     let Ok(text) = std::fs::read_to_string(&path) else {
         return out;
     };
@@ -327,6 +352,15 @@ pub fn catalog_models_by_provider() -> std::collections::HashMap<String, Vec<(St
         list.sort();
         out.insert(pid.clone(), list);
     }
+
+    if let Ok(mut guard) = CATALOG_CACHE.lock() {
+        *guard = Some(CatalogCache {
+            mtime,
+            len,
+            data: out.clone(),
+        });
+    }
+
     out
 }
 

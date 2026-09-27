@@ -395,13 +395,36 @@ impl App {
     }
 
     pub fn load_dynamic_presets() -> Vec<DynamicPreset> {
+        struct PresetsCache {
+            mtime: std::time::SystemTime,
+            len: u64,
+            data: Vec<DynamicPreset>,
+        }
+
+        static PRESETS_CACHE: std::sync::Mutex<Option<PresetsCache>> = std::sync::Mutex::new(None);
+
+        let path_opt = crate::config::get_home_dir().map(|h| h.join(".cache").join("opencode").join("models.json"));
+        if let Some(ref path) = path_opt {
+            if let Ok(meta) = std::fs::metadata(path) {
+                if let Ok(mtime) = meta.modified() {
+                    let len = meta.len();
+                    if let Ok(guard) = PRESETS_CACHE.lock() {
+                        if let Some(entry) = guard.as_ref() {
+                            if entry.mtime == mtime && entry.len == len {
+                                return entry.data.clone();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let mut presets = Vec::new();
 
         // 1. Cố gắng đọc từ ~/.cache/opencode/models.json
-        if let Some(home) = crate::config::get_home_dir() {
-            let path = home.join(".cache").join("opencode").join("models.json");
+        if let Some(ref path) = path_opt {
             if path.exists()
-                && let Ok(content) = std::fs::read_to_string(&path)
+                && let Ok(content) = std::fs::read_to_string(path)
             {
                 #[derive(Deserialize)]
                 struct RawProvider {
@@ -526,6 +549,21 @@ impl App {
             id_prefix: "custom".to_string(),
             npm: None,
         });
+
+        if let Some(ref path) = path_opt {
+            if let Ok(meta) = std::fs::metadata(path) {
+                if let Ok(mtime) = meta.modified() {
+                    let len = meta.len();
+                    if let Ok(mut guard) = PRESETS_CACHE.lock() {
+                        *guard = Some(PresetsCache {
+                            mtime,
+                            len,
+                            data: presets.clone(),
+                        });
+                    }
+                }
+            }
+        }
 
         presets
     }

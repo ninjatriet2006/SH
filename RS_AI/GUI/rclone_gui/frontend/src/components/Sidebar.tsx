@@ -28,7 +28,7 @@ export const Sidebar: React.FC = () => {
     <aside className="sidebar">
       <div className="sidebar-brand">
         <FolderSync size={24} color="#818cf8" />
-        <h2>Rclone GUI</h2>
+        <h2 data-lang-id="sidebar_brand">{t('sidebar_brand', 'Rclone GUI')}</h2>
       </div>
 
       <nav className="sidebar-nav">
@@ -39,7 +39,7 @@ export const Sidebar: React.FC = () => {
           data-lang-id="nav_explorer"
         >
           <LayoutGrid size={18} />
-          <span>{t('nav_explorer', 'Trình duyệt file')}</span>
+          <span>{t('nav_explorer', 'Explorer')}</span>
         </NavLink>
 
         <NavLink
@@ -63,18 +63,20 @@ export const Sidebar: React.FC = () => {
         <NavLink
           to="/transfers"
           className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+          data-lang-id="sidebar_transfers"
         >
           <ArrowLeftRight size={18} />
-          <span>{t('sidebar.transfers', 'Hàng đợi tiến trình')}</span>
+          <span>{t('sidebar_transfers', 'Hàng đợi tiến trình')}</span>
           {runningJobsCount > 0 && <span className="nav-badge">{runningJobsCount}</span>}
         </NavLink>
 
         <NavLink
           to="/trash"
           className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+          data-lang-id="sidebar_trash"
         >
           <Trash2 size={18} />
-          <span>{t('sidebar.trash', 'Thùng rác')}</span>
+          <span>{t('sidebar_trash', 'Thùng rác')}</span>
         </NavLink>
 
         <NavLink

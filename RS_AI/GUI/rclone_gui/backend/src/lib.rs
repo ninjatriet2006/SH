@@ -103,6 +103,7 @@ pub fn run() {
             api::config::get_debug_settings,
             api::config::set_debug_settings,
             api::config::get_backend_log,
+            api::config::clear_backend_log,
             // ==================
             // APPEARANCE API (ngôn ngữ / theme / font + lựa chọn đã lưu)
             // ==================
@@ -123,6 +124,7 @@ pub fn run() {
             api::jobs::job_move_up,
             api::jobs::job_move_down,
             api::jobs::job_move_to_top,
+            api::jobs::job_get_children,
         ])
         .setup(|app| {
             if let Ok(path) = app.path().resource_dir() {

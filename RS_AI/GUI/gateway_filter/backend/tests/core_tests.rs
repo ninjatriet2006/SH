@@ -200,6 +200,7 @@ mod tests {
             custom_auth_token: None,
             min_request_interval_ms: 0,
             fingerprint_index: None,
+            protocol_adapter: gateway_filter_lib::config::ProtocolAdapter::None,
         });
         let state = std::sync::Arc::new(AppState::new(cfg));
 
@@ -278,6 +279,15 @@ mod tests {
         // Path Windows bị che
         let masked_win = mask_local_paths(r#"open C:\Users\bob\doc.txt"#).unwrap();
         assert!(masked_win.contains("[REDACTED_PATH]"));
+
+        // Path macOS bị che
+        let masked_mac = mask_local_paths("file in /Users/bimatkeo/data.json here").unwrap();
+        assert!(masked_mac.contains("[REDACTED_PATH]"));
+        assert!(!masked_mac.contains("/Users/bimatkeo"));
+
+        // Path Windows JSON-escaped bị che
+        let masked_win_json = mask_local_paths(r#"{"path":"C:\\Users\\Admin\\project\\code.rs"}"#).unwrap();
+        assert!(masked_win_json.contains("[REDACTED_PATH]"));
     }
 
     #[test]
@@ -304,6 +314,7 @@ mod tests {
             last_exit_ip: Some("212.0.0.1".to_string()),
             last_latency_ms: Some(42),
             tags: vec![],
+            adguard_location: None,
         });
         cfg.tunnels.push(gateway_filter_lib::vpn::OutboundTunnel {
             id: "t2".to_string(),
@@ -323,6 +334,7 @@ mod tests {
             last_exit_ip: Some("1.2.3.4".to_string()),
             last_latency_ms: Some(7),
             tags: vec![],
+            adguard_location: None,
         });
 
         reset_runtime_health(&mut cfg);
@@ -351,6 +363,7 @@ mod tests {
             custom_auth_token: None,
             min_request_interval_ms: 0,
             fingerprint_index: None,
+            protocol_adapter: gateway_filter_lib::config::ProtocolAdapter::None,
         });
         reset_runtime_health(&mut cfg);
         assert_eq!(cfg.routes[0].status, RouteStatus::Unknown);
@@ -380,6 +393,7 @@ mod tests {
                 last_exit_ip: None,
                 last_latency_ms: None,
                 tags: vec![],
+                adguard_location: None,
             }
         }
 
@@ -566,6 +580,7 @@ mod tests {
             last_exit_ip: None,
             last_latency_ms: None,
             tags: vec![],
+            adguard_location: None,
         };
 
         let result = TunnelManager::test_tunnel(&fake_tunnel).await;
@@ -811,6 +826,7 @@ mod tests {
                     last_exit_ip: None,
                     last_latency_ms: None,
                     tags: vec![],
+                    adguard_location: None,
                 },
                 OutboundTunnel {
                     id: "tunnel-b".to_string(),
@@ -830,6 +846,7 @@ mod tests {
                     last_exit_ip: None,
                     last_latency_ms: None,
                     tags: vec![],
+                    adguard_location: None,
                 },
             ],
             routes: vec![RouteRule {
@@ -846,6 +863,7 @@ mod tests {
                 custom_auth_token: None,
                 min_request_interval_ms: 0,
                 fingerprint_index: None,
+                protocol_adapter: gateway_filter_lib::config::ProtocolAdapter::None,
             }],
             fingerprint_profile: FingerprintProfile::default(),
             fingerprint_pool: vec![
@@ -987,6 +1005,7 @@ mod tests {
                 last_exit_ip: None,
                 last_latency_ms: None,
                 tags: vec![],
+                adguard_location: None,
             }
         }
 
@@ -1095,6 +1114,7 @@ mod tests {
                 custom_auth_token: None,
                 min_request_interval_ms: 0,
                 fingerprint_index: fp,
+                protocol_adapter: gateway_filter_lib::config::ProtocolAdapter::None,
             }
         }
 
@@ -1169,6 +1189,7 @@ mod tests {
                 last_exit_ip: None,
                 last_latency_ms: None,
                 tags: vec![],
+                adguard_location: None,
             }
         }
         fn mk_route(id: &str, fp: Option<usize>) -> RouteRule {
@@ -1186,6 +1207,7 @@ mod tests {
                 custom_auth_token: None,
                 min_request_interval_ms: 0,
                 fingerprint_index: fp,
+                protocol_adapter: gateway_filter_lib::config::ProtocolAdapter::None,
             }
         }
         fn mk_cfg() -> GatewayConfig {
@@ -1253,4 +1275,165 @@ mod tests {
         assert!(err.contains("timed out"), "unexpected error: {}", err);
         assert!(start.elapsed().as_secs() < 10, "timeout did not fire promptly");
     }
+
+    #[test]
+    fn test_onemin_adapter_full_flow() {
+        use gateway_filter_lib::proxy::adapters::onemin::*;
+        use serde_json::json;
+
+        // 1. Target URL checking
+        assert!(is_1min_target("https://api.1min.ai"));
+        assert!(is_1min_target("https://api.1min.ai/api/features"));
+        assert!(!is_1min_target("https://api.openai.com/v1"));
+
+        // 2. Models resolution
+        assert_eq!(resolve_model_id("gpt-4o"), "gpt-4o");
+        assert_eq!(resolve_model_id("claude-3-5-sonnet"), "us.anthropic.claude-3-5-sonnet-20241022-v2:0");
+        assert_eq!(resolve_model_id("gemini-2.5-flash"), "gemini-2.5-flash");
+        assert_eq!(resolve_model_id("deepseek-chat"), "deepseek-v4-pro");
+        assert_eq!(resolve_model_id("qwen3.7-max"), "qwen3.7-max");
+
+        // 3. Low-temp translation request -> CONTENT_TRANSLATOR
+        let trans_req = json!({
+            "model": "gpt-4o",
+            "temperature": 0.1,
+            "messages": [
+                {"role": "system", "content": "You are a professional translator into Vietnamese."},
+                {"role": "user", "content": "The quick brown fox jumps over the lazy dog."}
+            ]
+        });
+        let trans_bytes = serde_json::to_vec(&trans_req).unwrap();
+        let (url, transformed, stream, model) = transform_request("https://api.1min.ai/v1/chat/completions", &trans_bytes).unwrap();
+        assert_eq!(model, "gpt-4o");
+        assert!(!stream);
+        assert!(url.contains("/api/features"));
+        let val: serde_json::Value = serde_json::from_slice(&transformed).unwrap();
+        assert_eq!(val["type"], "CONTENT_TRANSLATOR");
+        assert_eq!(val["promptObject"]["tone"], "clinical");
+        assert_eq!(val["promptObject"]["writingStyle"], "Academic");
+        assert_eq!(val["promptObject"]["targetLanguage"], "vi");
+
+        // 4. Chat request -> UNIFY_CHAT_WITH_AI
+        let chat_req = json!({
+            "model": "claude-3-5-sonnet",
+            "temperature": 0.7,
+            "stream": true,
+            "messages": [
+                {"role": "user", "content": "Write a short poem about coding."}
+            ]
+        });
+        let chat_bytes = serde_json::to_vec(&chat_req).unwrap();
+        let (chat_url, chat_transformed, chat_stream, chat_model) = transform_request("https://api.1min.ai/v1/chat/completions", &chat_bytes).unwrap();
+        assert_eq!(chat_model, "claude-3-5-sonnet");
+        assert!(chat_stream);
+        assert!(chat_url.contains("/api/chat-with-ai?isStreaming=true"));
+        let chat_val: serde_json::Value = serde_json::from_slice(&chat_transformed).unwrap();
+        assert_eq!(chat_val["type"], "UNIFY_CHAT_WITH_AI");
+        assert_eq!(chat_val["model"], "us.anthropic.claude-3-5-sonnet-20241022-v2:0");
+
+        // 5. Non-streaming Response transformation
+        let one_min_resp = json!({
+            "aiRecord": {
+                "uuid": "record-1234-abcd",
+                "aiRecordDetail": {
+                    "resultObject": ["Con cáo nâu nhanh nhẹn nhảy qua con chó lười biếng."]
+                }
+            }
+        });
+        let one_min_resp_bytes = serde_json::to_vec(&one_min_resp).unwrap();
+        let openai_resp_bytes = transform_response_json(&one_min_resp_bytes, "gpt-4o").unwrap();
+        let openai_val: serde_json::Value = serde_json::from_slice(&openai_resp_bytes).unwrap();
+        assert_eq!(openai_val["id"], "chatcmpl-record-1234-abcd");
+        assert_eq!(openai_val["choices"][0]["message"]["content"], "Con cáo nâu nhanh nhẹn nhảy qua con chó lười biếng.");
+
+        // 6. SSE Stream Transformer
+        let mut transformer = OneMinSseTransformer::new("gpt-4o");
+        let chunk = b"event: content\ndata: {\"content\": \"Xin ch\xC3\xA0o\"}\n\nevent: done\ndata: {}\n\n";
+        let out_bytes = transformer.feed_bytes(chunk);
+        let out_str = String::from_utf8(out_bytes).unwrap();
+        assert!(out_str.contains("data: "));
+        assert!(out_str.contains("chat.completion.chunk"));
+        assert!(out_str.contains("\"content\":\"Xin ch\\u00e0o\"") || out_str.contains("\"content\":\"Xin chào\""));
+        assert!(out_str.contains("data: [DONE]"));
+    }
+
+    #[test]
+    fn test_anthropic_adapter_full_flow() {
+        use gateway_filter_lib::proxy::adapters::anthropic::{
+            build_anthropic_target_url, resolve_model_id, transform_request,
+            transform_response_json, AnthropicSseTransformer,
+        };
+        use serde_json::json;
+
+        // 1. Resolve model ID
+        assert_eq!(resolve_model_id("claude-3-5-sonnet"), "claude-3-5-sonnet-20241022");
+        assert_eq!(resolve_model_id("claude-3-7-sonnet"), "claude-3-7-sonnet-20250219");
+        assert_eq!(resolve_model_id("claude-3-5-haiku"), "claude-3-5-haiku-20241022");
+        assert_eq!(resolve_model_id("gpt-4o"), "claude-3-5-sonnet-20241022");
+
+        // 2. Build target URL
+        let rewritten_url = build_anthropic_target_url("https://api.anthropic.com/v1/chat/completions");
+        assert_eq!(rewritten_url, "https://api.anthropic.com/v1/messages");
+
+        // 3. Transform request body: Extract system prompt & map parameters
+        let openai_req = json!({
+            "model": "claude-3-5-sonnet",
+            "messages": [
+                {"role": "system", "content": "You are a helpful coding assistant."},
+                {"role": "user", "content": "Hello Claude!"}
+            ],
+            "temperature": 0.5,
+            "stream": true
+        });
+        let req_bytes = serde_json::to_vec(&openai_req).unwrap();
+        let (new_url, transformed_req, is_streaming, model_used) =
+            transform_request("https://api.anthropic.com/v1/chat/completions", &req_bytes).unwrap();
+        let anthropic_req: serde_json::Value = serde_json::from_slice(&transformed_req).unwrap();
+
+        assert_eq!(new_url, "https://api.anthropic.com/v1/messages");
+        assert_eq!(is_streaming, true);
+        assert_eq!(model_used, "claude-3-5-sonnet");
+        assert_eq!(anthropic_req["model"], "claude-3-5-sonnet-20241022");
+        assert_eq!(anthropic_req["system"], "You are a helpful coding assistant.");
+        assert_eq!(anthropic_req["messages"].as_array().unwrap().len(), 1);
+        assert_eq!(anthropic_req["messages"][0]["role"], "user");
+        assert_eq!(anthropic_req["max_tokens"], 4096);
+        assert_eq!(anthropic_req["stream"], true);
+
+        // 4. Transform non-streaming response JSON
+        let anthropic_resp = json!({
+            "id": "msg_01XFDUDYJgAACzvnptvVoYEL",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-3-5-sonnet-20241022",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Hello! How can I assist you with your coding today?"
+                }
+            ],
+            "stop_reason": "end_turn",
+            "usage": {
+                "input_tokens": 15,
+                "output_tokens": 12
+            }
+        });
+        let anthropic_resp_bytes = serde_json::to_vec(&anthropic_resp).unwrap();
+        let openai_resp_bytes = transform_response_json(&anthropic_resp_bytes, "claude-3-5-sonnet").unwrap();
+        let openai_val: serde_json::Value = serde_json::from_slice(&openai_resp_bytes).unwrap();
+        assert_eq!(openai_val["id"], "chatcmpl-msg_01XFDUDYJgAACzvnptvVoYEL");
+        assert_eq!(openai_val["choices"][0]["message"]["content"], "Hello! How can I assist you with your coding today?");
+        assert_eq!(openai_val["choices"][0]["finish_reason"], "stop");
+
+        // 5. SSE Stream Transformer
+        let mut transformer = AnthropicSseTransformer::new("claude-3-5-sonnet");
+        let chunk = b"event: content_block_delta\ndata: {\"type\": \"content_block_delta\", \"index\": 0, \"delta\": {\"type\": \"text_delta\", \"text\": \"Hello world\"}}\n\nevent: message_stop\ndata: {\"type\": \"message_stop\"}\n\n";
+        let out_bytes = transformer.feed_bytes(chunk);
+        let out_str = String::from_utf8(out_bytes).unwrap();
+        assert!(out_str.contains("data: "));
+        assert!(out_str.contains("chat.completion.chunk"));
+        assert!(out_str.contains("\"content\":\"Hello world\""));
+        assert!(out_str.contains("data: [DONE]"));
+    }
 }
+

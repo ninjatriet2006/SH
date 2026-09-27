@@ -146,6 +146,17 @@ export interface Job {
   skipped: number;
 }
 
+/** Một vé con trong hàng đợi (`logic::queue::QueueItem`). */
+export interface QueueItem {
+  job_id: string;
+  path: string;
+  is_dir: boolean;
+  status: JobStatus;
+  error?: string | null;
+  mode?: string;
+  across?: boolean;
+}
+
 /** Cấu hình engine (`settings::engine::EngineSettings`, JSON PHẲNG). */
 export interface EngineSettings {
   transfers: number;

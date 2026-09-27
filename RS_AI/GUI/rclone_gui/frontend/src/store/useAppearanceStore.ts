@@ -5,6 +5,7 @@
 - Tương tác: Dùng `appearance_bridge.ts` và được gọi bởi `useTranslation()`.
 */
 
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { create } from 'zustand';
 import {
   getAppearance,
@@ -43,7 +44,7 @@ export const useAppearanceStore = create<AppearanceState>((set, get) => ({
   appearance: defaultAppearance,
   themes: [],
   fonts: [],
-  availableLangs: ['vi', 'en'],
+  availableLangs: ['vi', 'en', 'test5555'],
   translations: {},
   isLoading: true,
 
@@ -54,14 +55,14 @@ export const useAppearanceStore = create<AppearanceState>((set, get) => ({
         getAppearance().catch(() => defaultAppearance),
         getAvailableThemes().catch(() => []),
         getAvailableFonts().catch(() => []),
-        getAvailableLangs().catch(() => ['vi', 'en']),
+        getAvailableLangs().catch(() => ['vi', 'en', 'test5555']),
       ]);
 
       set({
         appearance: appConfig,
         themes: themesList,
         fonts: fontsList,
-        availableLangs: langsList.length ? langsList : ['vi', 'en'],
+        availableLangs: langsList.length ? langsList : ['vi', 'en', 'test5555'],
       });
 
       // Áp dụng theme và font
@@ -119,6 +120,32 @@ export const useAppearanceStore = create<AppearanceState>((set, get) => ({
       root.style.setProperty(cssVar, val);
     }
 
+    // Đảm bảo tương thích tức thì cho các biến gốc của UI
+    if (theme.variables['colors-neon-cyan']) {
+      root.style.setProperty('--primary', theme.variables['colors-neon-cyan']);
+    }
+    if (theme.variables['colors-surface-canvas']) {
+      root.style.setProperty('--bg-dark', theme.variables['colors-surface-canvas']);
+    }
+    if (theme.variables['colors-surface-card']) {
+      root.style.setProperty('--bg-card', theme.variables['colors-surface-card']);
+    }
+    if (theme.variables['colors-surface-header']) {
+      root.style.setProperty('--bg-panel', theme.variables['colors-surface-header']);
+    }
+    if (theme.variables['colors-surface-input']) {
+      root.style.setProperty('--bg-input', theme.variables['colors-surface-input']);
+    }
+    if (theme.variables['colors-text-primary']) {
+      root.style.setProperty('--text-primary', theme.variables['colors-text-primary']);
+    }
+    if (theme.variables['colors-text-secondary']) {
+      root.style.setProperty('--text-secondary', theme.variables['colors-text-secondary']);
+    }
+    if (theme.variables['colors-border-muted']) {
+      root.style.setProperty('--border', theme.variables['colors-border-muted']);
+    }
+
     set((state) => ({
       appearance: { ...state.appearance, theme: themeId },
     }));
@@ -129,8 +156,50 @@ export const useAppearanceStore = create<AppearanceState>((set, get) => ({
   changeFont: async (fontId: string) => {
     const font = get().fonts.find((f) => f.id === fontId);
     const root = document.documentElement;
-    const fontFamily = font?.family || 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    root.style.setProperty('--font-family-base', fontFamily);
+
+    let styleEl = document.getElementById('rclone-custom-font-style') as HTMLStyleElement | null;
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      styleEl.id = 'rclone-custom-font-style';
+      document.head.appendChild(styleEl);
+    }
+
+    const sanitizeCss = (str: string) => str.replace(/['"\\<>{}]/g, '');
+
+    if (font && font.src_path && fontId !== 'system' && fontId !== 'default') {
+      const safeFamily = sanitizeCss(font.family || font.name);
+      let assetUrl = font.src_path;
+      try {
+        assetUrl = convertFileSrc(font.src_path);
+      } catch {
+        assetUrl = `asset://${font.src_path}`;
+      }
+
+      styleEl.textContent = `
+        @font-face {
+          font-family: '${safeFamily}';
+          src: url('${assetUrl}');
+          font-display: swap;
+        }
+        :root {
+          --font-family-base: '${safeFamily}', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+      `;
+      root.style.setProperty(
+        '--font-family-base',
+        `'${safeFamily}', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`,
+      );
+    } else {
+      styleEl.textContent = `
+        :root {
+          --font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+      `;
+      root.style.setProperty(
+        '--font-family-base',
+        "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+      );
+    }
 
     set((state) => ({
       appearance: { ...state.appearance, font: fontId },

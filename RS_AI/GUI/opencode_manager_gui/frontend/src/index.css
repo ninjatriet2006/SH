@@ -1,7 +1,7 @@
 :root {
   /* Color Palette - Deep space & Neon accents */
   --bg-dark: #0f172a;
-  --bg-panel: rgba(30, 41, 59, 0.7);
+  --bg-panel: rgba(22, 30, 46, 0.95);
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
   --primary: #6366f1;
@@ -11,9 +11,9 @@
   --warning: #f59e0b;
   --border: rgba(255, 255, 255, 0.1);
   --glass-glow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-  --glass-blur: blur(12px);
+  --glass-blur: none;
   --radius: 16px;
-  --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition: border-color 0.2s ease, background 0.2s ease, opacity 0.2s ease;
 }
 
 * {
@@ -37,16 +37,14 @@ body {
   color-scheme: dark;
 }
 
-/* Glassmorphism Panel */
+/* Glassmorphism Panel - Optimized for WebKitGTK / Software Rendering */
 .glass-panel {
   background: var(--bg-panel);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
   border-radius: var(--radius);
   border: 1px solid var(--border);
   box-shadow: var(--glass-glow);
   padding: 1.5rem;
-  transition: var(--transition);
+  transition: border-color 0.2s ease;
 }
 
 .glass-panel:hover {

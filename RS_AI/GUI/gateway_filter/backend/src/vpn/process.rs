@@ -89,3 +89,101 @@ pub async fn run_tunnel_command_timeout(cmd_str: &str, timeout_secs: u64) -> Res
         }
     }
 }
+
+/// Lấy danh sách các vị trí thực tế của AdGuard VPN CLI:
+/// 1. Thử `adguardvpn-cli list-locations 100` để lấy danh sách có ping khi đã login.
+/// 2. Fallback: `adguardvpn-cli list-locations --bash-completion ""` hoạt động 100% kể cả chưa login.
+pub async fn fetch_adguard_locations() -> Vec<super::types::AdguardLocationItem> {
+    let mut items = Vec::new();
+
+    // 1. Thử chạy list-locations có ping
+    if let Ok(output) = run_tunnel_command_timeout("adguardvpn-cli list-locations 100", 5).await {
+        if !output.contains("Please log in") && !output.contains("not logged in") {
+            for line in output.lines() {
+                let trimmed = line.trim();
+                if trimmed.is_empty()
+                    || trimmed.starts_with('#')
+                    || trimmed.to_lowercase().starts_with("city")
+                    || trimmed.to_lowercase().starts_with("location")
+                {
+                    continue;
+                }
+                let ping = if let Some(idx) = trimmed.rfind("ms") {
+                    trimmed[..idx]
+                        .split_whitespace()
+                        .last()
+                        .and_then(|s| s.parse::<u64>().ok())
+                } else {
+                    None
+                };
+                items.push(super::types::AdguardLocationItem {
+                    id: trimmed.to_string(),
+                    name: trimmed.to_string(),
+                    ping_ms: ping,
+                });
+            }
+        }
+    }
+
+    // 2. Fallback tuyệt đối với bash-completion
+    if items.is_empty() {
+        if let Ok(output) = run_tunnel_command_timeout("adguardvpn-cli list-locations --bash-completion \"\"", 5).await {
+            let mut isos = Vec::new();
+            let mut others = Vec::new();
+
+            for line in output.lines() {
+                let l = line.trim();
+                if l.is_empty() {
+                    continue;
+                }
+                // Các mã quốc gia ISO 2 chữ cái (US, JP, SG, DE, GB...)
+                if l.len() == 2 && l.chars().all(|c| c.is_ascii_uppercase()) {
+                    isos.push(l.to_string());
+                } else {
+                    others.push(l.to_string());
+                }
+            }
+
+            for iso in isos {
+                items.push(super::types::AdguardLocationItem {
+                    id: iso.clone(),
+                    name: format!("Country [{}]", iso),
+                    ping_ms: None,
+                });
+            }
+            for other in others {
+                items.push(super::types::AdguardLocationItem {
+                    id: other.clone(),
+                    name: other,
+                    ping_ms: None,
+                });
+            }
+        }
+    }
+
+    items
+}
+
+/// Chọn ngẫu nhiên 1 location hợp lệ từ danh sách thực tế của AdGuard VPN CLI
+pub async fn pick_random_adguard_location() -> Option<String> {
+    let list = fetch_adguard_locations().await;
+    if list.is_empty() {
+        return None;
+    }
+
+    // Ưu tiên chọn từ các mã ISO 2 chữ cái (US, JP, SG, DE...) vì kết nối ổn định nhất
+    let iso_candidates: Vec<String> = list
+        .iter()
+        .filter(|i| i.id.len() == 2 && i.id.chars().all(|c| c.is_ascii_uppercase()))
+        .map(|i| i.id.clone())
+        .collect();
+
+    if !iso_candidates.is_empty() {
+        let random_idx = (uuid::Uuid::new_v4().as_u128() as usize) % iso_candidates.len();
+        return Some(iso_candidates[random_idx].clone());
+    }
+
+    let random_idx = (uuid::Uuid::new_v4().as_u128() as usize) % list.len();
+    Some(list[random_idx].id.clone())
+}
+

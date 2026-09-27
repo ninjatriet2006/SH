@@ -67,7 +67,21 @@ pub struct OutboundTunnel {
     pub last_exit_ip: Option<String>,
     pub last_latency_ms: Option<u64>,
     pub tags: Vec<String>,
+    /// Vị trí kết nối cho AdGuard VPN:
+    /// - "random" (mặc định): ngẫu nhiên từ danh sách vị trí lấy được
+    /// - "fastest": vị trí nhanh nhất (-f)
+    /// - "<location_id>": vị trí cụ thể do người dùng chọn (ví dụ "US", "DE", "SG", "Tokyo")
+    #[serde(default)]
+    pub adguard_location: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdguardLocationItem {
+    pub id: String,
+    pub name: String,
+    pub ping_ms: Option<u64>,
+}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TunnelTestResult {

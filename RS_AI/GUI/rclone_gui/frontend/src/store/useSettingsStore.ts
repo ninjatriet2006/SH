@@ -7,6 +7,7 @@
 
 import { create } from 'zustand';
 import {
+  clearBackendLog,
   exportConfigRemote,
   getBackendLog,
   getDebugSettings,
@@ -30,6 +31,7 @@ interface SettingsStore {
   updateEngineFlags: (flags: EngineSettings) => Promise<void>;
   updateDebugSettings: (settings: DebugSettings) => Promise<void>;
   fetchBackendLog: () => Promise<void>;
+  clearLog: () => Promise<void>;
   restoreSnapshot: (name: string) => Promise<void>;
   exportRemote: (name: string) => Promise<string>;
   importRemote: (name: string, ini: string) => Promise<void>;
@@ -89,6 +91,11 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   fetchBackendLog: async () => {
     const log = await getBackendLog();
     set({ backendLog: log });
+  },
+
+  clearLog: async () => {
+    await clearBackendLog();
+    set({ backendLog: '' });
   },
 
   restoreSnapshot: async (name: string) => {

@@ -76,6 +76,7 @@ pub fn run() {
             commands::clear_logs,
             commands::generate_key_file,
             commands::open_key_file,
+            commands::get_adguard_locations,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

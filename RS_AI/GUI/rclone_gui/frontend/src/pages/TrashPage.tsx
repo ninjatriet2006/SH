@@ -18,8 +18,10 @@ import React, { useEffect, useState } from 'react';
 import { useRemotesStore } from '../store/useRemotesStore';
 import { useTrashStore } from '../store/useTrashStore';
 import { formatBytes, formatDate } from '../utils/formatters';
+import { useTranslation } from '../utils/i18n';
 
 export const TrashPage: React.FC = () => {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<'local' | 'remote'>('local');
 
   const remotes = useRemotesStore((state) => state.remotes);
@@ -67,7 +69,7 @@ export const TrashPage: React.FC = () => {
       <div className="page-header">
         <div className="page-title">
           <Trash2 size={24} color="#f43f5e" />
-          <span>Quản lý Thùng rác</span>
+          <span data-lang-id="trash_title">{t('trash_title', 'Thùng Rác')}</span>
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -113,9 +115,10 @@ export const TrashPage: React.FC = () => {
             className="btn btn-danger btn-sm"
             onClick={handleEmpty}
             disabled={tab === 'local' ? localItems.length === 0 : remoteItems.length === 0}
+            data-lang-id="trash_empty_button"
           >
             <Trash2 size={13} />
-            <span>Dọn sạch toàn bộ</span>
+            <span>{t('trash_empty_button', 'Dọn sạch thùng rác')}</span>
           </button>
         </div>
       </div>
@@ -140,7 +143,7 @@ export const TrashPage: React.FC = () => {
               }}
             >
               <Trash2 size={48} color="rgba(255,255,255,0.1)" />
-              <p>Thùng rác cục bộ rỗng.</p>
+              <p data-lang-id="trash_is_empty">{t('trash_is_empty', 'Thùng rác trống')}</p>
             </div>
           ) : (
             <table className="file-table">

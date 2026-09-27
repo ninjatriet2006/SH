@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Plus, Trash2, KeyRound, RotateCw, ChevronDown, ChevronUp, Sparkles, ExternalLink, Key, Fingerprint } from "lucide-react";
+import { Plus, Trash2, KeyRound, RotateCw, ChevronDown, ChevronUp, Sparkles, ExternalLink, Key, Fingerprint, Layers } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { GatewayConfig, RouteRule } from "../types";
+import { GatewayConfig, RouteRule, ProtocolAdapter } from "../types";
 
 interface RoutesTabProps {
   config: GatewayConfig;
@@ -135,6 +135,19 @@ export function RoutesTab({
                       ? "FP: Global"
                       : `FP #${route.fingerprint_index + 1}`}
                   </span>
+                  {route.protocol_adapter && route.protocol_adapter !== "none" && (
+                    <span
+                      className="px-2 py-0.5 rounded font-mono text-[11px] flex items-center gap-1 bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                      title={
+                        route.protocol_adapter === "openai_to_1min"
+                          ? "Protocol Adapter: OpenAI Chat Completion ↔ 1min.AI"
+                          : "Protocol Adapter: OpenAI Chat Completion ↔ Anthropic Messages"
+                      }
+                    >
+                      <Layers className="w-3 h-3" />
+                      {route.protocol_adapter === "openai_to_1min" ? "OpenAI ↔ 1min.AI" : "OpenAI ↔ Anthropic"}
+                    </span>
+                  )}
                   {!route.enabled ? (
                     <span className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-slate-800 text-slate-500">
                       Inactive
@@ -161,6 +174,23 @@ export function RoutesTab({
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <select
+                    value={route.protocol_adapter ?? "none"}
+                    onChange={async (e) => {
+                      const v = e.target.value as ProtocolAdapter;
+                      const updated: RouteRule = {
+                        ...route,
+                        protocol_adapter: v,
+                      };
+                      if (onSaveRouteDirect) await onSaveRouteDirect(updated);
+                    }}
+                    title="Quick-select protocol adapter for this endpoint"
+                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-mono text-slate-300 border border-slate-700/60 max-w-36"
+                  >
+                    <option value="none">Adapter: Direct</option>
+                    <option value="openai_to_1min">Adapter: 1min.AI</option>
+                    <option value="openai_to_anthropic">Adapter: Anthropic</option>
+                  </select>
                   <select
                     value={route.fingerprint_index ?? "global"}
                     onChange={async (e) => {

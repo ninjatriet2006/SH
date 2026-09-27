@@ -24,6 +24,27 @@ pub struct EndpointKeyManager {
 }
 
 impl EndpointKeyManager {
+    /// Ghi file nguyên tử (Atomic Write-Back): ghi ra file tạm rồi rename để chống corrupt dữ liệu
+    pub fn atomic_write_file(path: &Path, content: &str) -> Result<(), String> {
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        let temp_name = format!(
+            ".{}.tmp.{}",
+            path.file_name().and_then(|s| s.to_str()).unwrap_or("key"),
+            uuid::Uuid::new_v4()
+        );
+        let temp_path = parent.join(temp_name);
+
+        fs::write(&temp_path, content)
+            .map_err(|e| format!("Failed to write temp key file: {}", e))?;
+
+        fs::rename(&temp_path, path).map_err(|e| {
+            let _ = fs::remove_file(&temp_path);
+            format!("Failed to rename temp key file to destination: {}", e)
+        })?;
+
+        Ok(())
+    }
+
     /// Xóa 1 key lỗi (ví dụ 401 Unauthorized - key chết/thu hồi) khỏi file chính.
     /// Trả về `Ok(true)` nếu key thực sự tồn tại trong file và đã bị xóa thành công (mảng bị rút ngắn).
     pub fn remove_key_from_main_file(&mut self, key_to_remove: &str) -> Result<bool, String> {
@@ -47,7 +68,7 @@ impl EndpointKeyManager {
                 removed = filtered.len() < initial_len;
                 if removed {
                     let new_content = serde_json::to_string_pretty(&filtered).unwrap_or_else(|_| "[]".to_string());
-                    fs::write(path, new_content).map_err(|e| format!("Failed to write JSON key file: {}", e))?;
+                    Self::atomic_write_file(path, &new_content)?;
                 }
             } else {
                 removed = false;
@@ -67,7 +88,7 @@ impl EndpointKeyManager {
                 } else {
                     format!("{}\n", filtered_lines.join("\n"))
                 };
-                fs::write(path, new_content).map_err(|e| format!("Failed to write TXT key file: {}", e))?;
+                Self::atomic_write_file(path, &new_content)?;
             }
         }
 

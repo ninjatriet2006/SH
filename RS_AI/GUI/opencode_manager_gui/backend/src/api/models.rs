@@ -47,6 +47,17 @@ struct DevModelInfo {
     price_cache_read: Option<f64>,
 }
 
+use std::sync::Mutex;
+use std::time::SystemTime;
+
+struct DevModelsCache {
+    mtime: SystemTime,
+    len: u64,
+    data: HashMap<String, HashMap<String, DevModelInfo>>,
+}
+
+static DEV_MODELS_CACHE: Mutex<Option<DevModelsCache>> = Mutex::new(None);
+
 fn models_dev_cache_path() -> Option<PathBuf> {
     opencode_manager::config::get_home_dir().map(|home| home.join(".cache").join("opencode").join("models.json"))
 }
@@ -55,12 +66,29 @@ fn models_dev_cache_path() -> Option<PathBuf> {
 ///
 /// Model key trong cache là id ĐẦY ĐỦ ("qwen/qwen3-max" với aggregator) hoặc
 /// id trần ("claude-sonnet-4-6" với provider gốc) — tra cứu thử cả hai dạng.
+/// Có in-memory cache kiểm tra mtime + len để tránh đọc/parse lặp lại file 4.7MB.
 fn load_dev_models() -> HashMap<String, HashMap<String, DevModelInfo>> {
     let mut out: HashMap<String, HashMap<String, DevModelInfo>> = HashMap::new();
     let Some(path) = models_dev_cache_path() else {
         return out;
     };
-    let Ok(text) = std::fs::read_to_string(path) else {
+    let Ok(meta) = std::fs::metadata(&path) else {
+        return out;
+    };
+    let Ok(mtime) = meta.modified() else {
+        return out;
+    };
+    let len = meta.len();
+
+    if let Ok(guard) = DEV_MODELS_CACHE.lock() {
+        if let Some(entry) = guard.as_ref() {
+            if entry.mtime == mtime && entry.len == len {
+                return entry.data.clone();
+            }
+        }
+    }
+
+    let Ok(text) = std::fs::read_to_string(&path) else {
         return out;
     };
     let Ok(root) = serde_json::from_str::<serde_json::Value>(&text) else {
@@ -99,6 +127,15 @@ fn load_dev_models() -> HashMap<String, HashMap<String, DevModelInfo>> {
         }
         out.insert(pid.clone(), map);
     }
+
+    if let Ok(mut guard) = DEV_MODELS_CACHE.lock() {
+        *guard = Some(DevModelsCache {
+            mtime,
+            len,
+            data: out.clone(),
+        });
+    }
+
     out
 }
 

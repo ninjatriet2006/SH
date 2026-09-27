@@ -124,7 +124,47 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
         }
     },
 
-    scanModels: async (providerId) => scanProviderModels(providerId),
+    scanModels: async (providerId) => {
+        set({ checking: { ...get().checking, [providerId]: true } });
+        try {
+            const models = await scanProviderModels(providerId);
+            const fromApi = models.some(m => m.from_api);
+            if (fromApi) {
+                set({
+                    statuses: {
+                        ...get().statuses,
+                        [providerId]: { provider_id: providerId, kind: 'alive', message: '' },
+                    },
+                });
+            } else {
+                set({
+                    statuses: {
+                        ...get().statuses,
+                        [providerId]: { provider_id: providerId, kind: 'offline', message: 'API không phản hồi (dùng catalogue)' },
+                    },
+                });
+            }
+            return models;
+        } catch (error) {
+            const errStr = error instanceof Error ? error.message : String(error);
+            const lower = errStr.toLowerCase();
+            const kind = lower.includes('401') || lower.includes('key') || lower.includes('unauthorized')
+                ? 'invalid_key'
+                : lower.includes('credit') || lower.includes('balance') || lower.includes('quota')
+                    ? 'no_credits'
+                    : 'offline';
+            set({
+                statuses: {
+                    ...get().statuses,
+                    [providerId]: { provider_id: providerId, kind, message: errStr },
+                },
+            });
+            throw error;
+        } finally {
+            const { [providerId]: _done, ...rest } = get().checking;
+            set({ checking: rest });
+        }
+    },
 
     applyModels: async (providerId, selected, caps) => {
         await setProviderModels(providerId, selected, caps);

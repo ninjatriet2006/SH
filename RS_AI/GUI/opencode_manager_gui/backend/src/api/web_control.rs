@@ -345,6 +345,7 @@ pub struct WebService {
     platform: Arc<dyn Platform>,
     readiness_timeout: Duration,
     poll_interval: Duration,
+    app_handle: Arc<Mutex<Option<tauri::AppHandle>>>,
     #[cfg(test)]
     monitor_events: Option<std::sync::mpsc::Sender<u64>>,
 }
@@ -357,6 +358,7 @@ impl Default for WebService {
             platform: Arc::new(OsPlatform),
             readiness_timeout: READINESS_TIMEOUT,
             poll_interval: POLL_INTERVAL,
+            app_handle: Arc::new(Mutex::new(None)),
             #[cfg(test)]
             monitor_events: None,
         }
@@ -373,6 +375,21 @@ impl Drop for WebService {
 }
 
 impl WebService {
+    pub fn set_app_handle(&self, handle: tauri::AppHandle) {
+        if let Ok(mut guard) = self.app_handle.lock() {
+            *guard = Some(handle);
+        }
+    }
+
+    pub fn emit_status_update(&self, status: &WebStatus) {
+        if let Ok(guard) = self.app_handle.lock() {
+            if let Some(ref handle) = *guard {
+                use tauri::Emitter;
+                let _ = handle.emit("web_status_changed", status);
+            }
+        }
+    }
+
     fn lock(&self) -> Result<MutexGuard<'_, Inner>, WebControlError> {
         self.inner
             .lock()
@@ -448,16 +465,19 @@ impl WebService {
         let lifecycle = Arc::clone(&self.lifecycle);
         let timeout = self.readiness_timeout;
         let interval = self.poll_interval;
+        let app_handle = Arc::clone(&self.app_handle);
         #[cfg(test)]
         let monitor_events = self.monitor_events.clone();
         thread::spawn(move || {
-            monitor_generation(inner, lifecycle, platform, generation, url, timeout, interval);
+            monitor_generation(inner, lifecycle, platform, generation, url, timeout, interval, app_handle);
             #[cfg(test)]
             if let Some(events) = monitor_events {
                 let _ = events.send(generation);
             }
         });
-        self.status()
+        let status = self.status()?;
+        self.emit_status_update(&status);
+        Ok(status)
     }
 
     pub fn stop(&self) -> Result<WebStatus, WebControlError> {
@@ -466,7 +486,9 @@ impl WebService {
             .lock()
             .map_err(|_| WebControlError::new("state_poisoned", "Trạng thái OpenCode Web không còn khả dụng."))?;
         stop_inner(&self.inner, STOP_TIMEOUT)?;
-        self.status()
+        let status = self.status()?;
+        self.emit_status_update(&status);
+        Ok(status)
     }
 
     pub fn launch_terminal(&self) -> Result<(), WebControlError> {
@@ -535,16 +557,31 @@ fn monitor_generation(
     url: String,
     timeout: Duration,
     interval: Duration,
+    app_handle: Arc<Mutex<Option<tauri::AppHandle>>>,
 ) {
+    let emit_snap = |snap: &WebStatus| {
+        if let Ok(guard) = app_handle.lock() {
+            if let Some(ref handle) = *guard {
+                use tauri::Emitter;
+                let _ = handle.emit("web_status_changed", snap);
+            }
+        }
+    };
     let started = Instant::now();
     loop {
-        let state = {
+        let (state, _snap) = {
             let Ok(mut guard) = inner.lock() else { return };
             if guard.status.generation != generation {
                 return;
             }
+            let prev_state = guard.status.state;
             refresh_exit(&mut guard);
-            guard.status.state
+            let s = guard.status.state;
+            let snap = status_snapshot(&guard);
+            if prev_state != s {
+                emit_snap(&snap);
+            }
+            (s, snap)
         };
         match state {
             WebState::Starting => {
@@ -563,10 +600,16 @@ fn monitor_generation(
                         guard.status.url = Some(url.clone());
                         guard.status.error = None;
                         guard.status.revision = guard.status.revision.saturating_add(1);
+                        let snap = status_snapshot(&guard);
+                        emit_snap(&snap);
                     }
                 } else if started.elapsed() >= timeout {
                     let Ok(_lifecycle) = lifecycle.lock() else { return };
                     cleanup_timed_out_generation(&inner, generation, timeout);
+                    if let Ok(guard) = inner.lock() {
+                        let snap = status_snapshot(&guard);
+                        emit_snap(&snap);
+                    }
                     return;
                 }
             }
@@ -938,6 +981,7 @@ mod tests {
             platform,
             readiness_timeout: Duration::from_millis(80),
             poll_interval: Duration::from_millis(5),
+            app_handle: Arc::new(Mutex::new(None)),
             monitor_events: None,
         }
     }

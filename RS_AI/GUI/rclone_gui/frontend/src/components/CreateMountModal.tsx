@@ -1,8 +1,8 @@
 /*
 [INTEGRITY NOTES]
-- Mục đích: Hộp thoại tạo mới dịch vụ Systemd Mount cho rclone.
-- Trách nhiệm: Cho phép nhập service name, remote đích, đường dẫn mount cục bộ, chế độ VFS cache.
-- Tương tác: Dùng `useMountsStore` và `useRemotesStore`.
+- Mục đích: Hộp thoại tạo mới hoặc chỉnh sửa dịch vụ Systemd Mount cho rclone.
+- Trách nhiệm: Cho phép nhập/sửa service name, remote đích, đường dẫn mount cục bộ, chế độ VFS cache.
+- Tương tác: Dùng `useMountsStore`, `useRemotesStore`, và `useTranslation`.
 */
 
 import { HardDrive, X } from 'lucide-react';
@@ -10,22 +10,32 @@ import React, { useState } from 'react';
 import type { MountConfig } from '../../../bridge/types';
 import { useMountsStore } from '../store/useMountsStore';
 import { useRemotesStore } from '../store/useRemotesStore';
+import { useTranslation } from '../utils/i18n';
 
 interface CreateMountModalProps {
   onClose: () => void;
+  initialConfig?: MountConfig | null;
 }
 
-export const CreateMountModal: React.FC<CreateMountModalProps> = ({ onClose }) => {
+export const CreateMountModal: React.FC<CreateMountModalProps> = ({ onClose, initialConfig }) => {
+  const { t } = useTranslation();
   const remotes = useRemotesStore((state) => state.remotes);
   const createMount = useMountsStore((state) => state.createMount);
+  const isEdit = Boolean(initialConfig);
 
-  const [serviceName, setServiceName] = useState('');
-  const [selectedRemote, setSelectedRemote] = useState(remotes[0]?.name || '');
-  const [remotePath, setRemotePath] = useState('');
-  const [mountPath, setMountPath] = useState('');
-  const [isUserLevel, setIsUserLevel] = useState(true);
-  const [vfsMode, setVfsMode] = useState('full');
-  const [allowOther, setAllowOther] = useState(false);
+  const [serviceName, setServiceName] = useState(
+    initialConfig ? initialConfig.service_name.replace(/\.service$/, '') : '',
+  );
+  const [selectedRemote, setSelectedRemote] = useState(
+    initialConfig ? initialConfig.remote_name : remotes[0]?.name || '',
+  );
+  const [remotePath, setRemotePath] = useState(initialConfig ? initialConfig.remote_path : '');
+  const [mountPath, setMountPath] = useState(initialConfig ? initialConfig.mount_path : '');
+  const [isUserLevel, setIsUserLevel] = useState(
+    initialConfig ? initialConfig.is_user_level : true,
+  );
+  const [vfsMode, setVfsMode] = useState(initialConfig?.vfs_cache_mode || 'full');
+  const [allowOther, setAllowOther] = useState(initialConfig?.allow_other || false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -49,18 +59,18 @@ export const CreateMountModal: React.FC<CreateMountModalProps> = ({ onClose }) =
         mount_path: mountPath.trim(),
         description: `Rclone Mount Service for ${selectedRemote}`,
         vfs_cache_mode: vfsMode,
-        vfs_cache_max_size: '10G',
-        vfs_cache_max_age: '24h',
-        dir_cache_time: '72h',
-        buffer_size: '16M',
+        vfs_cache_max_size: initialConfig?.vfs_cache_max_size || '10G',
+        vfs_cache_max_age: initialConfig?.vfs_cache_max_age || '24h',
+        dir_cache_time: initialConfig?.dir_cache_time || '72h',
+        buffer_size: initialConfig?.buffer_size || '16M',
         allow_other: allowOther,
-        read_only: false,
+        read_only: initialConfig?.read_only || false,
       };
 
       await createMount(config, true);
       onClose();
     } catch (err) {
-      setErrorMsg(`Lỗi tạo mount: ${String(err)}`);
+      setErrorMsg(`Lỗi ${isEdit ? 'cập nhật' : 'tạo'} mount: ${String(err)}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -76,7 +86,14 @@ export const CreateMountModal: React.FC<CreateMountModalProps> = ({ onClose }) =
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <HardDrive size={18} color="#38bdf8" />
-            <h3 style={{ fontSize: '1rem', margin: 0 }}>Tạo dịch vụ Mount mới (Systemd)</h3>
+            <h3
+              style={{ fontSize: '1rem', margin: 0 }}
+              data-lang-id={isEdit ? 'mounts_modal_edit_title' : 'mounts_modal_title'}
+            >
+              {isEdit
+                ? `${t('mounts_modal_edit_title', 'Chỉnh sửa dịch vụ Mount (Systemd)')}: ${serviceName}`
+                : t('mounts_modal_title', 'Tạo dịch vụ Mount mới (Systemd)')}
+            </h3>
           </div>
           <button className="btn-icon" onClick={onClose}>
             <X size={16} />
@@ -91,7 +108,9 @@ export const CreateMountModal: React.FC<CreateMountModalProps> = ({ onClose }) =
                 type="text"
                 className="input-text"
                 placeholder="rclone-gdrive"
-                autoFocus
+                autoFocus={!isEdit}
+                disabled={isEdit}
+                style={isEdit ? { opacity: 0.7 } : undefined}
                 value={serviceName}
                 onChange={(e) => setServiceName(e.target.value)}
               />
@@ -153,6 +172,8 @@ export const CreateMountModal: React.FC<CreateMountModalProps> = ({ onClose }) =
                 <label className="form-label">Cấp độ Systemd:</label>
                 <select
                   className="input-text"
+                  disabled={isEdit}
+                  style={isEdit ? { opacity: 0.7 } : undefined}
                   value={isUserLevel ? 'user' : 'system'}
                   onChange={(e) => setIsUserLevel(e.target.value === 'user')}
                 >
@@ -194,7 +215,9 @@ export const CreateMountModal: React.FC<CreateMountModalProps> = ({ onClose }) =
               Huỷ
             </button>
             <button className="btn btn-primary btn-sm" type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Đang tạo...' : 'Tạo Service Mount'}
+              {isSubmitting
+                ? (isEdit ? 'Đang lưu...' : 'Đang tạo...')
+                : (isEdit ? 'Lưu thay đổi' : 'Tạo Service Mount')}
             </button>
           </div>
         </form>

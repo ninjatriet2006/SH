@@ -3,8 +3,8 @@ pub mod process;
 pub mod types;
 
 pub use types::{
-    default_concurrency_limit, OutboundTunnel, TunnelEvent, TunnelProtocol, TunnelStatus,
-    TunnelTestResult, TUNNEL_CMD_TIMEOUT_SECS,
+    default_concurrency_limit, AdguardLocationItem, OutboundTunnel, TunnelEvent, TunnelProtocol,
+    TunnelStatus, TunnelTestResult, TUNNEL_CMD_TIMEOUT_SECS,
 };
 
 /// Facade giữ nguyên API `TunnelManager::...` cho toàn bộ callers hiện tại
@@ -38,4 +38,13 @@ impl TunnelManager {
     pub async fn run_tunnel_command_timeout(cmd_str: &str, timeout_secs: u64) -> Result<String, String> {
         process::run_tunnel_command_timeout(cmd_str, timeout_secs).await
     }
+
+    pub async fn fetch_adguard_locations() -> Vec<AdguardLocationItem> {
+        process::fetch_adguard_locations().await
+    }
+
+    pub async fn pick_random_adguard_location() -> Option<String> {
+        process::pick_random_adguard_location().await
+    }
 }
+

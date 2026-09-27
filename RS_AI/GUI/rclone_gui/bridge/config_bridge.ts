@@ -79,3 +79,8 @@ export async function getBackendLog(): Promise<string> {
     return '';
   }
 }
+
+/** Xoá toàn bộ nhật ký backend.log. */
+export async function clearBackendLog(): Promise<void> {
+  await invokeCommand<void>('clear_backend_log');
+}

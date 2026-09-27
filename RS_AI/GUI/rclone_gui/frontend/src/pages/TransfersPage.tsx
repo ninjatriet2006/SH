@@ -11,16 +11,23 @@ import {
   ArrowLeftRight,
   ArrowUp,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   ChevronsUp,
   Clock,
+  File,
+  Folder,
   RefreshCw,
   XCircle,
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
-import type { Job, JobStatus } from '../../../bridge/types';
+import { jobGetChildren } from '../../../bridge/jobs_bridge';
+import type { Job, JobStatus, QueueItem } from '../../../bridge/types';
 import { useJobsStore } from '../store/useJobsStore';
+import { useTranslation } from '../utils/i18n';
 
 export const TransfersPage: React.FC = () => {
+  const { t } = useTranslation();
   const jobs = useJobsStore((state) => state.jobs);
   const queueIds = useJobsStore((state) => state.queueIds);
   const loadJobs = useJobsStore((state) => state.loadJobs);
@@ -32,11 +39,57 @@ export const TransfersPage: React.FC = () => {
   const isLoading = useJobsStore((state) => state.isLoading);
 
   const [filter, setFilter] = useState<'all' | 'active' | 'done' | 'error'>('all');
+  const [expandedJobIds, setExpandedJobIds] = useState<Set<string>>(new Set());
+  const [childrenMap, setChildrenMap] = useState<Record<string, QueueItem[]>>({});
+  const [loadingChildren, setLoadingChildren] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     loadJobs();
     initSubscription();
   }, [loadJobs, initSubscription]);
+
+  const fetchChildren = async (jobId: string) => {
+    setLoadingChildren((prev) => ({ ...prev, [jobId]: true }));
+    try {
+      const kids = await jobGetChildren(jobId);
+      setChildrenMap((prev) => ({ ...prev, [jobId]: kids }));
+    } finally {
+      setLoadingChildren((prev) => ({ ...prev, [jobId]: false }));
+    }
+  };
+
+  const toggleExpandJob = (jobId: string) => {
+    setExpandedJobIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(jobId)) {
+        next.delete(jobId);
+      } else {
+        next.add(jobId);
+        fetchChildren(jobId);
+      }
+      return next;
+    });
+  };
+
+  // Tự động làm mới danh sách vé con cho các job đang chạy
+  useEffect(() => {
+    const hasRunningExpanded = jobs.some(
+      (j) => j.status === 'running' && expandedJobIds.has(j.id)
+    );
+    if (!hasRunningExpanded) return;
+
+    const interval = setInterval(() => {
+      for (const j of jobs) {
+        if (j.status === 'running' && expandedJobIds.has(j.id)) {
+          jobGetChildren(j.id).then((kids) => {
+            setChildrenMap((prev) => ({ ...prev, [j.id]: kids }));
+          });
+        }
+      }
+    }, 1500);
+
+    return () => clearInterval(interval);
+  }, [jobs, expandedJobIds]);
 
   const filteredJobs = jobs.filter((job) => {
     if (filter === 'active') return job.status === 'running' || job.status === 'queued';
@@ -87,7 +140,9 @@ export const TransfersPage: React.FC = () => {
       <div className="page-header">
         <div className="page-title">
           <ArrowLeftRight size={24} color="#818cf8" />
-          <span>Hàng đợi tiến trình ({jobs.length})</span>
+          <span data-lang-id="transfers_title">
+            {t('transfers_title', 'Hàng đợi tiến trình')} ({jobs.length})
+          </span>
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -142,7 +197,9 @@ export const TransfersPage: React.FC = () => {
             }}
           >
             <ArrowLeftRight size={48} color="rgba(255,255,255,0.1)" />
-            <p>Không có tác vụ nào trong danh sách lọc.</p>
+            <p data-lang-id="transfers_empty">
+              {t('transfers_empty', 'Hàng đợi trống. Chưa có tác vụ nào.')}
+            </p>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -269,21 +326,151 @@ export const TransfersPage: React.FC = () => {
                     style={{
                       display: 'flex',
                       justifyContent: 'space-between',
+                      alignItems: 'center',
                       fontSize: '0.75rem',
                       color: 'var(--text-muted)',
+                      flexWrap: 'wrap',
+                      gap: '0.4rem',
                     }}
                   >
                     <span>ID: {job.id}</span>
                     {job.child_total > 0 && (
-                      <span>
-                        Mục con hoàn thành: {job.child_done} / {job.child_total}
-                        {job.skipped > 0 && ` (Đã bỏ qua: ${job.skipped})`}
-                      </span>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        style={{
+                          fontSize: '0.72rem',
+                          padding: '0.15rem 0.45rem',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.3rem',
+                        }}
+                        onClick={() => toggleExpandJob(job.id)}
+                      >
+                        {expandedJobIds.has(job.id) ? (
+                          <ChevronDown size={12} />
+                        ) : (
+                          <ChevronRight size={12} />
+                        )}
+                        <span>
+                          {expandedJobIds.has(job.id) ? 'Thu gọn' : 'Xem chi tiết'} mục con (
+                          {job.child_done}/{job.child_total}
+                          {job.skipped > 0 && `, bỏ qua: ${job.skipped}`})
+                        </span>
+                      </button>
                     )}
                     {job.error && (
                       <span style={{ color: '#f87171', fontWeight: 500 }}>Lỗi: {job.error}</span>
                     )}
                   </div>
+
+                  {/* Expandable Child Jobs Sub-list */}
+                  {expandedJobIds.has(job.id) && (
+                    <div
+                      style={{
+                        marginTop: '0.4rem',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '6px',
+                        padding: '0.5rem',
+                        maxHeight: '260px',
+                        overflowY: 'auto',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.25rem',
+                      }}
+                    >
+                      {loadingChildren[job.id] && !childrenMap[job.id]?.length ? (
+                        <div
+                          style={{
+                            fontSize: '0.75rem',
+                            color: 'var(--text-muted)',
+                            textAlign: 'center',
+                            padding: '0.5rem',
+                          }}
+                        >
+                          Đang tải danh sách mục con...
+                        </div>
+                      ) : !childrenMap[job.id] || childrenMap[job.id].length === 0 ? (
+                        <div
+                          style={{
+                            fontSize: '0.75rem',
+                            color: 'var(--text-muted)',
+                            textAlign: 'center',
+                            padding: '0.5rem',
+                          }}
+                        >
+                          Chưa có thông tin vé con hoặc đã được dọn dẹp.
+                        </div>
+                      ) : (
+                        childrenMap[job.id].map((kid, idx) => (
+                          <div
+                            key={`${kid.job_id}-${kid.path}-${idx}`}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '0.25rem 0.5rem',
+                              borderRadius: '4px',
+                              background:
+                                kid.status === 'running'
+                                  ? 'rgba(99, 102, 241, 0.15)'
+                                  : 'rgba(255,255,255,0.02)',
+                              fontSize: '0.74rem',
+                              fontFamily: 'var(--font-mono)',
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.4rem',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {kid.is_dir ? (
+                                <Folder size={12} color="#818cf8" style={{ flexShrink: 0 }} />
+                              ) : (
+                                <File size={12} color="#94a3b8" style={{ flexShrink: 0 }} />
+                              )}
+                              <span
+                                style={{
+                                  color:
+                                    kid.status === 'done'
+                                      ? 'var(--text-secondary)'
+                                      : 'var(--text-primary)',
+                                }}
+                                title={kid.path}
+                              >
+                                {kid.path || '(Gốc thư mục)'}
+                              </span>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
+                              {kid.status === 'done' && (
+                                <span style={{ color: '#34d399', fontWeight: 500 }}>✓ Xong</span>
+                              )}
+                              {kid.status === 'running' && (
+                                <span style={{ color: '#818cf8', display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: 500 }}>
+                                  <RefreshCw size={10} className="spin" /> Đang chép
+                                </span>
+                              )}
+                              {kid.status === 'queued' && (
+                                <span style={{ color: '#94a3b8' }}>Chờ</span>
+                              )}
+                              {kid.status === 'cancelled' && (
+                                <span style={{ color: '#f59e0b' }}>Bỏ qua</span>
+                              )}
+                              {kid.status === 'error' && (
+                                <span style={{ color: '#f87171' }}>✕ Lỗi: {kid.error || ''}</span>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}

@@ -7,24 +7,92 @@ use crate::config::{GatewayConfig, RouteRule};
 use crate::state::ServerContext;
 use crate::vpn::{OutboundTunnel, TunnelManager, TunnelTestResult};
 
-/// Single source of truth cho "tunnel CLI đang chạy": quét config.tunnels tìm tunnel
-/// có enabled + có start_command + status Online (thay cho biến static riêng dễ lệch pha).
-/// Yêu cầu Online (không phải "chưa Offline"): tunnel Unknown mới tạo/chưa từng start
-/// không được tính là đang chạy — nếu không badge RUNNING hiện giả và start tunnel
-/// khác bị reject oan bởi lock độc quyền.
-fn find_running_cli_tunnel(conf: &GatewayConfig, exclude_id: &str) -> Option<(String, String)> {
-    conf.tunnels
-        .iter()
-        .find(|t| {
-            t.id != exclude_id
-                && t.enabled
-                && t.start_command
-                    .as_deref()
-                    .map(|c| !c.trim().is_empty())
-                    .unwrap_or(false)
-                && t.status == crate::vpn::TunnelStatus::Online
-        })
-        .map(|t| (t.id.clone(), t.name.clone()))
+/// Trích xuất tên binary chính (executable name) từ start_command.
+/// Ví dụ:
+/// - "adguardvpn-cli connect -f" -> Some("adguardvpn-cli")
+/// - "C:\\tools\\warp-cli.exe connect" -> Some("warp-cli.exe")
+/// - "sh -c 'adguardvpn-cli connect'" -> Some("adguardvpn-cli")
+fn extract_cli_binary(cmd: &str) -> Option<String> {
+    let trimmed = cmd.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let inner = if (trimmed.starts_with("sh -c ") || trimmed.starts_with("bash -c ")) && trimmed.len() > 6 {
+        trimmed[6..].trim().trim_matches(|c| c == '\'' || c == '"')
+    } else if trimmed.starts_with("cmd /c ") && trimmed.len() > 7 {
+        trimmed[7..].trim().trim_matches(|c| c == '\'' || c == '"')
+    } else {
+        trimmed
+    };
+
+    let first_token = if inner.starts_with('"') {
+        inner[1..].split('"').next().unwrap_or(inner)
+    } else if inner.starts_with('\'') {
+        inner[1..].split('\'').next().unwrap_or(inner)
+    } else {
+        inner.split_whitespace().next().unwrap_or(inner)
+    };
+
+    let clean_token = first_token.replace('\\', "/");
+    let filename = std::path::Path::new(&clean_token)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(first_token);
+
+    Some(filename.to_lowercase())
+}
+
+/// Kiểm tra xung đột tài nguyên giữa các CLI Tunnel:
+/// Thay vì cấm tuyệt đối mọi CLI khác chạy đồng thời (global single-lock), ta chỉ chặn
+/// khi và chỉ khi 2 tunnel:
+/// 1. Cùng dùng chung Endpoint / Port TCP (ví dụ cả hai cùng bind/trỏ 127.0.0.1:1080).
+/// 2. HOẶC cùng gọi một Executable Binary CLI (ví dụ cùng chạy `adguardvpn-cli` sẽ làm đè state daemon).
+/// Nhờ đó, người dùng có thể chạy đồng thời 2 tunnel khác binary & khác port (như WARP port 40000 + AdGuard port 1080).
+fn find_conflicting_cli_tunnel(
+    conf: &GatewayConfig,
+    exclude_id: &str,
+    target_start_cmd: Option<&str>,
+    target_endpoint: &str,
+) -> Option<(String, String, String)> {
+    let target_bin = target_start_cmd.and_then(extract_cli_binary);
+    let target_norm_endpoint = target_endpoint.trim().to_lowercase();
+
+    conf.tunnels.iter().find_map(|t| {
+        if t.id == exclude_id || !t.enabled || t.status != crate::vpn::TunnelStatus::Online {
+            return None;
+        }
+
+        let other_cmd = t.start_command.as_deref().unwrap_or("").trim();
+        if other_cmd.is_empty() {
+            return None;
+        }
+
+        // 1. Trùng Endpoint / Port
+        let other_norm_endpoint = t.endpoint.trim().to_lowercase();
+        if !target_norm_endpoint.is_empty() && target_norm_endpoint == other_norm_endpoint {
+            return Some((
+                t.id.clone(),
+                t.name.clone(),
+                format!("cùng sử dụng cổng/endpoint '{}'", t.endpoint),
+            ));
+        }
+
+        // 2. Trùng Executable Binary
+        if let Some(ref tb) = target_bin {
+            if let Some(other_bin) = extract_cli_binary(other_cmd) {
+                if tb == &other_bin {
+                    return Some((
+                        t.id.clone(),
+                        t.name.clone(),
+                        format!("cùng sử dụng tiến trình/binary '{}'", tb),
+                    ));
+                }
+            }
+        }
+
+        None
+    })
 }
 
 #[tauri::command]
@@ -138,16 +206,51 @@ pub async fn start_process_inner(ctx: &ServerContext, tunnel_id: &str) -> Result
         }
     };
 
-    // Độc quyền CLI: quét config tìm tunnel CLI khác đang chạy (không dùng static riêng).
-    // Lớp bảo vệ vật lý cuối cùng vẫn là pre-flight port check bên dưới.
+    // Xử lý động vị trí kết nối cho AdGuard VPN (Fastest, Random, hoặc Location cụ thể do người dùng chọn)
+    let is_adguard = tunnel_clone.name.to_lowercase().contains("adguard") || cmd.contains("adguardvpn-cli");
+    let mut resolved_cmd = cmd;
+    if is_adguard && resolved_cmd.contains("adguardvpn-cli connect") {
+        let loc_setting = tunnel_clone.adguard_location.as_deref().unwrap_or("random");
+        if loc_setting == "fastest" {
+            if !resolved_cmd.contains("-f") {
+                resolved_cmd = resolved_cmd.replace("adguardvpn-cli connect", "adguardvpn-cli connect -f");
+            }
+        } else if loc_setting == "random" {
+            if let Some(rand_loc) = TunnelManager::pick_random_adguard_location().await {
+                ctx.app_state.log_tunnel_event(
+                    tunnel_id,
+                    "info",
+                    format!("AdGuard chọn vị trí ngẫu nhiên: {}", rand_loc),
+                );
+                resolved_cmd = resolved_cmd.replace("adguardvpn-cli connect -f", "adguardvpn-cli connect");
+                resolved_cmd = resolved_cmd.replace("adguardvpn-cli connect", &format!("adguardvpn-cli connect -l \"{}\"", rand_loc));
+            }
+        } else if !loc_setting.trim().is_empty() {
+            ctx.app_state.log_tunnel_event(
+                tunnel_id,
+                "info",
+                format!("AdGuard kết nối tới vị trí đã chọn: {}", loc_setting),
+            );
+            resolved_cmd = resolved_cmd.replace("adguardvpn-cli connect -f", "adguardvpn-cli connect");
+            resolved_cmd = resolved_cmd.replace("adguardvpn-cli connect", &format!("adguardvpn-cli connect -l \"{}\"", loc_setting.trim()));
+        }
+    }
+
+    // Scoped CLI lock: kiểm tra xung đột port/endpoint hoặc xung đột executable binary.
+    // Nếu khác port và khác binary (ví dụ WARP port 40000 và AdGuard port 1080), cho phép chạy song song!
     // Mọi đường reject đều persist Offline + xóa IP cũ (chống ghost IP xanh trên UI).
     // NOTE: parking_lot guard là !Send — scope read phải đóng TRƯỚC mọi .await.
     {
         let conf = ctx.app_state.config.read();
-        if let Some((_other_id, other_name)) = find_running_cli_tunnel(&conf, tunnel_id) {
+        if let Some((_other_id, other_name, reason)) = find_conflicting_cli_tunnel(
+            &conf,
+            tunnel_id,
+            Some(&resolved_cmd),
+            &tunnel_clone.endpoint,
+        ) {
             let msg = format!(
-                "Lỗi: Tunnel [{}] đang chạy. Bạn phải tự tay tắt Tunnel [{}] trước khi có thể chạy Tunnel [{}]!",
-                other_name, other_name, tunnel_clone.name
+                "Lỗi: Xung đột với Tunnel [{}] đang chạy ({}). Bạn phải dừng Tunnel [{}] trước khi chạy [{}]!",
+                other_name, reason, other_name, tunnel_clone.name
             );
             drop(conf);
             mark_start_failed(ctx, tunnel_id, msg.clone());
@@ -172,7 +275,7 @@ pub async fn start_process_inner(ctx: &ServerContext, tunnel_id: &str) -> Result
         }
     }
 
-    let output = match TunnelManager::run_tunnel_command_timeout(&cmd, crate::vpn::TUNNEL_CMD_TIMEOUT_SECS).await {
+    let output = match TunnelManager::run_tunnel_command_timeout(&resolved_cmd, crate::vpn::TUNNEL_CMD_TIMEOUT_SECS).await {
         Ok(o) => o,
         Err(e) => {
             // Tiến trình CLI spawn/run thất bại: persist để UI hiện đỏ + xóa ghost IP.
@@ -921,4 +1024,88 @@ pub fn open_key_file(file_path: String) -> Result<(), String> {
             .map_err(|e| format!("Failed to open file with open: {}", e))?;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_adguard_locations() -> Result<Vec<crate::vpn::AdguardLocationItem>, String> {
+    Ok(TunnelManager::fetch_adguard_locations().await)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vpn::{OutboundTunnel, TunnelProtocol, TunnelStatus};
+
+    #[test]
+    fn test_extract_cli_binary_various_formats() {
+        assert_eq!(
+            extract_cli_binary("adguardvpn-cli connect -f"),
+            Some("adguardvpn-cli".to_string())
+        );
+        assert_eq!(
+            extract_cli_binary("sh -c 'adguardvpn-cli connect'"),
+            Some("adguardvpn-cli".to_string())
+        );
+        assert_eq!(
+            extract_cli_binary(r#""C:\Program Files\Cloudflare\warp-cli.exe" connect"#),
+            Some("warp-cli.exe".to_string())
+        );
+        assert_eq!(extract_cli_binary(""), None);
+    }
+
+    #[test]
+    fn test_find_conflicting_cli_tunnel_scoped_lock() {
+        let mut conf = GatewayConfig::default();
+        conf.tunnels = vec![
+            OutboundTunnel {
+                id: "tun-warp".to_string(),
+                name: "Cloudflare WARP".to_string(),
+                protocol: TunnelProtocol::Socks5,
+                endpoint: "127.0.0.1:40000".to_string(),
+                auth_user: None,
+                auth_pass: None,
+                enabled: true,
+                status: TunnelStatus::Online,
+                max_concurrent_streams: 0,
+                min_request_interval_ms: 0,
+                start_command: Some("warp-cli connect".to_string()),
+                stop_command: None,
+                last_checked_at: None,
+                last_error: None,
+                last_exit_ip: None,
+                last_latency_ms: None,
+                tags: vec![],
+                adguard_location: None,
+            },
+        ];
+
+        // 1. Khác binary + khác port -> Cho phép chạy song song (None)
+        let conflict = find_conflicting_cli_tunnel(
+            &conf,
+            "tun-adguard",
+            Some("adguardvpn-cli connect -f"),
+            "127.0.0.1:1080",
+        );
+        assert!(conflict.is_none(), "Khác binary và khác port phải cho phép chạy song song");
+
+        // 2. Trùng binary warp-cli -> Bị chặn
+        let conflict = find_conflicting_cli_tunnel(
+            &conf,
+            "tun-warp-2",
+            Some("warp-cli connect"),
+            "127.0.0.1:40001",
+        );
+        assert!(conflict.is_some(), "Trùng binary phải bị chặn");
+        assert!(conflict.unwrap().2.contains("warp-cli"));
+
+        // 3. Trùng endpoint/port -> Bị chặn
+        let conflict = find_conflicting_cli_tunnel(
+            &conf,
+            "tun-other",
+            Some("custom-vpn start"),
+            "127.0.0.1:40000",
+        );
+        assert!(conflict.is_some(), "Trùng port phải bị chặn");
+        assert!(conflict.unwrap().2.contains("127.0.0.1:40000"));
+    }
 }

@@ -2,7 +2,11 @@
 [INTEGRITY NOTES]
 - Mục đích: Bảng hiển thị danh sách tệp tin và thư mục cho từng Pane.
 - Trách nhiệm: Hỗ trợ chọn đơn/đa chọn, đổi thứ tự sắp xếp, nhấp đúp để duyệt/mở, hiển thị icon phân loại file.
-- Tương tác: Dùng `useExplorerStore` và `sys_bridge.ts`.
+- Tính năng Nemo:
+  1. Hỗ trợ thanh co dãn (Column Resizer) giữa các cột Tên, Kích thước, Ngày sửa đổi (kéo chuột đổi kích thước, nhấp đúp để reset).
+  2. Bắt sự kiện menu chuột phải kép: nhấp vào khoảng trống (Background Context Menu) hoặc nhấp lên hàng file (File Context Menu).
+  3. Bản địa hoá 100% qua `useTranslation()` và gắn `data-lang-id`.
+- Tương tác: Dùng `useExplorerStore`, `sys_bridge.ts`, và `useTranslation()`.
 */
 
 import {
@@ -17,18 +21,27 @@ import {
   FileVideo,
   Folder,
 } from 'lucide-react';
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { sysOpenWith } from '../../../bridge/sys_bridge';
 import type { FileItem } from '../../../bridge/types';
 import { type PaneType, useExplorerStore } from '../store/useExplorerStore';
 import { formatBytes, formatDate, joinPath } from '../utils/formatters';
+import { useTranslation } from '../utils/i18n';
 
 interface FileTableProps {
   pane: PaneType;
   onContextMenu?: (e: React.MouseEvent, item: FileItem) => void;
+  onFileContextMenu?: (e: React.MouseEvent, item: FileItem) => void;
+  onBackgroundContextMenu?: (e: React.MouseEvent) => void;
 }
 
-export const FileTable: React.FC<FileTableProps> = ({ pane, onContextMenu }) => {
+export const FileTable: React.FC<FileTableProps> = ({
+  pane,
+  onContextMenu,
+  onFileContextMenu,
+  onBackgroundContextMenu,
+}) => {
+  const { t } = useTranslation();
   const paneState = useExplorerStore((state) => state[pane]);
   const setActivePane = useExplorerStore((state) => state.setActivePane);
   const loadDirectory = useExplorerStore((state) => state.loadDirectory);
@@ -38,6 +51,77 @@ export const FileTable: React.FC<FileTableProps> = ({ pane, onContextMenu }) => 
   const setSort = useExplorerStore((state) => state.setSort);
 
   const { files, selectedIds, sortKey, sortDir, searchQuery, isLoading } = paneState;
+
+  // Độ rộng cột có thể co dãn (Nemo Column Resizer)
+  const [colWidths, setColWidths] = useState<{
+    name: number;
+    size: number;
+    mod_time: number;
+  }>({
+    name: 280,
+    size: 110,
+    mod_time: 170,
+  });
+
+  const resizingRef = useRef<{
+    col: 'name' | 'size';
+    startX: number;
+    startWidth: number;
+  } | null>(null);
+  const isDraggingRef = useRef(false);
+
+  const handleSortClick = (key: 'name' | 'size' | 'mod_time') => {
+    if (isDraggingRef.current) return;
+    setSort(pane, key);
+  };
+
+  const startResizing = (col: 'name' | 'size', e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    isDraggingRef.current = false;
+    resizingRef.current = {
+      col,
+      startX: e.clientX,
+      startWidth: colWidths[col],
+    };
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!resizingRef.current) return;
+      const { col: currentTargetCol, startX, startWidth } = resizingRef.current;
+      const delta = moveEvent.clientX - startX;
+      if (Math.abs(delta) > 2) {
+        isDraggingRef.current = true;
+      }
+      const minWidth = currentTargetCol === 'name' ? 120 : 70;
+      const newWidth = Math.max(minWidth, startWidth + delta);
+      setColWidths((prev) => ({ ...prev, [currentTargetCol]: newWidth }));
+    };
+
+    const handleMouseUp = () => {
+      resizingRef.current = null;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      // Giữ cờ dragging trong 150ms để chặn sự kiện click bọt lên <th>
+      setTimeout(() => {
+        isDraggingRef.current = false;
+      }, 150);
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const resetColWidth = (col: 'name' | 'size') => {
+    isDraggingRef.current = false;
+    setColWidths((prev) => ({
+      ...prev,
+      [col]: col === 'name' ? 280 : 110,
+    }));
+  };
 
   // Lọc và sắp xếp
   const processedFiles = useMemo(() => {
@@ -125,6 +209,8 @@ export const FileTable: React.FC<FileTableProps> = ({ pane, onContextMenu }) => 
       onContextMenu={(e) => {
         e.preventDefault();
         setActivePane(pane);
+        // Menu chuột phải ở khoảng trống (Background Context Menu)
+        onBackgroundContextMenu?.(e);
       }}
     >
       {isLoading ? (
@@ -137,8 +223,9 @@ export const FileTable: React.FC<FileTableProps> = ({ pane, onContextMenu }) => 
             color: 'var(--text-secondary)',
             fontSize: '0.85rem',
           }}
+          data-lang-id="explorer_loading"
         >
-          Đang nạp dữ liệu...
+          {t('explorer_loading', 'Đang nạp dữ liệu...')}
         </div>
       ) : processedFiles.length === 0 ? (
         <div
@@ -152,13 +239,21 @@ export const FileTable: React.FC<FileTableProps> = ({ pane, onContextMenu }) => 
             gap: '0.5rem',
             fontSize: '0.85rem',
           }}
+          data-lang-id="explorer_empty_dir"
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setActivePane(pane);
+            onBackgroundContextMenu?.(e);
+          }}
         >
           <Folder size={36} color="rgba(255,255,255,0.1)" />
-          <span>Thư mục trống</span>
+          <span>{t('explorer_empty_dir', 'Thư mục trống')}</span>
         </div>
       ) : (
-        <table className="file-table">
-          <thead>
+        <>
+          <table className="file-table">
+            <thead>
             <tr>
               <th style={{ width: '36px', textAlign: 'center' }}>
                 <input
@@ -170,25 +265,68 @@ export const FileTable: React.FC<FileTableProps> = ({ pane, onContextMenu }) => 
                   }}
                 />
               </th>
-              <th onClick={() => setSort(pane, 'name')}>
+
+              {/* Cột Tên - có Resizer */}
+              <th
+                style={{ width: `${colWidths.name}px` }}
+                className="th-resizable"
+                onClick={() => handleSortClick('name')}
+              >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <span>Tên</span>
+                  <span data-lang-id="explorer_th_name">{t('explorer_th_name', 'Tên')}</span>
                   {sortKey === 'name' && (
                     sortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
                   )}
                 </div>
+                <div
+                  className="col-resizer"
+                  title="Kéo để chỉnh độ rộng cột / Nhấp đúp để đặt lại"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onMouseDown={(e) => startResizing('name', e)}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    resetColWidth('name');
+                  }}
+                />
               </th>
-              <th style={{ width: '100px' }} onClick={() => setSort(pane, 'size')}>
+
+              {/* Cột Kích thước - có Resizer */}
+              <th
+                style={{ width: `${colWidths.size}px` }}
+                className="th-resizable"
+                onClick={() => handleSortClick('size')}
+              >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <span>Kích thước</span>
+                  <span data-lang-id="explorer_th_size">{t('explorer_th_size', 'Kích thước')}</span>
                   {sortKey === 'size' && (
                     sortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
                   )}
                 </div>
+                <div
+                  className="col-resizer"
+                  title="Kéo để chỉnh độ rộng cột / Nhấp đúp để đặt lại"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onMouseDown={(e) => startResizing('size', e)}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    resetColWidth('size');
+                  }}
+                />
               </th>
-              <th style={{ width: '160px' }} onClick={() => setSort(pane, 'mod_time')}>
+
+              {/* Cột Ngày sửa đổi */}
+              <th
+                style={{ width: `${colWidths.mod_time}px` }}
+                onClick={() => handleSortClick('mod_time')}
+              >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <span>Ngày sửa đổi</span>
+                  <span data-lang-id="explorer_th_modified">
+                    {t('explorer_th_modified', 'Ngày sửa đổi')}
+                  </span>
                   {sortKey === 'mod_time' && (
                     sortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
                   )}
@@ -207,10 +345,15 @@ export const FileTable: React.FC<FileTableProps> = ({ pane, onContextMenu }) => 
                   onDoubleClick={() => handleDoubleClick(item)}
                   onContextMenu={(e) => {
                     e.preventDefault();
+                    e.stopPropagation();
                     if (!selectedIds.has(item.uuid)) {
                       toggleSelect(pane, item.uuid, false);
                     }
-                    onContextMenu?.(e, item);
+                    if (onFileContextMenu) {
+                      onFileContextMenu(e, item);
+                    } else {
+                      onContextMenu?.(e, item);
+                    }
                   }}
                 >
                   <td
@@ -230,7 +373,7 @@ export const FileTable: React.FC<FileTableProps> = ({ pane, onContextMenu }) => 
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
                           whiteSpace: 'nowrap',
-                          maxWidth: '350px',
+                          maxWidth: `${Math.max(100, colWidths.name - 50)}px`,
                         }}
                       >
                         {item.name}
@@ -244,6 +387,17 @@ export const FileTable: React.FC<FileTableProps> = ({ pane, onContextMenu }) => 
             })}
           </tbody>
         </table>
+        <div
+          className="table-bottom-spacer"
+          title="Nhấp chuột phải vào đây để mở menu khoảng trống"
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setActivePane(pane);
+            onBackgroundContextMenu?.(e);
+          }}
+        />
+      </>
       )}
     </div>
   );

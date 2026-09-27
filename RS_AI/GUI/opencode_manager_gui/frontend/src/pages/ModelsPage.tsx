@@ -12,7 +12,7 @@ Phân loại: "—" = CHƯA KHAI trong config và models.dev không có metadata
 OpenCode sẽ tự dùng mặc định của model. Giá chỉ có khi models.dev biết model.
 */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { RefreshCw, Star, Search, Gavel, Trash2, Wrench } from 'lucide-react';
 import type { ModelMatrixRow, ArbiterState, ArbiterVerdict, RecommendationView, RecommendedModel } from '../../../bridge/types';
@@ -45,6 +45,7 @@ export function ModelsPage() {
 
     const [rows, setRows] = useState<ModelMatrixRow[]>([]);
     const [query, setQuery] = useState('');
+    const deferredQuery = useDeferredValue(query);
     const [providerFilter, setProviderFilter] = useState('');
     const [needTools, setNeedTools] = useState(false);
     const [needReasoning, setNeedReasoning] = useState(false);
@@ -77,6 +78,7 @@ export function ModelsPage() {
     // ===== Tìm kiếm nhanh =====
     /** Lọc bảng điểm arbiter. */
     const [arbiterQuery, setArbiterQuery] = useState('');
+    const deferredArbiterQuery = useDeferredValue(arbiterQuery);
 
     const reload = useCallback(async () => {
         setIsLoading(true);
@@ -158,7 +160,7 @@ export function ModelsPage() {
     }), [rows]);
 
     const visible = useMemo(() => {
-        const q = query.trim().toLowerCase();
+        const q = deferredQuery.trim().toLowerCase();
         return rows.filter(r => {
             if (providerFilter && r.provider_id !== providerFilter) return false;
             if (needTools && r.tool_call !== true) return false;
@@ -170,7 +172,7 @@ export function ModelsPage() {
                 || r.model_id.toLowerCase().includes(q)
                 || r.display_name.toLowerCase().includes(q);
         });
-    }, [rows, query, providerFilter, needTools, needReasoning, needVision]);
+    }, [rows, deferredQuery, providerFilter, needTools, needReasoning, needVision]);
 
     const sorted = useMemo(() => {
         const val = (r: ModelMatrixRow): number | string | null => {
@@ -201,6 +203,20 @@ export function ModelsPage() {
         });
         return arr;
     }, [visible, sortKey, sortAsc]);
+
+    // ===== Phân trang để tối ưu DOM & rendering =====
+    const [page, setPage] = useState(1);
+    const PAGE_SIZE = 50;
+
+    useEffect(() => {
+        setPage(1);
+    }, [deferredQuery, providerFilter, needTools, needReasoning, needVision, sortKey, sortAsc]);
+
+    const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+    const pagedSorted = useMemo(() => {
+        const start = (page - 1) * PAGE_SIZE;
+        return sorted.slice(start, start + PAGE_SIZE);
+    }, [sorted, page]);
 
     const toggleSort = (key: SortKey) => {
         if (key === sortKey) setSortAsc(a => !a);
@@ -293,7 +309,7 @@ export function ModelsPage() {
 
     const sortedVerdicts = useMemo(() => {
         if (!arbiterState) return [];
-        const q = arbiterQuery.trim().toLowerCase();
+        const q = deferredArbiterQuery.trim().toLowerCase();
         const filtered = q
             ? arbiterState.verdicts.filter(v => v.model.toLowerCase().includes(q))
             : arbiterState.verdicts;
@@ -318,7 +334,7 @@ export function ModelsPage() {
             return arbiterAsc ? cmp : -cmp;
         });
         return arr;
-    }, [arbiterState, arbiterSort, arbiterAsc, arbiterQuery]);
+    }, [arbiterState, arbiterSort, arbiterAsc, deferredArbiterQuery]);
 
     /** Map "pid/mid" → verdict (tra ước lượng limit của arbiter cho tooltip). */
     const verdictMap = useMemo(() => {
@@ -800,7 +816,7 @@ export function ModelsPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {sorted.map(r => (
+                                {pagedSorted.map(r => (
                                     <tr key={`${r.provider_id}/${r.model_id}`}>
                                         <td>
                                             <button
@@ -856,6 +872,32 @@ export function ModelsPage() {
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+                )}
+                {totalPages > 1 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.75rem', fontSize: '0.85rem' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>
+                            {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, sorted.length)} / {sorted.length} models
+                        </span>
+                        <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                            <button
+                                className="btn"
+                                style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}
+                                disabled={page <= 1}
+                                onClick={() => setPage(p => Math.max(1, p - 1))}
+                            >
+                                ←
+                            </button>
+                            <span>{page} / {totalPages}</span>
+                            <button
+                                className="btn"
+                                style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}
+                                disabled={page >= totalPages}
+                                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                            >
+                                →
+                            </button>
+                        </div>
                     </div>
                 )}
                 <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '0.5rem' }}>

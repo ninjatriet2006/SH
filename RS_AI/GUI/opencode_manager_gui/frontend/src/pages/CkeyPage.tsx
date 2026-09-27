@@ -16,8 +16,8 @@ cache TTL (models 5 phút, stats/keys 2 phút, profile 10 phút) nên chu kỳ g
 mạng thật dài, tránh bị ckey.vn rate-limit/ban. Nút Refresh dùng force = true.
 */
 
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshCw, Download, KeyRound, History, Trash2, Wallet, Plus, Pencil } from 'lucide-react';
+import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { RefreshCw, Download, KeyRound, History, Trash2, Wallet, Plus, Pencil, Search } from 'lucide-react';
 import type {
     CkeyDashboard, CkeyDepositView, CkeyImportItem, CkeyProfileView, CkeyUsageView,
 } from '../../../bridge/types';
@@ -68,6 +68,10 @@ export function CkeyPage() {
     // giống nhau mọi tài khoản, và đích thật sự chỉ cần biết lúc ghi config).
     const [importTarget, setImportTarget] = useState('');
     const [importItems, setImportItems] = useState<CkeyImportItem[]>([]);
+    const [importSearch, setImportSearch] = useState('');
+    const deferredImportSearch = useDeferredValue(importSearch);
+    const [importPage, setImportPage] = useState(1);
+    const IMPORT_PAGE_SIZE = 50;
     const [checked, setChecked] = useState<Set<string>>(new Set());
     const [sortKey, setSortKey] = useState<SortKey>('model');
     const [sortAsc, setSortAsc] = useState(true);
@@ -287,6 +291,16 @@ export function CkeyPage() {
             setChecked(new Set());
         }
     }, [activeId]);
+    const filteredItems = useMemo(() => {
+        const q = deferredImportSearch.trim().toLowerCase();
+        if (!q) return importItems;
+        return importItems.filter(i =>
+            i.model.toLowerCase().includes(q) ||
+            i.provider.toLowerCase().includes(q) ||
+            i.display_name.toLowerCase().includes(q)
+        );
+    }, [importItems, deferredImportSearch]);
+
     const sortedItems = useMemo(() => {
         const val = (i: CkeyImportItem): number | string => {
             switch (sortKey) {
@@ -299,7 +313,7 @@ export function CkeyPage() {
                 default: return i.model.toLowerCase();
             }
         };
-        const arr = [...importItems];
+        const arr = [...filteredItems];
         arr.sort((a, b) => {
             const va = val(a);
             const vb = val(b);
@@ -307,7 +321,17 @@ export function CkeyPage() {
             return sortAsc ? cmp : -cmp;
         });
         return arr;
-    }, [importItems, sortKey, sortAsc]);
+    }, [filteredItems, sortKey, sortAsc]);
+
+    useEffect(() => {
+        setImportPage(1);
+    }, [deferredImportSearch, sortKey, sortAsc]);
+
+    const totalImportPages = Math.max(1, Math.ceil(sortedItems.length / IMPORT_PAGE_SIZE));
+    const pagedItems = useMemo(() => {
+        const start = (importPage - 1) * IMPORT_PAGE_SIZE;
+        return sortedItems.slice(start, start + IMPORT_PAGE_SIZE);
+    }, [sortedItems, importPage]);
 
     const toggleSort = (key: SortKey) => {
         if (key === sortKey) setSortAsc(a => !a);
@@ -326,8 +350,17 @@ export function CkeyPage() {
         });
     };
 
+    const isAllChecked = sortedItems.length > 0 && sortedItems.every(i => checked.has(i.id));
     const toggleAllImport = () => {
-        setChecked(prev => (prev.size === sortedItems.length ? new Set() : new Set(sortedItems.map(i => i.id))));
+        setChecked(prev => {
+            const next = new Set(prev);
+            if (isAllChecked) {
+                sortedItems.forEach(i => next.delete(i.id));
+            } else {
+                sortedItems.forEach(i => next.add(i.id));
+            }
+            return next;
+        });
     };
 
     const handleImport = async () => {
@@ -689,14 +722,36 @@ export function CkeyPage() {
             {activeId && (
                 <div className="glass-panel" style={{ marginBottom: '1rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.5rem' }}>
-                        <h3 style={{ marginBottom: 0 }}>
-                            {t('ckey.import_title')} ({checked.size}/{sortedItems.length})
-                            {importTarget && (
-                                <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-secondary)' }}>
-                                    → <code style={{ fontFamily: 'monospace' }}>{importTarget}</code>
-                                </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                            <h3 style={{ marginBottom: 0 }}>
+                                {t('ckey.import_title')} ({checked.size}/{importItems.length})
+                                {importTarget && (
+                                    <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-secondary)' }}>
+                                        → <code style={{ fontFamily: 'monospace' }}>{importTarget}</code>
+                                    </span>
+                                )}
+                            </h3>
+                            {importItems.length > 0 && (
+                                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                    <Search size={14} style={{ position: 'absolute', left: '0.5rem', color: 'var(--text-secondary)', pointerEvents: 'none' }} />
+                                    <input
+                                        type="text"
+                                        placeholder={t('common.search_placeholder')}
+                                        value={importSearch}
+                                        onChange={e => setImportSearch(e.target.value)}
+                                        style={{
+                                            padding: '0.25rem 0.5rem 0.25rem 1.6rem',
+                                            fontSize: '0.8rem',
+                                            borderRadius: '4px',
+                                            border: '1px solid var(--border-color)',
+                                            background: 'rgba(0, 0, 0, 0.2)',
+                                            color: 'var(--text-primary)',
+                                            width: '160px',
+                                        }}
+                                    />
+                                </div>
                             )}
-                        </h3>
+                        </div>
                         <button
                             className="btn btn-primary"
                             onClick={handleImport}
@@ -715,7 +770,7 @@ export function CkeyPage() {
                                         <th style={{ width: '34px' }}>
                                             <input
                                                 type="checkbox"
-                                                checked={checked.size === sortedItems.length}
+                                                checked={isAllChecked}
                                                 onChange={toggleAllImport}
                                                 style={{ width: '13px', height: '13px', cursor: 'pointer' }}
                                                 title={t('common.select_all')}
@@ -731,7 +786,7 @@ export function CkeyPage() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {sortedItems.map(item => (
+                                    {pagedItems.map(item => (
                                         <tr
                                             key={item.id}
                                             style={{ cursor: 'pointer', background: checked.has(item.id) ? 'rgba(99,102,241,0.08)' : undefined }}
@@ -778,6 +833,32 @@ export function CkeyPage() {
                                     ))}
                                 </tbody>
                             </table>
+                        </div>
+                    )}
+                    {totalImportPages > 1 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.75rem', fontSize: '0.85rem' }}>
+                            <span style={{ color: 'var(--text-secondary)' }}>
+                                {(importPage - 1) * IMPORT_PAGE_SIZE + 1}–{Math.min(importPage * IMPORT_PAGE_SIZE, sortedItems.length)} / {sortedItems.length} models
+                            </span>
+                            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                                <button
+                                    className="btn"
+                                    style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}
+                                    disabled={importPage <= 1}
+                                    onClick={() => setImportPage(p => Math.max(1, p - 1))}
+                                >
+                                    ←
+                                </button>
+                                <span>{importPage} / {totalImportPages}</span>
+                                <button
+                                    className="btn"
+                                    style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}
+                                    disabled={importPage >= totalImportPages}
+                                    onClick={() => setImportPage(p => Math.min(totalImportPages, p + 1))}
+                                >
+                                    →
+                                </button>
+                            </div>
                         </div>
                     )}
                     <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '0.4rem' }}>

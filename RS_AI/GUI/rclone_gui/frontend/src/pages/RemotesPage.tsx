@@ -8,7 +8,7 @@
 import {
   CheckCircle2,
   Cloud,
-  ExternalLink,
+  Edit2,
   FileText,
   HardDrive,
   Info,
@@ -18,15 +18,16 @@ import {
   XCircle,
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { CreateRemoteModal } from '../components/CreateRemoteModal';
-import { useExplorerStore } from '../store/useExplorerStore';
+import { EditRemoteModal } from '../components/EditRemoteModal';
 import { useRemotesStore } from '../store/useRemotesStore';
 import { useSettingsStore } from '../store/useSettingsStore';
+import type { RemoteConfig } from '../../../bridge/types';
 import { formatBytes } from '../utils/formatters';
+import { useTranslation } from '../utils/i18n';
 
 export const RemotesPage: React.FC = () => {
-  const navigate = useNavigate();
+  const { t } = useTranslation();
   const remotes = useRemotesStore((state) => state.remotes);
   const selectedRemote = useRemotesStore((state) => state.selectedRemote);
   const setSelectedRemote = useRemotesStore((state) => state.setSelectedRemote);
@@ -38,22 +39,14 @@ export const RemotesPage: React.FC = () => {
   const aboutMap = useRemotesStore((state) => state.aboutMap);
   const sizeMap = useRemotesStore((state) => state.sizeMap);
   const isLoading = useRemotesStore((state) => state.isLoading);
-
-  const loadDirectory = useExplorerStore((state) => state.loadDirectory);
-
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingRemote, setEditingRemote] = useState<RemoteConfig | null>(null);
   const [exportedIni, setExportedIni] = useState<{ name: string; content: string } | null>(null);
 
   useEffect(() => {
     loadRemotes();
     loadProviders();
   }, [loadRemotes, loadProviders]);
-
-  const handleBrowseRemote = (name: string) => {
-    const remotePath = `${name}::/`;
-    loadDirectory('left', remotePath);
-    navigate('/');
-  };
 
   const handleDelete = async (name: string) => {
     if (confirm(`Bạn có chắc chắn muốn xoá remote "${name}"?`)) {
@@ -79,17 +72,28 @@ export const RemotesPage: React.FC = () => {
       <div className="page-header">
         <div className="page-title">
           <Cloud size={24} color="#818cf8" />
-          <span>Remote đám mây ({remotes.length})</span>
+          <span data-lang-id="remotes_title">
+            {t('remotes_title', 'Remote đám mây')} ({remotes.length})
+          </span>
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button className="btn btn-secondary btn-sm" onClick={() => loadRemotes()} disabled={isLoading}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => loadRemotes()}
+            disabled={isLoading}
+            data-lang-id="remotes_refresh"
+          >
             <RefreshCw size={14} />
-            <span>Làm mới</span>
+            <span>{t('remotes_refresh', 'Làm mới')}</span>
           </button>
-          <button className="btn btn-primary btn-sm" onClick={() => setShowCreateModal(true)}>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => setShowCreateModal(true)}
+            data-lang-id="remotes_add"
+          >
             <Plus size={14} />
-            <span>Thêm Remote mới</span>
+            <span>{t('remotes_add', 'Thêm Remote mới')}</span>
           </button>
         </div>
       </div>
@@ -108,13 +112,16 @@ export const RemotesPage: React.FC = () => {
               }}
             >
               <Cloud size={48} color="rgba(255,255,255,0.1)" />
-              <p style={{ marginTop: '1rem', fontSize: '0.9rem' }}>Chưa có Remote nào được cấu hình.</p>
+              <p style={{ marginTop: '1rem', fontSize: '0.9rem' }} data-lang-id="remotes_empty">
+                {t('remotes_empty', 'Chưa có Remote nào được cấu hình.')}
+              </p>
               <button
                 className="btn btn-primary btn-sm"
                 style={{ marginTop: '0.75rem' }}
                 onClick={() => setShowCreateModal(true)}
+                data-lang-id="remotes_add"
               >
-                Tạo cấu hình đầu tiên
+                {t('remotes_add', 'Tạo cấu hình đầu tiên')}
               </button>
             </div>
           ) : (
@@ -184,11 +191,12 @@ export const RemotesPage: React.FC = () => {
                         className="btn btn-secondary btn-sm"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleBrowseRemote(remote.name);
+                          setEditingRemote(remote);
                         }}
+                        data-lang-id="remotes_edit"
                       >
-                        <ExternalLink size={12} />
-                        <span>Mở Explorer</span>
+                        <Edit2 size={12} />
+                        <span>{t('remotes_edit', 'Sửa')}</span>
                       </button>
 
                       <div style={{ display: 'flex', gap: '0.35rem' }}>
@@ -366,6 +374,13 @@ export const RemotesPage: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {editingRemote && (
+        <EditRemoteModal
+          remote={editingRemote}
+          onClose={() => setEditingRemote(null)}
+        />
       )}
     </div>
   );

@@ -90,7 +90,8 @@ fn rotate_path_if_oversized(path: &std::path::Path, max_bytes: u64) {
 /// Ghi một dòng log: file append (best-effort) + `eprintln!`.
 pub fn log(level: Level, tag: &str, message: impl AsRef<str>) {
     let msg = message.as_ref();
-    let line = format!("[{}][{}] {}", level, tag, msg);
+    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    let line = format!("[{timestamp}][{}][{}] {}", level, tag, msg);
     eprintln!("{line}");
     // File append: mọi lỗi đều bỏ qua để log không bao giờ làm crash app.
     let path = log_file_path();
@@ -100,6 +101,15 @@ pub fn log(level: Level, tag: &str, message: impl AsRef<str>) {
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
         let _ = writeln!(f, "{line}");
     }
+}
+
+/// Xoá toàn bộ nội dung file log (dành cho nút Xoá Log trên giao diện).
+pub fn clear_log() -> Result<(), String> {
+    let path = log_file_path();
+    if path.exists() {
+        std::fs::write(&path, b"").map_err(|e| format!("Lỗi xoá nhật ký {}: {}", path.display(), e))?;
+    }
+    Ok(())
 }
 
 /// Shortcut cho [`log`] với [`Level::Info`].

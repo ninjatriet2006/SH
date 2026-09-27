@@ -3,6 +3,7 @@ pub mod manager;
 pub mod rotation;
 pub mod routing;
 pub mod upstream;
+pub mod adapters;
 
 use axum::{
     body::Body,
@@ -22,7 +23,7 @@ use crate::proxy::upstream::{send_and_handle_upstream, RequestLogContext};
 use crate::vpn::TunnelManager;
 
 pub use crate::config;
-pub use crate::config::{GatewayConfig, RouteRule, RouteStatus};
+pub use crate::config::{GatewayConfig, RouteRule, RouteStatus, ProtocolAdapter};
 pub use crate::proxy::routing::{build_target_url, prefix_matches};
 
 /// Giới hạn độ dài chuỗi body lưu trong RAM buffer để chống OOM
@@ -211,6 +212,7 @@ impl AppState {
                 last_error: None,
                 last_exit_ip: None,
                 last_latency_ms: None,
+                adguard_location: None,
             });
 
         let client = TunnelManager::build_client(&tunnel);
@@ -315,7 +317,7 @@ pub async fn handle_route_request(
     // CRITICAL: guard PHẢI được thả trước mọi record_log/return phía dưới —
     // record_log lấy config.read(), cùng thread đang giữ write sẽ deadlock
     // parking_lot::RwLock (treo worker vĩnh viễn mỗi request 503).
-    let (route_id, rule_target, rule_prefix, rule_tunnel, route_pace_ms, resolved_key, key_from_file, profile) = {
+    let (route_id, rule_target, rule_prefix, rule_tunnel, route_pace_ms, resolved_key, key_from_file, profile, protocol_adapter) = {
         let mut conf = state.config.write();
         let matched = match_route(&mut conf.routes, port, &path);
 
@@ -339,6 +341,7 @@ pub async fn handle_route_request(
                     key,
                     from_file,
                     conf.get_route_fingerprint(&snapshot),
+                    snapshot.protocol_adapter,
                 );
                 out
             }
@@ -428,8 +431,61 @@ pub async fn handle_route_request(
             .map(|t| t.max_concurrent_streams)
             .unwrap_or(0)
     };
-    let target_url = build_target_url(&rule_target, &rule_prefix, &path, &query);
+    let mut target_url = build_target_url(&rule_target, &rule_prefix, &path, &query);
+    let effective_adapter = match protocol_adapter {
+        ProtocolAdapter::OpenAiTo1Min => ProtocolAdapter::OpenAiTo1Min,
+        ProtocolAdapter::OpenAiToAnthropic => ProtocolAdapter::OpenAiToAnthropic,
+        ProtocolAdapter::None => {
+            if adapters::onemin::is_1min_target(&target_url) || adapters::onemin::is_1min_target(&rule_target) {
+                ProtocolAdapter::OpenAiTo1Min
+            } else {
+                ProtocolAdapter::None
+            }
+        }
+    };
     let (route_id, tunnel_id) = (route_id, selected_id);
+
+    // Tự động xử lý OpenAI models discovery cho adapter tương ứng
+    if method == Method::GET && (path == "/v1/models" || path == "/models" || path.ends_with("/models")) {
+        let models_val_opt = match effective_adapter {
+            ProtocolAdapter::OpenAiTo1Min => Some(adapters::onemin::get_models_list_json()),
+            ProtocolAdapter::OpenAiToAnthropic => Some(adapters::anthropic::get_models_list_json()),
+            ProtocolAdapter::None => None,
+        };
+        if let Some(models_val) = models_val_opt {
+            let models_bytes = serde_json::to_vec(&models_val).unwrap_or_default();
+            let mut inbound_headers = Vec::new();
+            for (k, v) in &headers {
+                inbound_headers.push((k.as_str().to_string(), v.to_str().unwrap_or("<binary>").to_string()));
+            }
+            state.record_log(RawTrafficLog {
+                id: req_id,
+                timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+                route_id,
+                method: method.to_string(),
+                port,
+                path,
+                target_url,
+                tunnel_id,
+                key_used_preview: resolved_key.as_deref().map(crate::proxy::key_manager::EndpointKeyManager::preview_key),
+                status_code: 200,
+                duration_ms: start_time.elapsed().as_millis() as u64,
+                is_streaming: false,
+                raw_request_headers: inbound_headers,
+                raw_forwarded_headers: vec![],
+                raw_request_body: String::new(),
+                raw_response_headers: vec![("content-type".to_string(), "application/json".to_string())],
+                raw_response_body: truncate_log_body(&String::from_utf8_lossy(&models_bytes), 2048),
+                raw_forwarded_body: String::new(),
+                leaked_findings: vec![],
+            });
+            return Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "application/json")
+                .body(Body::from(models_bytes))
+                .unwrap();
+        }
+    }
 
     // Pacing 2 tầng (xem reserve_pacing_slot): endpoint riêng + tunnel chung.
     // Chạy TRƯỚC semaphore (không giữ permit khi sleep); sleep ngoài lock.
@@ -479,10 +535,41 @@ pub async fn handle_route_request(
     } else {
         None
     };
-    let forward_bytes: bytes::Bytes = match &masked_body {
+    let mut forward_bytes: bytes::Bytes = match &masked_body {
         Some(masked) => bytes::Bytes::from(masked.clone().into_bytes()),
         None => body_bytes.clone(),
     };
+
+    // Protocol Adapter Request Transformation
+    let mut is_adapted = false;
+    let mut requested_model = None;
+    let mut forwarded_body_str = masked_body.unwrap_or_default();
+
+    match effective_adapter {
+        ProtocolAdapter::OpenAiTo1Min => {
+            if path.ends_with("/chat/completions") || !forward_bytes.is_empty() {
+                if let Ok((new_url, new_bytes, _stream, model)) = adapters::onemin::transform_request(&target_url, &forward_bytes) {
+                    target_url = new_url;
+                    forwarded_body_str = String::from_utf8_lossy(&new_bytes).to_string();
+                    forward_bytes = bytes::Bytes::from(new_bytes);
+                    is_adapted = true;
+                    requested_model = Some(model);
+                }
+            }
+        }
+        ProtocolAdapter::OpenAiToAnthropic => {
+            if path.ends_with("/chat/completions") || !forward_bytes.is_empty() {
+                if let Ok((new_url, new_bytes, _stream, model)) = adapters::anthropic::transform_request(&target_url, &forward_bytes) {
+                    target_url = new_url;
+                    forwarded_body_str = String::from_utf8_lossy(&new_bytes).to_string();
+                    forward_bytes = bytes::Bytes::from(new_bytes);
+                    is_adapted = true;
+                    requested_model = Some(model);
+                }
+            }
+        }
+        ProtocolAdapter::None => {}
+    }
 
     // Thu thập raw request headers
     let mut header_map_for_audit = HashMap::new();
@@ -498,16 +585,18 @@ pub async fn handle_route_request(
     let clean_headers = FingerprintAnalyzer::sanitize_headers(&header_map_for_audit, &profile);
 
     let client = state.get_client(&tunnel_id);
-    // Method lạ/không parse được thì 501 chứ KHÔNG ép thành GET trong im lặng —
-    // ép GET có thể biến DELETE thành GET (nguy hiểm semantics), proxy phải trung thực.
-    let upstream_method = match reqwest::Method::from_bytes(method.as_str().as_bytes()) {
-        Ok(m) => m,
-        Err(_) => {
-            let err_msg = format!("Unsupported HTTP method: {}", method);
-            return Response::builder()
-                .status(StatusCode::NOT_IMPLEMENTED)
-                .body(Body::from(err_msg))
-                .unwrap();
+    let upstream_method = if is_adapted {
+        reqwest::Method::POST
+    } else {
+        match reqwest::Method::from_bytes(method.as_str().as_bytes()) {
+            Ok(m) => m,
+            Err(_) => {
+                let err_msg = format!("Unsupported HTTP method: {}", method);
+                return Response::builder()
+                    .status(StatusCode::NOT_IMPLEMENTED)
+                    .body(Body::from(err_msg))
+                    .unwrap();
+            }
         }
     };
     let mut req_builder = client.request(upstream_method, &target_url);
@@ -533,6 +622,10 @@ pub async fn handle_route_request(
             continue;
         }
 
+        if is_adapted && k_lower == "content-type" {
+            continue;
+        }
+
         raw_forwarded_headers.push((k.clone(), v.clone()));
         req_builder = req_builder.header(k, v);
     }
@@ -541,6 +634,75 @@ pub async fn handle_route_request(
         let auth_val = format!("Bearer {}", token);
         raw_forwarded_headers.push(("authorization".to_string(), format!("Bearer {}", key_preview.as_deref().unwrap_or("sk-***"))));
         req_builder = req_builder.header("authorization", auth_val);
+    }
+
+    match effective_adapter {
+        ProtocolAdapter::OpenAiTo1Min => {
+            let one_min_key = resolved_key.clone().or_else(|| {
+                headers
+                    .get("authorization")
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| {
+                        if let Some(stripped) = s.strip_prefix("Bearer ") {
+                            stripped.trim().to_string()
+                        } else {
+                            s.trim().to_string()
+                        }
+                    })
+                    .or_else(|| {
+                        headers
+                            .get("api-key")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|s| s.trim().to_string())
+                    })
+            });
+
+            if let Some(ref key) = one_min_key {
+                req_builder = req_builder.header("API-KEY", key);
+                let prev = crate::proxy::key_manager::EndpointKeyManager::preview_key(key);
+                raw_forwarded_headers.push(("API-KEY".to_string(), prev));
+            }
+
+            if is_adapted {
+                req_builder = req_builder.header("content-type", "application/json");
+                raw_forwarded_headers.push(("content-type".to_string(), "application/json".to_string()));
+            }
+        }
+        ProtocolAdapter::OpenAiToAnthropic => {
+            let anthropic_key = resolved_key.clone().or_else(|| {
+                headers
+                    .get("authorization")
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| {
+                        if let Some(stripped) = s.strip_prefix("Bearer ") {
+                            stripped.trim().to_string()
+                        } else {
+                            s.trim().to_string()
+                        }
+                    })
+                    .or_else(|| {
+                        headers
+                            .get("x-api-key")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|s| s.trim().to_string())
+                    })
+            });
+
+            if let Some(ref key) = anthropic_key {
+                req_builder = req_builder.header("x-api-key", key);
+                let prev = crate::proxy::key_manager::EndpointKeyManager::preview_key(key);
+                raw_forwarded_headers.push(("x-api-key".to_string(), prev));
+            }
+
+            req_builder = req_builder.header("anthropic-version", "2023-06-01");
+            raw_forwarded_headers.push(("anthropic-version".to_string(), "2023-06-01".to_string()));
+
+            if is_adapted {
+                req_builder = req_builder.header("content-type", "application/json");
+                raw_forwarded_headers.push(("content-type".to_string(), "application/json".to_string()));
+            }
+        }
+        ProtocolAdapter::None => {}
     }
 
     // Concurrency Limiter
@@ -572,7 +734,7 @@ pub async fn handle_route_request(
                         raw_request_body: truncate_log_body(&raw_request_body, 2048),
                         raw_response_headers: vec![],
                         raw_response_body: err_msg.clone(),
-                        raw_forwarded_body: masked_body.clone().unwrap_or_default(),
+                        raw_forwarded_body: forwarded_body_str,
                         leaked_findings: leaks,
                     });
                     return Response::builder()
@@ -605,12 +767,12 @@ pub async fn handle_route_request(
         raw_request_headers,
         raw_forwarded_headers,
         raw_request_body,
-        // Body thực tế đã forward (sau mask, hoặc rỗng nếu không mask) — UI hiện
-        // riêng mục này để không nhầm với raw_request_body (những gì client gửi).
-        forwarded_body: masked_body.unwrap_or_default(),
+        forwarded_body: forwarded_body_str,
         leaks,
         start_time,
         permit,
+        active_adapter: effective_adapter,
+        requested_model,
     };
 
     send_and_handle_upstream(req_builder, Arc::clone(&state), ctx).await

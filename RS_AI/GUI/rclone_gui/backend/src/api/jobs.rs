@@ -109,3 +109,13 @@ pub fn job_move_to_top(state: State<'_, AppState>, request: Req<JobIdRequest>) -
         state.jobs.move_job_to_top(&p.job_id)
     })
 }
+
+#[tauri::command]
+pub fn job_get_children(
+    state: State<'_, AppState>,
+    request: Req<JobIdRequest>,
+) -> IpcResult<Vec<crate::logic::queue::QueueItem>> {
+    command_result(request, IpcErrorCode::Internal, |p| {
+        Ok(state.jobs.children_of(&p.job_id))
+    })
+}

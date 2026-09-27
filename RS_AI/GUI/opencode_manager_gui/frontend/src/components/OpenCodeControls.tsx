@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Copy, ExternalLink, Play, Square, Terminal } from 'lucide-react';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { WebStatus } from '../../../bridge/types';
 import {
     getWebStatus,
@@ -38,7 +39,40 @@ export function OpenCodeControls({ onError }: Props) {
 
     useEffect(() => {
         let alive = true;
-        const poll = async () => {
+        let unlisten: UnlistenFn | null = null;
+
+        listen<WebStatus>('web_status_changed', event => {
+            if (alive) accept(event.payload);
+        }).then(fn => {
+            if (alive) unlisten = fn;
+            else fn();
+        }).catch(err => console.error('Lắng nghe web_status_changed lỗi:', err));
+
+        let timer: number | undefined;
+
+        const schedulePoll = () => {
+            if (!alive) return;
+            const currentState = latest.current.state;
+            // Đã có Tauri event đẩy trực tiếp khi đổi trạng thái; polling chỉ là nhịp tim dự phòng.
+            const delay = (currentState === 'starting' || currentState === 'stopping')
+                ? 1000
+                : currentState === 'running'
+                    ? 5000
+                    : 15000;
+
+            timer = window.setTimeout(async () => {
+                try {
+                    const next = await getWebStatus();
+                    if (alive) accept(next);
+                } catch (error) {
+                    if (alive) onError(String(error));
+                } finally {
+                    schedulePoll();
+                }
+            }, delay);
+        };
+
+        const pollImmediate = async () => {
             try {
                 const next = await getWebStatus();
                 if (alive) accept(next);
@@ -46,11 +80,18 @@ export function OpenCodeControls({ onError }: Props) {
                 if (alive) onError(String(error));
             }
         };
-        void poll();
-        const timer = window.setInterval(() => void poll(), 1000);
+
+        void pollImmediate();
+        schedulePoll();
+
+        const onFocus = () => void pollImmediate();
+        window.addEventListener('focus', onFocus);
+
         return () => {
             alive = false;
-            window.clearInterval(timer);
+            unlisten?.();
+            if (timer) window.clearTimeout(timer);
+            window.removeEventListener('focus', onFocus);
         };
     }, [accept, onError]);
 

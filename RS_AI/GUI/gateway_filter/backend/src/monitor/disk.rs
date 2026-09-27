@@ -101,3 +101,54 @@ pub fn rotate_disk_log_if_needed(log_path: &Path, max_disk_entries: usize) -> st
 
     Ok(())
 }
+
+/// Cập nhật trường raw_response_body của một request ID cụ thể trong file traffic_log.jsonl.
+/// Dùng cho SSE Streaming khi stream kết thúc, đảm bảo log trên đĩa không bị kẹt ở trạng thái live flow.
+pub fn update_disk_log_response_body(log_path: &Path, req_id: &str, final_body: &str) -> std::io::Result<()> {
+    if !log_path.exists() {
+        return Ok(());
+    }
+
+    let file = File::open(log_path)?;
+    let reader = BufReader::new(file);
+    let mut lines: Vec<String> = Vec::new();
+    let mut updated = false;
+
+    for line in reader.lines() {
+        if let Ok(l) = line {
+            if !l.trim().is_empty() {
+                if !updated && l.contains(req_id) {
+                    if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&l) {
+                        if val.get("id").and_then(|v| v.as_str()) == Some(req_id) {
+                            if let Some(map) = val.as_object_mut() {
+                                map.insert("raw_response_body".to_string(), serde_json::json!(final_body));
+                                if let Ok(new_l) = serde_json::to_string(&val) {
+                                    lines.push(new_l);
+                                    updated = true;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                }
+                lines.push(l);
+            }
+        }
+    }
+
+    if updated {
+        let mut out_file = File::create(log_path)?;
+        for l in lines {
+            writeln!(out_file, "{}", l)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Đẩy tác vụ cập nhật disk log xuống tokio blocking pool để không block async handler
+pub fn spawn_disk_update_response_body(log_path: PathBuf, req_id: String, final_body: String) {
+    tokio::task::spawn_blocking(move || {
+        let _ = update_disk_log_response_body(&log_path, &req_id, &final_body);
+    });
+}
