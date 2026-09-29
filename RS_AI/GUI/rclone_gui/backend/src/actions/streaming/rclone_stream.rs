@@ -128,7 +128,11 @@ pub(crate) fn exec(
             vec![src_real.clone(), dst_real.clone()],
         ),
         TransferMode::Item => {
-            let full_src = join_child(&src_real, &ticket.rel);
+            let full_src = if !ticket.rel.is_empty() && (src_real == ticket.rel || src_real.ends_with(&format!("/{}", ticket.rel))) {
+                src_real.clone()
+            } else {
+                join_child(&src_real, &ticket.rel)
+            };
             let full_dst = join_child(&dst_real, &ticket.rel);
             (
                 crate::core::rclone_caller::build_target(&src_remote, &full_src),

@@ -30,7 +30,9 @@ import { ProviderModal } from '../components/ProviderModal';
 import { ModelsModal } from '../components/ModelsModal';
 import { ConfirmModal } from '../components/ConfirmModal';
 
-/** Định nghĩa cột + độ rộng mặc định/hạn dưới cho bảng provider. */
+const ACTIONS_COL_WIDTH = 125;
+
+/** Định nghĩa cột + độ rộng mặc định/hạn dưới cho các cột có thể resize. */
 const PROVIDER_COLUMNS: ResizableColumn[] = [
     { key: 'favorite', defaultWidth: 78, minWidth: 78 },
     { key: 'tracking', defaultWidth: 88, minWidth: 78 },
@@ -41,7 +43,6 @@ const PROVIDER_COLUMNS: ResizableColumn[] = [
     { key: 'models', defaultWidth: 95, minWidth: 70 },
     { key: 'pinned', defaultWidth: 160, minWidth: 100 },
     { key: 'status', defaultWidth: 105, minWidth: 80 },
-    { key: 'actions', defaultWidth: 125, minWidth: 110 },
 ];
 
 export function ProvidersPage() {
@@ -148,7 +149,7 @@ export function ProvidersPage() {
 
     // Tổng độ rộng hiện tại của các cột — làm minWidth cho bảng (xem chú thích ở bảng).
     const totalWidth = useMemo(
-        () => PROVIDER_COLUMNS.reduce((sum, c) => sum + widthOf(c.key), 0),
+        () => PROVIDER_COLUMNS.reduce((sum, c) => sum + widthOf(c.key), ACTIONS_COL_WIDTH),
         [widthOf],
     );
 
@@ -503,14 +504,14 @@ export function ProvidersPage() {
                         <p style={{ color: 'var(--text-secondary)' }}>{t('providers.none')}</p>
                     ) : (
                         <div className="table-container">
-                            {/* Bố cục fixed + minWidth = tổng độ rộng: kéo một cột
-                                rộng thêm thì bảng rộng theo và container cuộn ngang,
-                                các cột khác không bị co lại. */}
-                             <table style={{ tableLayout: 'fixed', width: totalWidth, minWidth: totalWidth }}>
+                            {/* Bố cục fixed + width 100% + minWidth = tổng độ rộng: bảng luôn kéo hết mép phải,
+                                khi màn hình hẹp hơn tổng độ rộng thì container cuộn ngang. */}
+                             <table style={{ tableLayout: 'fixed', width: '100%', minWidth: totalWidth }}>
                                 <colgroup>
                                     {PROVIDER_COLUMNS.map(c => (
-                                     <col key={c.key} style={{ width: widthOf(c.key), minWidth: widthOf(c.key) }} />
+                                     <col key={c.key} style={{ width: widthOf(c.key), minWidth: c.minWidth }} />
                                     ))}
+                                    <col key="actions" style={{ width: ACTIONS_COL_WIDTH, minWidth: ACTIONS_COL_WIDTH }} />
                                 </colgroup>
                                 <thead>
                                     <tr>
@@ -523,7 +524,7 @@ export function ProvidersPage() {
                                         <Th colKey="models">{t('providers.col_models')}</Th>
                                         <Th colKey="pinned">{t('providers.col_pinned_model')}</Th>
                                         <Th colKey="status">{t('providers.col_status')}</Th>
-                                        <Th colKey="actions">{t('providers.col_actions')}</Th>
+                                        <th>{t('providers.col_actions')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>

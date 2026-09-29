@@ -21,9 +21,9 @@ import {
   Search,
   Terminal,
 } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { checkConflicts, openInTerminal } from '../../../bridge/files_bridge';
-import { sysOpenWith } from '../../../bridge/sys_bridge';
+import { osClipboardGet, osClipboardSet, sysOpenWith } from '../../../bridge/sys_bridge';
 import type { ConflictInfo, FileItem } from '../../../bridge/types';
 import { type PaneType, useExplorerStore } from '../store/useExplorerStore';
 import { useJobsStore } from '../store/useJobsStore';
@@ -48,6 +48,7 @@ export const DualPaneExplorer: React.FC<DualPaneExplorerProps> = ({
   const { t } = useTranslation();
   const leftState = useExplorerStore((state) => state.left);
   const rightState = useExplorerStore((state) => state.right);
+  const getPaneState = (p: PaneType) => (p === 'left' ? leftState : rightState);
   const activePane = useExplorerStore((state) => state.activePane);
   const setActivePane = useExplorerStore((state) => state.setActivePane);
   const loadDirectory = useExplorerStore((state) => state.loadDirectory);
@@ -96,8 +97,6 @@ export const DualPaneExplorer: React.FC<DualPaneExplorerProps> = ({
   } | null>(null);
 
   const activeState = activePane === 'left' ? leftState : rightState;
-  const oppositePane: PaneType = activePane === 'left' ? 'right' : 'left';
-  const oppositeState = oppositePane === 'left' ? leftState : rightState;
 
   // Splitter ratio state (nhớ tỷ lệ trong localStorage)
   const [splitRatio, setSplitRatio] = useState<number>(() => {
@@ -106,18 +105,6 @@ export const DualPaneExplorer: React.FC<DualPaneExplorerProps> = ({
   });
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Phím tắt bàn phím chuẩn Desktop (Ctrl+Shift+N tạo thư mục)
-  useEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'N' || e.key === 'n')) {
-        e.preventDefault();
-        setNewFolderName('');
-        setNewFolderPrompt(true);
-      }
-    };
-    window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, []);
 
   const handleSplitterMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -197,7 +184,11 @@ export const DualPaneExplorer: React.FC<DualPaneExplorerProps> = ({
 
   // Xoá các mục được chọn
   const handleDeleteSelected = async (targetItems?: FileItem[]) => {
-    const selectedFiles = targetItems || activeState.files.filter((f) => activeState.selectedIds.has(f.uuid));
+    const pane = contextMenu?.pane || activePane;
+    const paneState = getPaneState(pane);
+    const selectedFiles = targetItems && targetItems.length > 0
+      ? targetItems
+      : paneState.files.filter((f: FileItem) => paneState.selectedIds.has(f.uuid));
     if (selectedFiles.length === 0) return;
 
     const confirmMsg = t('explorer_confirm_delete', `Bạn có chắc muốn xoá ${selectedFiles.length} mục đã chọn?`);
@@ -206,88 +197,245 @@ export const DualPaneExplorer: React.FC<DualPaneExplorerProps> = ({
     }
 
     for (const item of selectedFiles) {
-      const itemPath = joinPath(activeState.path, item.name);
+      const itemPath = joinPath(paneState.path, item.name);
       await enqueueJob('delete', itemPath);
     }
-    await refreshPane(activePane);
+    await refreshPane(pane);
   };
 
   // Copy / Move sang Pane đối diện
   const handleTransferToOpposite = async (isMove: boolean, targetItems?: FileItem[]) => {
-    const selectedFiles = targetItems || activeState.files.filter((f) => activeState.selectedIds.has(f.uuid));
-    if (selectedFiles.length === 0 || !oppositeState.path) return;
+    const pane = contextMenu?.pane || activePane;
+    const currentPaneState = getPaneState(pane);
+    const oppPane = pane === 'left' ? 'right' : 'left';
+    const oppPaneState = getPaneState(oppPane);
 
-    const srcPaths = selectedFiles.map((f) => joinPath(activeState.path, f.name));
-    const destPath = oppositeState.path;
+    const selectedFiles = targetItems && targetItems.length > 0
+      ? targetItems
+      : currentPaneState.files.filter((f: FileItem) => currentPaneState.selectedIds.has(f.uuid));
+    if (selectedFiles.length === 0 || !oppPaneState.path) return;
+
+    const destContainer = oppPaneState.path;
+    const srcPaths = selectedFiles.map((f: FileItem) => joinPath(currentPaneState.path, f.name));
 
     try {
-      const conflicts = await checkConflicts(srcPaths, destPath);
+      const conflicts = await checkConflicts(srcPaths, destContainer);
       if (conflicts.length > 0 && onShowConflicts) {
         onShowConflicts(conflicts, async (skipPaths) => {
-          for (const src of srcPaths) {
-            await enqueueJob(isMove ? 'move' : 'copy', src, destPath, skipPaths);
+          for (const f of selectedFiles) {
+            if (skipPaths.includes(f.name)) continue;
+            const src = joinPath(currentPaneState.path, f.name);
+            const targetDest = joinPath(destContainer, f.name);
+            await enqueueJob(isMove ? 'move' : 'copy', src, targetDest, skipPaths);
           }
-          await refreshPane(oppositePane);
-          if (isMove) await refreshPane(activePane);
+          await refreshPane(oppPane);
+          if (isMove) await refreshPane(pane);
         });
         return;
       }
 
-      for (const src of srcPaths) {
-        await enqueueJob(isMove ? 'move' : 'copy', src, destPath);
+      for (const f of selectedFiles) {
+        const src = joinPath(currentPaneState.path, f.name);
+        const targetDest = joinPath(destContainer, f.name);
+        await enqueueJob(isMove ? 'move' : 'copy', src, targetDest);
       }
-      await refreshPane(oppositePane);
-      if (isMove) await refreshPane(activePane);
+      await refreshPane(oppPane);
+      if (isMove) await refreshPane(pane);
     } catch (err) {
       console.error('Lỗi chuyển file:', err);
     }
   };
 
-  // Cắt (Cut)
-  const handleCut = (item?: FileItem) => {
-    const items = item ? [item] : activeState.files.filter((f) => activeState.selectedIds.has(f.uuid));
+  // Cắt (Cut) - hỗ trợ toàn bộ danh sách chọn
+  const handleCut = (targetItems?: FileItem[]) => {
+    const pane = contextMenu?.pane || activePane;
+    const paneState = getPaneState(pane);
+    const items = targetItems && targetItems.length > 0
+      ? targetItems
+      : paneState.files.filter((f: FileItem) => paneState.selectedIds.has(f.uuid));
     if (items.length === 0) return;
     setClipboard({
       action: 'cut',
-      sourcePane: activePane,
-      sourceDir: activeState.path,
+      sourcePane: pane,
+      sourceDir: paneState.path,
       items,
     });
+    const osItems = items.map((f: FileItem) => ({
+      pane,
+      path: joinPath(paneState.path, f.name),
+    }));
+    osClipboardSet(osItems, true).catch((e) => console.error('Lỗi osClipboardSet cut:', e));
   };
 
-  // Sao chép (Copy)
-  const handleCopy = (item?: FileItem) => {
-    const items = item ? [item] : activeState.files.filter((f) => activeState.selectedIds.has(f.uuid));
+  // Sao chép (Copy) - hỗ trợ toàn bộ danh sách chọn
+  const handleCopy = (targetItems?: FileItem[]) => {
+    const pane = contextMenu?.pane || activePane;
+    const paneState = getPaneState(pane);
+    const items = targetItems && targetItems.length > 0
+      ? targetItems
+      : paneState.files.filter((f: FileItem) => paneState.selectedIds.has(f.uuid));
     if (items.length === 0) return;
     setClipboard({
       action: 'copy',
-      sourcePane: activePane,
-      sourceDir: activeState.path,
+      sourcePane: pane,
+      sourceDir: paneState.path,
       items,
     });
+    const osItems = items.map((f: FileItem) => ({
+      pane,
+      path: joinPath(paneState.path, f.name),
+    }));
+    osClipboardSet(osItems, false).catch((e) => console.error('Lỗi osClipboardSet copy:', e));
   };
 
   // Dán (Paste)
   const handlePaste = async () => {
-    if (!clipboard || clipboard.items.length === 0) return;
-    const destPath = activeState.path;
-    const isMove = clipboard.action === 'cut';
+    const targetPane = activePane;
+    const targetState = getPaneState(targetPane);
+    const destContainer = targetState.path;
+    if (!destContainer) return;
+
+    let currentClipboard = clipboard;
+    if (!currentClipboard || currentClipboard.items.length === 0) {
+      try {
+        const osData = await osClipboardGet();
+        if (osData && osData.items.length > 0) {
+          const files: FileItem[] = osData.items.map((it) => {
+            const name = it.path.split('/').pop() || it.path;
+            return {
+              uuid: it.path,
+              name,
+              size: 0,
+              is_dir: false,
+              mod_time: '',
+              file_type: null,
+            };
+          });
+          const firstPath = osData.items[0].path;
+          const lastSlash = firstPath.lastIndexOf('/');
+          const sourceDir = lastSlash > 0 ? firstPath.substring(0, lastSlash) : '';
+          currentClipboard = {
+            action: osData.is_cut ? 'cut' : 'copy',
+            sourcePane: (osData.items[0].pane as PaneType) || 'left',
+            sourceDir,
+            items: files,
+          };
+        }
+      } catch (e) {
+        console.error('Lỗi đọc osClipboardGet:', e);
+      }
+    }
+
+    if (!currentClipboard || currentClipboard.items.length === 0) return;
+    const isMove = currentClipboard.action === 'cut';
 
     try {
-      for (const item of clipboard.items) {
-        const srcPath = joinPath(clipboard.sourceDir, item.name);
-        await enqueueJob(isMove ? 'move' : 'copy', srcPath, destPath);
+      const srcPaths = currentClipboard.items.map((it) => joinPath(currentClipboard!.sourceDir, it.name));
+      const conflicts = await checkConflicts(srcPaths, destContainer);
+      if (conflicts.length > 0 && onShowConflicts) {
+        onShowConflicts(conflicts, async (skipPaths) => {
+          for (const item of currentClipboard!.items) {
+            if (skipPaths.includes(item.name)) continue;
+            const srcPath = joinPath(currentClipboard!.sourceDir, item.name);
+            const targetDest = joinPath(destContainer, item.name);
+            await enqueueJob(isMove ? 'move' : 'copy', srcPath, targetDest, skipPaths);
+          }
+          if (isMove) {
+            await refreshPane(currentClipboard!.sourcePane);
+            setClipboard(null);
+            osClipboardSet([], false).catch(() => {});
+          }
+          await refreshPane(targetPane);
+        });
+        return;
+      }
+
+      for (const item of currentClipboard.items) {
+        const srcPath = joinPath(currentClipboard.sourceDir, item.name);
+        const targetDest = joinPath(destContainer, item.name);
+        await enqueueJob(isMove ? 'move' : 'copy', srcPath, targetDest);
       }
 
       if (isMove) {
-        await refreshPane(clipboard.sourcePane);
+        await refreshPane(currentClipboard.sourcePane);
         setClipboard(null);
+        osClipboardSet([], false).catch(() => {});
       }
-      await refreshPane(activePane);
+      await refreshPane(targetPane);
     } catch (err) {
       console.error('Lỗi dán file:', err);
     }
   };
+
+  // Phím tắt bàn phím chuẩn Desktop (Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+A, Delete, F2, Ctrl+Shift+N)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      // Ctrl+Shift+N: Tạo thư mục mới
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'N' || e.key === 'n')) {
+        e.preventDefault();
+        setNewFolderName('');
+        setNewFolderPrompt(true);
+        return;
+      }
+
+      // Ctrl+C: Sao chép các file đã chọn
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+        e.preventDefault();
+        handleCopy();
+        return;
+      }
+
+      // Ctrl+X: Cắt các file đã chọn
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'x' || e.key === 'X')) {
+        e.preventDefault();
+        handleCut();
+        return;
+      }
+
+      // Ctrl+V: Dán clipboard
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'v' || e.key === 'V')) {
+        e.preventDefault();
+        handlePaste();
+        return;
+      }
+
+      // Ctrl+A: Chọn tất cả trong pane hiện tại
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        selectAll(activePane);
+        return;
+      }
+
+      // Delete: Xóa các file đã chọn
+      if (e.key === 'Delete') {
+        e.preventDefault();
+        handleDeleteSelected();
+        return;
+      }
+
+      // F2: Đổi tên (nếu chọn đúng 1 file)
+      if (e.key === 'F2') {
+        e.preventDefault();
+        const currentSelected = activeState.files.filter((f) => activeState.selectedIds.has(f.uuid));
+        if (currentSelected.length === 1) {
+          setRenameTarget(currentSelected[0]);
+          setRenameNewName(currentSelected[0].name);
+        }
+        return;
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [activePane, activeState, clipboard]);
 
   // Mở terminal tại thư mục pane đang chọn
   const handleOpenTerminal = async (path?: string) => {
@@ -514,6 +662,20 @@ export const DualPaneExplorer: React.FC<DualPaneExplorerProps> = ({
     );
   };
 
+  // Xác định danh sách file mục tiêu cho Context Menu (tôn trọng chọn nhiều item)
+  const menuPane = contextMenu?.pane || activePane;
+  const menuPaneState = getPaneState(menuPane);
+  const menuTargetItems: FileItem[] = useMemo(() => {
+    if (!contextMenu) return [];
+    if (contextMenu.item) {
+      if (menuPaneState.selectedIds.has(contextMenu.item.uuid)) {
+        return menuPaneState.files.filter((f: FileItem) => menuPaneState.selectedIds.has(f.uuid));
+      }
+      return [contextMenu.item];
+    }
+    return menuPaneState.files.filter((f: FileItem) => menuPaneState.selectedIds.has(f.uuid));
+  }, [contextMenu, menuPaneState]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Dual Pane split view with draggable splitter */}
@@ -537,12 +699,12 @@ export const DualPaneExplorer: React.FC<DualPaneExplorerProps> = ({
           y={contextMenu.y}
           type={contextMenu.type}
           selectedItem={contextMenu.item}
-          selectedCount={contextMenu.item ? 1 : activeState.selectedIds.size}
+          selectedCount={menuTargetItems.length}
           oppositePaneName={contextMenu.pane === 'left' ? 'Pane Phải' : 'Pane Trái'}
           hasClipboard={!!clipboard && clipboard.items.length > 0}
           isBookmarked={
             contextMenu.item?.is_dir
-              ? bookmarks.some((b) => b.path === joinPath(activeState.path, contextMenu.item!.name))
+              ? bookmarks.some((b) => b.path === joinPath(menuPaneState.path, contextMenu.item!.name))
               : false
           }
           onClose={() => setContextMenu(null)}
@@ -550,43 +712,43 @@ export const DualPaneExplorer: React.FC<DualPaneExplorerProps> = ({
           onOpen={() => {
             if (!contextMenu.item) return;
             if (contextMenu.item.is_dir) {
-              loadDirectory(contextMenu.pane, joinPath(activeState.path, contextMenu.item.name));
+              loadDirectory(contextMenu.pane, joinPath(menuPaneState.path, contextMenu.item.name));
             } else {
-              sysOpenWith(joinPath(activeState.path, contextMenu.item.name)).catch(console.error);
+              sysOpenWith(joinPath(menuPaneState.path, contextMenu.item.name)).catch(console.error);
             }
           }}
           onOpenWith={() => {
             if (!contextMenu.item) return;
-            sysOpenWith(joinPath(activeState.path, contextMenu.item.name)).catch(console.error);
+            sysOpenWith(joinPath(menuPaneState.path, contextMenu.item.name)).catch(console.error);
           }}
-          onCut={() => handleCut(contextMenu.item)}
-          onCopy={() => handleCopy(contextMenu.item)}
-          onCopyToOpposite={() => handleTransferToOpposite(false, contextMenu.item ? [contextMenu.item] : undefined)}
-          onMoveToOpposite={() => handleTransferToOpposite(true, contextMenu.item ? [contextMenu.item] : undefined)}
+          onCut={() => handleCut(menuTargetItems)}
+          onCopy={() => handleCopy(menuTargetItems)}
+          onCopyToOpposite={() => handleTransferToOpposite(false, menuTargetItems)}
+          onMoveToOpposite={() => handleTransferToOpposite(true, menuTargetItems)}
           onRename={() => {
             if (contextMenu.item) {
               setRenameTarget(contextMenu.item);
               setRenameNewName(contextMenu.item.name);
             }
           }}
-          onDelete={() => handleDeleteSelected(contextMenu.item ? [contextMenu.item] : undefined)}
+          onDelete={() => handleDeleteSelected(menuTargetItems)}
           onBookmark={() => {
             if (contextMenu.item?.is_dir) {
-              const full = joinPath(activeState.path, contextMenu.item.name);
+              const full = joinPath(menuPaneState.path, contextMenu.item.name);
               toggleBookmark(contextMenu.item.name, full);
             }
           }}
           onTerminal={() => {
             if (contextMenu.item?.is_dir) {
-              handleOpenTerminal(joinPath(activeState.path, contextMenu.item.name));
+              handleOpenTerminal(joinPath(menuPaneState.path, contextMenu.item.name));
             } else {
               handleOpenTerminal();
             }
           }}
           onProperties={() => {
             const target = contextMenu.item
-              ? joinPath(activeState.path, contextMenu.item.name)
-              : activeState.path;
+              ? joinPath(menuPaneState.path, contextMenu.item.name)
+              : menuPaneState.path;
             onShowProperties?.(target);
           }}
           // Background Context Menu Actions

@@ -13,10 +13,23 @@ use std::collections::HashMap;
 
 /// UNIVERSAL worker-check: vé rel có nằm trong vùng skip không (khớp đúng
 /// hoặc tiền tố `skip/` — skip dir cha thì cả cây con nghỉ).
+/// Hỗ trợ cả trường hợp `skip_paths` chứa tiền tố folder gốc (do `conflicts.rs` trả về).
 pub(super) fn child_skipped(skip_paths: &[String], rel: &str) -> bool {
     skip_paths.iter().any(|s| {
         let s = s.trim().trim_matches('/');
-        !s.is_empty() && (rel == s || rel.starts_with(&format!("{s}/")))
+        if s.is_empty() {
+            return false;
+        }
+        if rel == s || rel.starts_with(&format!("{s}/")) {
+            return true;
+        }
+        if let Some((_base, inner)) = s.split_once('/') {
+            let inner = inner.trim_matches('/');
+            if !inner.is_empty() && (rel == inner || rel.starts_with(&format!("{inner}/"))) {
+                return true;
+            }
+        }
+        false
     })
 }
 
@@ -218,7 +231,11 @@ pub(super) fn run_child_transfer(
 /// UNIVERSAL tối ưu: `is_dir` lấy từ vé (manifest đã biết) để khỏi probe lại.
 pub(super) fn run_child_delete(src: &str, rel: &str, is_dir: bool, policy: Policy) -> Result<(), String> {
     let (remote, real) = crate::core::path::cut_remote_path(src);
-    let full = join_child(&real, rel);
+    let full = if !rel.is_empty() && (real == rel || real.ends_with(&format!("/{}", rel))) {
+        real
+    } else {
+        join_child(&real, rel)
+    };
     // UNIVERSAL: dựng lại chuỗi gốc cho actions parse (`Remote::/path`, Local trần).
     let path = if remote == "Local" {
         full
@@ -706,6 +723,12 @@ mod tests {
         assert!(!child_skipped(&skips, "dd/f.txt"));
         assert!(!child_skipped(&[], "d"));
         assert!(!child_skipped(&["  ".to_string()], "d"));
+
+        // Tiền tố từ conflict checker (folder_name/rel_path)
+        let prefixed_skips = vec!["folder_a/f.txt".to_string(), "folder_a/sub".to_string()];
+        assert!(child_skipped(&prefixed_skips, "f.txt"));
+        assert!(child_skipped(&prefixed_skips, "sub/item.png"));
+        assert!(!child_skipped(&prefixed_skips, "other.txt"));
     }
 
     #[test]

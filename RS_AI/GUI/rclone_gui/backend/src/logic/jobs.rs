@@ -483,25 +483,17 @@ impl JobStore {
                 ),
             );
             // UNIVERSAL S2: Copy/Move do `run_transfer_job` tự điều phối vé
-            // (bulk 1 vé / off bóc manifest) rồi chạy qua `execute_children`;
-            // kind khác giữ đường cũ (nở best-effort, vỏ rỗng → chạy đơn).
+            // (bulk 1 vé / off bóc manifest) rồi chạy qua `execute_children`.
+            // Các job đơn (Delete, List, Manifest, Rename, Mkdir, Touch) chạy trực tiếp qua `execute_job`
+            // (trừ khi có vé con được gán tường minh từ trước).
             let outcome = match snapshot.kind {
                 JobKind::Copy | JobKind::Move => self.execute_job(&snapshot, &mut emit),
-                // UNIVERSAL: liệt kê đủ enum nội bộ (cấm wildcard).
-                JobKind::Delete | JobKind::List | JobKind::Manifest => {
-                    self.populate_children_best_effort(&snapshot);
-                    if self.children_of(&id).is_empty() {
-                        // UNIVERSAL: chạy thật theo kind; hủy giữa chừng → `Cancelled`,
-                        // lỗi rclone → `Error` kèm stderr, xong → `Done` 100%.
-                        self.execute_job(&snapshot, &mut emit)
-                    } else {
-                        // UNIVERSAL S2: worker chạy tuần tự từng con ở `queue.rs`,
-                        // tiến độ cha = tổng con xong; cancel/error theo cha.
+                JobKind::Delete | JobKind::List | JobKind::Manifest | JobKind::Rename | JobKind::Mkdir | JobKind::Touch => {
+                    if !self.children_of(&id).is_empty() {
                         self.execute_children(&snapshot)
+                    } else {
+                        self.execute_job(&snapshot, &mut emit)
                     }
-                }
-                JobKind::Rename | JobKind::Mkdir | JobKind::Touch => {
-                    self.execute_job(&snapshot, &mut emit)
                 }
             };
             // UNIVERSAL S2: sau vòng con vẫn đẩy tiến độ cha qua emit từng vé
@@ -588,36 +580,6 @@ impl JobStore {
         }
     }
 
-    /// UNIVERSAL S2: nở vé con best-effort qua [`manifest`]; chỉ nở khi cha
-    /// có `src` và chưa có con; lỗi đọc → giữ đường đơn cũ.
-    fn populate_children_best_effort(&self, job: &Job) {
-        if !self.children_of(&job.id).is_empty() {
-            return;
-        }
-        // Chỉ các kind thao tác theo cây mới nở; kind khác giữ đường đơn.
-        if !matches!(job.kind, JobKind::Copy | JobKind::Move | JobKind::Delete | JobKind::List | JobKind::Manifest) {
-            return;
-        }
-        let src = match job.src.as_deref() {
-            Some(s) => s,
-            None => return,
-        };
-        match manifest(src) {
-            Ok(items) if !items.is_empty() => {
-                // UNIVERSAL tối ưu: Delete/List/Manifest không dùng across/
-                // engine_flags (vé con chạy NoTrash/no-op) nên đóng dấu
-                // across=false + flags thật cho đồng đều (không default).
-                let flags = crate::settings::engine::load_engine_flags().unwrap_or_default();
-                self.set_children_from_items(&job.id, items, false, flags);
-            }
-            // UNIVERSAL: vỏ rỗng giữ đường đơn như cũ (không warn: bình thường).
-            Ok(_) => {}
-            // UNIVERSAL: lỗi đọc → warn rồi giữ đường đơn như cũ.
-            Err(e) => {
-                crate::core::debug::warn("jobs/populate_children", format!("manifest lỗi: {e}"));
-            }
-        }
-    }
 
     /// Điều phối một job tới actions thật theo kind (đồng bộ, chặn thread worker).
     fn execute_job<E: FnMut(Job)>(
@@ -661,10 +623,35 @@ impl JobStore {
     ) -> Result<(), String> {
         let src = job.src.clone().ok_or_else(|| format!("{} job missing src", cmd))?;
         // UNIVERSAL: validate dst sớm (báo lỗi thiếu dst trước khi nở vé).
-        let dst = job.dst.clone().ok_or_else(|| format!("{} job missing dst", cmd))?;
+        let mut dst = job.dst.clone().ok_or_else(|| format!("{} job missing dst", cmd))?;
         if self.is_cancel_requested(&job.id) {
             return Err("job cancelled".to_string());
         }
+
+        let (src_remote, src_real) = crate::core::path::cut_remote_path(&src);
+        let (dst_remote, dst_real) = crate::core::path::cut_remote_path(&dst);
+        let src_base = crate::actions::information::conflicts::base_name_of(&src_real);
+        let dst_target = crate::core::rclone_caller::build_target(&dst_remote, &dst_real);
+        let dst_is_dir = crate::actions::types::is_dir(&dst_target).unwrap_or(false);
+
+        // UNIVERSAL: Chuẩn hoá đích nếu dst là thư mục chứa nhưng chưa có src_base ở đuôi
+        if !src_base.is_empty()
+            && dst_is_dir
+            && dst_real != src_base
+            && !dst_real.ends_with(&format!("/{src_base}"))
+        {
+            let joined_real = crate::actions::streaming::rclone_stream::join_child(&dst_real, src_base);
+            dst = if dst.contains("::") {
+                format!("{dst_remote}::{joined_real}")
+            } else {
+                joined_real
+            };
+            self.update(&job.id, |j| j.dst = Some(dst.clone()));
+            crate::core::debug::info(&job.id, format!("Chuẩn hoá đích vào thư mục con: {dst}"));
+        }
+
+        let active_job = self.get(&job.id).unwrap_or_else(|| job.clone());
+
         // UNIVERSAL: đọc cờ engine 1 lần duy nhất lúc dispatch; lỗi đọc →
         // default (giữ hành vi cũ: bóc con, không across).
         let flags = crate::settings::engine::load_engine_flags().unwrap_or_default();
@@ -673,8 +660,10 @@ impl JobStore {
         // (trước đây mỗi vé con spawn `config dump` + đọc flags lại).
         let across = crate::actions::checkcap::check_cap(&src, &dst).server_side;
         // UNIVERSAL: não chung check_cap (UI hỏi + đường chạy hỏi) — across
-        // lấy từ Cap.server_side; bulk/item/policy/progress/cancel giữ nguyên.
-        if flags.switches.bulk_transfer {
+        let src_target = crate::core::rclone_caller::build_target(&src_remote, &src_real);
+        let is_dir = crate::actions::types::is_dir(&src_target).unwrap_or(true);
+
+        if flags.switches.bulk_transfer || !is_dir {
             self.set_children_bulk(&job.id, across, flags);
         } else {
             match manifest(&src) {
@@ -691,7 +680,7 @@ impl JobStore {
                 }
             }
         }
-        self.execute_children(job)
+        self.execute_children(&active_job)
     }
 
     /// UNIVERSAL: delete thật (`NoTrash`) qua actions `execute_delete_sync`
@@ -1501,6 +1490,34 @@ mod tests {
         assert!(folder.exists() && folder.is_dir());
         assert!(!file_src.exists());
         assert!(file_renamed.exists());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn worker_runs_delete_file_and_dir_sequentially() {
+        if !rclone_present() {
+            return;
+        }
+        let temp_dir = std::env::temp_dir().join(format!("rclone_gui_test_delete_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).expect("seed dir");
+
+        let test_file = temp_dir.join("007_test.webp");
+        std::fs::write(&test_file, b"test content").expect("write test file");
+        assert!(test_file.exists());
+
+        let (store, path) = temp_store("delete_worker");
+        let j_del = store.enqueue(JobKind::Delete, Some(format!("Local::{}", test_file.display())), None);
+
+        // Run worker
+        store.run_queue_sync(None::<fn(Job)>);
+
+        // Verify job finished as Done
+        let res = store.get(&j_del.id).expect("job exists");
+        assert_eq!(res.status, JobStatus::Done);
+        assert!(!test_file.exists(), "file must be deleted");
 
         let _ = std::fs::remove_dir_all(&temp_dir);
         let _ = std::fs::remove_file(&path);
