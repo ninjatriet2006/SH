@@ -286,9 +286,10 @@ mod tests {
 
     #[test]
     fn config_and_preferences_storage_are_separate_by_contract() {
-        let commands = include_str!("commands.rs");
-        assert!(commands.contains("app_config_dir(&app)"));
-        assert!(commands.contains("app_data_dir(app)?.join(\"preferences.json\")"));
-        assert!(!commands.contains("app_config_dir(app)?.join(\"preferences.json\")"));
+        let helpers = include_str!("commands/helpers.rs");
+        let config = include_str!("commands/config.rs");
+        assert!(config.contains("app_config_dir(&app)"));
+        assert!(helpers.contains("app_data_dir(app)?.join(\"preferences.json\")"));
+        assert!(!helpers.contains("app_config_dir(app)?.join(\"preferences.json\")"));
     }
 }

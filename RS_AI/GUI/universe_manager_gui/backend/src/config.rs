@@ -48,12 +48,12 @@ pub struct AppEntry {
     pub status: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
 pub struct ManagerSettings {
     pub managed_dir: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
 pub struct ManagerConfig {
     pub settings: ManagerSettings,
     pub apps: Vec<AppEntry>,

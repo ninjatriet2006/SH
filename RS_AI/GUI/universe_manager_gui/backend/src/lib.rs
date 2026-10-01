@@ -13,6 +13,8 @@ mod path_security;
 mod process_snapshot;
 mod search;
 
+pub mod sources;
+
 pub use cancellation::CancellationToken;
 pub use config::{AppEntry, ConfigStore, InstallType, ManagerConfig, ManagerSettings, load_config};
 pub use discovery::{
@@ -23,3 +25,4 @@ pub use error::{BackendError, ErrorKind, Result};
 pub use lifecycle::{LifecycleManager, OperationResult, ProcessIdentity};
 pub use process_snapshot::ProcessSnapshot;
 pub use search::{SearchReport, SearchResult, search_apps};
+pub use sources::{AppSource, SourceKind, SourceRegistry};
