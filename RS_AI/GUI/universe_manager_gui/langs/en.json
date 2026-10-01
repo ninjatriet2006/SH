@@ -9,6 +9,7 @@
     "scan": "Scan Apps",
     "manager": "App Manager",
     "search": "Search",
+    "debug": "Debug Logs",
     "settings": "Settings"
   },
   "settings": {
@@ -74,5 +75,17 @@
   "confirm": {
     "start": "Start {name}?",
     "stop": "Stop {name}?"
+  },
+  "debug": {
+    "title": "System Logs & Diagnostics",
+    "description": "Monitor all actions, status events, and detailed diagnostics in real time.",
+    "search_placeholder": "Search log entries…",
+    "copy_all": "Copy Logs",
+    "clear": "Clear Logs",
+    "export": "Download (.txt)",
+    "copied": "Copied!",
+    "no_logs": "No log entries recorded yet.",
+    "auto_scroll": "Auto-scroll",
+    "test_logs": "Test logs"
   }
 }

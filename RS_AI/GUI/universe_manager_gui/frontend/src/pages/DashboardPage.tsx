@@ -19,11 +19,11 @@ export function DashboardPage() {
           <span>{t("dashboard.managed_apps") ?? "Tổng số ứng dụng"}</span>
         </article>
         <article className="glass-panel card">
-          <strong style={{ color: "#4ade80" }}>{runningCount}</strong>
+          <strong style={{ color: "var(--badge-success)" }}>{runningCount}</strong>
           <span>🟢 Đang chạy</span>
         </article>
         <article className="glass-panel card">
-          <strong style={{ color: "#818cf8" }}>{systemCount}</strong>
+          <strong style={{ color: "var(--accent)" }}>{systemCount}</strong>
           <span>🌐 Flatpak / Snap / Hệ thống</span>
         </article>
         <article className="glass-panel card">

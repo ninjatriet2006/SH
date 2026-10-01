@@ -11,10 +11,12 @@ pub async fn picker_select<R: Runtime>(
 ) -> IpcResult<UniversePickerSelectResult> {
     let request_id = validate(&request, false)?;
     let dialog = rfd::FileDialog::new().set_parent(&window);
+    crate::debug::info("PICKER", format!("Opening directory picker for kind: {:?}", request.payload.kind));
     let selected_opt =
         match tauri::async_runtime::spawn_blocking(move || dialog.pick_folder()).await {
             Ok(opt) => opt,
             Err(source) => {
+                crate::debug::error("PICKER", format!("Picker worker failed: {source}"));
                 return Err(error(
                     IpcErrorCode::Internal,
                     format!("picker worker failed: {source}"),
@@ -22,8 +24,12 @@ pub async fn picker_select<R: Runtime>(
             }
         };
     let selected = match selected_opt {
-        Some(folder) => folder,
+        Some(folder) => {
+            crate::debug::success("PICKER", format!("Selected directory: {folder:?}"));
+            folder
+        }
         None => {
+            crate::debug::warn("PICKER", "Directory selection was cancelled by user.");
             return Err(error(
                 IpcErrorCode::InvalidArgument,
                 "directory selection was cancelled",

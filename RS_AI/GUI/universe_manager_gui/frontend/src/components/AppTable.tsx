@@ -5,17 +5,36 @@ interface AppTableProps {
   apps: AppEntry[];
   actions?: boolean;
   disabled?: boolean;
+  selectedAppId?: string;
+  onSelectApp?: (app: AppEntry) => void;
+  checkedAppIds?: Set<string>;
+  onToggleCheck?: (appId: string) => void;
+  onToggleCheckAll?: () => void;
   onStart?: (appId: string) => void;
   onStop?: (appId: string) => void;
   onRestart?: (appId: string) => void;
 }
 
-export function AppTable({ apps, actions = false, disabled = false, onStart, onStop, onRestart }: AppTableProps) {
+export function AppTable({
+  apps,
+  actions = false,
+  disabled = false,
+  selectedAppId,
+  onSelectApp,
+  checkedAppIds,
+  onToggleCheck,
+  onToggleCheckAll,
+  onStart,
+  onStop,
+  onRestart,
+}: AppTableProps) {
   const { t } = useTranslation();
 
   if (!apps.length) {
     return <p className="empty">{t("status.no_apps")}</p>;
   }
+
+  const allChecked = checkedAppIds && apps.length > 0 && apps.every((a) => checkedAppIds.has(a.id));
 
   const renderSourceBadge = (app: AppEntry) => {
     const ptype = app.package_type?.toLowerCase() ?? "";
@@ -25,10 +44,13 @@ export function AppTable({ apps, actions = false, disabled = false, onStart, onS
     if (ptype === "snap" || app.id.endsWith("-snap")) {
       return <span className="source-badge snap">Snap</span>;
     }
-    if (ptype === "local") {
-      return <span className="source-badge portable">Portable</span>;
+    if (ptype === "local" || ptype === "portable") {
+      return <span className="source-badge portable">Local</span>;
     }
-    return <span className="source-badge system">System</span>;
+    if (ptype === "apt") {
+      return <span className="source-badge apt">APT</span>;
+    }
+    return <span className="source-badge system">{app.package_type || "System"}</span>;
   };
 
   const renderStatusBadge = (status?: string | null) => {
@@ -36,68 +58,122 @@ export function AppTable({ apps, actions = false, disabled = false, onStart, onS
     return (
       <span className={`status-badge ${isRunning ? "running" : "stopped"}`}>
         <span className="dot" />
-        {isRunning ? (t("status.running") ?? "Đang chạy") : (t("status.stopped") ?? "Đã dừng")}
+        {isRunning ? "RUNNING" : "STOPPED"}
       </span>
     );
   };
 
   return (
     <div className="data-table">
-      <div className="table-row heading">
-        <span>{t("table.name")}</span>
-        <span>{t("table.status") ?? "Trạng thái"}</span>
-        <span>{t("table.category") ?? "Danh mục"}</span>
-        {actions && <span>{t("table.actions")}</span>}
+      <div className={`table-row heading ${actions ? "with-actions" : ""}`}>
+        {checkedAppIds && (
+          <span className="col-check">
+            <input
+              type="checkbox"
+              checked={Boolean(allChecked)}
+              onChange={onToggleCheckAll}
+              title="Chọn tất cả ứng dụng"
+            />
+          </span>
+        )}
+        <span className="col-name">{t("table.name") || "Tên ứng dụng"}</span>
+        <span className="col-category">{t("table.category") || "Chuyên mục"}</span>
+        <span className="col-source">{t("table.source") || "Nguồn"}</span>
+        <span className="col-status">{t("table.status") || "Trạng thái"}</span>
+        {actions && <span className="col-actions">{t("table.actions") || "Thao tác"}</span>}
       </div>
-      {apps.map((app) => {
-        const isRunning = app.status === "Running";
-        return (
-          <div className="table-row" key={app.id}>
-            <span style={{ display: "flex", alignItems: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              <span style={{ fontWeight: 600 }}>{app.name}</span>
-              {renderSourceBadge(app)}
-            </span>
-            <span>{renderStatusBadge(app.status)}</span>
-            <span style={{ color: "var(--panel-foreground)" }}>{app.category ?? "Utility"}</span>
-            {actions && (
-              <span className="action-buttons">
-                {!isRunning ? (
-                  <button
-                    className="btn btn-sm btn-primary"
-                    disabled={disabled}
-                    onClick={() => onStart?.(app.id)}
-                    title={t("manager.start")}
-                  >
-                    ▶ {t("manager.start")}
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      className="btn btn-sm btn-ghost"
-                      style={{ color: "var(--error)" }}
-                      disabled={disabled}
-                      onClick={() => onStop?.(app.id)}
-                      title={t("manager.stop")}
-                    >
-                      ⏹ {t("manager.stop")}
-                    </button>
-                    {onRestart && (
-                      <button
-                        className="btn btn-sm btn-ghost"
-                        disabled={disabled}
-                        onClick={() => onRestart?.(app.id)}
-                        title="Khởi động lại"
-                      >
-                        ⟳ {t("manager.restart") ?? "Khởi động lại"}
-                      </button>
-                    )}
-                  </>
-                )}
+
+      <div className="table-body-scroll">
+        {apps.map((app) => {
+          const isRunning = app.status === "Running";
+          const isSelected = selectedAppId === app.id;
+          const isChecked = checkedAppIds ? checkedAppIds.has(app.id) : false;
+
+          return (
+            <div
+              className={`table-row ${isSelected ? "selected-row" : ""} ${actions ? "with-actions" : ""}`}
+              key={app.id}
+              onClick={() => onSelectApp?.(app)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  onSelectApp?.(app);
+                }
+              }}
+            >
+              {checkedAppIds && (
+                <span
+                  className="col-check"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => onToggleCheck?.(app.id)}
+                  />
+                </span>
+              )}
+
+              <span className="col-name" title={app.name}>
+                <span className="app-name-text">{app.name}</span>
               </span>
-            )}
-          </div>
-        );
-      })}
+
+              <span className="col-category" title={app.category ?? "Utility"}>
+                <span className="category-text">{app.category ?? "Other"}</span>
+              </span>
+
+              <span className="col-source">{renderSourceBadge(app)}</span>
+
+              <span className="col-status">{renderStatusBadge(app.status)}</span>
+
+              {actions && (
+                <span
+                  className="col-actions action-buttons"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {!isRunning ? (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary"
+                      disabled={disabled}
+                      onClick={() => onStart?.(app.id)}
+                      title={t("manager.start") || "Khởi động"}
+                    >
+                      ▶
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-danger"
+                        disabled={disabled}
+                        onClick={() => onStop?.(app.id)}
+                        title={t("manager.stop") || "Dừng"}
+                      >
+                        ⏹
+                      </button>
+                      {onRestart && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-ghost"
+                          disabled={disabled}
+                          onClick={() => onRestart?.(app.id)}
+                          title="Khởi động lại"
+                        >
+                          ⟳
+                        </button>
+                      )}
+                    </>
+                  )}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 mod commands;
 pub mod contract;
+pub mod debug;
 mod preferences;
 mod resources;
 pub mod security;
@@ -33,6 +34,8 @@ pub fn run() -> tauri::Result<()> {
                     |resource_root| resources::initialization_script(&resource_root),
                 );
             let app_data = app.path().app_data_dir()?;
+            debug::set_log_dir(&app_data);
+            debug::info("APP", "Universe Manager initialized.");
             preferences::load_or_migrate(
                 &app_data.join("preferences.json"),
                 preferences::legacy_path().as_deref(),

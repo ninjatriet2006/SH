@@ -33,12 +33,20 @@ pub async fn search_apps<R: Runtime>(
     let active =
         state.register(window.label(), request_id, generation, IpcErrorCode::Validation)?;
     let query = request.payload.query;
+    crate::debug::info("SEARCH", format!("Executing application search for '{query}'..."));
+    let query_clone = query.clone();
     run_job(window, JOB_SEARCH_APPS, active, move |job, cancellation| {
         match backend::search_apps(&config, vec![root], &query, cancellation, |progress| {
             job.progress(progress)
         }) {
-            Ok(report) => Ok(map_search(report)),
-            Err(failure) => Err(map_search_backend(failure)),
+            Ok(report) => {
+                crate::debug::success("SEARCH", format!("Search for '{query_clone}' returned {} results.", report.results.len()));
+                Ok(map_search(report))
+            }
+            Err(failure) => {
+                crate::debug::error("SEARCH", format!("Search for '{query_clone}' failed: {failure}"));
+                Err(map_search_backend(failure))
+            }
         }
     })
     .await

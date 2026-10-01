@@ -15,8 +15,14 @@ pub fn preferences_get<R: Runtime>(
     };
     let path = preferences_path(&app)?;
     let value = match preferences::load_or_migrate(&path, None) {
-        Ok(val) => val,
-        Err(err) => return Err(io_error(err)),
+        Ok(val) => {
+            crate::debug::debug("PREFERENCES", "Loaded user preferences.");
+            val
+        }
+        Err(err) => {
+            crate::debug::error("PREFERENCES", format!("Failed to load preferences: {err}"));
+            return Err(io_error(err));
+        }
     };
     Ok(response(request_id, value))
 }
@@ -36,7 +42,19 @@ pub fn preferences_set<R: Runtime>(
         Err(failure) => return Err(remap(failure, IpcErrorCode::Io)),
     };
     match preferences::atomic_write(&path, &request.payload) {
-        Ok(_) => Ok(response(request_id, request.payload)),
-        Err(err) => Err(io_error(err)),
+        Ok(_) => {
+            crate::debug::success(
+                "PREFERENCES",
+                format!(
+                    "Updated preferences: theme={}, lang={}, font={}",
+                    request.payload.theme, request.payload.language, request.payload.font_id
+                ),
+            );
+            Ok(response(request_id, request.payload))
+        }
+        Err(err) => {
+            crate::debug::error("PREFERENCES", format!("Failed to write preferences: {err}"));
+            Err(io_error(err))
+        }
     }
 }

@@ -311,7 +311,14 @@ fn sort_detection(root: &Path, report: &mut DetectionReport) {
 pub fn parse_desktop_file(path: &Path) -> Option<AppEntry> {
     let content = fs::read_to_string(path).ok()?;
     let filename = path.file_name()?.to_string_lossy();
-    let id = filename.strip_suffix(".desktop").unwrap_or(&filename).to_string();
+    let raw_id = filename.strip_suffix(".desktop").unwrap_or(&filename);
+    let id: String = raw_id
+        .chars()
+        .map(|c| match c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':') {
+            true => c,
+            false => '-',
+        })
+        .collect();
 
     let mut name = String::new();
     let mut exec = String::new();
@@ -362,9 +369,9 @@ pub fn parse_desktop_file(path: &Path) -> Option<AppEntry> {
     } else if path_str.contains("snap") {
         ("Snap".to_string(), format!("{id}-snap"), "Snap".to_string())
     } else if path_str.contains("/.local/share/applications") {
-        ("System".to_string(), id.clone(), "Desktop (user)".to_string())
+        ("Local".to_string(), id.clone(), "Desktop (user)".to_string())
     } else {
-        ("System".to_string(), id.clone(), "Desktop (system)".to_string())
+        ("APT".to_string(), id.clone(), "Desktop (system)".to_string())
     };
 
     let category = if !categories_str.is_empty() {

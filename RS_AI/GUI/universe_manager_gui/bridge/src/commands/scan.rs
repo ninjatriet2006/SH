@@ -35,6 +35,7 @@ pub async fn scan_apps<R: Runtime>(
     };
 
     let active = state.register(window.label(), request_id, generation, IpcErrorCode::Io)?;
+    crate::debug::start("SCAN", format!("Starting application scan (managed_path: {managed_path:?})..."));
     run_job(window, JOB_SCAN_APPS, active, move |job, cancellation| {
         let mut apps = match backend::scan_all_applications(
             &config,
@@ -43,7 +44,10 @@ pub async fn scan_apps<R: Runtime>(
             |progress| job.progress(progress),
         ) {
             Ok(apps) => apps,
-            Err(failure) => return Err(remap(map_backend(failure), IpcErrorCode::Io)),
+            Err(failure) => {
+                crate::debug::error("SCAN", format!("Application scan failed: {failure}"));
+                return Err(remap(map_backend(failure), IpcErrorCode::Io));
+            }
         };
 
         let snapshot = backend::ProcessSnapshot::collect();
@@ -55,6 +59,7 @@ pub async fn scan_apps<R: Runtime>(
             });
         }
 
+        crate::debug::info("SCAN", format!("Scan completed: {} applications discovered.", apps.len()));
         Ok(apps)
     })
     .await
@@ -74,23 +79,47 @@ pub async fn detect_app<R: Runtime>(
         Path::new(&request.payload.path.path),
     ) {
         Ok(path) => path,
-        Err(failure) => return Err(map_detect_path(failure)),
+        Err(failure) => {
+            crate::debug::error("DETECT", format!("Failed to resolve source path: {failure:?}"));
+            return Err(map_detect_path(failure));
+        }
     };
     let source = match state.picker.root(window.label(), UniversePickerKind::Source) {
         Ok(src) => src,
-        Err(failure) => return Err(map_detect_path(failure)),
+        Err(failure) => {
+            crate::debug::error("DETECT", format!("Failed to resolve source root: {failure:?}"));
+            return Err(map_detect_path(failure));
+        }
     };
+    crate::debug::start("DETECT", format!("Inspecting app candidate at {path:?}..."));
     let active =
         state.register(window.label(), request_id, generation, IpcErrorCode::InvalidArgument)?;
     run_job(window, JOB_DETECT_APP, active, move |job, cancellation| {
         match backend::DiscoveryService::new(vec![source]) {
             Ok(service) => {
                 match service.detect(&path, cancellation, |progress| job.progress(progress)) {
-                    Ok(report) => Ok(map_detection(report)),
-                    Err(failure) => Err(map_detect_backend(failure)),
+                    Ok(report) => {
+                        crate::debug::info(
+                            "DETECT",
+                            format!(
+                                "Detected app: '{}' with {} executables, {} icons",
+                                report.suggested_name,
+                                report.executables.len(),
+                                report.icons.len()
+                            ),
+                        );
+                        Ok(map_detection(report))
+                    }
+                    Err(failure) => {
+                        crate::debug::error("DETECT", format!("Inspection detection error: {failure}"));
+                        Err(map_detect_backend(failure))
+                    }
                 }
             }
-            Err(failure) => Err(map_detect_backend(failure)),
+            Err(failure) => {
+                crate::debug::error("DETECT", format!("Discovery service init error: {failure}"));
+                Err(map_detect_backend(failure))
+            }
         }
     })
     .await

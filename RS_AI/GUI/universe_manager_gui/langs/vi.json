@@ -9,6 +9,7 @@
     "scan": "Quét ứng dụng",
     "manager": "Quản lý ứng dụng",
     "search": "Tìm kiếm",
+    "debug": "Nhật ký (Debug)",
     "settings": "Cài đặt"
   },
   "settings": {
@@ -74,5 +75,17 @@
   "confirm": {
     "start": "Khởi động {name}?",
     "stop": "Dừng {name}?"
+  },
+  "debug": {
+    "title": "Nhật ký hệ thống & Gỡ lỗi",
+    "description": "Theo dõi mọi hành động, trạng thái và chẩn đoán chi tiết theo thời gian thực.",
+    "search_placeholder": "Tìm kiếm dòng nhật ký…",
+    "copy_all": "Sao chép nhật ký",
+    "clear": "Xóa nhật ký",
+    "export": "Tải về (.txt)",
+    "copied": "Đã chép!",
+    "no_logs": "Chưa có dòng nhật ký nào.",
+    "auto_scroll": "Tự cuộn",
+    "test_logs": "Thử nghiệm log"
   }
 }

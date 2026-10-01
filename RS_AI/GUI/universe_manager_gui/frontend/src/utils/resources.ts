@@ -120,8 +120,8 @@ function applyTheme(theme: ThemeResource, font: FontId, fontPath?: string | null
   for (const [name, value] of Object.entries(tokens)) {
     document.documentElement.style.setProperty(`--${name.replaceAll("_", "-")}`, value);
   }
-  document.documentElement.style.setProperty("--font", "system-ui, sans-serif");
   document.documentElement.style.colorScheme = isLight ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", isLight ? "light" : "dark");
   if (font === "dejavusans" && fontPath) {
     try {
       const face = new FontFace("Universe DejaVu", `url(${JSON.stringify(convertFileSrc(fontPath))})`);

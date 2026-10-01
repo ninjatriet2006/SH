@@ -12,14 +12,21 @@ pub fn config_load<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, BridgeState>,
 ) -> IpcResult<ManagerConfig> {
+    crate::debug::info("CONFIG", "Executing config_load...");
     let request_id = match validate(&request, false) {
         Ok(id) => id,
-        Err(failure) => return Err(remap(failure, IpcErrorCode::Internal)),
+        Err(failure) => {
+            crate::debug::error("CONFIG", format!("Validation failed: {failure:?}"));
+            return Err(remap(failure, IpcErrorCode::Internal));
+        }
     };
     let app_cfg_dir = app_config_dir(&app)?;
     let config = match backend::load_config(app_cfg_dir) {
         Ok(cfg) => cfg,
-        Err(failure) => return Err(remap(map_backend(failure), IpcErrorCode::Io)),
+        Err(failure) => {
+            crate::debug::error("CONFIG", format!("Failed to load config: {failure}"));
+            return Err(remap(map_backend(failure), IpcErrorCode::Io));
+        }
     };
     let managed = config.settings.managed_dir.trim();
     match managed.is_empty() {
@@ -33,11 +40,23 @@ pub fn config_load<R: Runtime>(
                         p,
                     );
                 }
-                false => {}
+                false => {
+                    crate::debug::warn(
+                        "CONFIG",
+                        format!("Configured managed_dir '{managed}' does not exist or is invalid"),
+                    );
+                }
             }
         }
         true => {}
     }
+    crate::debug::success(
+        "CONFIG",
+        format!(
+            "Config loaded successfully. Managed dir: '{managed}', total apps: {}",
+            config.apps.len()
+        ),
+    );
     Ok(response(request_id, config))
 }
 
@@ -48,9 +67,13 @@ pub fn config_save<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, BridgeState>,
 ) -> IpcResult<ManagerConfig> {
+    crate::debug::info("CONFIG", "Executing config_save...");
     let request_id = match validate(&request, false) {
         Ok(id) => id,
-        Err(failure) => return Err(remap(failure, IpcErrorCode::Validation)),
+        Err(failure) => {
+            crate::debug::error("CONFIG", format!("Validation failed: {failure:?}"));
+            return Err(remap(failure, IpcErrorCode::Validation));
+        }
     };
     let managed = request.payload.settings.managed_dir.trim();
     let root = match state.picker.root(window.label(), UniversePickerKind::Managed) {
@@ -67,7 +90,10 @@ pub fn config_save<R: Runtime>(
                     candidate,
                 ) {
                     Ok(new_root) => Some(new_root),
-                    Err(failure) => return Err(remap(failure, IpcErrorCode::Validation)),
+                    Err(failure) => {
+                        crate::debug::error("CONFIG", format!("Failed to update managed directory: {failure:?}"));
+                        return Err(remap(failure, IpcErrorCode::Validation));
+                    }
                 },
                 false => match !managed.is_empty() {
                     true => Some(root),
@@ -85,9 +111,16 @@ pub fn config_save<R: Runtime>(
                         candidate,
                     ) {
                         Ok(new_root) => Some(new_root),
-                        Err(failure) => return Err(remap(failure, IpcErrorCode::Validation)),
+                        Err(failure) => {
+                            crate::debug::error("CONFIG", format!("Failed to set managed directory: {failure:?}"));
+                            return Err(remap(failure, IpcErrorCode::Validation));
+                        }
                     },
                     false => {
+                        crate::debug::error(
+                            "CONFIG",
+                            format!("Managed directory does not exist or is not absolute: {managed}"),
+                        );
                         return Err(error(
                             IpcErrorCode::Validation,
                             format!(
@@ -109,10 +142,22 @@ pub fn config_save<R: Runtime>(
 
     let store = match backend::ConfigStore::new(config_dir, allowed_roots) {
         Ok(st) => st,
-        Err(failure) => return Err(remap(map_backend(failure), IpcErrorCode::Validation)),
+        Err(failure) => {
+            crate::debug::error("CONFIG", format!("Failed to initialize config store: {failure}"));
+            return Err(remap(map_backend(failure), IpcErrorCode::Validation));
+        }
     };
     match store.save(&request.payload) {
-        Ok(_) => Ok(response(request_id, request.payload)),
-        Err(failure) => Err(remap(map_backend(failure), IpcErrorCode::Validation)),
+        Ok(_) => {
+            crate::debug::success(
+                "CONFIG",
+                format!("Config saved. Total registered apps: {}", request.payload.apps.len()),
+            );
+            Ok(response(request_id, request.payload))
+        }
+        Err(failure) => {
+            crate::debug::error("CONFIG", format!("Failed to write config: {failure}"));
+            Err(remap(map_backend(failure), IpcErrorCode::Validation))
+        }
     }
 }
