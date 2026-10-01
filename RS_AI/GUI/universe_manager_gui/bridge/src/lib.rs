@@ -49,9 +49,12 @@ pub fn run() -> tauri::Result<()> {
                 .find(|window| window.label == "main")
                 .cloned()
                 .ok_or("main window configuration is missing")?;
-            tauri::WebviewWindowBuilder::from_config(app, &window)?
-                .initialization_script(script)
-                .build()?;
+            let mut builder = tauri::WebviewWindowBuilder::from_config(app, &window)?
+                .initialization_script(script);
+            if let Some(icon) = app.default_window_icon() {
+                builder = builder.icon(icon.clone())?;
+            }
+            builder.build()?;
             Ok(())
         })
         .on_window_event(|window, event| {

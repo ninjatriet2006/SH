@@ -177,13 +177,27 @@ impl DiscoveryService {
             if let Some(executable) = report.executables.first() {
                 let canonical_dir = fs::canonicalize(path)
                     .map_err(|error| BackendError::from_io("cannot resolve managed application", path, error))?;
+                let (desktop_file, discovered_icon) = find_matching_desktop_file(executable, &report.suggested_name)
+                    .map(|(p, i)| (p.to_string_lossy().into_owned(), i))
+                    .unwrap_or_else(|| {
+                        let icon_cand = report.icons.first().map(|value| value.to_string_lossy().into_owned());
+                        if let Some(created) = ensure_desktop_launcher(executable, &report.suggested_name, icon_cand.as_deref()) {
+                            (created.to_string_lossy().into_owned(), icon_cand)
+                        } else {
+                            (String::new(), None)
+                        }
+                    });
+                let icon = report.icons.first().map(|value| value.to_string_lossy().into_owned())
+                    .or(discovered_icon);
+
                 apps.push(AppEntry {
                     id: stable_app_id(&canonical_dir),
                     name: report.suggested_name,
                     install_type: InstallType::Moved,
                     install_path: canonical_dir.to_string_lossy().into_owned(),
                     exec_path: executable.to_string_lossy().into_owned(),
-                    icon_path: report.icons.first().map(|value| value.to_string_lossy().into_owned()),
+                    icon_path: icon,
+                    desktop_file,
                     package_type: Some("Local".to_string()),
                     inventory_sources: vec!["Applications".to_string()],
                     ..AppEntry::default()
@@ -471,6 +485,264 @@ pub fn scan_system_applications(
     Ok(apps)
 }
 
+fn find_matching_desktop_file(exec_path: &Path, app_name: &str) -> Option<(PathBuf, Option<String>)> {
+    let mut search_dirs = Vec::new();
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        search_dirs.push(home.join(".local/share/applications"));
+    }
+    search_dirs.push(PathBuf::from("/usr/share/applications"));
+    search_dirs.push(PathBuf::from("/usr/local/share/applications"));
+
+    let exec_str = exec_path.to_string_lossy();
+    let exec_canon = fs::canonicalize(exec_path).ok();
+    let exec_stem = exec_path.file_stem().and_then(OsStr::to_str).unwrap_or("").to_lowercase();
+    let name_lower = app_name.to_lowercase();
+
+    for dir in search_dirs {
+        if !dir.is_dir() {
+            continue;
+        }
+        if let Ok(entries) = fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() && path.extension().is_some_and(|e| e == "desktop") {
+                    if let Ok(content) = fs::read_to_string(&path) {
+                        let mut entry_exec = String::new();
+                        let mut entry_icon = None;
+                        let mut entry_name = String::new();
+                        let mut in_de = false;
+                        for line in content.lines() {
+                            let line = line.trim();
+                            if line.starts_with('[') {
+                                in_de = line == "[Desktop Entry]";
+                                continue;
+                            }
+                            if !in_de {
+                                continue;
+                            }
+                            if let Some(idx) = line.find('=') {
+                                let key = line[..idx].trim();
+                                let val = line[idx + 1..].trim();
+                                match key {
+                                    "Exec" => entry_exec = val.to_string(),
+                                    "Icon" => entry_icon = Some(val.to_string()),
+                                    "Name" => entry_name = val.to_string(),
+                                    _ => {}
+                                }
+                            }
+                        }
+
+                        // 1. Direct match on Exec command path
+                        if !entry_exec.is_empty() {
+                            let clean_exec = entry_exec.replace(['"', '\''], "");
+                            if clean_exec.contains(&*exec_str) {
+                                return Some((path, entry_icon));
+                            }
+                            if let Some(token) = clean_exec.split_whitespace().next() {
+                                let token_path = Path::new(token);
+                                if token_path == exec_path || fs::canonicalize(token_path).ok() == exec_canon {
+                                    return Some((path, entry_icon));
+                                }
+                            }
+                        }
+
+                        // 2. Name or ID match in user applications
+                        let filename = path.file_name().and_then(OsStr::to_str).unwrap_or("").to_lowercase();
+                        if (!exec_stem.is_empty() && filename.contains(&exec_stem))
+                            || (!name_lower.is_empty() && entry_name.to_lowercase() == name_lower)
+                        {
+                            return Some((path, entry_icon));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn ensure_desktop_launcher(
+    exec_path: &Path,
+    app_name: &str,
+    icon_path: Option<&str>,
+) -> Option<PathBuf> {
+    if let Some((existing, _)) = find_matching_desktop_file(exec_path, app_name) {
+        return Some(existing);
+    }
+
+    let home = std::env::var_os("HOME").map(PathBuf::from)?;
+    let app_dir = home.join(".local/share/applications");
+    let _ = fs::create_dir_all(&app_dir);
+
+    let stem = exec_path
+        .file_stem()
+        .and_then(OsStr::to_str)
+        .unwrap_or("app")
+        .to_ascii_lowercase();
+    let sanitized_stem: String = stem
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    let desktop_filename = format!(
+        "universe-{}.desktop",
+        if sanitized_stem.is_empty() {
+            "app"
+        } else {
+            &sanitized_stem
+        }
+    );
+    let desktop_file_path = app_dir.join(desktop_filename);
+
+    let icon_line = match icon_path {
+        Some(icon) if !icon.trim().is_empty() => format!("Icon={icon}\n"),
+        _ => String::new(),
+    };
+
+    let content = format!(
+        "[Desktop Entry]\n\
+Type=Application\n\
+Name={app_name}\n\
+Exec=\"{}\" %U\n\
+{}Terminal=false\n\
+Categories=Utility;Application;\n\
+StartupWMClass={sanitized_stem}\n\
+X-Integrated-By=universe-manager\n",
+        exec_path.to_string_lossy(),
+        icon_line
+    );
+
+    if fs::write(&desktop_file_path, content).is_ok() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = fs::metadata(&desktop_file_path) {
+                let mut perms = meta.permissions();
+                perms.set_mode(0o755);
+                let _ = fs::set_permissions(&desktop_file_path, perms);
+            }
+            let _ = std::process::Command::new("update-desktop-database")
+                .arg(&app_dir)
+                .output();
+        }
+        Some(desktop_file_path)
+    } else {
+        None
+    }
+}
+
+pub fn scan_cli_applications(
+    cancellation: &CancellationToken,
+    mut progress: impl FnMut(Progress),
+) -> Result<Vec<AppEntry>> {
+    let mut apps = Vec::new();
+    let home = match std::env::var_os("HOME").map(PathBuf::from) {
+        Some(h) => h,
+        None => return Ok(apps),
+    };
+
+    let mut search_dirs = Vec::new();
+    search_dirs.push(home.join(".local/bin"));
+    search_dirs.push(home.join(".cargo/bin"));
+    search_dirs.push(home.join(".grok/bin"));
+    search_dirs.push(home.join(".gemini/antigravity-ide/bin"));
+    search_dirs.push(home.join(".gemini/bin"));
+    search_dirs.push(home.join(".filen-cli/bin"));
+    search_dirs.push(home.join(".opencode/bin"));
+    search_dirs.push(home.join("go/bin"));
+
+    // Also parse user directories from PATH
+    if let Some(path_var) = std::env::var_os("PATH") {
+        for p in std::env::split_paths(&path_var) {
+            if p.starts_with(&home) && !search_dirs.contains(&p) {
+                search_dirs.push(p);
+            }
+        }
+    }
+
+    let mut seen_names = std::collections::HashSet::new();
+    let mut seen_targets = std::collections::HashSet::new();
+
+    for bin_dir in search_dirs {
+        cancellation.check()?;
+        if !bin_dir.is_dir() {
+            continue;
+        }
+        if let Ok(entries) = fs::read_dir(&bin_dir) {
+            for entry in entries.flatten() {
+                cancellation.check()?;
+                let path = entry.path();
+                let file_name = match path.file_name().and_then(OsStr::to_str) {
+                    Some(name) => name,
+                    None => continue,
+                };
+                if file_name.starts_with('.') {
+                    continue;
+                }
+                // Skip common non-binary helpers or library extensions
+                if file_name.ends_with(".py")
+                    || file_name.ends_with(".config")
+                    || file_name.ends_with(".js")
+                    || file_name.ends_with(".d.ts")
+                    || file_name.contains(".so")
+                    || file_name.ends_with(".png")
+                    || file_name.ends_with(".desktop")
+                {
+                    continue;
+                }
+
+                #[cfg(unix)]
+                let is_exec = fs::metadata(&path)
+                    .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+                    .unwrap_or(false);
+                #[cfg(not(unix))]
+                let is_exec = true;
+
+                if is_exec {
+                    let canon_str = fs::canonicalize(&path)
+                        .map(|c| c.to_string_lossy().into_owned())
+                        .unwrap_or_else(|_| path.to_string_lossy().into_owned());
+
+                    if seen_names.contains(file_name) || seen_targets.contains(&canon_str) {
+                        continue;
+                    }
+                    seen_names.insert(file_name.to_string());
+                    seen_targets.insert(canon_str);
+
+                    let name = file_name.to_string();
+                    let source_label = format!("PATH ({})", bin_dir.to_string_lossy());
+                    apps.push(AppEntry {
+                        id: format!("cli-{}", name),
+                        name: format!("{} (CLI)", name),
+                        install_type: InstallType::InPlace,
+                        source_path: None,
+                        install_path: bin_dir.to_string_lossy().into_owned(),
+                        exec_path: path.to_string_lossy().into_owned(),
+                        icon_path: None,
+                        desktop_file: String::new(),
+                        symlink_file: Some(path.to_string_lossy().into_owned()),
+                        added_at: String::new(),
+                        is_custom: Some(true),
+                        start_cmd: Some(format!("{} --help", name)),
+                        stop_cmd: None,
+                        category: Some("Development".to_string()),
+                        package_type: Some("CLI".to_string()),
+                        inventory_sources: vec![source_label],
+                        status: None,
+                        ..AppEntry::default()
+                    });
+                }
+            }
+        }
+    }
+    apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    progress(Progress {
+        completed: apps.len() as u64,
+        total: Some(apps.len() as u64),
+        message: format!("Discovered {} CLI tools in PATH and user bin folders", apps.len()),
+    });
+    Ok(apps)
+}
+
 pub fn scan_all_applications(
     config: &ManagerConfig,
     managed_dir_opt: Option<&Path>,
@@ -479,6 +751,7 @@ pub fn scan_all_applications(
 ) -> Result<Vec<AppEntry>> {
     let mut all_apps = Vec::new();
     let mut seen_ids = std::collections::HashSet::new();
+    let mut seen_execs = std::collections::HashSet::new();
 
     // 1. Scan portable / managed apps if directory is supplied and exists
     if let Some(managed_dir) = managed_dir_opt {
@@ -487,6 +760,18 @@ pub fn scan_all_applications(
                 if let Ok(portable_apps) = service.scan_managed(config, managed_dir, cancellation, &mut progress) {
                     for app in portable_apps {
                         if seen_ids.insert(app.id.clone()) {
+                            if !app.exec_path.is_empty() {
+                                seen_execs.insert(app.exec_path.clone());
+                                if let Some(token) = app.exec_path.split_whitespace().next() {
+                                    seen_execs.insert(token.to_string());
+                                    if let Ok(canon) = fs::canonicalize(token) {
+                                        seen_execs.insert(canon.to_string_lossy().into_owned());
+                                    }
+                                }
+                                if let Ok(canon) = fs::canonicalize(&app.exec_path) {
+                                    seen_execs.insert(canon.to_string_lossy().into_owned());
+                                }
+                            }
                             all_apps.push(app);
                         }
                     }
@@ -499,6 +784,32 @@ pub fn scan_all_applications(
     let system_apps = scan_system_applications(cancellation, &mut progress)?;
     for app in system_apps {
         if seen_ids.insert(app.id.clone()) {
+            if !app.exec_path.is_empty() {
+                seen_execs.insert(app.exec_path.clone());
+                if let Some(token) = app.exec_path.split_whitespace().next() {
+                    seen_execs.insert(token.to_string());
+                    if let Ok(canon) = fs::canonicalize(token) {
+                        seen_execs.insert(canon.to_string_lossy().into_owned());
+                    }
+                }
+                if let Ok(canon) = fs::canonicalize(&app.exec_path) {
+                    seen_execs.insert(canon.to_string_lossy().into_owned());
+                }
+            }
+            all_apps.push(app);
+        }
+    }
+
+    // 3. Scan user CLI / PATH applications (~/.local/bin)
+    let cli_apps = scan_cli_applications(cancellation, &mut progress)?;
+    for app in cli_apps {
+        let is_known_exec = !app.exec_path.is_empty()
+            && (seen_execs.contains(&app.exec_path)
+                || fs::canonicalize(&app.exec_path)
+                    .map(|c| seen_execs.contains(&c.to_string_lossy().into_owned()))
+                    .unwrap_or(false));
+
+        if !is_known_exec && seen_ids.insert(app.id.clone()) {
             all_apps.push(app);
         }
     }

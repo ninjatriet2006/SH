@@ -767,6 +767,12 @@ select:focus {
   border: 1px solid var(--src-apt-border);
 }
 
+.source-badge.cli {
+  background: rgba(14, 165, 233, 0.15);
+  color: #0284c7;
+  border: 1px solid rgba(14, 165, 233, 0.35);
+}
+
 .sync-indicator {
   display: inline-flex;
   align-items: center;

@@ -66,12 +66,14 @@ export function AppManagerPage() {
   const filteredApps = useMemo(() => {
     return apps.filter((app) => {
       const ptype = (app.package_type ?? "").toLowerCase();
+      const isCli = ptype === "cli" || app.id.startsWith("cli-");
       const isFlatpak = ptype === "flatpak" || app.id.endsWith("-flatpak");
       const isSnap = ptype === "snap" || app.id.endsWith("-snap");
       const isPortable = ptype === "local" || ptype === "portable";
-      const isApt = ptype === "apt" || (!isFlatpak && !isSnap && !isPortable);
+      const isApt = ptype === "apt" || (!isFlatpak && !isSnap && !isPortable && !isCli);
 
       if (filterSource === "portable" && !isPortable) return false;
+      if (filterSource === "cli" && !isCli) return false;
       if (filterSource === "flatpak" && !isFlatpak) return false;
       if (filterSource === "snap" && !isSnap) return false;
       if (filterSource === "apt" && !isApt) return false;
@@ -132,9 +134,11 @@ export function AppManagerPage() {
 
   const aptCount = apps.filter((a) => {
     const p = (a.package_type ?? "").toLowerCase();
-    return p === "apt" || (!p.includes("flatpak") && !p.includes("snap") && p !== "local");
+    const isCli = p === "cli" || a.id.startsWith("cli-");
+    return (p === "apt" || (!p.includes("flatpak") && !p.includes("snap") && p !== "local")) && !isCli;
   }).length;
   const portableCount = apps.filter((a) => (a.package_type ?? "").toLowerCase() === "local").length;
+  const cliCount = apps.filter((a) => (a.package_type ?? "").toLowerCase() === "cli" || a.id.startsWith("cli-")).length;
   const flatpakCount = apps.filter((a) => (a.package_type ?? "").toLowerCase() === "flatpak" || a.id.endsWith("-flatpak")).length;
   const snapCount = apps.filter((a) => (a.package_type ?? "").toLowerCase() === "snap" || a.id.endsWith("-snap")).length;
 
@@ -220,6 +224,13 @@ export function AppManagerPage() {
               onClick={() => setFilterSource("snap")}
             >
               ⚡ Snap <span className="pill-badge">{snapCount}</span>
+            </button>
+            <button
+              type="button"
+              className={`filter-pill ${filterSource === "cli" ? "active" : ""}`}
+              onClick={() => setFilterSource("cli")}
+            >
+              💻 CLI <span className="pill-badge">{cliCount}</span>
             </button>
           </div>
 

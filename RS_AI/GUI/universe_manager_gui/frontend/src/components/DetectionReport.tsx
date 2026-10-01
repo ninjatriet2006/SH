@@ -1,32 +1,167 @@
-import { useTranslation } from "../utils/i18n";
-import type { DetectionReport as DetectionReportType } from "../utils/contract";
+import { useState } from "react";
+import type { AppEntry, DetectionReport as DetectionReportType } from "../utils/contract";
+import { useAppStore } from "../store/useAppStore";
 
 interface DetectionReportProps {
   report: DetectionReportType;
 }
 
 export function DetectionReport({ report }: DetectionReportProps) {
-  const { t } = useTranslation();
+  const integrateApp = useAppStore(s => s.integrateApp);
+  const clearDetection = useAppStore(s => s.clearDetection);
+  const busy = useAppStore(s => s.busy);
+
+  const [name, setName] = useState(report.suggested_name);
+  const [selectedExec, setSelectedExec] = useState(report.executables[0]?.path ?? "");
+  const [selectedIcon, setSelectedIcon] = useState(report.icons[0]?.path ?? "");
+
+  const handleIntegrate = async () => {
+    if (!selectedExec) return;
+    const cleanName = name.trim() || report.suggested_name;
+    const slug = cleanName
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "");
+    const id = slug || `app-${Date.now()}`;
+    const parentDir = selectedExec.includes("/")
+      ? selectedExec.substring(0, selectedExec.lastIndexOf("/"))
+      : "";
+
+    const entry: AppEntry = {
+      id,
+      name: cleanName,
+      install_type: "InPlace",
+      source_path: null,
+      install_path: parentDir,
+      exec_path: selectedExec,
+      icon_path: selectedIcon ? selectedIcon : null,
+      desktop_file: report.desktop_templates[0]?.path ?? "",
+      symlink_file: null,
+      added_at: new Date().toISOString(),
+      is_custom: true,
+      start_cmd: null,
+      stop_cmd: null,
+      category: "Utility",
+      package_type: report.is_appimage ? "AppImage" : "Local",
+      inventory_sources: [report.is_appimage ? "AppImage" : "Portable"],
+      registry_key: null,
+      product_code: null,
+      about_url: null,
+      publisher: null,
+      version: null,
+      uninstall_cmd: null,
+      status: "Ok",
+    };
+
+    await integrateApp(entry);
+  };
 
   return (
-    <article className="glass-panel report">
-      <h3>{report.suggested_name}</h3>
-      <p>
-        <strong>{t("detection.appimage")}:</strong>{" "}
-        {report.is_appimage ? "Yes" : "No"}
-      </p>
-      <PathList label={t("detection.executables")} items={report.executables} />
-      <PathList label={t("detection.icons")} items={report.icons} />
-      <PathList label={t("detection.desktop")} items={report.desktop_templates} />
+    <article className="glass-panel report" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span>📦</span> {report.suggested_name}
+            {report.is_appimage && (
+              <span className="source-badge appimage" style={{ fontSize: "0.75rem" }}>
+                AppImage
+              </span>
+            )}
+          </h3>
+          <p style={{ margin: "0.25rem 0 0", fontSize: "0.85rem", opacity: 0.8 }}>
+            Đã phân tích gói ứng dụng thành công. Xác nhận thông tin để tích hợp vào hệ thống.
+          </p>
+        </div>
+        <button className="btn btn-ghost btn-sm" onClick={clearDetection} title="Đóng">
+          ✕
+        </button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "0.75rem", background: "var(--input-bg, rgba(0,0,0,0.15))", padding: "1rem", borderRadius: "8px" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+          <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Tên hiển thị ứng dụng:</label>
+          <input
+            type="text"
+            className="input"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="Tên ứng dụng"
+            style={{ padding: "0.4rem 0.6rem", borderRadius: "6px" }}
+          />
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+          <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Tệp thực thi chính (Executable):</label>
+          {report.executables.length > 1 ? (
+            <select
+              className="input"
+              value={selectedExec}
+              onChange={e => setSelectedExec(e.target.value)}
+              style={{ padding: "0.4rem 0.6rem", borderRadius: "6px" }}
+            >
+              {report.executables.map(e => (
+                <option key={e.path} value={e.path}>
+                  {e.path}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <code style={{ fontSize: "0.8rem", wordBreak: "break-all", padding: "0.4rem", background: "rgba(0,0,0,0.2)", borderRadius: "4px" }}>
+              {selectedExec || "Không tìm thấy tệp thực thi"}
+            </code>
+          )}
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+          <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Biểu tượng (Icon):</label>
+          {report.icons.length > 1 ? (
+            <select
+              className="input"
+              value={selectedIcon}
+              onChange={e => setSelectedIcon(e.target.value)}
+              style={{ padding: "0.4rem 0.6rem", borderRadius: "6px" }}
+            >
+              <option value="">(Không dùng biểu tượng)</option>
+              {report.icons.map(i => (
+                <option key={i.path} value={i.path}>
+                  {i.path}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span style={{ fontSize: "0.85rem" }}>
+              {selectedIcon ? (
+                <code style={{ fontSize: "0.8rem", wordBreak: "break-all" }}>{selectedIcon}</code>
+              ) : (
+                <span style={{ opacity: 0.7 }}>Chưa có biểu tượng (sẽ dùng icon mặc định của hệ thống)</span>
+              )}
+            </span>
+          )}
+        </div>
+
+        {report.desktop_templates.length > 0 && (
+          <div style={{ fontSize: "0.85rem" }}>
+            <strong>Tệp mẫu launcher (.desktop):</strong>{" "}
+            <code style={{ fontSize: "0.8rem" }}>{report.desktop_templates[0].path}</code>
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end", marginTop: "0.5rem" }}>
+        <button className="btn btn-ghost" onClick={clearDetection} disabled={busy}>
+          ✕ Huỷ bỏ
+        </button>
+        <button
+          className="btn btn-primary"
+          onClick={handleIntegrate}
+          disabled={busy || !selectedExec}
+          style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
+        >
+          <span>⚡</span>
+          <span>{busy ? "Đang tích hợp..." : "Cài đặt & Tích hợp vào hệ thống"}</span>
+        </button>
+      </div>
     </article>
-  );
-}
-
-function PathList({ label, items }: { label: string; items: { path: string }[] }) {
-  return (
-    <p>
-      <strong>{label}:</strong>{" "}
-      {items.length ? items.map((item) => item.path).join(", ") : "—"}
-    </p>
   );
 }

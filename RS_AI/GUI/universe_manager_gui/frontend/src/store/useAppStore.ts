@@ -37,6 +37,7 @@ interface AppState {
   pickAndDetect: () => Promise<void>;
   clearError: () => void;
   clearDetection: () => void;
+  integrateApp: (app: AppEntry) => Promise<void>;
   dispose: () => void;
 }
 
@@ -177,6 +178,24 @@ export const useAppStore = create<AppState>((set, get) => {
       } else {
         notify("error", `Kiểm tra ứng dụng tại "${path}" thất bại.`, "DETECT");
       }
+    },
+
+    integrateApp: async (app: AppEntry) => {
+      const { config, saveConfig, scanApps } = get();
+      if (!config) return;
+      notify("start", `Đang cài đặt và tích hợp ứng dụng "${app.name}"...`, "INSTALL");
+      const existingIdx = config.apps.findIndex(a => a.id === app.id);
+      let updatedApps: AppEntry[];
+      if (existingIdx >= 0) {
+        updatedApps = [...config.apps];
+        updatedApps[existingIdx] = app;
+      } else {
+        updatedApps = [...config.apps, app];
+      }
+      set({ config: { ...config, apps: updatedApps }, detection: null });
+      await saveConfig();
+      notify("success", `Ứng dụng "${app.name}" đã được tích hợp thành công!`, "INSTALL");
+      await scanApps(true);
     },
 
     startApp: async (appId: string) => {

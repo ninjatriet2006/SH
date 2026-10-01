@@ -50,6 +50,9 @@ export function AppTable({
     if (ptype === "apt") {
       return <span className="source-badge apt">APT</span>;
     }
+    if (ptype === "cli" || app.id.startsWith("cli-")) {
+      return <span className="source-badge cli">CLI</span>;
+    }
     return <span className="source-badge system">{app.package_type || "System"}</span>;
   };
 
