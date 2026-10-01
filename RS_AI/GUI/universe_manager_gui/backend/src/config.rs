@@ -44,6 +44,8 @@ pub struct AppEntry {
     pub version: Option<String>,
     #[serde(default)]
     pub uninstall_cmd: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -165,8 +167,12 @@ impl ConfigStore {
     }
 
     pub fn managed_directory(&self, config: &ManagerConfig) -> Result<PathBuf> {
+        let managed_str = config.settings.managed_dir.trim();
+        if managed_str.is_empty() {
+            return Ok(self.config_root.clone());
+        }
         self.managed_roots
-            .resolve_directory(Path::new(&config.settings.managed_dir))
+            .resolve_directory(Path::new(managed_str))
     }
 
     pub fn resolve_app<'a>(&self, config: &'a ManagerConfig, app_id: &str) -> Result<&'a AppEntry> {
@@ -182,8 +188,12 @@ impl ConfigStore {
     }
 
     pub(crate) fn resolve_executable(&self, config: &ManagerConfig, app: &AppEntry) -> Result<PathBuf> {
-        let managed = self.managed_directory(config)?;
         let executable = PathBuf::from(&app.exec_path);
+        let ptype = app.package_type.as_deref().unwrap_or("Local");
+        if ptype != "Local" {
+            return Ok(executable);
+        }
+        let managed = self.managed_directory(config)?;
         require_absolute(&executable)?;
         if !executable.starts_with(&managed) {
             return Err(BackendError::at_path(
@@ -196,7 +206,10 @@ impl ConfigStore {
     }
 
     fn validate(&self, config: &ManagerConfig) -> Result<()> {
-        self.managed_directory(config)?;
+        let managed_str = config.settings.managed_dir.trim();
+        if !managed_str.is_empty() {
+            self.managed_directory(config)?;
+        }
         let mut ids = std::collections::HashSet::new();
         for app in &config.apps {
             validate_id(&app.id)?;

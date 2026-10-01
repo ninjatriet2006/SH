@@ -10,11 +10,16 @@ mod discovery;
 mod error;
 mod lifecycle;
 mod path_security;
+mod process_snapshot;
 mod search;
 
 pub use cancellation::CancellationToken;
 pub use config::{AppEntry, ConfigStore, InstallType, ManagerConfig, ManagerSettings, load_config};
-pub use discovery::{DetectionReport, DiscoveryService, Progress, stable_app_id};
+pub use discovery::{
+    DetectionReport, DiscoveryService, Progress, parse_desktop_file, scan_all_applications,
+    scan_system_applications, stable_app_id,
+};
 pub use error::{BackendError, ErrorKind, Result};
 pub use lifecycle::{LifecycleManager, OperationResult, ProcessIdentity};
+pub use process_snapshot::ProcessSnapshot;
 pub use search::{SearchReport, SearchResult, search_apps};

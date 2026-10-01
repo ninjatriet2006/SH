@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Language, Preferences } from "../utils/contract";
+import type { FontId, Language, Preferences, Theme } from "../utils/contract";
 import { api, ipcError } from "../utils/ipc";
 import { loadAndApplyTheme, loadMessages, type Messages } from "../utils/resources";
 
@@ -12,9 +12,11 @@ interface SettingsState {
 
   initSettings: () => Promise<void>;
   updateSettings: (next: Preferences) => Promise<void>;
+  previewTheme: (theme: Theme, fontId?: FontId) => Promise<void>;
+  previewLanguage: (language: Language) => Promise<void>;
 }
 
-export const useSettingsStore = create<SettingsState>((set) => ({
+export const useSettingsStore = create<SettingsState>((set, get) => ({
   preferences: defaultPreferences,
   messages: {},
   isLoading: true,
@@ -37,6 +39,20 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     } finally {
       set({ isLoading: false });
     }
+  },
+
+  previewTheme: async (theme: Theme, fontId?: FontId) => {
+    const current = get().preferences;
+    const font = fontId ?? current.font_id;
+    await loadAndApplyTheme(theme, font);
+    set({ preferences: { ...current, theme, font_id: font } });
+  },
+
+  previewLanguage: async (language: Language) => {
+    const current = get().preferences;
+    const messages = await loadMessages(language);
+    document.documentElement.lang = language;
+    set({ preferences: { ...current, language }, messages });
   },
 
   updateSettings: async (next: Preferences) => {

@@ -7,20 +7,35 @@ export function SettingsPage() {
   const { t } = useTranslation();
   const preferences = useSettingsStore(s => s.preferences);
   const updateSettings = useSettingsStore(s => s.updateSettings);
-  const [language, setLanguage] = useState(preferences.language);
-  const [theme, setTheme] = useState(preferences.theme);
-  const [fontId, setFontId] = useState(preferences.font_id);
+  const previewTheme = useSettingsStore(s => s.previewTheme);
+  const previewLanguage = useSettingsStore(s => s.previewLanguage);
+
   const [saving, setSaving] = useState(false);
+  const [savedBadge, setSavedBadge] = useState(false);
+
+  const handleThemeChange = (nextTheme: Theme) => {
+    void previewTheme(nextTheme, preferences.font_id);
+  };
+
+  const handleLanguageChange = (nextLang: Language) => {
+    void previewLanguage(nextLang);
+  };
+
+  const handleFontChange = (nextFont: FontId) => {
+    void previewTheme(preferences.theme, nextFont);
+  };
 
   const handleSave = async () => {
     setSaving(true);
     try {
       const next: Preferences = {
-        language: language as Preferences["language"],
-        theme: theme as Preferences["theme"],
-        font_id: fontId as Preferences["font_id"],
+        language: preferences.language,
+        theme: preferences.theme,
+        font_id: preferences.font_id,
       };
       await updateSettings(next);
+      setSavedBadge(true);
+      setTimeout(() => setSavedBadge(false), 3000);
     } catch {
       /* error already logged in store */
     } finally {
@@ -32,36 +47,43 @@ export function SettingsPage() {
     <section className="glass-panel form-grid">
       <label className="field-label">
         {t("settings.language")}
-        <select className="input" value={language} onChange={e => setLanguage(e.target.value as Language)}>
-          <option value="en">English</option>
+        <select className="input" value={preferences.language} onChange={e => handleLanguageChange(e.target.value as Language)}>
           <option value="vi">Tiếng Việt</option>
+          <option value="en">English</option>
         </select>
       </label>
 
       <label className="field-label">
         {t("settings.theme")}
-        <select className="input" value={theme} onChange={e => setTheme(e.target.value as Theme)}>
+        <select className="input" value={preferences.theme} onChange={e => handleThemeChange(e.target.value as Theme)}>
           <option value="system">{t("settings.system")}</option>
-          <option value="light">{t("settings.light")}</option>
           <option value="dark">{t("settings.dark")}</option>
+          <option value="light">{t("settings.light")}</option>
         </select>
       </label>
 
       <label className="field-label">
         {t("settings.font")}
-        <select className="input" value={fontId} onChange={e => setFontId(e.target.value as FontId)}>
+        <select className="input" value={preferences.font_id} onChange={e => handleFontChange(e.target.value as FontId)}>
           <option value="system-default">{t("settings.system_default")}</option>
           <option value="dejavusans">DejaVu Sans</option>
         </select>
       </label>
 
-      <button
-        className="btn btn-primary"
-        disabled={saving}
-        onClick={() => void handleSave()}
-      >
-        {saving ? "…" : t("config.save")}
-      </button>
+      <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginTop: "0.5rem" }}>
+        <button
+          className="btn btn-primary"
+          disabled={saving}
+          onClick={() => void handleSave()}
+        >
+          {saving ? "…" : t("config.save")}
+        </button>
+        {savedBadge && (
+          <span className="badge-saved">
+            ✓ {t("status.saved")}
+          </span>
+        )}
+      </div>
     </section>
   );
 }

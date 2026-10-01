@@ -22,6 +22,7 @@ export interface AppEntry {
   package_type: string | null; inventory_sources: string[]; registry_key: string | null;
   product_code: string | null; about_url: string | null; publisher: string | null;
   version: string | null; uninstall_cmd: string | null;
+  status?: "Running" | "Stopped" | string | null;
 }
 
 export interface ManagerConfig { settings: { managed_dir: string }; apps: AppEntry[] }

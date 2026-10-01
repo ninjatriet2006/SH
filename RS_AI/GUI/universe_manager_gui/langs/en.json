@@ -24,15 +24,22 @@
     "managed_apps": "Managed apps",
     "custom_apps": "Custom apps",
     "managed_dir": "Managed directory",
-    "not_configured": "Not configured"
+    "not_configured": "Not configured",
+    "getting_started": "Getting Started with Universe Manager",
+    "getting_started_desc": "No managed directory configured. Please select or enter your applications directory to start scanning.",
+    "ready_to_scan": "Ready to scan applications",
+    "ready_to_scan_desc": "Managed directory is configured. Click Scan Apps to detect your applications automatically.",
+    "apps_ready": "All applications are ready to manage and launch."
   },
   "config": {
     "managed_dir": "Managed directory",
+    "managed_dir_desc": "Enter an absolute path or click 'Select…' to choose via file dialog.",
     "select": "Select…",
     "save": "Save config"
   },
   "scan": {
     "description": "Scan the managed directory or inspect an app selected from a source directory.",
+    "need_config_desc": "Please set up a managed directory in Config before scanning applications.",
     "scan_btn": "Scan managed apps",
     "detect_btn": "Select & detect source…"
   },

@@ -14,10 +14,24 @@ pub fn run() -> tauri::Result<()> {
     tauri::Builder::default()
         .setup(|app| {
             app.manage(BridgeState::default());
-            let script = app.path().resource_dir().map_or_else(
-                |_| resources::fallback_initialization_script(),
-                |resource_root| resources::initialization_script(&resource_root),
-            );
+            let script = app
+                .path()
+                .resource_dir()
+                .ok()
+                .filter(|dir| dir.join("langs").is_dir())
+                .or_else(|| {
+                    std::env::current_exe().ok().and_then(|exe| {
+                        let parent = exe.parent()?;
+                        parent.join("langs").is_dir().then(|| parent.to_path_buf())
+                    })
+                })
+                .or_else(|| {
+                    std::env::current_dir().ok().filter(|dir| dir.join("langs").is_dir())
+                })
+                .map_or_else(
+                    resources::fallback_initialization_script,
+                    |resource_root| resources::initialization_script(&resource_root),
+                );
             let app_data = app.path().app_data_dir()?;
             preferences::load_or_migrate(
                 &app_data.join("preferences.json"),

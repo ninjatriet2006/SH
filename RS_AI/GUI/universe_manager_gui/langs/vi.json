@@ -24,15 +24,22 @@
     "managed_apps": "Ứng dụng quản lý",
     "custom_apps": "Ứng dụng tùy chỉnh",
     "managed_dir": "Thư mục quản lý",
-    "not_configured": "Chưa cấu hình"
+    "not_configured": "Chưa cấu hình",
+    "getting_started": "Bắt đầu sử dụng Universe Manager",
+    "getting_started_desc": "Bạn chưa chọn thư mục quản lý. Hãy chọn hoặc nhập đường dẫn thư mục chứa ứng dụng của bạn để bắt đầu quét.",
+    "ready_to_scan": "Sẵn sàng quét ứng dụng",
+    "ready_to_scan_desc": "Thư mục quản lý đã sẵn sàng. Hãy bấm Quét ứng dụng để tự động phát hiện các phần mềm.",
+    "apps_ready": "Tất cả ứng dụng đã sẵn sàng quản lý và khởi chạy."
   },
   "config": {
     "managed_dir": "Thư mục quản lý",
+    "managed_dir_desc": "Nhập đường dẫn tuyệt đối hoặc bấm 'Chọn…' để mở hộp thoại chọn thư mục.",
     "select": "Chọn…",
     "save": "Lưu cấu hình"
   },
   "scan": {
     "description": "Quét thư mục quản lý hoặc kiểm tra ứng dụng từ thư mục nguồn.",
+    "need_config_desc": "Vui lòng thiết lập thư mục quản lý trong trang Cấu hình trước khi thực hiện quét ứng dụng.",
     "scan_btn": "Quét ứng dụng",
     "detect_btn": "Chọn & kiểm tra nguồn…"
   },

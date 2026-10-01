@@ -15,16 +15,27 @@ import { useTranslation } from "./utils/i18n";
 
 export default function App() {
   const { initSettings, isLoading } = useSettingsStore();
-  const { loadConfig, busy, progress, error, clearError, dispose } = useAppStore();
+  const { loadConfig, scanApps, busy, progress, error, clearError, dispose } = useAppStore();
   const { t } = useTranslation();
 
   useEffect(() => {
+    let syncInterval: ReturnType<typeof setInterval> | null = null;
     const init = async () => {
       await initSettings();
       await loadConfig();
+      await scanApps(true);
+
+      syncInterval = setInterval(() => {
+        if (!document.hidden) {
+          void scanApps(true);
+        }
+      }, 4000);
     };
     void init();
-    return () => dispose();
+    return () => {
+      if (syncInterval) clearInterval(syncInterval);
+      dispose();
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: zustand actions are stable refs
   }, []);
 

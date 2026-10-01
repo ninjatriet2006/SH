@@ -531,10 +531,22 @@ where
 }
 
 #[tauri::command]
-pub fn config_load<R: Runtime>(request: Req<Empty>, app: AppHandle<R>) -> IpcResult<ManagerConfig> {
+pub fn config_load<R: Runtime>(
+    request: Req<Empty>,
+    window: Window<R>,
+    app: AppHandle<R>,
+    state: State<'_, BridgeState>,
+) -> IpcResult<ManagerConfig> {
     let request_id = validate(&request, false).map_err(|failure| remap(failure, IpcErrorCode::Internal))?;
     let config =
         backend::load_config(app_config_dir(&app)?).map_err(|failure| remap(map_backend(failure), IpcErrorCode::Io))?;
+    let managed = config.settings.managed_dir.trim();
+    if !managed.is_empty() {
+        let p = Path::new(managed);
+        if p.is_absolute() && p.is_dir() {
+            let _ = state.replace_picker_directory(window.label(), UniversePickerKind::Managed, p);
+        }
+    }
     Ok(response(request_id, config))
 }
 
@@ -546,11 +558,42 @@ pub fn config_save<R: Runtime>(
     state: State<'_, BridgeState>,
 ) -> IpcResult<ManagerConfig> {
     let request_id = validate(&request, false).map_err(|failure| remap(failure, IpcErrorCode::Validation))?;
-    let root = state
-        .picker
-        .root(window.label(), UniversePickerKind::Managed)
-        .map_err(|failure| remap(failure, IpcErrorCode::Validation))?;
-    let store = backend::ConfigStore::new(app_config_dir(&app)?, vec![root])
+    let managed = request.payload.settings.managed_dir.trim();
+    let root = if let Ok(root) = state.picker.root(window.label(), UniversePickerKind::Managed) {
+        let candidate = Path::new(managed);
+        if !managed.is_empty() && candidate.is_absolute() && candidate.is_dir() && candidate != root {
+            Some(state
+                .replace_picker_directory(window.label(), UniversePickerKind::Managed, candidate)
+                .map_err(|failure| remap(failure, IpcErrorCode::Validation))?)
+        } else if !managed.is_empty() {
+            Some(root)
+        } else {
+            None
+        }
+    } else if !managed.is_empty() {
+        let candidate = Path::new(managed);
+        if candidate.is_absolute() && candidate.is_dir() {
+            Some(state
+                .replace_picker_directory(window.label(), UniversePickerKind::Managed, candidate)
+                .map_err(|failure| remap(failure, IpcErrorCode::Validation))?)
+        } else {
+            return Err(error(
+                IpcErrorCode::Validation,
+                format!("Thư mục quản lý không tồn tại hoặc không phải thư mục tuyệt đối: {managed}"),
+            ));
+        }
+    } else {
+        None
+    };
+
+    let config_dir = app_config_dir(&app)?;
+    let allowed_roots = if let Some(r) = root {
+        vec![r]
+    } else {
+        vec![config_dir.clone()]
+    };
+
+    let store = backend::ConfigStore::new(config_dir, allowed_roots)
         .map_err(|failure| remap(map_backend(failure), IpcErrorCode::Validation))?;
     store
         .save(&request.payload)
@@ -567,26 +610,37 @@ pub async fn scan_apps<R: Runtime>(
 ) -> IpcResult<Vec<AppEntry>> {
     let request_id = job_request(&request)?;
     let generation = state.generation(window.label(), IpcErrorCode::Io)?;
-    let root = state
-        .picker
-        .root(window.label(), UniversePickerKind::Managed)
-        .map_err(|failure| remap(failure, IpcErrorCode::Io))?;
     let config = load_config(&app, IpcErrorCode::Io)?;
-    state
-        .picker
-        .resolve_directory(
-            window.label(),
-            UniversePickerKind::Managed,
-            Path::new(&config.settings.managed_dir),
-        )
-        .map_err(|failure| remap(failure, IpcErrorCode::Io))?;
+    let managed_str = config.settings.managed_dir.trim();
+    let managed_path = if !managed_str.is_empty() {
+        let path = Path::new(managed_str);
+        if path.is_absolute() && path.is_dir() {
+            let _ = state.replace_picker_directory(window.label(), UniversePickerKind::Managed, path);
+            Some(path.to_path_buf())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let active = state.register(window.label(), request_id, generation, IpcErrorCode::Io)?;
     run_job(window, JOB_SCAN_APPS, active, move |job, cancellation| {
-        let service = backend::DiscoveryService::new(vec![root.clone()])
-            .map_err(|failure| remap(map_backend(failure), IpcErrorCode::Io))?;
-        service
-            .scan_managed(&config, &root, cancellation, |progress| job.progress(progress))
-            .map_err(|failure| remap(map_backend(failure), IpcErrorCode::Io))
+        let mut apps = backend::scan_all_applications(
+            &config,
+            managed_path.as_deref(),
+            cancellation,
+            |progress| job.progress(progress),
+        )
+        .map_err(|failure| remap(map_backend(failure), IpcErrorCode::Io))?;
+
+        let snapshot = backend::ProcessSnapshot::collect();
+        for app in &mut apps {
+            let running = snapshot.is_running(app);
+            app.status = Some(if running { "Running".to_string() } else { "Stopped".to_string() });
+        }
+
+        Ok(apps)
     })
     .await
 }

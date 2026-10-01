@@ -307,3 +307,195 @@ fn sort_detection(root: &Path, report: &mut DetectionReport) {
     report.icons.sort();
     report.desktop_templates.sort();
 }
+
+pub fn parse_desktop_file(path: &Path) -> Option<AppEntry> {
+    let content = fs::read_to_string(path).ok()?;
+    let filename = path.file_name()?.to_string_lossy();
+    let id = filename.strip_suffix(".desktop").unwrap_or(&filename).to_string();
+
+    let mut name = String::new();
+    let mut exec = String::new();
+    let mut categories_str = String::new();
+    let mut icon = None;
+    let mut no_display = false;
+    let mut is_application = false;
+    let mut in_desktop_entry = false;
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_desktop_entry = line == "[Desktop Entry]";
+            continue;
+        }
+        if !in_desktop_entry {
+            continue;
+        }
+        if let Some(index) = line.find('=') {
+            let key = line[..index].trim();
+            let val = line[index + 1..].trim();
+            match key {
+                "Name" if name.is_empty() => name = val.to_string(),
+                "Exec" => exec = val.to_string(),
+                "Categories" => categories_str = val.to_string(),
+                "Icon" => icon = Some(val.to_string()),
+                "NoDisplay" if val.eq_ignore_ascii_case("true") => no_display = true,
+                "Type" if val.eq_ignore_ascii_case("application") => is_application = true,
+                _ => {}
+            }
+        }
+    }
+
+    if !is_application || no_display || name.is_empty() {
+        return None;
+    }
+
+    let clean_exec = exec
+        .split_whitespace()
+        .filter(|part| !part.starts_with('%'))
+        .collect::<Vec<&str>>()
+        .join(" ")
+        .replace(['"', '\''], "");
+
+    let path_str = path.to_string_lossy().to_string();
+    let (package_type, final_id, inventory_source) = if path_str.contains("flatpak") {
+        ("Flatpak".to_string(), format!("{id}-flatpak"), "Flatpak".to_string())
+    } else if path_str.contains("snap") {
+        ("Snap".to_string(), format!("{id}-snap"), "Snap".to_string())
+    } else if path_str.contains("/.local/share/applications") {
+        ("System".to_string(), id.clone(), "Desktop (user)".to_string())
+    } else {
+        ("System".to_string(), id.clone(), "Desktop (system)".to_string())
+    };
+
+    let category = if !categories_str.is_empty() {
+        categories_str.split(';').map(str::trim).find(|s| !s.is_empty()).map(String::from)
+    } else {
+        Some("Utility".to_string())
+    };
+
+    Some(AppEntry {
+        id: final_id,
+        name,
+        install_type: InstallType::InPlace,
+        source_path: None,
+        install_path: path.parent().unwrap_or(Path::new("")).to_string_lossy().to_string(),
+        exec_path: clean_exec,
+        icon_path: icon,
+        desktop_file: path_str,
+        symlink_file: None,
+        added_at: String::new(),
+        is_custom: Some(package_type == "Flatpak" || package_type == "Snap"),
+        start_cmd: if package_type == "Flatpak" {
+            Some(format!("flatpak run {id}"))
+        } else {
+            None
+        },
+        stop_cmd: if package_type == "Flatpak" {
+            Some(format!("flatpak kill {id}"))
+        } else {
+            None
+        },
+        category,
+        package_type: Some(package_type),
+        inventory_sources: vec![inventory_source],
+        ..AppEntry::default()
+    })
+}
+
+pub fn scan_system_applications(
+    cancellation: &CancellationToken,
+    mut progress: impl FnMut(Progress),
+) -> Result<Vec<AppEntry>> {
+    let mut scan_dirs = Vec::new();
+
+    #[cfg(unix)]
+    {
+        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+            scan_dirs.push(home.join(".local/share/applications"));
+            scan_dirs.push(home.join(".local/share/flatpak/exports/share/applications"));
+        }
+        scan_dirs.push(PathBuf::from("/usr/share/applications"));
+        scan_dirs.push(PathBuf::from("/usr/local/share/applications"));
+        scan_dirs.push(PathBuf::from("/var/lib/flatpak/exports/share/applications"));
+        scan_dirs.push(PathBuf::from("/var/lib/snapd/desktop/applications"));
+    }
+
+    #[cfg(windows)]
+    {
+        if let Some(appdata) = std::env::var_os("APPDATA").map(PathBuf::from) {
+            scan_dirs.push(appdata.join("Microsoft\\Windows\\Start Menu\\Programs"));
+        }
+        if let Some(program_data) = std::env::var_os("ProgramData").map(PathBuf::from) {
+            scan_dirs.push(program_data.join("Microsoft\\Windows\\Start Menu\\Programs"));
+        }
+    }
+
+    let mut apps = Vec::new();
+    let mut seen_ids = std::collections::HashSet::new();
+
+    for dir in scan_dirs {
+        cancellation.check()?;
+        if !dir.is_dir() {
+            continue;
+        }
+        if let Ok(entries) = fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                cancellation.check()?;
+                let path = entry.path();
+                if path.is_file() && path.extension().is_some_and(|e| e == "desktop") {
+                    if let Some(app) = parse_desktop_file(&path) {
+                        if !seen_ids.contains(&app.id) {
+                            seen_ids.insert(app.id.clone());
+                            apps.push(app);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    progress(Progress {
+        completed: apps.len() as u64,
+        total: Some(apps.len() as u64),
+        message: format!("Discovered {} system applications", apps.len()),
+    });
+
+    Ok(apps)
+}
+
+pub fn scan_all_applications(
+    config: &ManagerConfig,
+    managed_dir_opt: Option<&Path>,
+    cancellation: &CancellationToken,
+    mut progress: impl FnMut(Progress),
+) -> Result<Vec<AppEntry>> {
+    let mut all_apps = Vec::new();
+    let mut seen_ids = std::collections::HashSet::new();
+
+    // 1. Scan portable / managed apps if directory is supplied and exists
+    if let Some(managed_dir) = managed_dir_opt {
+        if managed_dir.is_dir() {
+            if let Ok(service) = DiscoveryService::new(vec![managed_dir.to_path_buf()]) {
+                if let Ok(portable_apps) = service.scan_managed(config, managed_dir, cancellation, &mut progress) {
+                    for app in portable_apps {
+                        if seen_ids.insert(app.id.clone()) {
+                            all_apps.push(app);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Scan system applications (Flatpak, Snap, System Desktop)
+    let system_apps = scan_system_applications(cancellation, &mut progress)?;
+    for app in system_apps {
+        if seen_ids.insert(app.id.clone()) {
+            all_apps.push(app);
+        }
+    }
+
+    Ok(all_apps)
+}
+
