@@ -40,6 +40,7 @@ interface SettingsStore {
 const defaultEngineFlags: EngineSettings = {
   transfers: 4,
   checkers: 8,
+  queue_concurrency: 4,
   fast_list: false,
   server_side_across: false,
   dry_run: false,

@@ -125,6 +125,7 @@ pub fn run() {
             api::jobs::job_move_down,
             api::jobs::job_move_to_top,
             api::jobs::job_get_children,
+            api::jobs::job_clear_done,
         ])
         .setup(|app| {
             if let Ok(path) = app.path().resource_dir() {
@@ -137,6 +138,9 @@ pub fn run() {
             // khởi động — job Running → Error + xóa `*.partial` ở đích Local.
             let state = app.state::<logic::app_state::AppState>();
             state.jobs.reconcile_orphans();
+            if !state.jobs.queue_empty() {
+                state.jobs.spawn_worker(app.handle().clone());
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -8,7 +8,7 @@ use crate::actions::perm::Policy;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -118,8 +118,10 @@ pub struct JobStore {
     // (không persist — resume thì quét lại; xem `queue::dest_map_for`).
     pub(super) dest_maps: Mutex<HashMap<String, HashMap<String, bool>>>,
     running: AtomicBool,
+    active_workers: AtomicUsize,
     path: PathBuf,
     id_counter: AtomicU64,
+    persist_lock: Mutex<()>,
 }
 
 impl JobStore {
@@ -137,8 +139,10 @@ impl JobStore {
             cancelled: Mutex::new(HashSet::new()),
             dest_maps: Mutex::new(HashMap::new()),
             running: AtomicBool::new(false),
+            active_workers: AtomicUsize::new(0),
             path,
             id_counter: AtomicU64::new(0),
+            persist_lock: Mutex::new(()),
         };
         store.load_from_disk();
         store
@@ -152,6 +156,20 @@ impl JobStore {
         let n = self.id_counter.fetch_add(1, Ordering::SeqCst);
         format!("job-{millis}-{n}")
     }
+}
+
+/// Helper trích xuất (millis, counter) từ job-id "job-{millis}-{n}" để sắp xếp số học chuẩn xác.
+fn parse_job_id_key(id: &str) -> (u128, u64) {
+    let mut parts = id.split('-');
+    if let (Some("job"), Some(m_str), Some(n_str)) = (parts.next(), parts.next(), parts.next()) {
+        let millis = m_str.parse::<u128>().unwrap_or(0);
+        let n = n_str.parse::<u64>().unwrap_or(0);
+        return (millis, n);
+    }
+    (0, 0)
+}
+
+impl JobStore {
 
     /// Thêm job mới ở trạng thái `queued`, persist, trả bản clone.
     /// UNIVERSAL: đường cũ — policy mặc định (`AskOnce`); luồng có consent
@@ -195,12 +213,14 @@ impl JobStore {
         job
     }
 
-    /// Liệt kê snapshot toàn bộ job.
+    /// Liệt kê snapshot toàn bộ job, sắp xếp tuần tự theo ID/thời gian tạo (job-{millis}-{n}).
     pub fn list(&self) -> Vec<Job> {
-        self.inner
+        let mut list: Vec<Job> = self.inner
             .lock()
             .map(|m| m.values().cloned().collect())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        list.sort_by_key(|j| parse_job_id_key(&j.id));
+        list
     }
 
     /// Lấy một job theo id.
@@ -331,6 +351,31 @@ impl JobStore {
         self.get(id).ok_or_else(|| "job not found".to_string())
     }
 
+    /// Xóa toàn bộ các job đã kết thúc (Done/Cancelled) khỏi RAM và đĩa; trả về số lượng đã xóa.
+    pub fn clear_done(&self) -> usize {
+        let mut count = 0;
+        if let Ok(mut inner) = self.inner.lock() {
+            let done_ids: Vec<String> = inner
+                .values()
+                .filter(|j| matches!(j.status, JobStatus::Done | JobStatus::Cancelled))
+                .map(|j| j.id.clone())
+                .collect();
+            count = done_ids.len();
+            for id in &done_ids {
+                inner.remove(id);
+            }
+            if let Ok(mut kids) = self.children.lock() {
+                for id in &done_ids {
+                    kids.remove(id);
+                }
+            }
+        }
+        if count > 0 {
+            self.persist();
+        }
+        count
+    }
+
     /// Lấy danh sách ID các job đang chờ trong hàng đợi theo thứ tự thực thi.
     pub fn get_queue(&self) -> Vec<String> {
         self.queue.lock().map(|q| q.iter().cloned().collect()).unwrap_or_default()
@@ -435,119 +480,131 @@ impl JobStore {
         self.queue.lock().ok()?.pop_front()
     }
 
-    fn queue_empty(&self) -> bool {
+    /// Kiểm tra hàng đợi có rỗng hay không.
+    pub fn queue_empty(&self) -> bool {
         self.queue.lock().map(|q| q.is_empty()).unwrap_or(true)
+    }
+
+    /// Chạy 1 job đơn lẻ theo id (được gọi từ `run_queue_sync` hoặc worker pool song song).
+    pub fn run_single_job<F>(&self, id: &str, emit: &mut Option<F>)
+    where
+        F: FnMut(Job),
+    {
+        if self.is_cancel_requested(id) {
+            if let Some(job) = self.update(id, |j| {
+                j.status = JobStatus::Cancelled;
+            }) {
+                self.mark_children_cancelled(id);
+                if let Some(e) = emit.as_mut() {
+                    e(job);
+                }
+            }
+            return;
+        }
+        let snapshot = match self.get(id) {
+            Some(j) => j,
+            None => return,
+        };
+        if let Some(job) = self.update(id, |j| {
+            j.status = JobStatus::Running;
+            j.progress = 0;
+            j.error = None;
+            j.child_done = 0;
+        }) {
+            if let Some(e) = emit.as_mut() {
+                e(job);
+            }
+        } else {
+            return;
+        }
+        // UNIVERSAL: nhật ký vòng đời — mốc START, tag `job-...` để lọc
+        // trọn hành trình 1 job (chống phân mảnh khi nhiều job chạy chung).
+        let started_at = std::time::Instant::now();
+        crate::core::debug::info(
+            id,
+            format!(
+                "BẮT ĐẦU {:?} | {} → {}",
+                snapshot.kind,
+                snapshot.src.as_deref().unwrap_or("-"),
+                snapshot.dst.as_deref().unwrap_or("-"),
+            ),
+        );
+        // UNIVERSAL S2: Copy/Move do `run_transfer_job` tự điều phối vé
+        // (bulk 1 vé / off bóc manifest) rồi chạy qua `execute_children`.
+        // Các job đơn (Delete, List, Manifest, Rename, Mkdir, Touch) chạy trực tiếp qua `execute_job`
+        // (trừ khi có vé con được gán tường minh từ trước).
+        let outcome = match snapshot.kind {
+            JobKind::Copy | JobKind::Move => self.execute_job(&snapshot, emit),
+            JobKind::Delete | JobKind::List | JobKind::Manifest | JobKind::Rename | JobKind::Mkdir | JobKind::Touch => {
+                if !self.children_of(id).is_empty() {
+                    self.execute_children(&snapshot)
+                } else {
+                    self.execute_job(&snapshot, emit)
+                }
+            }
+        };
+        // UNIVERSAL S2: sau vòng con vẫn đẩy tiến độ cha qua emit từng vé
+        // (execute_children đã update+emit nội bộ qua update_child_progress).
+        let done = match outcome {
+            Ok(()) => {
+                let updated = self.update(id, |j| {
+                    if self.is_cancel_requested(id) {
+                        j.status = JobStatus::Cancelled;
+                    } else {
+                        j.status = JobStatus::Done;
+                        j.progress = 100;
+                        j.child_done = j.child_total;
+                    }
+                });
+                // UNIVERSAL: smart compact — cha Done thì gọn vé con ngay,
+                // event terminal bên dưới vẫn phát 1 lần đầy đủ đếm.
+                if updated.as_ref().is_some_and(|j| j.status == JobStatus::Done) {
+                    self.compact_done_children(id);
+                }
+                updated
+            }
+            Err(e) if e == "job cancelled" || self.is_cancel_requested(id) => {
+                self.mark_children_cancelled(id);
+                self.update(id, |j| {
+                    j.status = JobStatus::Cancelled;
+                })
+            }
+            Err(e) => self.update(id, |j| {
+                j.status = JobStatus::Error;
+                j.error = Some(e);
+            }),
+        };
+        // UNIVERSAL: nhật ký vòng đời — khối tổng kết END nguyên khối (1 job
+        // = 1 dòng đủ: kết cục, tiến độ con, %, thời lượng, lý do nếu lỗi).
+        // Lấy state cuối để có số đếm/lỗi chuẩn dù `done` là None.
+        let final_job = done.clone().or_else(|| self.get(id));
+        self.log_job_end(id, final_job.as_ref(), started_at.elapsed());
+        // UNIVERSAL: dọn rác log Ở RANH GIỚI job (sau khi nhóm log của job
+        // này đã ghi xong) — cắt không bao giờ xé đôi hành trình một job.
+        // Ngưỡng do người dùng chỉnh (diagnostics.json); lỗi đọc → mặc định.
+        let rotate_bytes = crate::settings::diagnostics::load_debug_settings()
+            .unwrap_or_default()
+            .log_rotate_bytes();
+        crate::core::debug::rotate_if_oversized(rotate_bytes);
+        if let (Some(job), Some(e)) = (done, emit.as_mut()) {
+            e(job);
+        } else if emit.is_some() {
+            // UNIVERSAL S2: dù update cuối None, vẫn phát lại snapshot để
+            // UI không treo ở Running khi store lỗi lock thoáng qua.
+            if let (Some(job), Some(e)) = (self.get(id), emit.as_mut()) {
+                e(job);
+            }
+        }
     }
 
     /// Chạy tuần tự toàn bộ hàng chờ trên thread hiện tại (S2 hai tầng).
     /// `emit` phát event `job_update` (giữ trường cũ, thêm `child_done/total`).
-    pub fn run_queue_sync(&self, mut emit: Option<impl FnMut(Job)>) {
+    pub fn run_queue_sync<F>(&self, mut emit: Option<F>)
+    where
+        F: FnMut(Job),
+    {
         while let Some(id) = self.pop_next() {
-            if self.is_cancel_requested(&id) {
-                if let Some(job) = self.update(&id, |j| {
-                    j.status = JobStatus::Cancelled;
-                }) {
-                    self.mark_children_cancelled(&id);
-                    if let Some(e) = emit.as_mut() {
-                        e(job);
-                    }
-                }
-                continue;
-            }
-            let snapshot = match self.get(&id) {
-                Some(j) => j,
-                None => continue,
-            };
-            if let Some(job) = self.update(&id, |j| {
-                j.status = JobStatus::Running;
-                j.progress = 0;
-                j.error = None;
-                j.child_done = 0;
-            }) {
-                if let Some(e) = emit.as_mut() {
-                    e(job);
-                }
-            } else {
-                continue;
-            }
-            // UNIVERSAL: nhật ký vòng đời — mốc START, tag `job-...` để lọc
-            // trọn hành trình 1 job (chống phân mảnh khi nhiều job chạy chung).
-            let started_at = std::time::Instant::now();
-            crate::core::debug::info(
-                &id,
-                format!(
-                    "BẮT ĐẦU {:?} | {} → {}",
-                    snapshot.kind,
-                    snapshot.src.as_deref().unwrap_or("-"),
-                    snapshot.dst.as_deref().unwrap_or("-"),
-                ),
-            );
-            // UNIVERSAL S2: Copy/Move do `run_transfer_job` tự điều phối vé
-            // (bulk 1 vé / off bóc manifest) rồi chạy qua `execute_children`.
-            // Các job đơn (Delete, List, Manifest, Rename, Mkdir, Touch) chạy trực tiếp qua `execute_job`
-            // (trừ khi có vé con được gán tường minh từ trước).
-            let outcome = match snapshot.kind {
-                JobKind::Copy | JobKind::Move => self.execute_job(&snapshot, &mut emit),
-                JobKind::Delete | JobKind::List | JobKind::Manifest | JobKind::Rename | JobKind::Mkdir | JobKind::Touch => {
-                    if !self.children_of(&id).is_empty() {
-                        self.execute_children(&snapshot)
-                    } else {
-                        self.execute_job(&snapshot, &mut emit)
-                    }
-                }
-            };
-            // UNIVERSAL S2: sau vòng con vẫn đẩy tiến độ cha qua emit từng vé
-            // (execute_children đã update+emit nội bộ qua update_child_progress).
-            let done = match outcome {
-                Ok(()) => {
-                    let updated = self.update(&id, |j| {
-                        if self.is_cancel_requested(&id) {
-                            j.status = JobStatus::Cancelled;
-                        } else {
-                            j.status = JobStatus::Done;
-                            j.progress = 100;
-                            j.child_done = j.child_total;
-                        }
-                    });
-                    // UNIVERSAL: smart compact — cha Done thì gọn vé con ngay,
-                    // event terminal bên dưới vẫn phát 1 lần đầy đủ đếm.
-                    if updated.as_ref().is_some_and(|j| j.status == JobStatus::Done) {
-                        self.compact_done_children(&id);
-                    }
-                    updated
-                }
-                Err(e) if e == "job cancelled" || self.is_cancel_requested(&id) => {
-                    self.mark_children_cancelled(&id);
-                    self.update(&id, |j| {
-                        j.status = JobStatus::Cancelled;
-                    })
-                }
-                Err(e) => self.update(&id, |j| {
-                    j.status = JobStatus::Error;
-                    j.error = Some(e);
-                }),
-            };
-            // UNIVERSAL: nhật ký vòng đời — khối tổng kết END nguyên khối (1 job
-            // = 1 dòng đủ: kết cục, tiến độ con, %, thời lượng, lý do nếu lỗi).
-            // Lấy state cuối để có số đếm/lỗi chuẩn dù `done` là None.
-            let final_job = done.clone().or_else(|| self.get(&id));
-            self.log_job_end(&id, final_job.as_ref(), started_at.elapsed());
-            // UNIVERSAL: dọn rác log Ở RANH GIỚI job (sau khi nhóm log của job
-            // này đã ghi xong) — cắt không bao giờ xé đôi hành trình một job.
-            // Ngưỡng do người dùng chỉnh (diagnostics.json); lỗi đọc → mặc định.
-            let rotate_bytes = crate::settings::diagnostics::load_debug_settings()
-                .unwrap_or_default()
-                .log_rotate_bytes();
-            crate::core::debug::rotate_if_oversized(rotate_bytes);
-            if let (Some(job), Some(e)) = (done, emit.as_mut()) {
-                e(job);
-            } else if emit.is_some() {
-                // UNIVERSAL S2: dù update cuối None, vẫn phát lại snapshot để
-                // UI không treo ở Running khi store lỗi lock thoáng qua.
-                if let (Some(job), Some(e)) = (self.get(&id), emit.as_mut()) {
-                    e(job);
-                }
-            }
+            self.run_single_job(&id, &mut emit);
         }
     }
 
@@ -753,27 +810,57 @@ impl JobStore {
         crate::actions::instant::execute_touch_sync(&src, job.policy)
     }
 
-    /// Spawn worker tuần tự nếu chưa chạy; gọi từ IPC sau `enqueue`.
+    /// Spawn các worker xử lý song song các job trong hàng chờ theo `queue_concurrency`.
     pub fn spawn_worker(self: &Arc<Self>, app: tauri::AppHandle) {
-        if self.running.swap(true, Ordering::SeqCst) {
-            return;
-        }
-        let store = Arc::clone(self);
-        tauri::async_runtime::spawn(async move {
-            let emit_job = |job: Job| {
-                use tauri::Emitter;
-                let _ = app.emit("job_update", job);
-            };
-            store.run_queue_sync(Some(emit_job));
-            store.running.store(false, Ordering::SeqCst);
-            if !store.queue_empty() {
-                store.spawn_worker(app);
+        let max_workers = crate::settings::engine::load_engine_flags()
+            .map(|f| f.tuning.queue_concurrency)
+            .unwrap_or(4)
+            .clamp(1, 32) as usize;
+
+        loop {
+            let current = self.active_workers.load(Ordering::SeqCst);
+            if current >= max_workers || self.queue_empty() {
+                break;
             }
-        });
+            if self
+                .active_workers
+                .compare_exchange(current, current + 1, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                self.running.store(true, Ordering::SeqCst);
+                let store = Arc::clone(self);
+                let app_clone = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        let next_id = match store.pop_next() {
+                            Some(id) => id,
+                            None => break,
+                        };
+                        let app_inner = app_clone.clone();
+                        let mut emit_job = Some(move |job: Job| {
+                            use tauri::Emitter;
+                            let _ = app_inner.emit("job_update", job);
+                        });
+                        store.run_single_job(&next_id, &mut emit_job);
+                    }
+                    let prev = store.active_workers.fetch_sub(1, Ordering::SeqCst);
+                    if prev <= 1 {
+                        store.running.store(false, Ordering::SeqCst);
+                    }
+                    if !store.queue_empty() {
+                        store.spawn_worker(app_clone);
+                    }
+                });
+            }
+        }
     }
 
     /// Ghi snapshot 2 tầng (cha + con) ra JSON (best-effort, không crash app).
     pub fn persist(&self) {
+        let _guard = match self.persist_lock.lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
         #[derive(serde::Serialize)]
         struct Snapshot<'a> {
             jobs: Vec<Job>,
@@ -797,7 +884,7 @@ impl JobStore {
         if let Some(parent) = self.path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let tmp = self.path.with_extension("json.tmp");
+        let tmp = self.path.with_extension(format!("tmp.{}", self.next_id()));
         if std::fs::write(&tmp, text).is_ok() {
             let _ = std::fs::rename(&tmp, &self.path);
         }
@@ -1522,4 +1609,80 @@ mod tests {
         let _ = std::fs::remove_dir_all(&temp_dir);
         let _ = std::fs::remove_file(&path);
     }
+
+    #[test]
+    fn clear_done_and_sorted_list() {
+        let (store, path) = temp_store("clear_done_test");
+        let j1 = store.enqueue(JobKind::Touch, Some("Local::/tmp/a".to_string()), None);
+        let j2 = store.enqueue(JobKind::Touch, Some("Local::/tmp/b".to_string()), None);
+        let j3 = store.enqueue(JobKind::Touch, Some("Local::/tmp/c".to_string()), None);
+
+        // Đánh dấu j1 là Done, j2 là Cancelled, j3 giữ Queued
+        store.update(&j1.id, |j| j.status = JobStatus::Done);
+        store.update(&j2.id, |j| j.status = JobStatus::Cancelled);
+
+        // Kiểm tra list() trả về theo thứ tự ID
+        let list_before = store.list();
+        assert_eq!(list_before.len(), 3);
+        assert_eq!(list_before[0].id, j1.id);
+        assert_eq!(list_before[1].id, j2.id);
+        assert_eq!(list_before[2].id, j3.id);
+
+        // Dọn dẹp các job đã xong
+        let cleared = store.clear_done();
+        assert_eq!(cleared, 2);
+
+        // Sau khi dọn, chỉ còn j3
+        let list_after = store.list();
+        assert_eq!(list_after.len(), 1);
+        assert_eq!(list_after[0].id, j3.id);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn concurrent_workers_drain_queue_safely() {
+        let (store, path) = temp_store("concurrent_workers_test");
+        let store = Arc::new(store);
+        let temp_dir = std::env::temp_dir().join(format!("rclone_gui_test_concurrency_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let mut job_ids = Vec::new();
+        for i in 0..20 {
+            let file = temp_dir.join(format!("test_file_{i}.txt"));
+            let j = store.enqueue(JobKind::Touch, Some(format!("Local::{}", file.display())), None);
+            job_ids.push(j.id);
+        }
+
+        assert_eq!(store.list().len(), 20);
+
+        // Spawn 4 threads simulating 4 concurrent queue workers
+        let mut handles = Vec::new();
+        for _ in 0..4 {
+            let s = Arc::clone(&store);
+            handles.push(std::thread::spawn(move || {
+                loop {
+                    let next_id = match s.pop_next() {
+                        Some(id) => id,
+                        None => break,
+                    };
+                    s.run_single_job(&next_id, &mut None::<fn(Job)>);
+                }
+            }));
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        assert!(store.queue_empty());
+        for id in job_ids {
+            let j = store.get(&id).expect("job exists");
+            assert_eq!(j.status, JobStatus::Done);
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let _ = std::fs::remove_file(&path);
+    }
 }
+

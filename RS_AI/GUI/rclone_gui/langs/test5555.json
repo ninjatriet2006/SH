@@ -85,6 +85,7 @@
   "settings_font_preview_label": "5555",
   "settings_font_preview_sample": "5555",
   "settings_engine_title": "5555",
+  "settings_engine_queue_concurrency": "5555",
   "settings_engine_transfers": "5555",
   "settings_engine_checkers": "5555",
   "settings_engine_backup_dir": "5555",

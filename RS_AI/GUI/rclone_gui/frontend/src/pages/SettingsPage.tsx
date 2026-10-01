@@ -353,10 +353,27 @@ export const SettingsPage: React.FC = () => {
                 {t('settings_engine_title', 'Hiệu năng Rclone Engine')}
               </h3>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+                <div className="form-group">
+                  <label className="form-label" data-lang-id="settings_engine_queue_concurrency">
+                    {t('settings_engine_queue_concurrency', 'Số tác vụ hàng đợi song song:')}
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={32}
+                    className="input-text"
+                    value={engineForm.queue_concurrency ?? 4}
+                    onChange={(e) => setEngineForm({ ...engineForm, queue_concurrency: Number(e.target.value) })}
+                  />
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    {t('settings_engine_queue_concurrency_hint', 'Số tác vụ chạy đồng thời (1..32)')}
+                  </span>
+                </div>
+
                 <div className="form-group">
                   <label className="form-label" data-lang-id="settings_engine_transfers">
-                    {t('settings_engine_transfers', 'Số luồng truyền song song (--transfers):')}
+                    {t('settings_engine_transfers', 'Số luồng truyền (--transfers):')}
                   </label>
                   <input
                     type="number"
@@ -366,11 +383,14 @@ export const SettingsPage: React.FC = () => {
                     value={engineForm.transfers}
                     onChange={(e) => setEngineForm({ ...engineForm, transfers: Number(e.target.value) })}
                   />
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    {t('settings_engine_transfers_hint', 'Tối đa 64 luồng rclone')}
+                  </span>
                 </div>
 
                 <div className="form-group">
                   <label className="form-label" data-lang-id="settings_engine_checkers">
-                    {t('settings_engine_checkers', 'Số luồng kiểm tra mã băm (--checkers):')}
+                    {t('settings_engine_checkers', 'Số luồng kiểm tra (--checkers):')}
                   </label>
                   <input
                     type="number"
@@ -380,6 +400,9 @@ export const SettingsPage: React.FC = () => {
                     value={engineForm.checkers}
                     onChange={(e) => setEngineForm({ ...engineForm, checkers: Number(e.target.value) })}
                   />
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    {t('settings_engine_checkers_hint', 'Tối đa 128 luồng kiểm tra')}
+                  </span>
                 </div>
               </div>
 

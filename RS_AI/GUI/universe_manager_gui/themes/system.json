@@ -1,5 +1,33 @@
 {
   "id": "system",
-  "tokens": { "canvas": "#111827", "foreground": "#e5e7eb", "border": "#374151", "panel": "#0b1020", "panel_foreground": "#d1d5db", "accent": "#2563eb", "error": "#7f1d1d" },
-  "light_tokens": { "canvas": "#f3f4f6", "foreground": "#111827", "border": "#d1d5db", "panel": "#ffffff", "panel_foreground": "#1f2937", "accent": "#2563eb", "error": "#b91c1c" }
+  "tokens": {
+    "canvas": "#0f172a",
+    "canvas_end": "#020617",
+    "foreground": "#f8fafc",
+    "border": "rgba(255, 255, 255, 0.1)",
+    "panel": "rgba(30, 41, 59, 0.7)",
+    "panel_foreground": "#94a3b8",
+    "sidebar_bg": "rgba(15, 23, 42, 0.85)",
+    "accent": "#6366f1",
+    "accent_hover": "#818cf8",
+    "error": "#f87171",
+    "error_bg": "rgba(239, 68, 68, 0.15)",
+    "error_border": "rgba(239, 68, 68, 0.35)",
+    "input_bg": "rgba(15, 23, 42, 0.6)"
+  },
+  "light_tokens": {
+    "canvas": "#f8fafc",
+    "canvas_end": "#e2e8f0",
+    "foreground": "#0f172a",
+    "border": "rgba(0, 0, 0, 0.12)",
+    "panel": "rgba(255, 255, 255, 0.88)",
+    "panel_foreground": "#475569",
+    "sidebar_bg": "rgba(255, 255, 255, 0.95)",
+    "accent": "#4f46e5",
+    "accent_hover": "#6366f1",
+    "error": "#dc2626",
+    "error_bg": "rgba(220, 38, 38, 0.1)",
+    "error_border": "rgba(220, 38, 38, 0.3)",
+    "input_bg": "#ffffff"
+  }
 }

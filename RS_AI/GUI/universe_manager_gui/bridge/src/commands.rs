@@ -9,11 +9,11 @@ use std::sync::{Arc, Condvar, Mutex};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State, Window};
 use universe_manager_backend as backend;
 
-pub const JOB_SCAN_APPS: &str = "job.scan_apps";
-pub const JOB_DETECT_APP: &str = "job.detect_app";
-pub const JOB_START_APP: &str = "job.start_app";
-pub const JOB_STOP_APP: &str = "job.stop_app";
-pub const JOB_SEARCH_APPS: &str = "job.search_apps";
+pub const JOB_SCAN_APPS: &str = "job:scan_apps";
+pub const JOB_DETECT_APP: &str = "job:detect_app";
+pub const JOB_START_APP: &str = "job:start_app";
+pub const JOB_STOP_APP: &str = "job:stop_app";
+pub const JOB_SEARCH_APPS: &str = "job:search_apps";
 pub const TOPICS: [&str; 5] = [
     JOB_SCAN_APPS,
     JOB_DETECT_APP,

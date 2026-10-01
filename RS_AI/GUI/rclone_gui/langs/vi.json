@@ -85,6 +85,8 @@
   "settings_font_preview_label": "Xem trước phông chữ:",
   "settings_font_preview_sample": "The quick brown fox jumps over the lazy dog 1234567890 — Thử nghiệm tiếng Việt có dấu: Cần Thơ, Đà Nẵng, Hà Nội, TP. Hồ Chí Minh",
   "settings_engine_title": "Hiệu năng Rclone Engine",
+  "settings_engine_queue_concurrency": "Số tác vụ hàng đợi song song:",
+  "settings_engine_queue_concurrency_hint": "Số tác vụ chạy đồng thời (1..32)",
   "settings_engine_transfers": "Số luồng truyền song song (--transfers):",
   "settings_engine_checkers": "Số luồng kiểm tra mã băm (--checkers):",
   "settings_engine_backup_dir": "Thư mục backup (trống = tắt):",

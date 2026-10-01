@@ -107,11 +107,11 @@ mod tests {
         assert_eq!(
             TOPICS,
             [
-                "job.scan_apps",
-                "job.detect_app",
-                "job.start_app",
-                "job.stop_app",
-                "job.search_apps",
+                "job:scan_apps",
+                "job:detect_app",
+                "job:start_app",
+                "job:stop_app",
+                "job:search_apps",
             ]
         );
         assert_eq!(INVOKE_REGISTRY.iter().filter(|item| item.topic.is_some()).count(), 5);

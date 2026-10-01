@@ -2,15 +2,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type Event, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   IpcError, IpcErrorCode, JobCommand, JobEvent, JobRequest, JobResponse,
-  PickerKind, PickerSelectResult, Res,
+  ManagerConfig, PickerKind, PickerSelectResult, Preferences, Res,
 } from "./contract";
 import { jobTopics, request } from "./contract";
 
-export interface BridgeAdapter {
-  invoke<T>(command: string, args: { request: unknown }): Promise<T>;
-  listen<T>(topic: string, handler: (event: Event<T>) => void): Promise<UnlistenFn>;
-}
-const tauriBridge: BridgeAdapter = { invoke, listen };
+// --- Error normalization ---
+
 const IPC_ERROR_CODES = new Set<IpcErrorCode>([
   "invalid_argument", "not_found", "conflict", "unauthorized", "forbidden", "unavailable",
   "io", "validation", "cancelled", "internal",
@@ -35,9 +32,10 @@ function isJson(value: unknown): value is IpcError["details"] {
   return typeof value === "object" && value !== null && Object.values(value).every(isJson);
 }
 
+// --- Job streaming client ---
+
 export class JobClient {
   private active: { requestId: string; release: () => void } | null = null;
-  constructor(private readonly bridge: BridgeAdapter = tauriBridge) {}
 
   async run<K extends JobCommand>(
     command: K, payload: JobRequest<K>, onEvent: (event: JobEvent<JobResponse<K>>) => void,
@@ -58,7 +56,7 @@ export class JobClient {
     };
     this.active = { requestId, release };
     try {
-      unlisten = await this.bridge.listen<JobEvent<JobResponse<K>>>(jobTopics[command], ({ payload: event }) => {
+      unlisten = await listen<JobEvent<JobResponse<K>>>(jobTopics[command], ({ payload: event }: Event<JobEvent<JobResponse<K>>>) => {
         if (terminalSeen || event.job_id !== requestId || event.payload.request_id !== requestId || event.seq <= lastSeq) return;
         lastSeq = event.seq;
         terminalSeen = ["completed", "failed", "cancelled"].includes(event.state);
@@ -66,7 +64,7 @@ export class JobClient {
         if (terminalSeen) release();
       });
       if (released) unlisten();
-      return await this.bridge.invoke<Res<JobResponse<K>>>(command, { request: request(payload, requestId) });
+      return await invoke<Res<JobResponse<K>>>(command, { request: request(payload, requestId) });
     } catch (error) {
       release();
       throw ipcError(error);
@@ -76,23 +74,20 @@ export class JobClient {
   dispose(): void { this.active?.release(); }
 }
 
-export async function call<T>(command: string, payload: unknown, bridge: BridgeAdapter = tauriBridge): Promise<T> {
+// --- Simple request/response calls ---
+
+async function call<T>(command: string, payload: unknown): Promise<T> {
   try {
-    return (await bridge.invoke<Res<T>>(command, { request: request(payload, null) })).data;
+    return (await invoke<Res<T>>(command, { request: request(payload, null) })).data;
   } catch (error) {
     throw ipcError(error);
   }
 }
 
 export const api = {
-  loadConfig: (bridge?: BridgeAdapter) => call<import("./contract").ManagerConfig>("config_load", {}, bridge),
-  saveConfig: (config: import("./contract").ManagerConfig, bridge?: BridgeAdapter) =>
-    call<import("./contract").ManagerConfig>("config_save", config, bridge),
-  getPreferences: (bridge?: BridgeAdapter) => call<import("./contract").Preferences>("preferences_get", {}, bridge),
-  setPreferences: (preferences: import("./contract").Preferences, bridge?: BridgeAdapter) =>
-    call<import("./contract").Preferences>("preferences_set", preferences, bridge),
+  loadConfig: () => call<ManagerConfig>("config_load", {}),
+  saveConfig: (config: ManagerConfig) => call<ManagerConfig>("config_save", config),
+  getPreferences: () => call<Preferences>("preferences_get", {}),
+  setPreferences: (preferences: Preferences) => call<Preferences>("preferences_set", preferences),
+  pickerSelect: (kind: PickerKind) => call<PickerSelectResult>("picker_select", { kind }),
 };
-
-export async function pickerSelect(kind: PickerKind, bridge: BridgeAdapter = tauriBridge): Promise<PickerSelectResult> {
-  return call<PickerSelectResult>("picker_select", { kind }, bridge);
-}

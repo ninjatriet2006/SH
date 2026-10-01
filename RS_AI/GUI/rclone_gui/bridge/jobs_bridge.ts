@@ -94,3 +94,14 @@ export async function jobGetChildren(jobId: string): Promise<QueueItem[]> {
     return [];
   }
 }
+
+/** Xóa toàn bộ các job đã kết thúc (Done/Cancelled) khỏi hệ thống; trả về số lượng đã xóa. */
+export async function jobClearDone(): Promise<number> {
+  try {
+    return await invokeCommand<number>('job_clear_done');
+  } catch (error) {
+    console.error('Lỗi job_clear_done:', error);
+    return 0;
+  }
+}
+

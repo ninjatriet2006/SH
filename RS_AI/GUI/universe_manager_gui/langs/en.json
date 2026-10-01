@@ -1,5 +1,71 @@
 {
-  "app": { "title": "Universe Manager", "scaffold": "The Tauri interface is being initialized." },
-  "nav": { "dashboard": "Dashboard", "config": "Config", "scan": "Scan Apps", "manager": "App Manager", "search": "Search", "settings": "Settings" },
-  "settings": { "language": "Language", "theme": "Theme", "font": "Font", "system": "System", "light": "Light", "dark": "Dark", "system_default": "System default" }
+  "app": {
+    "title": "Universe Manager",
+    "scaffold": "The Tauri interface is being initialized."
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "config": "Config",
+    "scan": "Scan Apps",
+    "manager": "App Manager",
+    "search": "Search",
+    "settings": "Settings"
+  },
+  "settings": {
+    "language": "Language",
+    "theme": "Theme",
+    "font": "Font",
+    "system": "System",
+    "light": "Light",
+    "dark": "Dark",
+    "system_default": "System default"
+  },
+  "dashboard": {
+    "managed_apps": "Managed apps",
+    "custom_apps": "Custom apps",
+    "managed_dir": "Managed directory",
+    "not_configured": "Not configured"
+  },
+  "config": {
+    "managed_dir": "Managed directory",
+    "select": "Select…",
+    "save": "Save config"
+  },
+  "scan": {
+    "description": "Scan the managed directory or inspect an app selected from a source directory.",
+    "scan_btn": "Scan managed apps",
+    "detect_btn": "Select & detect source…"
+  },
+  "manager": {
+    "start": "Start",
+    "stop": "Stop"
+  },
+  "search": {
+    "placeholder": "App name",
+    "search_btn": "Search"
+  },
+  "table": {
+    "name": "Name",
+    "version": "Version",
+    "type": "Type",
+    "actions": "Actions",
+    "id": "ID",
+    "source": "Source"
+  },
+  "status": {
+    "no_apps": "No applications.",
+    "no_results": "No results.",
+    "starting": "Starting…",
+    "saved": "Saved"
+  },
+  "detection": {
+    "appimage": "AppImage",
+    "executables": "Executables",
+    "icons": "Icons",
+    "desktop": "Desktop templates"
+  },
+  "confirm": {
+    "start": "Start {name}?",
+    "stop": "Stop {name}?"
+  }
 }

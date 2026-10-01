@@ -8,6 +8,7 @@
 import { create } from 'zustand';
 import {
   jobCancel,
+  jobClearDone,
   jobEnqueue,
   jobGetQueue,
   jobList,
@@ -24,6 +25,7 @@ interface JobsStore {
   queueIds: string[];
   isLoading: boolean;
   isSubscribed: boolean;
+  sessionStartTime: number;
 
   loadJobs: () => Promise<void>;
   enqueueJob: (
@@ -33,6 +35,7 @@ interface JobsStore {
     skipPaths?: string[],
   ) => Promise<Job>;
   cancelJob: (jobId: string) => Promise<void>;
+  clearDoneJobs: () => Promise<number>;
   reorderQueue: (orderedIds: string[]) => Promise<void>;
   moveJobUp: (jobId: string) => Promise<void>;
   moveJobDown: (jobId: string) => Promise<void>;
@@ -45,6 +48,7 @@ export const useJobsStore = create<JobsStore>((set, get) => ({
   queueIds: [],
   isLoading: false,
   isSubscribed: false,
+  sessionStartTime: Date.now(),
 
   loadJobs: async () => {
     set({ isLoading: true });
@@ -84,6 +88,17 @@ export const useJobsStore = create<JobsStore>((set, get) => ({
       await get().loadJobs();
     } catch (err) {
       console.error(`Lỗi cancelJob ${jobId}:`, err);
+    }
+  },
+
+  clearDoneJobs: async () => {
+    try {
+      const count = await jobClearDone();
+      await get().loadJobs();
+      return count;
+    } catch (err) {
+      console.error('Lỗi clearDoneJobs:', err);
+      return 0;
     }
   },
 

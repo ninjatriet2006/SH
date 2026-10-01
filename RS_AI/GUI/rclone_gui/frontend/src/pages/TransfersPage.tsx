@@ -18,6 +18,7 @@ import {
   File,
   Folder,
   RefreshCw,
+  Trash2,
   XCircle,
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
@@ -30,15 +31,21 @@ export const TransfersPage: React.FC = () => {
   const { t } = useTranslation();
   const jobs = useJobsStore((state) => state.jobs);
   const queueIds = useJobsStore((state) => state.queueIds);
+  const sessionStartTime = useJobsStore((state) => state.sessionStartTime);
   const loadJobs = useJobsStore((state) => state.loadJobs);
   const cancelJob = useJobsStore((state) => state.cancelJob);
+  const clearDoneJobs = useJobsStore((state) => state.clearDoneJobs);
   const moveJobUp = useJobsStore((state) => state.moveJobUp);
   const moveJobDown = useJobsStore((state) => state.moveJobDown);
   const moveJobToTop = useJobsStore((state) => state.moveJobToTop);
   const initSubscription = useJobsStore((state) => state.initSubscription);
   const isLoading = useJobsStore((state) => state.isLoading);
 
-  const [filter, setFilter] = useState<'all' | 'active' | 'done' | 'error'>('all');
+  // Mặc định chọn tab 'active' (đang chạy / chờ) để giao diện tập trung và không bị rối mắt
+  const [filter, setFilter] = useState<'all' | 'active' | 'done' | 'error'>('active');
+  // Mặc định chỉ hiển thị các tác vụ thuộc phiên hiện tại (ẩn các job Done cũ từ trước)
+  const [onlyCurrentSession, setOnlyCurrentSession] = useState<boolean>(true);
+  const [isClearing, setIsClearing] = useState<boolean>(false);
   const [expandedJobIds, setExpandedJobIds] = useState<Set<string>>(new Set());
   const [childrenMap, setChildrenMap] = useState<Record<string, QueueItem[]>>({});
   const [loadingChildren, setLoadingChildren] = useState<Record<string, boolean>>({});
@@ -91,11 +98,53 @@ export const TransfersPage: React.FC = () => {
     return () => clearInterval(interval);
   }, [jobs, expandedJobIds]);
 
-  const filteredJobs = jobs.filter((job) => {
+  // Phân loại theo Session: Các job đang chạy / chờ luôn được giữ; job đã hoàn tất cũ được ẩn khi bật toggle
+  const isJobInSession = (job: Job): boolean => {
+    if (!onlyCurrentSession) return true;
+    if (job.status === 'running' || job.status === 'queued') return true;
+    const parts = job.id.split('-');
+    if (parts.length >= 2) {
+      const millis = parseInt(parts[1], 10);
+      if (!isNaN(millis)) {
+        return millis >= sessionStartTime;
+      }
+    }
+    return true;
+  };
+
+  const sessionJobs = jobs.filter(isJobInSession);
+
+  const filteredJobs = sessionJobs.filter((job) => {
     if (filter === 'active') return job.status === 'running' || job.status === 'queued';
     if (filter === 'done') return job.status === 'done';
     if (filter === 'error') return job.status === 'error' || job.status === 'cancelled';
     return true;
+  });
+
+  // Sắp xếp hiển thị thông minh:
+  // 1. Running lên đầu
+  // 2. Queued xếp chuẩn 100% theo mảng hàng đợi queueIds
+  // 3. Done/Error/Cancelled xếp xuống dưới, mới nhất lên đầu
+  const sortedJobs = [...filteredJobs].sort((a, b) => {
+    if (a.status === 'running' && b.status !== 'running') return -1;
+    if (b.status === 'running' && a.status !== 'running') return 1;
+
+    if (a.status === 'queued' && b.status === 'queued') {
+      const idxA = queueIds.indexOf(a.id);
+      const idxB = queueIds.indexOf(b.id);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.id.localeCompare(b.id);
+    }
+    if (a.status === 'queued' && b.status !== 'running') return -1;
+    if (b.status === 'queued' && a.status !== 'running') return 1;
+
+    const parseKey = (id: string): number => {
+      const p = id.split('-');
+      return p.length >= 2 ? parseInt(p[1], 10) || 0 : 0;
+    };
+    return parseKey(b.id) - parseKey(a.id);
   });
 
   const renderStatusBadge = (status: JobStatus) => {
@@ -135,25 +184,47 @@ export const TransfersPage: React.FC = () => {
     }
   };
 
+  const doneCount = jobs.filter((j) => j.status === 'done' || j.status === 'cancelled').length;
+
   return (
     <div className="page-container">
       <div className="page-header">
         <div className="page-title">
           <ArrowLeftRight size={24} color="#818cf8" />
           <span data-lang-id="transfers_title">
-            {t('transfers_title', 'Hàng đợi tiến trình')} ({jobs.length})
+            {t('transfers_title', 'Hàng đợi tiến trình')} ({sessionJobs.length})
           </span>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Bộ lọc theo phiên */}
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.35rem',
+              fontSize: '0.8rem',
+              cursor: 'pointer',
+              color: 'var(--text-secondary)',
+              userSelect: 'none',
+              background: 'rgba(0,0,0,0.2)',
+              padding: '0.25rem 0.55rem',
+              borderRadius: '6px',
+              border: '1px solid var(--border)',
+            }}
+            title="Ẩn các tác vụ đã hoàn thành từ các phiên làm việc trước"
+          >
+            <input
+              type="checkbox"
+              checked={onlyCurrentSession}
+              onChange={(e) => setOnlyCurrentSession(e.target.checked)}
+              style={{ cursor: 'pointer' }}
+            />
+            <span>Chỉ phiên này</span>
+          </label>
+
           {/* Filters */}
           <div style={{ display: 'flex', gap: '0.25rem', background: 'rgba(0,0,0,0.25)', padding: '0.2rem', borderRadius: '6px' }}>
-            <button
-              className={`btn btn-sm ${filter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setFilter('all')}
-            >
-              Tất cả ({jobs.length})
-            </button>
             <button
               className={`btn btn-sm ${filter === 'active' ? 'btn-primary' : 'btn-secondary'}`}
               onClick={() => setFilter('active')}
@@ -164,18 +235,44 @@ export const TransfersPage: React.FC = () => {
               className={`btn btn-sm ${filter === 'done' ? 'btn-primary' : 'btn-secondary'}`}
               onClick={() => setFilter('done')}
             >
-              Hoàn thành ({jobs.filter((j) => j.status === 'done').length})
+              Hoàn thành ({sessionJobs.filter((j) => j.status === 'done').length})
             </button>
             <button
               className={`btn btn-sm ${filter === 'error' ? 'btn-primary' : 'btn-secondary'}`}
               onClick={() => setFilter('error')}
             >
-              Lỗi / Huỷ ({jobs.filter((j) => j.status === 'error' || j.status === 'cancelled').length})
+              Lỗi / Huỷ ({sessionJobs.filter((j) => j.status === 'error' || j.status === 'cancelled').length})
+            </button>
+            <button
+              className={`btn btn-sm ${filter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setFilter('all')}
+            >
+              Tất cả ({sessionJobs.length})
             </button>
           </div>
 
+          {/* Dọn dẹp các job đã xong */}
+          {doneCount > 0 && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={async () => {
+                setIsClearing(true);
+                try {
+                  await clearDoneJobs();
+                } finally {
+                  setIsClearing(false);
+                }
+              }}
+              disabled={isLoading || isClearing}
+              title="Xóa toàn bộ tác vụ đã hoàn thành khỏi lịch sử lưu trữ"
+            >
+              <Trash2 size={13} />
+              <span>Dọn đã xong ({doneCount})</span>
+            </button>
+          )}
+
           <button className="btn btn-secondary btn-sm" onClick={() => loadJobs()} disabled={isLoading}>
-            <RefreshCw size={14} />
+            <RefreshCw size={14} className={isLoading ? 'spin' : ''} />
             <span>Làm mới</span>
           </button>
         </div>
@@ -183,7 +280,7 @@ export const TransfersPage: React.FC = () => {
 
       {/* Jobs List */}
       <div className="glass-panel" style={{ flex: 1, overflowY: 'auto' }}>
-        {filteredJobs.length === 0 ? (
+        {sortedJobs.length === 0 ? (
           <div
             style={{
               display: 'flex',
@@ -203,7 +300,7 @@ export const TransfersPage: React.FC = () => {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {filteredJobs.map((job: Job) => {
+            {sortedJobs.map((job: Job) => {
               const isQueued = job.status === 'queued';
               const isRunning = job.status === 'running';
 

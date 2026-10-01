@@ -85,6 +85,8 @@
   "settings_font_preview_label": "Font Live Preview:",
   "settings_font_preview_sample": "The quick brown fox jumps over the lazy dog 1234567890 — Vietnamese accented text: Cần Thơ, Đà Nẵng, Hà Nội, TP. Hồ Chí Minh",
   "settings_engine_title": "Rclone Engine Performance",
+  "settings_engine_queue_concurrency": "Queue concurrent jobs:",
+  "settings_engine_queue_concurrency_hint": "Concurrent jobs (1..32)",
   "settings_engine_transfers": "Parallel transfers (--transfers):",
   "settings_engine_checkers": "Hash checkers (--checkers):",
   "settings_engine_backup_dir": "Backup dir (empty = off):",

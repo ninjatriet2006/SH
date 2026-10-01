@@ -182,14 +182,21 @@ export const DualPaneExplorer: React.FC<DualPaneExplorerProps> = ({
     }
   };
 
+  // Helper sắp xếp theo thứ tự số tự nhiên (1, 2, 3... 100)
+  const naturalCompareFileItems = (a: FileItem, b: FileItem): number =>
+    a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+
   // Xoá các mục được chọn
   const handleDeleteSelected = async (targetItems?: FileItem[]) => {
     const pane = contextMenu?.pane || activePane;
     const paneState = getPaneState(pane);
-    const selectedFiles = targetItems && targetItems.length > 0
+    const rawSelected = targetItems && targetItems.length > 0
       ? targetItems
       : paneState.files.filter((f: FileItem) => paneState.selectedIds.has(f.uuid));
-    if (selectedFiles.length === 0) return;
+    if (rawSelected.length === 0) return;
+
+    // Sắp xếp tự nhiên trước khi đẩy vào hàng đợi
+    const selectedFiles = [...rawSelected].sort(naturalCompareFileItems);
 
     const confirmMsg = t('explorer_confirm_delete', `Bạn có chắc muốn xoá ${selectedFiles.length} mục đã chọn?`);
     if (!confirm(confirmMsg)) {
@@ -210,10 +217,13 @@ export const DualPaneExplorer: React.FC<DualPaneExplorerProps> = ({
     const oppPane = pane === 'left' ? 'right' : 'left';
     const oppPaneState = getPaneState(oppPane);
 
-    const selectedFiles = targetItems && targetItems.length > 0
+    const rawSelected = targetItems && targetItems.length > 0
       ? targetItems
       : currentPaneState.files.filter((f: FileItem) => currentPaneState.selectedIds.has(f.uuid));
-    if (selectedFiles.length === 0 || !oppPaneState.path) return;
+    if (rawSelected.length === 0 || !oppPaneState.path) return;
+
+    // Sắp xếp tự nhiên trước khi đẩy vào hàng đợi
+    const selectedFiles = [...rawSelected].sort(naturalCompareFileItems);
 
     const destContainer = oppPaneState.path;
     const srcPaths = selectedFiles.map((f: FileItem) => joinPath(currentPaneState.path, f.name));
@@ -328,13 +338,14 @@ export const DualPaneExplorer: React.FC<DualPaneExplorerProps> = ({
 
     if (!currentClipboard || currentClipboard.items.length === 0) return;
     const isMove = currentClipboard.action === 'cut';
+    const sortedClipboardItems = [...currentClipboard.items].sort(naturalCompareFileItems);
 
     try {
-      const srcPaths = currentClipboard.items.map((it) => joinPath(currentClipboard!.sourceDir, it.name));
+      const srcPaths = sortedClipboardItems.map((it) => joinPath(currentClipboard!.sourceDir, it.name));
       const conflicts = await checkConflicts(srcPaths, destContainer);
       if (conflicts.length > 0 && onShowConflicts) {
         onShowConflicts(conflicts, async (skipPaths) => {
-          for (const item of currentClipboard!.items) {
+          for (const item of sortedClipboardItems) {
             if (skipPaths.includes(item.name)) continue;
             const srcPath = joinPath(currentClipboard!.sourceDir, item.name);
             const targetDest = joinPath(destContainer, item.name);
@@ -350,7 +361,7 @@ export const DualPaneExplorer: React.FC<DualPaneExplorerProps> = ({
         return;
       }
 
-      for (const item of currentClipboard.items) {
+      for (const item of sortedClipboardItems) {
         const srcPath = joinPath(currentClipboard.sourceDir, item.name);
         const targetDest = joinPath(destContainer, item.name);
         await enqueueJob(isMove ? 'move' : 'copy', srcPath, targetDest);

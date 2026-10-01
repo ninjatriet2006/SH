@@ -1,4 +1,18 @@
 {
   "id": "light",
-  "tokens": { "canvas": "#f3f4f6", "foreground": "#111827", "border": "#d1d5db", "panel": "#ffffff", "panel_foreground": "#1f2937", "accent": "#2563eb", "error": "#b91c1c" }
+  "tokens": {
+    "canvas": "#f8fafc",
+    "canvas_end": "#e2e8f0",
+    "foreground": "#0f172a",
+    "border": "rgba(0, 0, 0, 0.12)",
+    "panel": "rgba(255, 255, 255, 0.88)",
+    "panel_foreground": "#475569",
+    "sidebar_bg": "rgba(255, 255, 255, 0.95)",
+    "accent": "#4f46e5",
+    "accent_hover": "#6366f1",
+    "error": "#dc2626",
+    "error_bg": "rgba(220, 38, 38, 0.1)",
+    "error_border": "rgba(220, 38, 38, 0.3)",
+    "input_bg": "#ffffff"
+  }
 }

@@ -261,6 +261,7 @@ mod tests {
             tuning: EngineTuning {
                 transfers: 2,
                 checkers: 3,
+                queue_concurrency: 4,
                 backup_dir: Some("/tmp/bk".to_string()),
             },
         };

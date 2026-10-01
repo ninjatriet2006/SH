@@ -76,6 +76,17 @@ pub async fn job_cancel(
 }
 
 #[tauri::command]
+pub async fn job_clear_done(
+    state: State<'_, AppState>,
+    request: Req<Empty>,
+) -> IpcResult<usize> {
+    command_result(request, IpcErrorCode::Internal, |_| {
+        Ok(state.jobs.clear_done())
+    })
+}
+
+
+#[tauri::command]
 pub fn job_get_queue(state: State<'_, AppState>, request: Req<Empty>) -> IpcResult<Vec<String>> {
     command_result(request, IpcErrorCode::Internal, |_| {
         Ok(state.jobs.get_queue())

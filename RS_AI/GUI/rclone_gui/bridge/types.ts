@@ -161,6 +161,7 @@ export interface QueueItem {
 export interface EngineSettings {
   transfers: number;
   checkers: number;
+  queue_concurrency: number;
   fast_list: boolean;
   server_side_across: boolean;
   dry_run: boolean;

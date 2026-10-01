@@ -29,11 +29,17 @@ pub struct EngineSwitches {
     pub bulk_transfer: bool,
 }
 
+fn default_queue_concurrency() -> u32 {
+    4
+}
+
 /// UNIVERSAL: nhóm CON SỐ + đường dẫn chỉnh tay của engine.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EngineTuning {
     pub transfers: u32,
     pub checkers: u32,
+    #[serde(default = "default_queue_concurrency")]
+    pub queue_concurrency: u32,
     #[serde(default)]
     pub backup_dir: Option<String>,
 }
@@ -43,6 +49,7 @@ impl Default for EngineTuning {
         Self {
             transfers: 4,
             checkers: 8,
+            queue_concurrency: 4,
             backup_dir: None,
         }
     }
@@ -82,6 +89,9 @@ fn validate(settings: &EngineSettings) -> Result<(), String> {
     }
     if !(1..=64).contains(&settings.tuning.checkers) {
         return Err("checkers must be 1..=64".to_string());
+    }
+    if !(1..=32).contains(&settings.tuning.queue_concurrency) {
+        return Err("queue_concurrency must be 1..=32".to_string());
     }
     if let Some(dir) = settings.tuning.backup_dir.as_deref() {
         if dir.trim().is_empty() {
@@ -124,6 +134,7 @@ mod tests {
         let s = EngineSettings::default();
         assert_eq!(s.tuning.transfers, 4);
         assert_eq!(s.tuning.checkers, 8);
+        assert_eq!(s.tuning.queue_concurrency, 4);
         assert!(!s.switches.fast_list);
         assert!(!s.switches.server_side_across);
         assert!(!s.switches.dry_run);
@@ -133,10 +144,11 @@ mod tests {
 
     #[test]
     fn bulk_defaults_off_and_old_json_without_field_still_loads() {
-        // UNIVERSAL: file cũ thiếu `bulk_transfer` vẫn đọc được → false.
+        // UNIVERSAL: file cũ thiếu `bulk_transfer` và `queue_concurrency` vẫn đọc được → default.
         let old = r#"{"transfers":4,"checkers":8,"fast_list":false,"server_side_across":false,"dry_run":false,"backup_dir":null}"#;
         let s: EngineSettings = serde_json::from_str(old).expect("old json loads");
         assert!(!s.switches.bulk_transfer);
+        assert_eq!(s.tuning.queue_concurrency, 4);
         assert_eq!(s, EngineSettings::default());
     }
 
@@ -145,6 +157,7 @@ mod tests {
         // UNIVERSAL: dù tách 2 nhóm, JSON vẫn PHẲNG (khoá cùng cấp) nhờ flatten.
         let json = serde_json::to_string(&EngineSettings::default()).expect("serialize");
         assert!(json.contains("\"transfers\""));
+        assert!(json.contains("\"queue_concurrency\""));
         assert!(json.contains("\"fast_list\""));
         assert!(!json.contains("\"switches\""), "không được lộ tên nhóm ra JSON");
         assert!(!json.contains("\"tuning\""), "không được lộ tên nhóm ra JSON");
@@ -162,6 +175,7 @@ mod tests {
             tuning: EngineTuning {
                 transfers: 8,
                 checkers: 16,
+                queue_concurrency: 6,
                 backup_dir: Some("/tmp/backup".to_string()),
             },
         };
@@ -177,6 +191,12 @@ mod tests {
         assert!(validate(&s).is_err());
         s = EngineSettings::default();
         s.tuning.checkers = 65;
+        assert!(validate(&s).is_err());
+        s = EngineSettings::default();
+        s.tuning.queue_concurrency = 0;
+        assert!(validate(&s).is_err());
+        s = EngineSettings::default();
+        s.tuning.queue_concurrency = 33;
         assert!(validate(&s).is_err());
         s = EngineSettings::default();
         s.tuning.backup_dir = Some("   ".to_string());
