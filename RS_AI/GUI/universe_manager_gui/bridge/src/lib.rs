@@ -51,8 +51,9 @@ pub fn run() -> tauri::Result<()> {
                 .ok_or("main window configuration is missing")?;
             let mut builder = tauri::WebviewWindowBuilder::from_config(app, &window)?
                 .initialization_script(script);
-            if let Some(icon) = app.default_window_icon() {
-                builder = builder.icon(icon.clone())?;
+            let embedded_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png")).ok();
+            if let Some(icon) = embedded_icon.or_else(|| app.default_window_icon().cloned()) {
+                builder = builder.icon(icon)?;
             }
             builder.build()?;
             Ok(())
@@ -73,6 +74,10 @@ pub fn run() -> tauri::Result<()> {
             commands::preferences_get,
             commands::preferences_set,
             commands::picker_select,
+            commands::launcher_update,
+            commands::launcher_delete,
+            commands::app_executables,
+            commands::app_relocate,
         ])
         .run(tauri::generate_context!())
 }

@@ -19,7 +19,8 @@ pub use cancellation::CancellationToken;
 pub use config::{AppEntry, ConfigStore, InstallType, ManagerConfig, ManagerSettings, load_config};
 pub use discovery::{
     DetectionReport, DiscoveryService, Progress, parse_desktop_file, scan_all_applications,
-    scan_system_applications, stable_app_id,
+    scan_system_applications, stable_app_id, create_or_update_desktop_launcher,
+    remove_desktop_launcher, list_executables_in_dir, relocate_app_dir,
 };
 pub use error::{BackendError, ErrorKind, Result};
 pub use lifecycle::{LifecycleManager, OperationResult, ProcessIdentity};

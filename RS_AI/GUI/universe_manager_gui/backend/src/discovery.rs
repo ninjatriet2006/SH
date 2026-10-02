@@ -179,16 +179,20 @@ impl DiscoveryService {
                     .map_err(|error| BackendError::from_io("cannot resolve managed application", path, error))?;
                 let (desktop_file, discovered_icon) = find_matching_desktop_file(executable, &report.suggested_name)
                     .map(|(p, i)| (p.to_string_lossy().into_owned(), i))
-                    .unwrap_or_else(|| {
-                        let icon_cand = report.icons.first().map(|value| value.to_string_lossy().into_owned());
-                        if let Some(created) = ensure_desktop_launcher(executable, &report.suggested_name, icon_cand.as_deref()) {
-                            (created.to_string_lossy().into_owned(), icon_cand)
-                        } else {
-                            (String::new(), None)
-                        }
-                    });
+                    .unwrap_or_else(|| (String::new(), None));
                 let icon = report.icons.first().map(|value| value.to_string_lossy().into_owned())
                     .or(discovered_icon);
+
+                let stem = executable.file_stem().and_then(OsStr::to_str).unwrap_or("").to_lowercase();
+                let symlink_file = std::env::var_os("HOME")
+                    .map(PathBuf::from)
+                    .map(|h| h.join(".local/bin").join(&stem))
+                    .filter(|p| {
+                        fs::canonicalize(p)
+                            .map(|c| c == *executable || fs::canonicalize(executable).ok() == Some(c))
+                            .unwrap_or(false)
+                    })
+                    .map(|p| p.to_string_lossy().into_owned());
 
                 apps.push(AppEntry {
                     id: stable_app_id(&canonical_dir),
@@ -198,6 +202,7 @@ impl DiscoveryService {
                     exec_path: executable.to_string_lossy().into_owned(),
                     icon_path: icon,
                     desktop_file,
+                    symlink_file,
                     package_type: Some("Local".to_string()),
                     inventory_sources: vec!["Applications".to_string()],
                     ..AppEntry::default()
@@ -267,12 +272,25 @@ fn is_executable(path: &Path) -> bool {
 
 fn is_helper(path: &Path) -> bool {
     let name = path.file_name().and_then(OsStr::to_str).unwrap_or("");
+    let lower = name.to_ascii_lowercase();
     name.contains(".so")
         || name.ends_with(".a")
         || name.ends_with(".node")
         || matches!(
-            name.to_ascii_lowercase().as_str(),
-            "chrome-sandbox" | "chrome_crashpad_handler" | "crashpad_handler" | "updater" | "update"
+            lower.as_str(),
+            "chrome-sandbox"
+                | "chrome_crashpad_handler"
+                | "crashpad_handler"
+                | "qtwebengineprocess"
+                | "updater"
+                | "update"
+                | "pingsender"
+                | "minidump_stackwalk"
+                | "elevation_service"
+                | "notification_helper"
+                | "vk_swiftshader"
+                | "nacl_helper"
+                | "nacl_helper_bootstrap"
         )
 }
 
@@ -295,14 +313,24 @@ fn suggest_name(path: &Path) -> String {
                 && !part.starts_with(|character: char| character.is_ascii_digit())
                 && !matches!(
                     part.to_ascii_lowercase().as_str(),
-                    "x86" | "64" | "x64" | "amd64" | "linux" | "app" | "ide" | "portable"
+                    "x86" | "64" | "x64" | "amd64" | "linux" | "app" | "portable"
                 )
         })
         .map(|part| {
-            let mut chars = part.chars();
-            chars.next().map_or_else(String::new, |first| {
-                first.to_uppercase().collect::<String>() + chars.as_str()
-            })
+            if part.eq_ignore_ascii_case("ide") {
+                "IDE".to_string()
+            } else if part.eq_ignore_ascii_case("cli") {
+                "CLI".to_string()
+            } else if part.eq_ignore_ascii_case("gui") {
+                "GUI".to_string()
+            } else if part.eq_ignore_ascii_case("sdk") {
+                "SDK".to_string()
+            } else {
+                let mut chars = part.chars();
+                chars.next().map_or_else(String::new, |first| {
+                    first.to_uppercase().collect::<String>() + chars.as_str()
+                })
+            }
         })
         .collect::<Vec<_>>();
     if words.is_empty() {
@@ -313,12 +341,48 @@ fn suggest_name(path: &Path) -> String {
 }
 
 fn sort_detection(root: &Path, report: &mut DetectionReport) {
+    let root_stem = root
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let suggested_stem = report.suggested_name.to_ascii_lowercase().replace(' ', "");
+
     report.executables.sort_by(|left, right| {
+        let left_stem = left
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let right_stem = right
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .unwrap_or("")
+            .to_ascii_lowercase();
+
+        let left_match = left_stem == root_stem || left_stem == suggested_stem;
+        let right_match = right_stem == root_stem || right_stem == suggested_stem;
+
         let left_root = left.parent() == Some(root);
         let right_root = right.parent() == Some(root);
-        right_root.cmp(&left_root).then_with(|| left.cmp(right))
+
+        right_match
+            .cmp(&left_match)
+            .then_with(|| right_root.cmp(&left_root))
+            .then_with(|| left.cmp(right))
     });
-    report.icons.sort();
+
+    report.icons.sort_by(|left, right| {
+        let left_str = left.to_string_lossy().to_ascii_lowercase();
+        let right_str = right.to_string_lossy().to_ascii_lowercase();
+
+        let left_preferred = (left_str.contains(&root_stem) || left_str.contains("icon") || left_str.contains("logo"))
+            && !left_str.contains("busy") && !left_str.contains("indicator");
+        let right_preferred = (right_str.contains(&root_stem) || right_str.contains("icon") || right_str.contains("logo"))
+            && !right_str.contains("busy") && !right_str.contains("indicator");
+
+        right_preferred.cmp(&left_preferred).then_with(|| left.cmp(right))
+    });
     report.desktop_templates.sort();
 }
 
@@ -543,14 +607,25 @@ fn find_matching_desktop_file(exec_path: &Path, app_name: &str) -> Option<(PathB
                                 if token_path == exec_path || fs::canonicalize(token_path).ok() == exec_canon {
                                     return Some((path, entry_icon));
                                 }
+                                // If token points to an existing file that is DIFFERENT from exec_path,
+                                // do NOT allow this desktop file to match via name or stem!
+                                if token_path.is_file() {
+                                    continue;
+                                }
                             }
                         }
 
-                        // 2. Name or ID match in user applications
+                        // 2. Exact Stem match in filename (e.g. universe-antigravity.desktop or antigravity.desktop)
                         let filename = path.file_name().and_then(OsStr::to_str).unwrap_or("").to_lowercase();
-                        if (!exec_stem.is_empty() && filename.contains(&exec_stem))
-                            || (!name_lower.is_empty() && entry_name.to_lowercase() == name_lower)
-                        {
+                        let stem = filename.strip_suffix(".desktop").unwrap_or(&filename);
+                        let clean_stem = stem.strip_prefix("universe-").unwrap_or(stem);
+
+                        if !exec_stem.is_empty() && (clean_stem == exec_stem || stem == exec_stem) {
+                            return Some((path, entry_icon));
+                        }
+
+                        // 3. Exact Name match only if Exec does not point to another existing binary
+                        if !name_lower.is_empty() && entry_name.to_lowercase() == name_lower {
                             return Some((path, entry_icon));
                         }
                     }
@@ -561,74 +636,281 @@ fn find_matching_desktop_file(exec_path: &Path, app_name: &str) -> Option<(PathB
     None
 }
 
+#[allow(dead_code)]
 pub fn ensure_desktop_launcher(
     exec_path: &Path,
     app_name: &str,
     icon_path: Option<&str>,
 ) -> Option<PathBuf> {
-    if let Some((existing, _)) = find_matching_desktop_file(exec_path, app_name) {
-        return Some(existing);
-    }
+    create_or_update_desktop_launcher(exec_path, app_name, icon_path, false, None, None, None, None).ok()
+}
 
-    let home = std::env::var_os("HOME").map(PathBuf::from)?;
-    let app_dir = home.join(".local/share/applications");
-    let _ = fs::create_dir_all(&app_dir);
-
+pub fn create_or_update_desktop_launcher(
+    exec_path: &Path,
+    app_name: &str,
+    icon_path: Option<&str>,
+    terminal: bool,
+    categories: Option<&str>,
+    arguments: Option<&str>,
+    startup_wm_class: Option<&str>,
+    custom_desktop_path: Option<&Path>,
+) -> Result<PathBuf> {
     let stem = exec_path
         .file_stem()
         .and_then(OsStr::to_str)
         .unwrap_or("app")
         .to_ascii_lowercase();
-    let sanitized_stem: String = stem
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
-        .collect();
-    let desktop_filename = format!(
-        "universe-{}.desktop",
-        if sanitized_stem.is_empty() {
-            "app"
-        } else {
-            &sanitized_stem
-        }
-    );
-    let desktop_file_path = app_dir.join(desktop_filename);
+
+    let desktop_file_path = if let Some(p) = custom_desktop_path {
+        p.to_path_buf()
+    } else {
+        let home = std::env::var_os("HOME").map(PathBuf::from).ok_or_else(|| {
+            BackendError::new(ErrorKind::Io, "HOME environment variable not set")
+        })?;
+        let app_dir = home.join(".local/share/applications");
+        let _ = fs::create_dir_all(&app_dir);
+
+        let sanitized_stem: String = stem
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+            .collect();
+        let desktop_filename = format!(
+            "universe-{}.desktop",
+            if sanitized_stem.is_empty() {
+                "app"
+            } else {
+                &sanitized_stem
+            }
+        );
+        app_dir.join(desktop_filename)
+    };
 
     let icon_line = match icon_path {
         Some(icon) if !icon.trim().is_empty() => format!("Icon={icon}\n"),
         _ => String::new(),
     };
 
+    let exec_args = arguments.unwrap_or("%U");
+    let cats = categories.unwrap_or("Utility;Application;");
+
+    let wm_class = if let Some(wm) = startup_wm_class.filter(|s| !s.trim().is_empty()) {
+        wm.to_string()
+    } else if stem == "antigravity-ide" || app_name.contains("Antigravity IDE") {
+        "Antigravity IDE".to_string()
+    } else {
+        stem.clone()
+    };
+
     let content = format!(
         "[Desktop Entry]\n\
 Type=Application\n\
 Name={app_name}\n\
-Exec=\"{}\" %U\n\
-{}Terminal=false\n\
-Categories=Utility;Application;\n\
-StartupWMClass={sanitized_stem}\n\
+Exec=\"{}\" {exec_args}\n\
+{}Terminal={terminal}\n\
+Categories={cats}\n\
+StartupWMClass={wm_class}\n\
 X-Integrated-By=universe-manager\n",
         exec_path.to_string_lossy(),
         icon_line
     );
 
-    if fs::write(&desktop_file_path, content).is_ok() {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Ok(meta) = fs::metadata(&desktop_file_path) {
-                let mut perms = meta.permissions();
-                perms.set_mode(0o755);
-                let _ = fs::set_permissions(&desktop_file_path, perms);
-            }
+    fs::write(&desktop_file_path, content)
+        .map_err(|e| BackendError::from_io("cannot write desktop entry", &desktop_file_path, e))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = fs::metadata(&desktop_file_path) {
+            let mut perms = meta.permissions();
+            perms.set_mode(0o755);
+            let _ = fs::set_permissions(&desktop_file_path, perms);
+        }
+        if let Some(parent) = desktop_file_path.parent() {
             let _ = std::process::Command::new("update-desktop-database")
-                .arg(&app_dir)
+                .arg(parent)
                 .output();
         }
-        Some(desktop_file_path)
-    } else {
-        None
     }
+
+    Ok(desktop_file_path)
 }
+
+pub fn remove_desktop_launcher(desktop_path: &Path) -> Result<()> {
+    if desktop_path.exists() {
+        fs::remove_file(desktop_path)
+            .map_err(|e| BackendError::from_io("cannot remove desktop file", desktop_path, e))?;
+        #[cfg(unix)]
+        {
+            if let Some(parent) = desktop_path.parent() {
+                let _ = std::process::Command::new("update-desktop-database")
+                    .arg(parent)
+                    .output();
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn list_executables_in_dir(dir: &Path) -> Vec<PathBuf> {
+    let mut results = Vec::new();
+    if !dir.is_dir() {
+        if dir.is_file() && is_executable(dir) {
+            results.push(dir.to_path_buf());
+        }
+        return results;
+    }
+
+    fn walk_execs(curr: &Path, depth: usize, results: &mut Vec<PathBuf>) {
+        if depth > 3 {
+            return;
+        }
+        if let Ok(entries) = fs::read_dir(curr) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_symlink() {
+                    continue;
+                }
+                if p.is_dir() {
+                    walk_execs(&p, depth + 1, results);
+                } else if p.is_file() && is_executable(&p) && !is_helper(&p) {
+                    results.push(p);
+                }
+            }
+        }
+    }
+
+    walk_execs(dir, 0, &mut results);
+
+    let root_stem = dir.file_name().and_then(OsStr::to_str).unwrap_or("").to_ascii_lowercase();
+    results.sort_by(|a, b| {
+        let a_stem = a.file_stem().and_then(OsStr::to_str).unwrap_or("").to_ascii_lowercase();
+        let b_stem = b.file_stem().and_then(OsStr::to_str).unwrap_or("").to_ascii_lowercase();
+        let a_match = a_stem == root_stem;
+        let b_match = b_stem == root_stem;
+        let a_root = a.parent() == Some(dir);
+        let b_root = b.parent() == Some(dir);
+        b_match.cmp(&a_match).then_with(|| b_root.cmp(&a_root)).then_with(|| a.cmp(b))
+    });
+
+    results
+}
+
+pub fn relocate_app_dir(app: &AppEntry, target_parent_dir: &Path) -> Result<AppEntry> {
+    let src = Path::new(&app.install_path);
+    if !src.exists() {
+        return Err(BackendError::new(
+            ErrorKind::NotFound,
+            format!("Thư mục cài đặt nguồn không tồn tại: {}", app.install_path),
+        ));
+    }
+
+    let src_canonical = fs::canonicalize(src)
+        .map_err(|e| BackendError::from_io("cannot canonicalize source", src, e))?;
+    let target_canonical = fs::canonicalize(target_parent_dir)
+        .unwrap_or_else(|_| target_parent_dir.to_path_buf());
+
+    if src_canonical.starts_with(&target_canonical) {
+        return Err(BackendError::new(
+            ErrorKind::Validation,
+            "Ứng dụng đã nằm trong thư mục quản lý tập trung (~/Applications)",
+        ));
+    }
+
+    let file_or_folder_name = src
+        .file_name()
+        .ok_or_else(|| BackendError::new(ErrorKind::InvalidArgument, "Invalid source path"))?;
+    let dest = target_canonical.join(file_or_folder_name);
+
+    if dest.exists() {
+        return Err(BackendError::new(
+            ErrorKind::Conflict,
+            format!(
+                "Thư mục/tệp đích đã tồn tại trong thư mục quản lý: {}",
+                dest.display()
+            ),
+        ));
+    }
+
+    let _ = fs::create_dir_all(&target_canonical);
+
+    let move_success = fs::rename(&src, &dest).is_ok();
+    if !move_success {
+        if src.is_dir() {
+            copy_dir_recursive(&src, &dest)
+                .map_err(|e| BackendError::from_io("cannot copy directory", &src, e))?;
+            let _ = fs::remove_dir_all(&src);
+        } else {
+            fs::copy(&src, &dest)
+                .map_err(|e| BackendError::from_io("cannot copy file", &src, e))?;
+            let _ = fs::remove_file(&src);
+        }
+    }
+
+    let old_prefix = src.to_string_lossy().into_owned();
+    let new_prefix = dest.to_string_lossy().into_owned();
+
+    let new_exec_path = app.exec_path.replace(&old_prefix, &new_prefix);
+    let new_icon_path = app.icon_path.as_ref().map(|ic| ic.replace(&old_prefix, &new_prefix));
+
+    if !app.desktop_file.trim().is_empty() {
+        let dpath = Path::new(&app.desktop_file);
+        if dpath.is_file() {
+            if let Ok(content) = fs::read_to_string(dpath) {
+                let updated_content = content
+                    .replace(&app.exec_path, &new_exec_path)
+                    .replace(&old_prefix, &new_prefix);
+                let _ = fs::write(dpath, updated_content);
+                #[cfg(unix)]
+                {
+                    if let Some(parent) = dpath.parent() {
+                        let _ = std::process::Command::new("update-desktop-database")
+                            .arg(parent)
+                            .output();
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(symlink_file) = &app.symlink_file {
+        let sym_path = Path::new(symlink_file);
+        if sym_path.is_symlink() || sym_path.exists() {
+            let _ = fs::remove_file(sym_path);
+            #[cfg(unix)]
+            {
+                let _ = std::os::unix::fs::symlink(&new_exec_path, sym_path);
+            }
+        }
+    }
+
+    let mut updated_app = app.clone();
+    updated_app.install_path = new_prefix;
+    updated_app.exec_path = new_exec_path;
+    updated_app.icon_path = new_icon_path;
+    updated_app.install_type = InstallType::Moved;
+    updated_app.package_type = Some("Local".to_string());
+    if !updated_app.inventory_sources.iter().any(|s| s == "Applications") {
+        updated_app.inventory_sources.push("Applications".to_string());
+    }
+
+    Ok(updated_app)
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ft = entry.file_type()?;
+        let target = dst.join(entry.file_name());
+        if ft.is_dir() {
+            copy_dir_recursive(&entry.path(), &target)?;
+        } else if ft.is_file() {
+            fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
+}
+
 
 pub fn scan_cli_applications(
     cancellation: &CancellationToken,
@@ -706,15 +988,21 @@ pub fn scan_cli_applications(
                         continue;
                     }
                     seen_names.insert(file_name.to_string());
-                    seen_targets.insert(canon_str);
+                    seen_targets.insert(canon_str.clone());
 
                     let name = file_name.to_string();
                     let source_label = format!("PATH ({})", bin_dir.to_string_lossy());
+                    let resolved_target = if canon_str != path.to_string_lossy() {
+                        Some(canon_str.clone())
+                    } else {
+                        None
+                    };
+
                     apps.push(AppEntry {
                         id: format!("cli-{}", name),
                         name: format!("{} (CLI)", name),
                         install_type: InstallType::InPlace,
-                        source_path: None,
+                        source_path: resolved_target,
                         install_path: bin_dir.to_string_lossy().into_owned(),
                         exec_path: path.to_string_lossy().into_owned(),
                         icon_path: None,
@@ -722,7 +1010,7 @@ pub fn scan_cli_applications(
                         symlink_file: Some(path.to_string_lossy().into_owned()),
                         added_at: String::new(),
                         is_custom: Some(true),
-                        start_cmd: Some(format!("{} --help", name)),
+                        start_cmd: Some(name.clone()),
                         stop_cmd: None,
                         category: Some("Development".to_string()),
                         package_type: Some("CLI".to_string()),

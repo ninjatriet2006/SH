@@ -189,3 +189,45 @@ impl Default for Preferences {
         }
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LauncherUpdateRequest {
+    pub app_id: String,
+    pub exec_path: String,
+    pub name: String,
+    pub icon_path: Option<String>,
+    pub terminal: bool,
+    pub categories: Option<String>,
+    pub arguments: Option<String>,
+    pub startup_wm_class: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LauncherDeleteRequest {
+    pub app_id: String,
+    pub desktop_file: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppExecutablesRequest {
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutableItem {
+    pub path: String,
+    pub name: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppExecutablesResponse {
+    pub executables: Vec<ExecutableItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppRelocateRequest {
+    pub app_id: String,
+    pub target_managed_dir: Option<String>,
+}
+

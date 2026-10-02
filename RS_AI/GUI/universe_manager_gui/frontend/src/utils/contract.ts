@@ -87,3 +87,35 @@ export const jobTopics = {
 export function request<T>(payload: T, requestId: string | null): Req<T> {
   return { schema_version: SCHEMA_VERSION, request_id: requestId, payload };
 }
+
+export interface LauncherUpdateRequest {
+  app_id: string;
+  exec_path: string;
+  name: string;
+  icon_path: string | null;
+  terminal: boolean;
+  categories: string | null;
+  arguments: string | null;
+  startup_wm_class?: string | null;
+}
+
+export interface LauncherDeleteRequest {
+  app_id: string;
+  desktop_file: string;
+}
+
+export interface ExecutableItem {
+  path: string;
+  name: string;
+  size_bytes: number;
+}
+
+export interface AppExecutablesResponse {
+  executables: ExecutableItem[];
+}
+
+export interface AppRelocateRequest {
+  app_id: string;
+  target_managed_dir: string | null;
+}
+

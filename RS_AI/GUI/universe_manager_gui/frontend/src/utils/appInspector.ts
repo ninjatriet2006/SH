@@ -39,12 +39,22 @@ export function getAppPaths(app: AppEntry): AppPaths {
     };
   }
 
+  const baseId = realId.startsWith("cli-") ? realId.slice(4) : realId;
+
+  if (ptype === "cli") {
+    return {
+      configDir: `~/.config/${baseId}`,
+      dataDir: `~/.local/share/${baseId}`,
+      cacheDir: `~/.cache/${baseId}`,
+    };
+  }
+
   // APT, Local or System
   return {
-    configDir: `~/.config/${realId}`,
-    dataDir: `~/.local/share/${realId}`,
-    cacheDir: `~/.cache/${realId}`,
-    shareDir: `/usr/share/${realId}`,
+    configDir: `~/.config/${baseId}`,
+    dataDir: `~/.local/share/${baseId}`,
+    cacheDir: `~/.cache/${baseId}`,
+    shareDir: `/usr/share/${baseId}`,
   };
 }
 
@@ -108,13 +118,30 @@ export function getSystemLinkageStatus(app: AppEntry): {
   statusText: string;
   isWarning: boolean;
 } {
+  const isCli = app.package_type === "CLI" || app.id.startsWith("cli-");
   const hasExec = app.exec_path && app.exec_path.trim().length > 0;
   const hasDesktop = app.desktop_file && app.desktop_file.trim().length > 0;
+
+  if (isCli) {
+    if (hasExec) {
+      const cmd = app.start_cmd || app.name.replace(/\s*\(CLI\)$/i, "");
+      return {
+        ok: true,
+        statusText: `[OK] Xanh lá - Lệnh CLI sẵn sàng trong $PATH (Gõ '${cmd}' trong terminal).`,
+        isWarning: false,
+      };
+    }
+    return {
+      ok: false,
+      statusText: "[CRITICAL] Đỏ - Tệp binary lệnh trong $PATH không tồn tại.",
+      isWarning: false,
+    };
+  }
 
   if (hasExec && hasDesktop) {
     return {
       ok: true,
-      statusText: "[OK] Xanh lá - launcher và đường dẫn command line liên kết tốt.",
+      statusText: "[OK] Xanh lá - Cả launcher máy tính và đường dẫn lệnh liên kết tốt.",
       isWarning: false,
     };
   }
@@ -131,5 +158,96 @@ export function getSystemLinkageStatus(app: AppEntry): {
     ok: false,
     statusText: "[CRITICAL] Đỏ - Thiếu file chạy gốc hoặc cấu hình.",
     isWarning: false,
+  };
+}
+
+export interface RelocationAnalysis {
+  supported: boolean;
+  status: "AlreadyManaged" | "Supported" | "Unsupported";
+  badgeText: string;
+  reason: string;
+  isMonolithicOrHardcoded?: boolean;
+}
+
+export function checkRelocatability(app: AppEntry, managedDir?: string): RelocationAnalysis {
+  const ptype = (app.package_type ?? "").toLowerCase();
+  const installPath = app.install_path || "";
+  const execPath = app.exec_path || "";
+  const appName = (app.name || "").toLowerCase();
+  const appId = (app.id || "").toLowerCase();
+  const cleanManaged = (managedDir || "").trim().toLowerCase();
+
+  // 1. Check if already inside managed directory (~/Applications)
+  if (cleanManaged && installPath.toLowerCase().startsWith(cleanManaged)) {
+    return {
+      supported: false,
+      status: "AlreadyManaged",
+      badgeText: "ĐÃ Ở ~/APPLICATIONS",
+      reason: "Ứng dụng này đã được lưu trữ trong thư mục quản lý tập trung.",
+    };
+  }
+
+  // 2. System and containerized packages
+  if (["flatpak", "snap", "apt", "system"].includes(ptype)) {
+    return {
+      supported: false,
+      status: "Unsupported",
+      badgeText: "UNSUPPORTED",
+      reason: `Gói phần mềm thuộc hệ thống (${app.package_type || "System"}) được quản lý bởi trình quản lý gói hệ điều hành, không hỗ trợ di chuyển thư mục.`,
+    };
+  }
+
+  // 3. System CLI tools (e.g. in /usr/bin, /usr/local/bin)
+  if (installPath.startsWith("/usr/") || installPath.startsWith("/bin") || installPath.startsWith("/sbin")) {
+    return {
+      supported: false,
+      status: "Unsupported",
+      badgeText: "UNSUPPORTED",
+      reason: "Tệp nhị phân thuộc phân vùng hệ thống root (/usr/bin), không thể di chuyển.",
+    };
+  }
+
+  // 4. Heavy monolithic enterprise suites with hardcoded path dependencies (like MATLAB)
+  if (
+    appId.includes("matlab") ||
+    appName.includes("matlab") ||
+    installPath.toLowerCase().includes("matlab") ||
+    execPath.toLowerCase().includes("matlab") ||
+    appName.includes("simulink")
+  ) {
+    return {
+      supported: false,
+      status: "Unsupported",
+      badgeText: "UNSUPPORTED (HARDCODED PATHS)",
+      isMonolithicOrHardcoded: true,
+      reason:
+        "Phần mềm dạng Monolithic/Enterprise (như MATLAB) có cấu hình phụ thuộc đường dẫn tuyệt đối nội bộ (licenses, ServiceHost, glnxa64, .matlab7rc.sh). Việc di chuyển thư mục có nguy cơ làm hỏng bản quyền và runtime. Khuyến nghị duy trì In-Place.",
+    };
+  }
+
+  // 5. Portable applications (AppImage or standalone user directory)
+  if (ptype === "appimage" || ptype === "local" || ptype === "portable" || ptype === "cli") {
+    if (ptype === "cli") {
+      return {
+        supported: false,
+        status: "Unsupported",
+        badgeText: "UNSUPPORTED (CLI BIN)",
+        reason: "Lệnh dòng lệnh được quản lý trực tiếp qua biến môi trường $PATH, không cần di chuyển thư mục.",
+      };
+    }
+
+    return {
+      supported: true,
+      status: "Supported",
+      badgeText: "HỖ TRỢ RELOCATE",
+      reason: "Ứng dụng Portable độc lập, có thể di chuyển an toàn vào thư mục quản lý tập trung (~/Applications).",
+    };
+  }
+
+  return {
+    supported: false,
+    status: "Unsupported",
+    badgeText: "UNSUPPORTED",
+    reason: "Định dạng ứng dụng không hỗ trợ di chuyển tự động.",
   };
 }

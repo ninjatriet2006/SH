@@ -1,7 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type Event, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  AppEntry, AppExecutablesResponse, AppRelocateRequest,
   IpcError, IpcErrorCode, JobCommand, JobEvent, JobRequest, JobResponse,
+  LauncherDeleteRequest, LauncherUpdateRequest,
   ManagerConfig, PickerKind, PickerSelectResult, Preferences, Res,
 } from "./contract";
 import { jobTopics, request } from "./contract";
@@ -90,4 +92,8 @@ export const api = {
   getPreferences: () => call<Preferences>("preferences_get", {}),
   setPreferences: (preferences: Preferences) => call<Preferences>("preferences_set", preferences),
   pickerSelect: (kind: PickerKind) => call<PickerSelectResult>("picker_select", { kind }),
+  updateLauncher: (req: LauncherUpdateRequest) => call<AppEntry>("launcher_update", req),
+  deleteLauncher: (req: LauncherDeleteRequest) => call<AppEntry>("launcher_delete", req),
+  listExecutables: (path: string) => call<AppExecutablesResponse>("app_executables", { path }),
+  relocateApp: (req: AppRelocateRequest) => call<AppEntry>("app_relocate", req),
 };

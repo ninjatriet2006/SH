@@ -1,5 +1,6 @@
 pub mod config;
 pub mod helpers;
+pub mod launcher;
 pub mod lifecycle;
 pub mod picker;
 pub mod preferences;
@@ -11,6 +12,7 @@ mod tests;
 
 pub use config::*;
 pub use helpers::*;
+pub use launcher::*;
 pub use lifecycle::*;
 pub use picker::*;
 pub use preferences::*;

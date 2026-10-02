@@ -120,8 +120,17 @@ export function AppTable({
                 </span>
               )}
 
-              <span className="col-name" title={app.name}>
+              <span className="col-name" title={app.exec_path ? `${app.name}\n${app.exec_path}` : app.name}>
                 <span className="app-name-text">{app.name}</span>
+                {app.symlink_file ? (
+                  <span style={{ fontSize: "0.72rem", opacity: 0.65, display: "block", fontFamily: "monospace" }}>
+                    {app.symlink_file}
+                  </span>
+                ) : app.package_type === "CLI" && app.exec_path ? (
+                  <span style={{ fontSize: "0.72rem", opacity: 0.65, display: "block", fontFamily: "monospace" }}>
+                    {app.exec_path}
+                  </span>
+                ) : null}
               </span>
 
               <span className="col-category" title={app.category ?? "Utility"}>

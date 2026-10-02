@@ -1,5 +1,8 @@
 import { create } from "zustand";
-import type { AppEntry, DetectionReport, JobEvent, ManagerConfig, SearchReport } from "../utils/contract";
+import type {
+  AppEntry, DetectionReport, ExecutableItem, JobEvent,
+  LauncherUpdateRequest, ManagerConfig, SearchReport,
+} from "../utils/contract";
 import { api, ipcError, JobClient } from "../utils/ipc";
 import { useNotificationStore } from "./useNotificationStore";
 
@@ -38,6 +41,10 @@ interface AppState {
   clearError: () => void;
   clearDetection: () => void;
   integrateApp: (app: AppEntry) => Promise<void>;
+  updateLauncher: (req: LauncherUpdateRequest) => Promise<AppEntry | null>;
+  deleteLauncher: (appId: string, desktopFile: string) => Promise<AppEntry | null>;
+  listExecutables: (path: string) => Promise<ExecutableItem[]>;
+  relocateApp: (appId: string, targetManagedDir?: string) => Promise<AppEntry | null>;
   dispose: () => void;
 }
 
@@ -269,6 +276,73 @@ export const useAppStore = create<AppState>((set, get) => {
 
     clearError: () => set({ error: "" }),
     clearDetection: () => set({ detection: null }),
+
+    updateLauncher: async (req: LauncherUpdateRequest) => {
+      try {
+        notify("start", `Đang cập nhật desktop launcher cho "${req.name}"...`, "LAUNCHER");
+        const updated = await api.updateLauncher(req);
+        const { config, scanApps } = get();
+        if (config) {
+          const nextApps = config.apps.map(a => a.id === updated.id ? updated : a);
+          set({ config: { ...config, apps: nextApps } });
+        }
+        notify("success", `Đã lưu cấu hình launcher cho "${updated.name}"!`, "LAUNCHER");
+        await scanApps(true);
+        return updated;
+      } catch (error) {
+        const msg = ipcError(error).message;
+        notify("error", `Lỗi cập nhật launcher: ${msg}`, "LAUNCHER");
+        return null;
+      }
+    },
+
+    deleteLauncher: async (appId: string, desktopFile: string) => {
+      try {
+        notify("start", `Đang xoá desktop launcher...`, "LAUNCHER");
+        const updated = await api.deleteLauncher({ app_id: appId, desktop_file: desktopFile });
+        const { config, scanApps } = get();
+        if (config) {
+          const nextApps = config.apps.map(a => a.id === updated.id ? updated : a);
+          set({ config: { ...config, apps: nextApps } });
+        }
+        notify("success", `Đã xoá launcher cho "${updated.name}"!`, "LAUNCHER");
+        await scanApps(true);
+        return updated;
+      } catch (error) {
+        const msg = ipcError(error).message;
+        notify("error", `Lỗi xoá launcher: ${msg}`, "LAUNCHER");
+        return null;
+      }
+    },
+
+    listExecutables: async (path: string) => {
+      try {
+        const res = await api.listExecutables(path);
+        return res.executables;
+      } catch (error) {
+        return [];
+      }
+    },
+
+    relocateApp: async (appId: string, targetManagedDir?: string) => {
+      try {
+        notify("start", `Đang di chuyển ứng dụng vào thư mục quản lý tập trung...`, "RELOCATE");
+        const updated = await api.relocateApp({ app_id: appId, target_managed_dir: targetManagedDir ?? null });
+        const { config, scanApps } = get();
+        if (config) {
+          const nextApps = config.apps.map(a => a.id === updated.id ? updated : a);
+          set({ config: { ...config, apps: nextApps } });
+        }
+        notify("success", `Di chuyển thành công! Vị trí mới: ${updated.install_path}`, "RELOCATE");
+        await scanApps(true);
+        return updated;
+      } catch (error) {
+        const msg = ipcError(error).message;
+        notify("error", `Lỗi di chuyển ứng dụng: ${msg}`, "RELOCATE");
+        return null;
+      }
+    },
+
     dispose: () => jobClient.dispose(),
   };
 });

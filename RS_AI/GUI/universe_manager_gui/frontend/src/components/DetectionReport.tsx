@@ -14,6 +14,7 @@ export function DetectionReport({ report }: DetectionReportProps) {
   const [name, setName] = useState(report.suggested_name);
   const [selectedExec, setSelectedExec] = useState(report.executables[0]?.path ?? "");
   const [selectedIcon, setSelectedIcon] = useState(report.icons[0]?.path ?? "");
+  const [installType, setInstallType] = useState<"InPlace" | "Moved">("InPlace");
 
   const handleIntegrate = async () => {
     if (!selectedExec) return;
@@ -31,8 +32,8 @@ export function DetectionReport({ report }: DetectionReportProps) {
     const entry: AppEntry = {
       id,
       name: cleanName,
-      install_type: "InPlace",
-      source_path: null,
+      install_type: installType,
+      source_path: installType === "Moved" ? parentDir : null,
       install_path: parentDir,
       exec_path: selectedExec,
       icon_path: selectedIcon ? selectedIcon : null,
@@ -78,7 +79,7 @@ export function DetectionReport({ report }: DetectionReportProps) {
         </button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "0.75rem", background: "var(--input-bg, rgba(0,0,0,0.15))", padding: "1rem", borderRadius: "8px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "0.75rem", background: "var(--input-bg)", border: "1px solid var(--border)", padding: "1rem", borderRadius: "8px" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
           <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Tên hiển thị ứng dụng:</label>
           <input
@@ -102,12 +103,12 @@ export function DetectionReport({ report }: DetectionReportProps) {
             >
               {report.executables.map(e => (
                 <option key={e.path} value={e.path}>
-                  {e.path}
+                  {e.path.split("/").pop()} — {e.path}
                 </option>
               ))}
             </select>
           ) : (
-            <code style={{ fontSize: "0.8rem", wordBreak: "break-all", padding: "0.4rem", background: "rgba(0,0,0,0.2)", borderRadius: "4px" }}>
+            <code style={{ fontSize: "0.8rem", wordBreak: "break-all", padding: "0.45rem 0.65rem", background: "var(--input-bg)", border: "1px solid var(--border)", borderRadius: "6px", color: "var(--foreground)" }}>
               {selectedExec || "Không tìm thấy tệp thực thi"}
             </code>
           )}
@@ -125,14 +126,14 @@ export function DetectionReport({ report }: DetectionReportProps) {
               <option value="">(Không dùng biểu tượng)</option>
               {report.icons.map(i => (
                 <option key={i.path} value={i.path}>
-                  {i.path}
+                  {i.path.split("/").pop()} — {i.path}
                 </option>
               ))}
             </select>
           ) : (
             <span style={{ fontSize: "0.85rem" }}>
               {selectedIcon ? (
-                <code style={{ fontSize: "0.8rem", wordBreak: "break-all" }}>{selectedIcon}</code>
+                <code style={{ fontSize: "0.8rem", wordBreak: "break-all", padding: "0.3rem 0.5rem", background: "var(--input-bg)", border: "1px solid var(--border)", borderRadius: "4px", color: "var(--foreground)" }}>{selectedIcon}</code>
               ) : (
                 <span style={{ opacity: 0.7 }}>Chưa có biểu tượng (sẽ dùng icon mặc định của hệ thống)</span>
               )}
@@ -143,9 +144,35 @@ export function DetectionReport({ report }: DetectionReportProps) {
         {report.desktop_templates.length > 0 && (
           <div style={{ fontSize: "0.85rem" }}>
             <strong>Tệp mẫu launcher (.desktop):</strong>{" "}
-            <code style={{ fontSize: "0.8rem" }}>{report.desktop_templates[0].path}</code>
+            <code style={{ fontSize: "0.8rem", wordBreak: "break-all", padding: "0.3rem 0.5rem", background: "var(--input-bg)", border: "1px solid var(--border)", borderRadius: "4px", color: "var(--foreground)" }}>{report.desktop_templates[0].path}</code>
           </div>
         )}
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", paddingTop: "0.5rem", borderTop: "1px solid var(--border)" }}>
+          <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Chế độ cài đặt & Lưu trữ (Relocation):</label>
+          <div style={{ display: "flex", gap: "1.25rem", flexWrap: "wrap" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "0.85rem" }}>
+              <input
+                type="radio"
+                name="installType"
+                value="InPlace"
+                checked={installType === "InPlace"}
+                onChange={() => setInstallType("InPlace")}
+              />
+              <span>Giữ nguyên tại chỗ (In-Place / Thư mục hiện tại)</span>
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "0.85rem" }}>
+              <input
+                type="radio"
+                name="installType"
+                value="Moved"
+                checked={installType === "Moved"}
+                onChange={() => setInstallType("Moved")}
+              />
+              <span>Quản lý tập trung (Relocate / Move vào ~/Applications)</span>
+            </label>
+          </div>
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end", marginTop: "0.5rem" }}>
