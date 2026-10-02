@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useDeferredValue } from "react";
 import { Search, RefreshCw, Layers, Terminal, PackagePlus } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useAppStore } from "../store/useAppStore";
@@ -23,6 +23,7 @@ export function AppManagerPage() {
 
   const [filterSource, setFilterSource] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const deferredQuery = useDeferredValue(searchQuery);
   const [selectedAppId, setSelectedAppId] = useState<string | undefined>(undefined);
   const [checkedAppIds, setCheckedAppIds] = useState<Set<string>>(new Set());
 
@@ -78,8 +79,8 @@ export function AppManagerPage() {
       if (filterSource === "snap" && !isSnap) return false;
       if (filterSource === "apt" && !isApt) return false;
 
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
+      if (deferredQuery.trim()) {
+        const q = deferredQuery.toLowerCase();
         return (
           app.name.toLowerCase().includes(q) ||
           app.id.toLowerCase().includes(q) ||
@@ -88,7 +89,7 @@ export function AppManagerPage() {
       }
       return true;
     });
-  }, [apps, filterSource, searchQuery]);
+  }, [apps, filterSource, deferredQuery]);
 
   const effectiveSelectedId = selectedAppId && filteredApps.some((a) => a.id === selectedAppId)
     ? selectedAppId
@@ -182,7 +183,7 @@ export function AppManagerPage() {
             </NavLink>
             <span className={`sync-indicator ${isSyncing ? "syncing" : ""}`}>
               <span className="sync-dot" />
-              <span>{isSyncing ? "Đang đồng bộ…" : "Tự động đồng bộ (4s)"}</span>
+              <span>{isSyncing ? "Đang đồng bộ…" : "Tự động đồng bộ (6s)"}</span>
             </span>
             <button
               type="button"

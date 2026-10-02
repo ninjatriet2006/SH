@@ -108,13 +108,16 @@ export function AppDetailsPanel({
     ? app.start_cmd.replace(/\s+--help$/i, "").trim()
     : app.symlink_file
     ? app.symlink_file.split("/").pop()
-    : app.name.replace(/\s*\(CLI\)$/i, "").trim();
+    : isCli
+    ? app.name.replace(/\s*\(CLI\)$/i, "").trim()
+    : null;
   const commandName = rawCommand?.trim();
   const symlinkPath = app.symlink_file || (isCli ? app.exec_path : null);
-  const targetPath = app.source_path;
+  const targetPath = app.source_path || (symlinkPath && symlinkPath !== app.exec_path ? app.exec_path : null);
   const isSymlinkToDifferent = Boolean(
-    targetPath && targetPath !== symlinkPath && targetPath !== app.exec_path
+    targetPath && targetPath !== symlinkPath
   );
+  const hasCli = isCli || Boolean(app.symlink_file) || Boolean(app.start_cmd);
 
   const handleSaveLauncher = async () => {
     if (!selectedExec) return;
@@ -278,9 +281,9 @@ export function AppDetailsPanel({
             </span>
           </div>
 
-          {isCli && (
-            <div className="detail-meta-row" style={{ marginTop: "0.25rem" }}>
-              <span className="meta-label">Lệnh thực thi (CLI):</span>
+          <div className="detail-meta-row" style={{ marginTop: "0.25rem" }}>
+            <span className="meta-label">Lệnh thực thi (CLI):</span>
+            {hasCli && commandName ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", width: "100%" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
                   <code
@@ -311,8 +314,12 @@ export function AppDetailsPanel({
                   </div>
                 )}
               </div>
-            </div>
-          )}
+            ) : (
+              <span className="meta-value" style={{ opacity: 0.55, fontStyle: "italic", fontSize: "0.82rem" }}>
+                Chưa gán lệnh CLI / symlink trong ~/.local/bin
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="details-divider" />

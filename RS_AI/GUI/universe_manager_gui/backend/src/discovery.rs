@@ -1091,13 +1091,38 @@ pub fn scan_all_applications(
     // 3. Scan user CLI / PATH applications (~/.local/bin)
     let cli_apps = scan_cli_applications(cancellation, &mut progress)?;
     for app in cli_apps {
+        let cli_canon = fs::canonicalize(&app.exec_path).ok();
         let is_known_exec = !app.exec_path.is_empty()
             && (seen_execs.contains(&app.exec_path)
-                || fs::canonicalize(&app.exec_path)
+                || cli_canon
+                    .as_ref()
                     .map(|c| seen_execs.contains(&c.to_string_lossy().into_owned()))
                     .unwrap_or(false));
 
-        if !is_known_exec && seen_ids.insert(app.id.clone()) {
+        if is_known_exec {
+            // MERGE: Find existing app and record symlink / CLI command
+            for existing in &mut all_apps {
+                let first_token = existing.exec_path.split_whitespace().next().unwrap_or("");
+                let existing_canon = fs::canonicalize(first_token).ok();
+                let is_match = first_token == app.exec_path
+                    || existing.exec_path == app.exec_path
+                    || app.source_path.as_deref() == Some(first_token)
+                    || (cli_canon.is_some() && (existing_canon == cli_canon || cli_canon.as_ref().map(|c| c.to_string_lossy().into_owned()) == Some(first_token.to_string())));
+
+                if is_match {
+                    if existing.symlink_file.is_none() {
+                        existing.symlink_file = app.symlink_file.clone().or_else(|| Some(app.exec_path.clone()));
+                    }
+                    if existing.start_cmd.is_none() {
+                        existing.start_cmd = app.start_cmd.clone();
+                    }
+                    if !existing.inventory_sources.iter().any(|s| s.contains("CLI") || s.contains("PATH")) {
+                        existing.inventory_sources.push("CLI".to_string());
+                    }
+                    break;
+                }
+            }
+        } else if seen_ids.insert(app.id.clone()) {
             all_apps.push(app);
         }
     }

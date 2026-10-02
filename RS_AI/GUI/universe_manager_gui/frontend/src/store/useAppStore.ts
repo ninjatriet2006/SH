@@ -147,6 +147,33 @@ export const useAppStore = create<AppState>((set, get) => {
         const { config } = get();
         const nextApps = result as AppEntry[];
         if (config) {
+          // Optimization: If silent sync and data did not change, don't recreate state references to prevent UI re-renders
+          const prevApps = config.apps;
+          let changed = prevApps.length !== nextApps.length;
+          if (!changed) {
+            for (let i = 0; i < prevApps.length; i++) {
+              const p = prevApps[i];
+              const n = nextApps[i];
+              if (
+                p.id !== n.id ||
+                p.status !== n.status ||
+                p.name !== n.name ||
+                p.category !== n.category ||
+                p.package_type !== n.package_type ||
+                p.exec_path !== n.exec_path ||
+                p.desktop_file !== n.desktop_file
+              ) {
+                changed = true;
+                break;
+              }
+            }
+          }
+
+          if (silent && !changed) {
+            set({ isSyncing: false, lastSyncTime: new Date() });
+            return;
+          }
+
           set({
             config: { ...config, apps: nextApps },
             isSyncing: false,

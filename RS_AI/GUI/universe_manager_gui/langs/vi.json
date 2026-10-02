@@ -58,7 +58,9 @@
     "type": "Loại",
     "actions": "Thao tác",
     "id": "ID",
-    "source": "Nguồn"
+    "source": "Nguồn",
+    "category": "Chuyên mục",
+    "status": "Trạng thái"
   },
   "status": {
     "no_apps": "Không có ứng dụng.",

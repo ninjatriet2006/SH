@@ -43,7 +43,7 @@ export default function App() {
         if (!document.hidden) {
           void scanApps(true);
         }
-      }, 4000);
+      }, 6000);
     };
     void init();
     return () => {

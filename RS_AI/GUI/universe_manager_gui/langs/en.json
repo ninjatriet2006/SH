@@ -58,7 +58,9 @@
     "type": "Type",
     "actions": "Actions",
     "id": "ID",
-    "source": "Source"
+    "source": "Source",
+    "category": "Category",
+    "status": "Status"
   },
   "status": {
     "no_apps": "No applications.",
