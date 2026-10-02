@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type {
-  AppEntry, DetectionReport, ExecutableItem, JobEvent,
+  AppEntry, AppIntegrateRequest, DetectionReport, ExecutableItem, JobEvent,
   LauncherUpdateRequest, ManagerConfig, SearchReport,
 } from "../utils/contract";
 import { api, ipcError, JobClient } from "../utils/ipc";
@@ -25,6 +25,7 @@ interface AppState {
   progress: string;
   error: string;
   detection: DetectionReport | null;
+  detectedSourcePath: string | null;
   search: SearchReport | null;
 
   loadConfig: () => Promise<void>;
@@ -40,7 +41,7 @@ interface AppState {
   pickAndDetect: () => Promise<void>;
   clearError: () => void;
   clearDetection: () => void;
-  integrateApp: (app: AppEntry) => Promise<void>;
+  integrateApp: (req: AppIntegrateRequest) => Promise<AppEntry | null>;
   updateLauncher: (req: LauncherUpdateRequest) => Promise<AppEntry | null>;
   deleteLauncher: (appId: string, desktopFile: string) => Promise<AppEntry | null>;
   listExecutables: (path: string) => Promise<ExecutableItem[]>;
@@ -89,6 +90,7 @@ export const useAppStore = create<AppState>((set, get) => {
     progress: "",
     error: "",
     detection: null,
+    detectedSourcePath: null,
     search: null,
 
     loadConfig: async () => {
@@ -176,7 +178,7 @@ export const useAppStore = create<AppState>((set, get) => {
       const result = await runJob("detect_app", { path: { path } });
       if (result) {
         const report = result as DetectionReport;
-        set({ detection: report });
+        set({ detection: report, detectedSourcePath: path });
         notify(
           "success",
           `Phát hiện: ${report.suggested_name} (${report.executables.length} tệp thực thi, ${report.icons.length} biểu tượng)`,
@@ -187,22 +189,22 @@ export const useAppStore = create<AppState>((set, get) => {
       }
     },
 
-    integrateApp: async (app: AppEntry) => {
-      const { config, saveConfig, scanApps } = get();
-      if (!config) return;
-      notify("start", `Đang cài đặt và tích hợp ứng dụng "${app.name}"...`, "INSTALL");
-      const existingIdx = config.apps.findIndex(a => a.id === app.id);
-      let updatedApps: AppEntry[];
-      if (existingIdx >= 0) {
-        updatedApps = [...config.apps];
-        updatedApps[existingIdx] = app;
-      } else {
-        updatedApps = [...config.apps, app];
+    integrateApp: async (req: AppIntegrateRequest) => {
+      try {
+        notify("start", `Đang cài đặt và tích hợp ứng dụng "${req.name}" vào hệ thống...`, "INSTALL");
+        const entry = await api.integrateApp(req);
+        if (entry) {
+          notify("success", `Ứng dụng "${entry.name}" đã được tích hợp thành công!`, "INSTALL");
+          set({ detection: null, detectedSourcePath: null });
+          await get().scanApps(true);
+          return entry;
+        }
+      } catch (err) {
+        const msg = ipcError(err).message;
+        set({ error: msg });
+        notify("error", `Lỗi tích hợp ứng dụng: ${msg}`, "INSTALL");
       }
-      set({ config: { ...config, apps: updatedApps }, detection: null });
-      await saveConfig();
-      notify("success", `Ứng dụng "${app.name}" đã được tích hợp thành công!`, "INSTALL");
-      await scanApps(true);
+      return null;
     },
 
     startApp: async (appId: string) => {
@@ -275,7 +277,7 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     clearError: () => set({ error: "" }),
-    clearDetection: () => set({ detection: null }),
+    clearDetection: () => set({ detection: null, detectedSourcePath: null }),
 
     updateLauncher: async (req: LauncherUpdateRequest) => {
       try {

@@ -73,25 +73,46 @@ pub async fn detect_app<R: Runtime>(
 ) -> IpcResult<DetectionReport> {
     let request_id = job_request(&request)?;
     let generation = state.generation(window.label(), IpcErrorCode::Io)?;
-    let path = match state.picker.resolve_existing(
+    let (path, source) = match state.picker.resolve_existing(
         window.label(),
         UniversePickerKind::Source,
         Path::new(&request.payload.path.path),
     ) {
-        Ok(path) => path,
+        Ok(path) => {
+            let src = state
+                .picker
+                .root(window.label(), UniversePickerKind::Source)
+                .unwrap_or_else(|_| {
+                    if path.is_dir() {
+                        path.clone()
+                    } else {
+                        path.parent().unwrap_or(&path).to_path_buf()
+                    }
+                });
+            (path, src)
+        }
         Err(failure) => {
-            crate::debug::error("DETECT", format!("Failed to resolve source path: {failure:?}"));
-            return Err(map_detect_path(failure));
+            let req_path = Path::new(&request.payload.path.path);
+            if req_path.is_absolute() && req_path.exists() {
+                let canonical = std::fs::canonicalize(req_path).map_err(io_error)?;
+                let root_dir = if canonical.is_dir() {
+                    canonical.clone()
+                } else {
+                    canonical.parent().unwrap_or(&canonical).to_path_buf()
+                };
+                let _ = state.replace_picker_directory(
+                    window.label(),
+                    UniversePickerKind::Source,
+                    &root_dir,
+                );
+                (canonical, root_dir)
+            } else {
+                crate::debug::error("DETECT", format!("Failed to resolve source path: {failure:?}"));
+                return Err(map_detect_path(failure));
+            }
         }
     };
-    let source = match state.picker.root(window.label(), UniversePickerKind::Source) {
-        Ok(src) => src,
-        Err(failure) => {
-            crate::debug::error("DETECT", format!("Failed to resolve source root: {failure:?}"));
-            return Err(map_detect_path(failure));
-        }
-    };
-    crate::debug::start("DETECT", format!("Inspecting app candidate at {path:?}..."));
+    crate::debug::start("DETECT", format!("Inspecting app candidate at {:?}...", path));
     let active =
         state.register(window.label(), request_id, generation, IpcErrorCode::InvalidArgument)?;
     run_job(window, JOB_DETECT_APP, active, move |job, cancellation| {

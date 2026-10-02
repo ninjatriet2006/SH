@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { Search, RefreshCw, Layers, Terminal } from "lucide-react";
+import { Search, RefreshCw, Layers, Terminal, PackagePlus } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useAppStore } from "../store/useAppStore";
 import { useNotificationStore } from "../store/useNotificationStore";
@@ -172,6 +172,14 @@ export function AppManagerPage() {
           </div>
 
           <div className="sync-actions-group">
+            <NavLink
+              to="/add"
+              className="btn btn-sm btn-primary"
+              style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", textDecoration: "none", fontWeight: 600 }}
+              title="Thêm & Tích hợp ứng dụng mới từ thư mục, AppImage hoặc binary"
+            >
+              <PackagePlus size={14} /> <span>Thêm ứng dụng</span>
+            </NavLink>
             <span className={`sync-indicator ${isSyncing ? "syncing" : ""}`}>
               <span className="sync-dot" />
               <span>{isSyncing ? "Đang đồng bộ…" : "Tự động đồng bộ (4s)"}</span>

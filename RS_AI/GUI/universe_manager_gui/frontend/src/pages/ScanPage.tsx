@@ -12,7 +12,6 @@ export function ScanPage() {
   const detection = useAppStore(s => s.detection);
   const clearDetection = useAppStore(s => s.clearDetection);
   const scanApps = useAppStore(s => s.scanApps);
-  const pickAndDetect = useAppStore(s => s.pickAndDetect);
 
   const managedDir = config?.settings.managed_dir?.trim() ?? "";
   const isConfigured = managedDir.length > 0;
@@ -38,9 +37,9 @@ export function ScanPage() {
         >
           {busy ? "…" : "⟳ Quét lại toàn bộ ứng dụng"}
         </button>
-        <button className="btn btn-ghost" disabled={busy} onClick={() => void pickAndDetect()}>
-          {t("scan.detect_btn")}
-        </button>
+        <Link to="/add" className="btn btn-ghost" style={{ textDecoration: "none" }}>
+          + Thêm & Tích hợp ứng dụng mới →
+        </Link>
         {detection && (
           <button className="btn btn-ghost" onClick={clearDetection}>
             ✕ {t("manager.stop") ?? "Đóng kiểm tra"}

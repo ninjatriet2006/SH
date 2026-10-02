@@ -20,7 +20,7 @@ pub use config::{AppEntry, ConfigStore, InstallType, ManagerConfig, ManagerSetti
 pub use discovery::{
     DetectionReport, DiscoveryService, Progress, parse_desktop_file, scan_all_applications,
     scan_system_applications, stable_app_id, create_or_update_desktop_launcher,
-    remove_desktop_launcher, list_executables_in_dir, relocate_app_dir,
+    remove_desktop_launcher, list_executables_in_dir, relocate_app_dir, copy_dir_recursive,
 };
 pub use error::{BackendError, ErrorKind, Result};
 pub use lifecycle::{LifecycleManager, OperationResult, ProcessIdentity};

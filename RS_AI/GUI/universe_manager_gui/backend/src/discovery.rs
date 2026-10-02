@@ -896,7 +896,7 @@ pub fn relocate_app_dir(app: &AppEntry, target_parent_dir: &Path) -> Result<AppE
     Ok(updated_app)
 }
 
-fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+pub fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {
         let entry = entry?;

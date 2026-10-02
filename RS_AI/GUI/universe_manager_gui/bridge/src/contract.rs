@@ -231,3 +231,19 @@ pub struct AppRelocateRequest {
     pub target_managed_dir: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppIntegrateRequest {
+    pub name: String,
+    pub source_path: String,
+    pub exec_path: String,
+    pub icon_path: Option<String>,
+    pub should_relocate: bool,
+    pub create_desktop: bool,
+    pub desktop_categories: Option<String>,
+    pub desktop_arguments: Option<String>,
+    pub startup_wm_class: Option<String>,
+    pub create_symlink: bool,
+    pub symlink_name: Option<String>,
+    pub package_type: String,
+}
+

@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type Event, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  AppEntry, AppExecutablesResponse, AppRelocateRequest,
+  AppEntry, AppExecutablesResponse, AppIntegrateRequest, AppRelocateRequest,
   IpcError, IpcErrorCode, JobCommand, JobEvent, JobRequest, JobResponse,
   LauncherDeleteRequest, LauncherUpdateRequest,
   ManagerConfig, PickerKind, PickerSelectResult, Preferences, Res,
@@ -96,4 +96,5 @@ export const api = {
   deleteLauncher: (req: LauncherDeleteRequest) => call<AppEntry>("launcher_delete", req),
   listExecutables: (path: string) => call<AppExecutablesResponse>("app_executables", { path }),
   relocateApp: (req: AppRelocateRequest) => call<AppEntry>("app_relocate", req),
+  integrateApp: (req: AppIntegrateRequest) => call<AppEntry>("app_integrate", req),
 };

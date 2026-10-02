@@ -114,6 +114,21 @@ export interface AppExecutablesResponse {
   executables: ExecutableItem[];
 }
 
+export interface AppIntegrateRequest {
+  name: string;
+  source_path: string;
+  exec_path: string;
+  icon_path: string | null;
+  should_relocate: boolean;
+  create_desktop: boolean;
+  desktop_categories: string | null;
+  desktop_arguments: string | null;
+  startup_wm_class: string | null;
+  create_symlink: boolean;
+  symlink_name: string | null;
+  package_type: string;
+}
+
 export interface AppRelocateRequest {
   app_id: string;
   target_managed_dir: string | null;

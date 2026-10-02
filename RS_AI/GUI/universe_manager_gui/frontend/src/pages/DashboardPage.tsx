@@ -59,6 +59,20 @@ export function DashboardPage() {
           </Link>
         </section>
       )}
+
+      <section className="glass-panel" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem", borderLeft: "4px solid var(--accent)" }}>
+        <div>
+          <h3 style={{ fontSize: "1.05rem", marginBottom: "0.25rem" }}>
+            📦 Tích hợp ứng dụng mới từ thư mục ngoài (Downloads, Documents…)
+          </h3>
+          <p style={{ fontSize: "0.88rem", color: "var(--panel-foreground)", margin: 0 }}>
+            Tự động chuyển vào ~/Applications, tạo launcher menu (.desktop) và liên kết lệnh terminal ($PATH).
+          </p>
+        </div>
+        <Link to="/add" className="btn btn-primary" style={{ textDecoration: "none", whiteSpace: "nowrap" }}>
+          + Thêm ứng dụng mới →
+        </Link>
+      </section>
     </div>
   );
 }

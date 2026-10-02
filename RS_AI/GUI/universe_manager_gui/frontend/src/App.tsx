@@ -7,6 +7,7 @@ import {
   AppWindow,
   Search,
   Bug,
+  PackagePlus,
 } from "lucide-react";
 import { useEffect } from "react";
 
@@ -14,6 +15,7 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { ConfigPage } from "./pages/ConfigPage";
 import { ScanPage } from "./pages/ScanPage";
 import { AppManagerPage } from "./pages/AppManagerPage";
+import { AddAppPage } from "./pages/AddAppPage";
 import { SearchPage } from "./pages/SearchPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { DebugPage } from "./pages/DebugPage";
@@ -67,20 +69,23 @@ export default function App() {
         <NavLink to="/" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`} end>
           <LayoutDashboard size={18} /> {t("nav.dashboard")}
         </NavLink>
-        <NavLink to="/config" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
-          <FolderCog size={18} /> {t("nav.config")}
+        <NavLink to="/manager" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+          <AppWindow size={18} /> {t("nav.manager")}
+        </NavLink>
+        <NavLink to="/add" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+          <PackagePlus size={18} /> {t("nav.add") || "Thêm ứng dụng"}
         </NavLink>
         <NavLink to="/scan" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
           <ScanSearch size={18} /> {t("nav.scan")}
         </NavLink>
-        <NavLink to="/manager" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
-          <AppWindow size={18} /> {t("nav.manager")}
+        <NavLink to="/config" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+          <FolderCog size={18} /> {t("nav.config")}
         </NavLink>
         <NavLink to="/search" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
           <Search size={18} /> {t("nav.search")}
         </NavLink>
         <NavLink to="/debug" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
-          <Bug size={18} /> {t("nav.debug") || "Nhật ký (Debug)"}
+          <Bug size={18} /> {t("nav.debug") || "Nhật ký"}
         </NavLink>
         <NavLink to="/settings" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
           <Settings size={18} /> {t("nav.settings")}
@@ -97,8 +102,9 @@ export default function App() {
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/config" element={<ConfigPage />} />
-          <Route path="/scan" element={<ScanPage />} />
           <Route path="/manager" element={<AppManagerPage />} />
+          <Route path="/add" element={<AddAppPage />} />
+          <Route path="/scan" element={<ScanPage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/debug" element={<DebugPage />} />
           <Route path="/settings" element={<SettingsPage />} />

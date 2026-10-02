@@ -78,6 +78,7 @@ pub fn run() -> tauri::Result<()> {
             commands::launcher_delete,
             commands::app_executables,
             commands::app_relocate,
+            commands::app_integrate,
         ])
         .run(tauri::generate_context!())
 }
