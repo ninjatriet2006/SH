@@ -73,6 +73,7 @@ pub fn run() {
             api::accounts::get_antigravity_overview,
             api::accounts::get_providers_overview,
             api::accounts::get_antigravity_installed_version_info,
+            api::accounts::get_installed_app_version_info,
             // ==================
             // BROWSER DEVICE-LOGIN (port Go cmd/login)
             // ==================
@@ -154,6 +155,13 @@ pub fn run() {
             api::profiles::bind_account_to_profile,
             api::profiles::launch_profile_instance,
             api::profiles::kill_running_instance,
+            api::profiles::list_platform_instances,
+            api::profiles::create_platform_instance,
+            api::profiles::update_platform_instance,
+            api::profiles::delete_platform_instance,
+            api::profiles::launch_platform_instance,
+            api::profiles::stop_platform_instance,
+            api::profiles::open_instance_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

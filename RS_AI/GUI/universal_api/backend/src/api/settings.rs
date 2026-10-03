@@ -25,6 +25,10 @@ fn default_default_terminal() -> String { "system".to_string() }
 fn default_side_nav_layout() -> String { "classic".to_string() }
 fn default_startup_page() -> String { "last".to_string() }
 fn default_color_pack() -> String { "default".to_string() }
+fn default_current_refresh_minutes() -> u32 { 1 }
+fn default_scope_mode() -> String { "any_group".to_string() }
+fn default_account_scope_mode() -> String { "all_accounts".to_string() }
+fn default_quota_platform() -> String { "codex".to_string() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GuiSettings {
@@ -117,12 +121,26 @@ pub struct GuiSettings {
     pub auto_switch_enabled: bool,
     #[serde(default = "default_switch_threshold")]
     pub auto_switch_threshold: u32,
+    #[serde(default = "default_scope_mode")]
+    pub auto_switch_scope_mode: String,
+    #[serde(default = "default_account_scope_mode")]
+    pub auto_switch_account_scope_mode: String,
+    #[serde(default)]
+    pub auto_switch_credits_enabled: bool,
+    #[serde(default = "default_switch_threshold")]
+    pub auto_switch_credits_threshold: u32,
 
     // 6. Backup & Cloud Sync (WebDAV)
     #[serde(default = "default_true")]
     pub auto_backup_enabled: bool,
+    #[serde(default = "default_true")]
+    pub auto_backup_include_accounts: bool,
+    #[serde(default = "default_true")]
+    pub auto_backup_include_config: bool,
     #[serde(default = "default_retention_days")]
     pub auto_backup_retention_days: u32,
+    #[serde(default)]
+    pub backup_directory: String,
     #[serde(default)]
     pub webdav_sync_enabled: bool,
     #[serde(default)]
@@ -133,6 +151,211 @@ pub struct GuiSettings {
     pub webdav_sync_password: String,
     #[serde(default = "default_webdav_dir")]
     pub webdav_sync_remote_dir: String,
+
+    // 7. Platform Specific Settings
+    // Claude
+    #[serde(default = "default_auto_refresh_minutes")]
+    pub claude_auto_refresh_minutes: u32,
+    #[serde(default = "default_current_refresh_minutes")]
+    pub claude_current_account_refresh_minutes: u32,
+    #[serde(default)]
+    pub claude_quota_display_remaining: bool,
+    #[serde(default)]
+    pub claude_app_path: String,
+    #[serde(default)]
+    pub claude_quota_alert_enabled: bool,
+
+    // Zed
+    #[serde(default = "default_auto_refresh_minutes")]
+    pub zed_auto_refresh_minutes: u32,
+    #[serde(default = "default_current_refresh_minutes")]
+    pub zed_current_account_refresh_minutes: u32,
+    #[serde(default)]
+    pub zed_quota_alert_enabled: bool,
+
+    // GitHub Copilot
+    #[serde(default = "default_auto_refresh_minutes")]
+    pub ghcp_auto_refresh_minutes: u32,
+    #[serde(default = "default_current_refresh_minutes")]
+    pub ghcp_current_account_refresh_minutes: u32,
+    #[serde(default)]
+    pub ghcp_quota_alert_enabled: bool,
+    #[serde(default)]
+    pub ghcp_account_refresh_config: std::collections::HashMap<String, u32>,
+    #[serde(default = "default_true")]
+    pub ghcp_launch_on_switch: bool,
+    #[serde(default)]
+    pub ghcp_opencode_sync_on_switch: bool,
+    #[serde(default)]
+    pub ghcp_opencode_auth_overwrite_on_switch: bool,
+
+    // Devin / Windsurf
+    #[serde(default = "default_auto_refresh_minutes")]
+    pub windsurf_auto_refresh_minutes: u32,
+    #[serde(default = "default_current_refresh_minutes")]
+    pub windsurf_current_account_refresh_minutes: u32,
+    #[serde(default)]
+    pub windsurf_app_path: String,
+    #[serde(default)]
+    pub windsurf_quota_alert_enabled: bool,
+
+    // Antigravity IDE
+    #[serde(default = "default_auto_refresh_minutes")]
+    pub antigravity_auto_refresh_minutes: u32,
+    #[serde(default = "default_current_refresh_minutes")]
+    pub antigravity_current_account_refresh_minutes: u32,
+    #[serde(default = "default_true")]
+    pub antigravity_launch_on_switch: bool,
+    #[serde(default)]
+    pub antigravity_dual_switch_no_restart_enabled: bool,
+    #[serde(default)]
+    pub antigravity_startup_wakeup_enabled: bool,
+    #[serde(default)]
+    pub antigravity_startup_wakeup_delay_seconds: u32,
+    #[serde(default)]
+    pub antigravity_quota_alert_enabled: bool,
+
+    // Codex
+    #[serde(default = "default_auto_refresh_minutes")]
+    pub codex_auto_refresh_minutes: u32,
+    #[serde(default = "default_current_refresh_minutes")]
+    pub codex_current_account_refresh_minutes: u32,
+    #[serde(default)]
+    pub codex_app_path: String,
+    #[serde(default)]
+    pub codex_specified_app_path: String,
+    #[serde(default)]
+    pub codex_sync_wsl: bool,
+    #[serde(default)]
+    pub codex_wsl_config_dir: String,
+    #[serde(default = "default_true")]
+    pub codex_app_ui_injection_enabled: bool,
+    #[serde(default = "default_true")]
+    pub codex_launch_on_switch: bool,
+    #[serde(default = "default_true")]
+    pub codex_local_access_entry_visible: bool,
+    #[serde(default)]
+    pub codex_hide_relay_quota: bool,
+    #[serde(default)]
+    pub codex_startup_wakeup_enabled: bool,
+    #[serde(default)]
+    pub codex_startup_wakeup_delay_seconds: u32,
+    #[serde(default)]
+    pub codex_quota_alert_enabled: bool,
+    #[serde(default = "default_alert_threshold")]
+    pub codex_quota_alert_primary_threshold: u32,
+    #[serde(default = "default_alert_threshold")]
+    pub codex_quota_alert_secondary_threshold: u32,
+    #[serde(default)]
+    pub codex_auto_switch_enabled: bool,
+    #[serde(default = "default_alert_threshold")]
+    pub codex_auto_switch_primary_threshold: u32,
+    #[serde(default = "default_alert_threshold")]
+    pub codex_auto_switch_secondary_threshold: u32,
+    #[serde(default)]
+    pub codex_hermes_auth_overwrite_on_switch: bool,
+    #[serde(default)]
+    pub codex_openclaw_auth_overwrite_on_switch: bool,
+    #[serde(default)]
+    pub codex_opencode_auth_overwrite_on_switch: bool,
+
+    // Cursor
+    #[serde(default = "default_auto_refresh_minutes")]
+    pub cursor_auto_refresh_minutes: u32,
+    #[serde(default = "default_current_refresh_minutes")]
+    pub cursor_current_account_refresh_minutes: u32,
+    #[serde(default)]
+    pub cursor_quota_alert_enabled: bool,
+
+    // Kiro
+    #[serde(default = "default_auto_refresh_minutes")]
+    pub kiro_auto_refresh_minutes: u32,
+    #[serde(default = "default_current_refresh_minutes")]
+    pub kiro_current_account_refresh_minutes: u32,
+    #[serde(default)]
+    pub kiro_app_path: String,
+    #[serde(default)]
+    pub kiro_quota_alert_enabled: bool,
+
+    // CodeBuddy & CodeBuddy CN
+    #[serde(default = "default_auto_refresh_minutes")]
+    pub codebuddy_auto_refresh_minutes: u32,
+    #[serde(default = "default_current_refresh_minutes")]
+    pub codebuddy_current_account_refresh_minutes: u32,
+    #[serde(default)]
+    pub codebuddy_share_sessions_on_switch: bool,
+    #[serde(default)]
+    pub codebuddy_quota_alert_enabled: bool,
+    #[serde(default = "default_auto_refresh_minutes")]
+    pub codebuddy_cn_auto_refresh_minutes: u32,
+    #[serde(default = "default_current_refresh_minutes")]
+    pub codebuddy_cn_current_account_refresh_minutes: u32,
+    #[serde(default)]
+    pub codebuddy_cn_share_sessions_on_switch: bool,
+    #[serde(default)]
+    pub codebuddy_cn_quota_alert_enabled: bool,
+
+    // WorkBuddy
+    #[serde(default = "default_auto_refresh_minutes")]
+    pub workbuddy_auto_refresh_minutes: u32,
+    #[serde(default = "default_current_refresh_minutes")]
+    pub workbuddy_current_account_refresh_minutes: u32,
+    #[serde(default)]
+    pub workbuddy_app_path: String,
+    #[serde(default = "default_true")]
+    pub workbuddy_share_sessions_on_switch: bool,
+    #[serde(default)]
+    pub workbuddy_quota_alert_enabled: bool,
+
+    // Trae & variants
+    #[serde(default = "default_auto_refresh_minutes")]
+    pub trae_auto_refresh_minutes: u32,
+    #[serde(default = "default_current_refresh_minutes")]
+    pub trae_current_account_refresh_minutes: u32,
+    #[serde(default)]
+    pub trae_share_sessions_on_switch: bool,
+    #[serde(default)]
+    pub trae_quota_alert_enabled: bool,
+    #[serde(default)]
+    pub trae_solo_app_path: String,
+    #[serde(default)]
+    pub trae_cn_app_path: String,
+    #[serde(default)]
+    pub trae_solo_cn_app_path: String,
+
+    // Qoder & ZCode
+    #[serde(default = "default_auto_refresh_minutes")]
+    pub qoder_auto_refresh_minutes: u32,
+    #[serde(default)]
+    pub qoder_app_path: String,
+    #[serde(default)]
+    pub qoder_quota_alert_enabled: bool,
+    #[serde(default = "default_auto_refresh_minutes")]
+    pub zcode_auto_refresh_minutes: u32,
+    #[serde(default)]
+    pub zcode_app_path: String,
+
+    // Grok CLI
+    #[serde(default = "default_auto_refresh_minutes")]
+    pub grok_auto_refresh_minutes: u32,
+    #[serde(default)]
+    pub grok_cli_path: String,
+    #[serde(default)]
+    pub grok_sync_official_auth_on_switch: bool,
+    #[serde(default)]
+    pub grok_opencode_sync_on_switch: bool,
+    #[serde(default)]
+    pub grok_opencode_auth_overwrite_on_switch: bool,
+    #[serde(default)]
+    pub grok_quota_alert_enabled: bool,
+
+    // 8. Menu Bar Quota
+    #[serde(default)]
+    pub menu_bar_quota_enabled: bool,
+    #[serde(default = "default_true")]
+    pub menu_bar_show_account_prefix: bool,
+    #[serde(default = "default_quota_platform")]
+    pub menu_bar_quota_platform: String,
 }
 
 impl Default for GuiSettings {
@@ -178,13 +401,109 @@ impl Default for GuiSettings {
             quota_alert_threshold: default_alert_threshold(),
             auto_switch_enabled: false,
             auto_switch_threshold: default_switch_threshold(),
+            auto_switch_scope_mode: default_scope_mode(),
+            auto_switch_account_scope_mode: default_account_scope_mode(),
+            auto_switch_credits_enabled: false,
+            auto_switch_credits_threshold: default_switch_threshold(),
             auto_backup_enabled: true,
+            auto_backup_include_accounts: true,
+            auto_backup_include_config: true,
             auto_backup_retention_days: default_retention_days(),
+            backup_directory: String::new(),
             webdav_sync_enabled: false,
             webdav_sync_url: "https://dav.jianguoyun.com/dav/".to_string(),
             webdav_sync_username: String::new(),
             webdav_sync_password: String::new(),
             webdav_sync_remote_dir: default_webdav_dir(),
+            // Platforms
+            claude_auto_refresh_minutes: default_auto_refresh_minutes(),
+            claude_current_account_refresh_minutes: default_current_refresh_minutes(),
+            claude_quota_display_remaining: false,
+            claude_app_path: String::new(),
+            claude_quota_alert_enabled: false,
+            zed_auto_refresh_minutes: default_auto_refresh_minutes(),
+            zed_current_account_refresh_minutes: default_current_refresh_minutes(),
+            zed_quota_alert_enabled: false,
+            ghcp_auto_refresh_minutes: default_auto_refresh_minutes(),
+            ghcp_current_account_refresh_minutes: default_current_refresh_minutes(),
+            ghcp_quota_alert_enabled: false,
+            ghcp_account_refresh_config: std::collections::HashMap::new(),
+            ghcp_launch_on_switch: true,
+            ghcp_opencode_sync_on_switch: false,
+            ghcp_opencode_auth_overwrite_on_switch: false,
+            windsurf_auto_refresh_minutes: default_auto_refresh_minutes(),
+            windsurf_current_account_refresh_minutes: default_current_refresh_minutes(),
+            windsurf_app_path: String::new(),
+            windsurf_quota_alert_enabled: false,
+            antigravity_auto_refresh_minutes: default_auto_refresh_minutes(),
+            antigravity_current_account_refresh_minutes: default_current_refresh_minutes(),
+            antigravity_launch_on_switch: true,
+            antigravity_dual_switch_no_restart_enabled: false,
+            antigravity_startup_wakeup_enabled: false,
+            antigravity_startup_wakeup_delay_seconds: 0,
+            antigravity_quota_alert_enabled: false,
+            codex_auto_refresh_minutes: default_auto_refresh_minutes(),
+            codex_current_account_refresh_minutes: default_current_refresh_minutes(),
+            codex_app_path: String::new(),
+            codex_specified_app_path: String::new(),
+            codex_sync_wsl: false,
+            codex_wsl_config_dir: String::new(),
+            codex_app_ui_injection_enabled: true,
+            codex_launch_on_switch: true,
+            codex_local_access_entry_visible: true,
+            codex_hide_relay_quota: false,
+            codex_startup_wakeup_enabled: false,
+            codex_startup_wakeup_delay_seconds: 0,
+            codex_quota_alert_enabled: false,
+            codex_quota_alert_primary_threshold: default_alert_threshold(),
+            codex_quota_alert_secondary_threshold: default_alert_threshold(),
+            codex_auto_switch_enabled: false,
+            codex_auto_switch_primary_threshold: default_alert_threshold(),
+            codex_auto_switch_secondary_threshold: default_alert_threshold(),
+            codex_hermes_auth_overwrite_on_switch: false,
+            codex_openclaw_auth_overwrite_on_switch: false,
+            codex_opencode_auth_overwrite_on_switch: false,
+            cursor_auto_refresh_minutes: default_auto_refresh_minutes(),
+            cursor_current_account_refresh_minutes: default_current_refresh_minutes(),
+            cursor_quota_alert_enabled: false,
+            kiro_auto_refresh_minutes: default_auto_refresh_minutes(),
+            kiro_current_account_refresh_minutes: default_current_refresh_minutes(),
+            kiro_app_path: String::new(),
+            kiro_quota_alert_enabled: false,
+            codebuddy_auto_refresh_minutes: default_auto_refresh_minutes(),
+            codebuddy_current_account_refresh_minutes: default_current_refresh_minutes(),
+            codebuddy_share_sessions_on_switch: false,
+            codebuddy_quota_alert_enabled: false,
+            codebuddy_cn_auto_refresh_minutes: default_auto_refresh_minutes(),
+            codebuddy_cn_current_account_refresh_minutes: default_current_refresh_minutes(),
+            codebuddy_cn_share_sessions_on_switch: false,
+            codebuddy_cn_quota_alert_enabled: false,
+            workbuddy_auto_refresh_minutes: default_auto_refresh_minutes(),
+            workbuddy_current_account_refresh_minutes: default_current_refresh_minutes(),
+            workbuddy_app_path: String::new(),
+            workbuddy_share_sessions_on_switch: true,
+            workbuddy_quota_alert_enabled: false,
+            trae_auto_refresh_minutes: default_auto_refresh_minutes(),
+            trae_current_account_refresh_minutes: default_current_refresh_minutes(),
+            trae_share_sessions_on_switch: false,
+            trae_quota_alert_enabled: false,
+            trae_solo_app_path: String::new(),
+            trae_cn_app_path: String::new(),
+            trae_solo_cn_app_path: String::new(),
+            qoder_auto_refresh_minutes: default_auto_refresh_minutes(),
+            qoder_app_path: String::new(),
+            qoder_quota_alert_enabled: false,
+            zcode_auto_refresh_minutes: default_auto_refresh_minutes(),
+            zcode_app_path: String::new(),
+            grok_auto_refresh_minutes: default_auto_refresh_minutes(),
+            grok_cli_path: String::new(),
+            grok_sync_official_auth_on_switch: false,
+            grok_opencode_sync_on_switch: false,
+            grok_opencode_auth_overwrite_on_switch: false,
+            grok_quota_alert_enabled: false,
+            menu_bar_quota_enabled: false,
+            menu_bar_show_account_prefix: true,
+            menu_bar_quota_platform: default_quota_platform(),
         }
     }
 }
@@ -203,7 +522,7 @@ fn legacy_settings_path() -> std::path::PathBuf {
     crate::core::resources::resource_base().join("gui_settings.json")
 }
 
-fn load_settings() -> GuiSettings {
+pub fn load_settings() -> GuiSettings {
     for path in [settings_path(), legacy_settings_path()] {
         if let Ok(content) = std::fs::read_to_string(&path) {
             if let Ok(parsed) = serde_json::from_str::<GuiSettings>(&content) {
@@ -249,7 +568,7 @@ pub struct DetectIdePathResponse {
     pub message: String,
 }
 
-fn scan_desktop_files_for_exec(target_key: &str) -> Option<String> {
+pub fn scan_desktop_files_for_exec(target_key: &str) -> Option<String> {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let search_dirs = [
         std::path::PathBuf::from("/usr/share/applications"),
@@ -286,7 +605,17 @@ fn scan_desktop_files_for_exec(target_key: &str) -> Option<String> {
                         }
                         "cursor" => filename.contains("cursor") && !filename.contains("url-handler"),
                         "zed" => filename.contains("zed"),
-                        "trae" => filename.contains("trae"),
+                        "trae" | "trae_solo" | "trae_cn" => filename.contains("trae"),
+                        "codebuddy" => filename.contains("codebuddy") && !filename.contains("codebuddy-cn"),
+                        "codebuddy_cn" => filename.contains("codebuddy-cn") || filename.contains("codebuddy_cn"),
+                        "claude" => filename.contains("claude"),
+                        "windsurf" | "devin" => filename.contains("windsurf") || filename.contains("devin"),
+                        "codex" => filename.contains("codex"),
+                        "kiro" => filename.contains("kiro"),
+                        "workbuddy" => filename.contains("workbuddy"),
+                        "qoder" => filename.contains("qoder"),
+                        "zcode" => filename.contains("zcode"),
+                        "grok" => filename.contains("grok"),
                         _ => false,
                     };
 
@@ -304,7 +633,17 @@ fn scan_desktop_files_for_exec(target_key: &str) -> Option<String> {
                                 }
                                 "cursor" => content.contains("Name=Cursor"),
                                 "zed" => content.contains("Name=Zed"),
-                                "trae" => content.contains("Name=Trae"),
+                                "trae" | "trae_solo" | "trae_cn" => content.contains("Name=Trae"),
+                                "codebuddy" => content.contains("Name=CodeBuddy") && !content.contains("Name=CodeBuddy CN"),
+                                "codebuddy_cn" => content.contains("Name=CodeBuddy CN") || content.contains("CodeBuddy (CN)"),
+                                "claude" => content.contains("Name=Claude"),
+                                "windsurf" | "devin" => content.contains("Name=Windsurf") || content.contains("Name=Devin"),
+                                "codex" => content.contains("Name=Codex"),
+                                "kiro" => content.contains("Name=Kiro"),
+                                "workbuddy" => content.contains("Name=WorkBuddy"),
+                                "qoder" => content.contains("Name=Qoder"),
+                                "zcode" => content.contains("Name=ZCode"),
+                                "grok" => content.contains("Name=Grok"),
                                 _ => false,
                             };
 
@@ -340,10 +679,19 @@ fn scan_desktop_files_for_exec(target_key: &str) -> Option<String> {
         "antigravity_ide" => Some("antigravity-ide"),
         "antigravity_desktop" => Some("antigravity"),
         "cursor" => Some("cursor"),
-        "trae" => Some("trae"),
+        "trae" | "trae_solo" | "trae_cn" => Some("trae"),
         "zed" => Some("zed"),
         "codebuddy" => Some("codebuddy"),
         "codebuddy_cn" => Some("codebuddy-cn"),
+        "claude" => Some("claude"),
+        "windsurf" => Some("windsurf"),
+        "devin" => Some("devin"),
+        "codex" => Some("codex"),
+        "kiro" => Some("kiro"),
+        "workbuddy" => Some("workbuddy"),
+        "qoder" => Some("qoder"),
+        "zcode" => Some("zcode"),
+        "grok" => Some("grok"),
         _ => None,
     };
     if let Some(cmd) = binary_name {

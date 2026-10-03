@@ -6,12 +6,18 @@ use std::path::PathBuf;
 
 /// Danh sách binary gợi ý cho từng nền tảng IDE.
 pub fn candidate_binary_names<'a>(platform_id: &'a str) -> Vec<&'a str> {
-    match platform_id {
+    match platform_id.to_lowercase().as_str() {
+        "antigravity" | "antigravity_ide" | "antigravity_desktop" => {
+            vec!["antigravity-ide", "antigravity", "Antigravity", "antigravity_ide"]
+        }
+        "codex" => vec!["codex", "Codex"],
+        "claude" => vec!["claude", "Claude"],
         "cursor" => vec!["cursor", "Cursor"],
         "windsurf" => vec!["windsurf", "Windsurf"],
         "codebuddy_cn" => vec!["codebuddy-cn", "codebuddy", "CodeBuddy", "coding-copilot"],
-        "codebuddy_global" => vec!["codebuddy", "CodeBuddy"],
+        "codebuddy" | "codebuddy_global" => vec!["codebuddy", "CodeBuddy"],
         "zed" => vec!["zed", "zed-editor", "Zed"],
+        "trae" | "trae_cn" => vec!["trae", "Trae"],
         "vscode" | "github_copilot" => vec!["code", "vscode", "code-oss"],
         _ => vec![platform_id],
     }
@@ -63,6 +69,21 @@ pub fn find_executable(platform_id: &str) -> Option<PathBuf> {
                     let candidate = dir.join(name);
                     if candidate.is_file() {
                         return Some(candidate);
+                    }
+                }
+            }
+
+            // Quét ~/Applications (AppImage hoặc binary bundle)
+            let apps_dir = home.join("Applications");
+            if apps_dir.is_dir() {
+                for name in &names {
+                    let direct = apps_dir.join(name);
+                    if direct.is_file() {
+                        return Some(direct);
+                    }
+                    let nested = apps_dir.join(name).join(name);
+                    if nested.is_file() {
+                        return Some(nested);
                     }
                 }
             }

@@ -153,11 +153,18 @@ pub fn launch_profile_instance(request: Req<LaunchProfileRequest>) -> IpcResult<
         .ok_or_else(|| from_string("Profile not found".into()))?;
 
     let custom_path = payload.custom_binary_path.map(PathBuf::from);
+    let extra_args_vec = match &profile.extra_args {
+        crate::core::profiles::model::ExtraArgsVal::Text(t) => {
+            t.split_whitespace().map(|s| s.to_string()).collect::<Vec<_>>()
+        }
+        crate::core::profiles::model::ExtraArgsVal::List(l) => l.clone(),
+    };
+
     let pid = launch_instance(LaunchOptions {
         platform_id: &profile.platform_id,
         user_data_dir: &profile.user_data_dir,
         custom_binary_path: custom_path.as_deref(),
-        extra_args: &profile.extra_args,
+        extra_args: &extra_args_vec,
         use_new_window: true,
     })
     .map_err(from_string)?;
@@ -180,5 +187,209 @@ pub struct KillInstanceRequest {
 pub fn kill_running_instance(request: Req<KillInstanceRequest>) -> IpcResult<Empty> {
     let (request_id, payload) = request.validate()?;
     kill_instance(payload.pid).map_err(from_string)?;
+    Ok(respond(request_id, Empty {}))
+}
+
+#[derive(Deserialize)]
+pub struct ListPlatformInstancesRequest {
+    pub platform: String,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn list_platform_instances(
+    request: Req<ListPlatformInstancesRequest>,
+) -> IpcResult<Vec<InstanceProfile>> {
+    let (request_id, payload) = request.validate()?;
+    let list = crate::core::profiles::load_platform_instances(&payload.platform).map_err(from_string)?;
+    Ok(respond(request_id, list))
+}
+
+#[derive(Deserialize)]
+pub struct CreatePlatformInstanceRequest {
+    pub platform: String,
+    pub name: String,
+    #[serde(default = "default_init_mode")]
+    pub init_mode: String,
+    pub source_instance_id: Option<String>,
+    pub existing_dir: Option<String>,
+    pub bind_account_id: Option<String>,
+    pub extra_args: Option<String>,
+}
+
+fn default_init_mode() -> String {
+    "blank".to_string()
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn create_platform_instance(
+    request: Req<CreatePlatformInstanceRequest>,
+) -> IpcResult<InstanceProfile> {
+    let (request_id, payload) = request.validate()?;
+    let profile = crate::core::profiles::create_platform_instance(
+        &payload.platform,
+        &payload.name,
+        &payload.init_mode,
+        payload.source_instance_id.as_deref(),
+        payload.existing_dir.as_deref(),
+        payload.bind_account_id,
+        payload.extra_args,
+    )
+    .map_err(from_string)?;
+    Ok(respond(request_id, profile))
+}
+
+#[derive(Deserialize)]
+pub struct UpdatePlatformInstanceRequest {
+    pub platform: String,
+    pub instance_id: String,
+    pub name: Option<String>,
+    pub bind_account_id: Option<Option<String>>,
+    pub extra_args: Option<String>,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn update_platform_instance(
+    request: Req<UpdatePlatformInstanceRequest>,
+) -> IpcResult<Empty> {
+    let (request_id, payload) = request.validate()?;
+    crate::core::profiles::update_platform_instance(
+        &payload.platform,
+        &payload.instance_id,
+        payload.name,
+        payload.bind_account_id,
+        payload.extra_args,
+    )
+    .map_err(from_string)?;
+    Ok(respond(request_id, Empty {}))
+}
+
+#[derive(Deserialize)]
+pub struct DeletePlatformInstanceRequest {
+    pub platform: String,
+    pub instance_id: String,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn delete_platform_instance(
+    request: Req<DeletePlatformInstanceRequest>,
+) -> IpcResult<Empty> {
+    let (request_id, payload) = request.validate()?;
+    crate::core::profiles::delete_platform_instance(&payload.platform, &payload.instance_id)
+        .map_err(from_string)?;
+    Ok(respond(request_id, Empty {}))
+}
+
+#[derive(Deserialize)]
+pub struct LaunchPlatformInstanceRequest {
+    pub platform: String,
+    pub instance_id: String,
+    pub custom_binary_path: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct LaunchPlatformInstanceResponse {
+    pub pid: u32,
+    pub instance_id: String,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn launch_platform_instance(
+    request: Req<LaunchPlatformInstanceRequest>,
+) -> IpcResult<LaunchPlatformInstanceResponse> {
+    let (request_id, payload) = request.validate()?;
+    let instances = crate::core::profiles::load_platform_instances(&payload.platform)
+        .map_err(from_string)?;
+    let inst = instances
+        .into_iter()
+        .find(|p| p.id == payload.instance_id)
+        .ok_or_else(|| from_string("Instance not found".into()))?;
+
+    let custom_path = payload.custom_binary_path.map(PathBuf::from);
+    let extra_args_vec = match &inst.extra_args {
+        crate::core::profiles::model::ExtraArgsVal::Text(t) => {
+            t.split_whitespace().map(|s| s.to_string()).collect::<Vec<_>>()
+        }
+        crate::core::profiles::model::ExtraArgsVal::List(l) => l.clone(),
+    };
+
+    let pid = launch_instance(LaunchOptions {
+        platform_id: &payload.platform,
+        user_data_dir: &inst.user_data_dir,
+        custom_binary_path: custom_path.as_deref(),
+        extra_args: &extra_args_vec,
+        use_new_window: true,
+    })
+    .map_err(from_string)?;
+
+    let _ = crate::core::profiles::record_platform_instance_launch(
+        &payload.platform,
+        &payload.instance_id,
+        pid,
+    );
+
+    Ok(respond(
+        request_id,
+        LaunchPlatformInstanceResponse {
+            pid,
+            instance_id: payload.instance_id,
+        },
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct StopPlatformInstanceRequest {
+    pub platform: String,
+    pub instance_id: String,
+    pub pid: Option<u32>,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn stop_platform_instance(
+    request: Req<StopPlatformInstanceRequest>,
+) -> IpcResult<Empty> {
+    let (request_id, payload) = request.validate()?;
+    let mut pid_to_kill = payload.pid;
+
+    if pid_to_kill.is_none() {
+        if let Ok(instances) = crate::core::profiles::load_platform_instances(&payload.platform) {
+            if let Some(inst) = instances.into_iter().find(|p| p.id == payload.instance_id) {
+                pid_to_kill = inst.last_pid;
+            }
+        }
+    }
+
+    if let Some(pid) = pid_to_kill {
+        if crate::core::profiles::is_pid_alive(pid) {
+            let _ = kill_instance(pid);
+        }
+    }
+
+    let _ = crate::core::profiles::record_platform_instance_stop(&payload.platform, &payload.instance_id);
+    Ok(respond(request_id, Empty {}))
+}
+
+#[derive(Deserialize)]
+pub struct OpenFolderRequest {
+    pub path: String,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn open_instance_folder(request: Req<OpenFolderRequest>) -> IpcResult<Empty> {
+    let (request_id, payload) = request.validate()?;
+    let p = payload.path.trim();
+    if !p.is_empty() && p != "default" {
+        #[cfg(target_os = "windows")]
+        {
+            let _ = std::process::Command::new("explorer").arg(p).spawn();
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let _ = std::process::Command::new("open").arg(p).spawn();
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let _ = std::process::Command::new("xdg-open").arg(p).spawn();
+        }
+    }
     Ok(respond(request_id, Empty {}))
 }

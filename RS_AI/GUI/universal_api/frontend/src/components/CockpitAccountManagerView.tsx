@@ -29,7 +29,6 @@ import {
     Calendar,
     FileText,
     ShieldCheck,
-    ExternalLink,
     TerminalSquare,
     Pencil,
 } from 'lucide-react';
@@ -37,11 +36,12 @@ import type { AccountInfo } from '../../../bridge/types';
 import {
     listAccounts,
     removeAccount,
-    getAntigravityInstalledVersionInfo,
+    getInstalledAppVersionInfo,
     type InstalledAppInfo,
 } from '../../../bridge/accounts_bridge';
 import { loginStart, loginPoll, loginCancel, openLoginUrl } from '../../../bridge/login_bridge';
 import { invokeIpc } from '../../../bridge/ipc';
+import { PlatformInstancesContent } from './PlatformInstancesContent';
 
 // Platform icons
 import antigravityIcon from '../assets/icons/antigravity-menu.png';
@@ -153,7 +153,9 @@ export function CockpitAccountManagerView({
                 {
                     id: 'ide',
                     label: 'Antigravity IDE',
-                    subtext: `VS Code based (v${installedAppInfo?.version || '2.5.5'})`,
+                    subtext: antigravitySubVariant === 'ide' && installedAppInfo?.installed && installedAppInfo.version !== 'Not Found'
+                        ? `VS Code based (v${installedAppInfo.version})`
+                        : 'VS Code based',
                     icon: antigravityIcon,
                     isActive: antigravitySubVariant === 'ide',
                     onSelect: () => setAntigravitySubVariant('ide'),
@@ -161,7 +163,9 @@ export function CockpitAccountManagerView({
                 {
                     id: 'desktop',
                     label: 'Antigravity Desktop',
-                    subtext: 'Desktop App Legacy (v2.0.1)',
+                    subtext: antigravitySubVariant === 'desktop' && installedAppInfo?.installed && installedAppInfo.version !== 'Not Found'
+                        ? `Desktop App (v${installedAppInfo.version})`
+                        : 'Desktop App Legacy',
                     icon: antigravityIcon,
                     isActive: antigravitySubVariant === 'desktop',
                     onSelect: () => {
@@ -270,10 +274,26 @@ export function CockpitAccountManagerView({
     const [actionMsg, setActionMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
     useEffect(() => {
-        getAntigravityInstalledVersionInfo()
-            .then((info) => setInstalledAppInfo(info))
-            .catch(() => {});
-    }, []);
+        const variant = platformId === 'antigravity'
+            ? antigravitySubVariant
+            : (platformId === 'codebuddy' || platformId === 'codebuddy_cn' || platformId === 'codebuddy_global')
+            ? codebuddySubRegion
+            : undefined;
+
+        getInstalledAppVersionInfo(platformId, variant)
+            .then((info) => {
+                setInstalledAppInfo(info);
+            })
+            .catch(() => {
+                setInstalledAppInfo({
+                    installed: false,
+                    name: currentActiveTriggerLabel,
+                    version: 'Not Found',
+                    exec_path: '',
+                    target_kind: platformId,
+                });
+            });
+    }, [platformId, antigravitySubVariant, codebuddySubRegion, currentActiveTriggerLabel]);
 
     const handleWakeupAll = async () => {
         setWakeupRunning(true);
@@ -542,12 +562,18 @@ export function CockpitAccountManagerView({
                             width: 7,
                             height: 7,
                             borderRadius: '50%',
-                            background: '#10b981',
-                            boxShadow: '0 0 8px #10b981',
+                            background: installedAppInfo?.installed && installedAppInfo.version !== 'Not Found' ? '#10b981' : '#94a3b8',
+                            boxShadow: installedAppInfo?.installed && installedAppInfo.version !== 'Not Found' ? '0 0 8px #10b981' : 'none',
                         }} />
-                        <span>{platformId === 'antigravity' ? (installedAppInfo?.name || (antigravitySubVariant === 'ide' ? 'Antigravity IDE' : 'Antigravity Desktop')) : platformLabel}</span>
-                        <span style={{ color: '#38bdf8', fontWeight: 700, marginLeft: '0.15rem' }}>
-                            v{platformId === 'antigravity' ? (installedAppInfo?.version || (antigravitySubVariant === 'ide' ? '2.5.5' : '2.0.1')) : '1.0.0'}
+                        <span>{installedAppInfo?.name || currentActiveTriggerLabel}</span>
+                        <span style={{
+                            color: installedAppInfo?.installed && installedAppInfo.version !== 'Not Found' ? '#38bdf8' : '#94a3b8',
+                            fontWeight: 700,
+                            marginLeft: '0.15rem'
+                        }}>
+                            {installedAppInfo?.installed && installedAppInfo.version !== 'Not Found'
+                                ? (installedAppInfo.version.startsWith('v') ? installedAppInfo.version : `v${installedAppInfo.version}`)
+                                : 'Version: Not Found'}
                         </span>
                     </div>
                 </div>
@@ -1546,27 +1572,12 @@ export function CockpitAccountManagerView({
 
             {/* TAB: INSTANCES */}
             {activeTab === 'instances' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                    <div className="card" style={{ padding: '1.25rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
-                                <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                    <Layers size={18} color="#38bdf8" /> Multi-Instance Isolated Launch Management
-                                </h3>
-                                <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: 4 }}>
-                                    Khởi chạy nhiều cửa sổ IDE độc lập chạy song song, mỗi cửa sổ liên kết với một tài khoản và thư mục <code>userDataDir</code> riêng biệt.
-                                </p>
-                            </div>
-                            <button
-                                className="btn btn-primary"
-                                onClick={() => navigate('/instances')}
-                                style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem' }}
-                            >
-                                <ExternalLink size={14} /> Mở Trang Instances Nâng Cao
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                <PlatformInstancesContent
+                    platformId={platformId}
+                    platformLabel={platformLabel}
+                    accounts={accounts}
+                    onSwitchAccount={handleSwitchAccount}
+                />
             )}
 
             {/* Cockpit Add Account Modal (1:1 with Cockpit Tools) */}

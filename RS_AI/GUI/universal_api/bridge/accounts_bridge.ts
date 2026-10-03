@@ -101,3 +101,13 @@ export async function getAntigravityInstalledVersionInfo(): Promise<InstalledApp
   return invokeIpc<InstalledAppInfo>('get_antigravity_installed_version_info');
 }
 
+export async function getInstalledAppVersionInfo(
+  platformId: string,
+  variant?: string,
+): Promise<InstalledAppInfo> {
+  return invokeIpc<InstalledAppInfo>('get_installed_app_version_info', {
+    platform_id: platformId,
+    variant: variant || null,
+  });
+}
+

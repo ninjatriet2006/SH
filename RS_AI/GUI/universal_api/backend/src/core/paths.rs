@@ -42,6 +42,11 @@ pub fn data_dir() -> Option<PathBuf> {
     home_dir().map(|h| h.join(".local").join("share").join(APP_DIR))
 }
 
+/// Thư mục `~/.cockpit_tools` để tương thích hoàn toàn dữ liệu với Cockpit gốc.
+pub fn cockpit_dir() -> Option<PathBuf> {
+    home_dir().map(|h| h.join(".cockpit_tools"))
+}
+
 /// True khi CWD có `config.json` → setup legacy đang hoạt động, giữ nguyên.
 pub fn legacy_cwd_mode() -> bool {
     std::env::current_dir()

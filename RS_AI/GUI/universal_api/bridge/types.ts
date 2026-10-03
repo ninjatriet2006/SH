@@ -122,15 +122,139 @@ export interface GuiSettings {
     quota_alert_threshold?: number;
     auto_switch_enabled?: boolean;
     auto_switch_threshold?: number;
+    auto_switch_scope_mode?: 'any_group' | 'all_accounts' | 'selected' | string;
+    auto_switch_account_scope_mode?: 'all_accounts' | 'selected' | string;
+    auto_switch_credits_enabled?: boolean;
+    auto_switch_credits_threshold?: number;
 
     // 6. Backup & Cloud Sync (WebDAV)
     auto_backup_enabled?: boolean;
+    auto_backup_include_accounts?: boolean;
+    auto_backup_include_config?: boolean;
     auto_backup_retention_days?: number;
+    backup_directory?: string;
     webdav_sync_enabled?: boolean;
     webdav_sync_url?: string;
     webdav_sync_username?: string;
     webdav_sync_password?: string;
     webdav_sync_remote_dir?: string;
+
+    // 7. Platform Specific Settings
+    // Claude
+    claude_auto_refresh_minutes?: number;
+    claude_current_account_refresh_minutes?: number;
+    claude_quota_display_remaining?: boolean;
+    claude_app_path?: string;
+    claude_quota_alert_enabled?: boolean;
+
+    // Zed
+    zed_auto_refresh_minutes?: number;
+    zed_current_account_refresh_minutes?: number;
+    zed_quota_alert_enabled?: boolean;
+
+    // GitHub Copilot
+    ghcp_auto_refresh_minutes?: number;
+    ghcp_current_account_refresh_minutes?: number;
+    ghcp_quota_alert_enabled?: boolean;
+    ghcp_account_refresh_config?: Record<string, number>;
+    ghcp_launch_on_switch?: boolean;
+    ghcp_opencode_sync_on_switch?: boolean;
+    ghcp_opencode_auth_overwrite_on_switch?: boolean;
+
+    // Devin / Windsurf
+    windsurf_auto_refresh_minutes?: number;
+    windsurf_current_account_refresh_minutes?: number;
+    windsurf_app_path?: string;
+    windsurf_quota_alert_enabled?: boolean;
+
+    // Antigravity IDE
+    antigravity_auto_refresh_minutes?: number;
+    antigravity_current_account_refresh_minutes?: number;
+    antigravity_launch_on_switch?: boolean;
+    antigravity_dual_switch_no_restart_enabled?: boolean;
+    antigravity_startup_wakeup_enabled?: boolean;
+    antigravity_startup_wakeup_delay_seconds?: number;
+    antigravity_quota_alert_enabled?: boolean;
+
+    // Codex
+    codex_auto_refresh_minutes?: number;
+    codex_current_account_refresh_minutes?: number;
+    codex_app_path?: string;
+    codex_specified_app_path?: string;
+    codex_sync_wsl?: boolean;
+    codex_wsl_config_dir?: string;
+    codex_app_ui_injection_enabled?: boolean;
+    codex_launch_on_switch?: boolean;
+    codex_local_access_entry_visible?: boolean;
+    codex_hide_relay_quota?: boolean;
+    codex_startup_wakeup_enabled?: boolean;
+    codex_startup_wakeup_delay_seconds?: number;
+    codex_quota_alert_enabled?: boolean;
+    codex_quota_alert_primary_threshold?: number;
+    codex_quota_alert_secondary_threshold?: number;
+    codex_auto_switch_enabled?: boolean;
+    codex_auto_switch_primary_threshold?: number;
+    codex_auto_switch_secondary_threshold?: number;
+    codex_hermes_auth_overwrite_on_switch?: boolean;
+    codex_openclaw_auth_overwrite_on_switch?: boolean;
+    codex_opencode_auth_overwrite_on_switch?: boolean;
+
+    // Cursor
+    cursor_auto_refresh_minutes?: number;
+    cursor_current_account_refresh_minutes?: number;
+    cursor_quota_alert_enabled?: boolean;
+
+    // Kiro
+    kiro_auto_refresh_minutes?: number;
+    kiro_current_account_refresh_minutes?: number;
+    kiro_app_path?: string;
+    kiro_quota_alert_enabled?: boolean;
+
+    // CodeBuddy & CodeBuddy CN
+    codebuddy_auto_refresh_minutes?: number;
+    codebuddy_current_account_refresh_minutes?: number;
+    codebuddy_share_sessions_on_switch?: boolean;
+    codebuddy_quota_alert_enabled?: boolean;
+    codebuddy_cn_auto_refresh_minutes?: number;
+    codebuddy_cn_current_account_refresh_minutes?: number;
+    codebuddy_cn_share_sessions_on_switch?: boolean;
+    codebuddy_cn_quota_alert_enabled?: boolean;
+
+    // WorkBuddy
+    workbuddy_auto_refresh_minutes?: number;
+    workbuddy_current_account_refresh_minutes?: number;
+    workbuddy_app_path?: string;
+    workbuddy_share_sessions_on_switch?: boolean;
+    workbuddy_quota_alert_enabled?: boolean;
+
+    // Trae & variants
+    trae_auto_refresh_minutes?: number;
+    trae_current_account_refresh_minutes?: number;
+    trae_share_sessions_on_switch?: boolean;
+    trae_quota_alert_enabled?: boolean;
+    trae_solo_app_path?: string;
+    trae_cn_app_path?: string;
+    trae_solo_cn_app_path?: string;
+
+    // Qoder & ZCode
+    qoder_auto_refresh_minutes?: number;
+    qoder_app_path?: string;
+    qoder_quota_alert_enabled?: boolean;
+    zcode_auto_refresh_minutes?: number;
+    zcode_app_path?: string;
+
+    // Grok CLI
+    grok_auto_refresh_minutes?: number;
+    grok_cli_path?: string;
+    grok_sync_official_auth_on_switch?: boolean;
+    grok_opencode_sync_on_switch?: boolean;
+    grok_opencode_auth_overwrite_on_switch?: boolean;
+    grok_quota_alert_enabled?: boolean;
+
+    // 8. Menu Bar Quota
+    menu_bar_quota_enabled?: boolean;
+    menu_bar_show_account_prefix?: boolean;
+    menu_bar_quota_platform?: string;
 }
 
 export interface ThemeInfo {

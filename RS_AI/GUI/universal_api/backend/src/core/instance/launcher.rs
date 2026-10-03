@@ -25,9 +25,11 @@ pub fn launch_instance(opts: LaunchOptions) -> Result<u32, String> {
 
     let mut cmd = Command::new(&bin_path);
 
-    // Đối với các IDE gốc VS Code / Electron (Cursor, Windsurf, CodeBuddy, Code)
+    // Đối với các IDE gốc VS Code / Electron (Cursor, Windsurf, CodeBuddy, Code, Antigravity)
     if opts.platform_id != "zed" {
-        cmd.arg("--user-data-dir").arg(opts.user_data_dir);
+        if opts.user_data_dir.as_os_str() != "default" {
+            cmd.arg("--user-data-dir").arg(opts.user_data_dir);
+        }
         if opts.use_new_window {
             cmd.arg("--new-window");
         }
