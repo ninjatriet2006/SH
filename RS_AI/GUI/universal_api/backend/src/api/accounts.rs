@@ -250,3 +250,175 @@ fn to_info(a: crate::core::pool::AccountStatus) -> AccountInfo {
         in_flight: a.in_flight as i32,
     }
 }
+
+#[derive(Deserialize)]
+pub struct InjectAccountRequest {
+    pub uid: String,
+    #[serde(default)]
+    pub platform: String,
+}
+
+#[derive(Serialize)]
+pub struct InjectAccountResult {
+    pub success: bool,
+    pub message: String,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn inject_account_to_local_ide(
+    request: Req<InjectAccountRequest>,
+    state: State<'_, RuntimeState>,
+) -> IpcResult<InjectAccountResult> {
+    let (request_id, payload) = request.validate()?;
+    let account = state
+        .pool
+        .all_accounts()
+        .into_iter()
+        .find(|a| a.uid == payload.uid)
+        .ok_or_else(|| from_string(format!("Account not found: {}", payload.uid)))?;
+
+    state.pool.enable(&payload.uid);
+
+    Ok(respond(
+        request_id,
+        InjectAccountResult {
+            success: true,
+            message: format!("Đã kích hoạt phiên làm việc cho {}", account.auth.nickname),
+        },
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct ImportLocalRequest {
+    #[serde(default)]
+    pub platform: String,
+}
+
+#[derive(Serialize)]
+pub struct ImportLocalResult {
+    pub imported_count: usize,
+    pub message: String,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn import_from_local_ide(
+    request: Req<ImportLocalRequest>,
+    state: State<'_, RuntimeState>,
+) -> IpcResult<ImportLocalResult> {
+    let (request_id, _payload) = request.validate()?;
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let mut imported = 0;
+
+    // 1. Quét từ Cockpit directory (~/.cockpit_tools/codebuddy_accounts/)
+    let cockpit_cb_dir = std::path::Path::new(&home).join(".cockpit_tools/codebuddy_accounts");
+    if cockpit_cb_dir.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(cockpit_cb_dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.extension().map_or(false, |ext| ext == "json") {
+                    if let Ok(raw) = std::fs::read_to_string(&p) {
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
+                            let uid = v.get("uid").and_then(|x| x.as_str()).unwrap_or("");
+                            let email = v.get("email").or_else(|| v.get("nickname")).and_then(|x| x.as_str()).unwrap_or("");
+                            let access_token = v.get("access_token").and_then(|x| x.as_str()).unwrap_or("");
+                            let refresh_token = v.get("refresh_token").and_then(|x| x.as_str()).unwrap_or("");
+                            let domain = v.get("domain").and_then(|x| x.as_str()).unwrap_or("www.codebuddy.ai");
+
+                            if !uid.is_empty() && !access_token.is_empty() {
+                                let auth = crate::core::auth::Auth {
+                                    file_path: p.to_string_lossy().to_string(),
+                                    uid: uid.to_string(),
+                                    domain: domain.to_string(),
+                                    nickname: email.to_string(),
+                                    enterprise_id: String::new(),
+                                    access_token: access_token.to_string(),
+                                    refresh_token: refresh_token.to_string(),
+                                    expires_at: v.get("expires_at").and_then(|x| x.as_i64()).unwrap_or(0),
+                                };
+                                if let Ok(store) = state.storage() {
+                                    let _ = store.upsert_account(
+                                        &auth.uid,
+                                        &auth.domain,
+                                        &auth.nickname,
+                                        &auth.enterprise_id,
+                                        &auth.access_token,
+                                        &auth.refresh_token,
+                                        auth.expires_at,
+                                    );
+                                }
+                                state.pool.add(auth);
+                                imported += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Quét từ Cockpit Backups nếu folder riêng chưa có
+    if imported == 0 {
+        let backups_dir = std::path::Path::new(&home).join(".cockpit_tools/backups");
+        if backups_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(backups_dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.extension().map_or(false, |ext| ext == "json") {
+                        if let Ok(raw) = std::fs::read_to_string(&p) {
+                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
+                                if let Some(platforms) = v.pointer("/accounts/platforms") {
+                                    for plat_key in &["codebuddy", "codebuddy_cn"] {
+                                        if let Some(arr) = platforms.get(plat_key).and_then(|p| p.get("exported_data")).and_then(|d| d.as_array()) {
+                                            for item in arr {
+                                                let uid = item.get("uid").and_then(|x| x.as_str()).unwrap_or("");
+                                                let email = item.get("email").and_then(|x| x.as_str()).unwrap_or("");
+                                                let access_token = item.get("access_token").and_then(|x| x.as_str()).unwrap_or("");
+                                                let refresh_token = item.get("refresh_token").and_then(|x| x.as_str()).unwrap_or("");
+                                                let domain = item.get("domain").and_then(|x| x.as_str()).unwrap_or("www.codebuddy.ai");
+
+                                                if !uid.is_empty() && !access_token.is_empty() {
+                                                    let auth = crate::core::auth::Auth {
+                                                        file_path: p.to_string_lossy().to_string(),
+                                                        uid: uid.to_string(),
+                                                        domain: domain.to_string(),
+                                                        nickname: email.to_string(),
+                                                        enterprise_id: String::new(),
+                                                        access_token: access_token.to_string(),
+                                                        refresh_token: refresh_token.to_string(),
+                                                        expires_at: item.get("expires_at").and_then(|x| x.as_i64()).unwrap_or(0),
+                                                    };
+                                                    if let Ok(store) = state.storage() {
+                                                        let _ = store.upsert_account(
+                                                            &auth.uid,
+                                                            &auth.domain,
+                                                            &auth.nickname,
+                                                            &auth.enterprise_id,
+                                                            &auth.access_token,
+                                                            &auth.refresh_token,
+                                                            auth.expires_at,
+                                                        );
+                                                    }
+                                                    state.pool.add(auth);
+                                                    imported += 1;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(respond(
+        request_id,
+        ImportLocalResult {
+            imported_count: imported,
+            message: format!("Đã nhập thành công {} tài khoản từ môi trường Cockpit / IDE cục bộ.", imported),
+        },
+    ))
+}
+
