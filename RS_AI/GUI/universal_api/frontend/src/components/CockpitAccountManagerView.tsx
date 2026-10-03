@@ -36,6 +36,7 @@ import type { AccountInfo } from '../../../bridge/types';
 import {
     listAccounts,
     removeAccount,
+    refreshAntigravityQuota,
     getInstalledAppVersionInfo,
     type InstalledAppInfo,
 } from '../../../bridge/accounts_bridge';
@@ -271,6 +272,7 @@ export function CockpitAccountManagerView({
     const [accounts, setAccounts] = useState<AccountInfo[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [refreshingUid, setRefreshingUid] = useState<string | null>(null);
     const [actionMsg, setActionMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
     useEffect(() => {
@@ -384,6 +386,44 @@ export function CockpitAccountManagerView({
             console.error('Failed to load accounts:', e);
         } finally {
             setLoading(false);
+            setRefreshing(false);
+        }
+    };
+
+    const handleRefreshSingle = async (acc: AccountInfo) => {
+        try {
+            setRefreshingUid(acc.uid);
+            if (acc.domain?.includes('antigravity') || acc.uid?.startsWith('antigravity_')) {
+                await refreshAntigravityQuota(acc.uid);
+                showMsg('Đã làm mới Quota Antigravity thành công', true);
+            }
+            await loadAccounts();
+        } catch (e: any) {
+            showMsg(`Làm mới thất bại: ${e?.message || e}`, false);
+        } finally {
+            setRefreshingUid(null);
+        }
+    };
+
+    const handleRefreshAll = async () => {
+        try {
+            setRefreshing(true);
+            if (platformId === 'antigravity') {
+                for (const acc of accounts) {
+                    if (acc.domain?.includes('antigravity') || acc.uid?.startsWith('antigravity_')) {
+                        try {
+                            await refreshAntigravityQuota(acc.uid);
+                        } catch (err) {
+                            console.warn(`Lỗi refresh quota ${acc.uid}:`, err);
+                        }
+                    }
+                }
+                showMsg('Đã làm mới toàn bộ Quota Antigravity', true);
+            }
+            await loadAccounts();
+        } catch (e: any) {
+            showMsg(`Lỗi: ${e?.message || e}`, false);
+        } finally {
             setRefreshing(false);
         }
     };
@@ -961,7 +1001,7 @@ export function CockpitAccountManagerView({
                     {/* Refresh All */}
                     <button
                         className="toolbar-icon-btn"
-                        onClick={loadAccounts}
+                        onClick={handleRefreshAll}
                         disabled={refreshing}
                         title="Refresh Quota"
                     >
@@ -1082,16 +1122,22 @@ export function CockpitAccountManagerView({
                                             </span>
                                         </div>
                                     ) : platformId === 'antigravity' ? (
-                                        <div style={{ display: 'flex', gap: '0.35rem' }}>
-                                            {isCurrent && (
-                                                <span className="badge" style={{ background: '#22c55e', color: '#fff', fontSize: '0.65rem', fontWeight: 600, padding: '0.15rem 0.45rem', borderRadius: 4 }}>
-                                                    Current
-                                                </span>
-                                            )}
-                                            <span className="badge" style={{ background: (account.plan_tier === 'PRO' || account.quota_details?.plan_tier === 'PRO') ? '#0284c7' : '#475569', color: '#fff', fontSize: '0.65rem', fontWeight: 600, padding: '0.15rem 0.45rem', borderRadius: 4 }}>
-                                                {account.plan_tier || account.quota_details?.plan_tier || 'FREE'}
-                                            </span>
-                                        </div>
+                                        (() => {
+                                            const rawTier = (account.plan_tier || account.quota_details?.plan_tier || 'FREE').toUpperCase();
+                                            const isProTier = rawTier.includes('PRO') || rawTier.includes('ULTRA');
+                                            return (
+                                                <div style={{ display: 'flex', gap: '0.35rem' }}>
+                                                    {isCurrent && (
+                                                        <span className="badge" style={{ background: '#22c55e', color: '#fff', fontSize: '0.65rem', fontWeight: 600, padding: '0.15rem 0.45rem', borderRadius: 4 }}>
+                                                            Current
+                                                        </span>
+                                                    )}
+                                                    <span className="badge" style={{ background: isProTier ? '#0284c7' : '#475569', color: '#fff', fontSize: '0.65rem', fontWeight: 600, padding: '0.15rem 0.45rem', borderRadius: 4 }}>
+                                                        {rawTier}
+                                                    </span>
+                                                </div>
+                                            );
+                                        })()
                                     ) : (
                                         <span className="badge badge-info" style={{ fontSize: '0.65rem' }}>
                                             {account.plan_tier || 'FREE'}
@@ -1147,7 +1193,8 @@ export function CockpitAccountManagerView({
                                 ) : platformId === 'antigravity' ? (
                                     (() => {
                                         const details = account.quota_details;
-                                        const isPro = account.plan_tier === 'PRO' || details?.plan_tier === 'PRO';
+                                        const rawTier = (account.plan_tier || details?.plan_tier || 'FREE').toUpperCase();
+                                        const isPro = rawTier.includes('PRO') || rawTier.includes('ULTRA');
                                         const claude5h = details?.claude_5h;
                                         const claudeWeekly = details?.claude_weekly;
                                         const gemini5h = details?.gemini_5h;
@@ -1209,6 +1256,12 @@ export function CockpitAccountManagerView({
                                                                 </div>
                                                             </div>
                                                         )}
+
+                                                        {!claude5h && !claudeWeekly && (
+                                                            <div style={{ fontSize: '0.72rem', color: '#64748b', fontStyle: 'italic', marginTop: 2 }}>
+                                                                Chưa có hạn ngạch
+                                                            </div>
+                                                        )}
                                                     </div>
 
                                                     {/* Gemini Column */}
@@ -1242,6 +1295,12 @@ export function CockpitAccountManagerView({
                                                                 <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 2 }}>
                                                                     {geminiWeekly.time_left}
                                                                 </div>
+                                                            </div>
+                                                        )}
+
+                                                        {!gemini5h && !geminiWeekly && (
+                                                            <div style={{ fontSize: '0.72rem', color: '#64748b', fontStyle: 'italic', marginTop: 2 }}>
+                                                                Chưa có hạn ngạch
                                                             </div>
                                                         )}
                                                     </div>
@@ -1322,10 +1381,10 @@ export function CockpitAccountManagerView({
                                         </button>
                                         <button
                                             className="card-action-btn"
-                                            onClick={loadAccounts}
+                                            onClick={() => handleRefreshSingle(account)}
                                             title="Làm mới Quota"
                                         >
-                                            <RefreshCw size={12} />
+                                            <RefreshCw size={12} className={refreshingUid === account.uid ? 'spin' : ''} />
                                         </button>
                                         <button
                                             className="card-action-btn"

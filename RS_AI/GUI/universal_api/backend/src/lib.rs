@@ -45,9 +45,28 @@ pub fn run() {
             app.manage(core::runtime::RuntimeState::with_config(
                 core::config::load_boot_config(),
             ));
+
+            // Khởi động tiến trình Token Keeper quét ngầm tự động làm mới token
+            core::token_keeper::start_token_keeper_daemon();
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            // ==================
+            // SYSTEM TOOLS (COCKPIT PARITY)
+            // ==================
+            api::system_tools::trigger_token_keeper,
+            api::system_tools::get_auto_checkin_status,
+            api::system_tools::toggle_auto_checkin,
+            api::system_tools::run_auto_checkin_now,
+            api::system_tools::scan_instance_storage,
+            api::system_tools::execute_instance_storage_clean,
+            api::system_tools::get_webdav_config,
+            api::system_tools::save_webdav_config,
+            api::system_tools::test_webdav_connection_cmd,
+            api::system_tools::backup_to_webdav_now,
+            api::system_tools::list_webdav_backups_cmd,
+            api::system_tools::restore_from_webdav_cmd,
             // ==================
             // GATEWAY API
             // ==================
@@ -67,6 +86,7 @@ pub fn run() {
             api::accounts::disable_account,
             api::accounts::enable_account,
             api::accounts::test_account,
+            api::accounts::refresh_antigravity_quota,
             api::accounts::probe_account,
             api::accounts::inject_account_to_local_ide,
             api::accounts::import_from_local_ide,

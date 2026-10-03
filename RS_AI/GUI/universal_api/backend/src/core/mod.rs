@@ -24,3 +24,8 @@ pub mod inject;
 pub mod instance;
 pub mod oauth;
 pub mod secure_account_storage;
+pub mod token_keeper;
+pub mod auto_checkin;
+pub mod storage_cleanup;
+pub mod webdav;
+pub mod antigravity_quota;

@@ -312,6 +312,16 @@ pub fn poll_antigravity_oauth(
         &user_info.id,
     )?;
 
+    // Fetch initial quota metrics from Google Cloud Code Pa immediately
+    if let Err(e) = crate::core::antigravity_quota::fetch_and_save_antigravity_quota(
+        cockpit_dir,
+        &account_id,
+        &email,
+        &token_data.access_token,
+    ) {
+        log::warn!("Không thể lấy quota ban đầu cho Antigravity [{email}]: {e}");
+    }
+
     cancel_oauth();
 
     Ok(Some(OAuthSuccessResult {

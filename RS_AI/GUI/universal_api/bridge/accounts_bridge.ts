@@ -41,6 +41,10 @@ export async function testAccount(uid: string): Promise<TestAccountResult> {
   return invokeIpc<TestAccountResult>('test_account', { uid });
 }
 
+export async function refreshAntigravityQuota(uid: string): Promise<any> {
+  return invokeIpc<any>('refresh_antigravity_quota', { uid });
+}
+
 export interface ProbeAccountResult {
   uid: string;
   quota_ok: boolean;

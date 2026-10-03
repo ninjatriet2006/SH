@@ -55,24 +55,34 @@ fn get_antigravity_account_detail(
 ) -> (Option<String>, Option<serde_json::Value>) {
     let key_path = cockpit_dir.join("secure-account-storage.key");
 
-    // 1. Try reading the actual account detail file first
     let mut detected_tier: Option<String> = None;
+    let mut acc_quota: Option<serde_json::Value> = None;
 
     if !account_id.is_empty() {
         let acc_file = cockpit_dir.join("accounts").join(format!("{account_id}.json"));
         if let Some(acc_val) = read_cockpit_secure_json(&acc_file, &key_path) {
             if let Some(q) = acc_val.get("quota") {
+                acc_quota = Some(q.clone());
                 if let Some(tier) = q.get("subscription_tier").and_then(|t| t.as_str()) {
                     if !tier.is_empty() {
-                        detected_tier = Some(tier.to_uppercase());
+                        let t_up = tier.to_uppercase();
+                        if t_up.contains("PRO") {
+                            detected_tier = Some("G1-PRO-TIER".to_string());
+                        } else if t_up.contains("ULTRA") {
+                            detected_tier = Some("G1-ULTRA-TIER".to_string());
+                        } else if t_up.contains("FREE") {
+                            detected_tier = Some("FREE".to_string());
+                        } else {
+                            detected_tier = Some(t_up);
+                        }
                     }
                 }
                 if detected_tier.is_none() {
                     if let Some(tier_id) = q.get("tier_id").and_then(|t| t.as_str()) {
                         if tier_id.to_lowercase().contains("pro") {
-                            detected_tier = Some("PRO".to_string());
+                            detected_tier = Some("G1-PRO-TIER".to_string());
                         } else if tier_id.to_lowercase().contains("ultra") {
-                            detected_tier = Some("ULTRA".to_string());
+                            detected_tier = Some("G1-ULTRA-TIER".to_string());
                         }
                     }
                 }
@@ -80,6 +90,13 @@ fn get_antigravity_account_detail(
         }
     }
 
+    let mut c_5h = None;
+    let mut c_weekly = None;
+    let mut g_5h = None;
+    let mut g_weekly = None;
+    let mut found_metrics = false;
+
+    // 1. Try reading from quota API cache file
     use sha2::{Digest, Sha256};
     let hash = format!("{:x}", Sha256::digest(email.trim().to_lowercase().as_bytes()));
     let cache_file = cockpit_dir
@@ -93,12 +110,6 @@ fn get_antigravity_account_detail(
             let payload = v.get("payload");
             let quota_summary = payload.and_then(|p| p.get("quota_summary"));
             if let Some(qs) = quota_summary.filter(|q| q.is_object() && q.get("groups").is_some()) {
-                // PRO tier
-                let mut c_5h = None;
-                let mut c_weekly = None;
-                let mut g_5h = None;
-                let mut g_weekly = None;
-
                 if let Some(groups) = qs.get("groups").and_then(|g| g.as_array()) {
                     for group in groups {
                         if let Some(buckets) = group.get("buckets").and_then(|b| b.as_array()) {
@@ -114,27 +125,17 @@ fn get_antigravity_account_detail(
                                     "time_left": tl
                                 });
                                 match bid {
-                                    "3p-5h" => c_5h = Some(obj),
-                                    "3p-weekly" => c_weekly = Some(obj),
-                                    "gemini-5h" => g_5h = Some(obj),
-                                    "gemini-weekly" => g_weekly = Some(obj),
+                                    "3p-5h" | "claude:5h" => c_5h = Some(obj),
+                                    "3p-weekly" | "claude:weekly" => c_weekly = Some(obj),
+                                    "gemini-5h" | "gemini:5h" => g_5h = Some(obj),
+                                    "gemini-weekly" | "gemini:weekly" => g_weekly = Some(obj),
                                     _ => {}
                                 }
                             }
                         }
                     }
+                    found_metrics = c_weekly.is_some() || g_weekly.is_some() || c_5h.is_some() || g_5h.is_some();
                 }
-
-                let final_tier = detected_tier.unwrap_or_else(|| "PRO".to_string());
-                let details = serde_json::json!({
-                    "plan_tier": final_tier,
-                    "is_current": is_current,
-                    "claude_5h": c_5h,
-                    "claude_weekly": c_weekly,
-                    "gemini_5h": g_5h,
-                    "gemini_weekly": g_weekly
-                });
-                return (Some(final_tier), Some(details));
             } else if let Some(models) = payload.and_then(|p| p.get("models")) {
                 let get_model_bucket = |m_name: &str| -> Option<serde_json::Value> {
                     let qi = models.get(m_name)?.get("quotaInfo")?;
@@ -149,38 +150,54 @@ fn get_antigravity_account_detail(
                     }))
                 };
 
-                let c_weekly = get_model_bucket("claude-opus-4-6-thinking")
+                c_weekly = get_model_bucket("claude-opus-4-6-thinking")
                     .or_else(|| get_model_bucket("claude-sonnet-4-6"));
-                let g_weekly = get_model_bucket("gemini-2.5-flash")
+                g_weekly = get_model_bucket("gemini-2.5-flash")
                     .or_else(|| get_model_bucket("gemini-2.5-flash-thinking"));
-
-                let final_tier = detected_tier.unwrap_or_else(|| "FREE".to_string());
-                let details = serde_json::json!({
-                    "plan_tier": final_tier,
-                    "is_current": is_current,
-                    "claude_5h": null,
-                    "claude_weekly": c_weekly,
-                    "gemini_5h": null,
-                    "gemini_weekly": g_weekly
-                });
-                return (Some(final_tier), Some(details));
+                found_metrics = c_weekly.is_some() || g_weekly.is_some();
             }
         }
     }
 
-    if let Some(tier) = detected_tier {
-        let details = serde_json::json!({
-            "plan_tier": tier,
-            "is_current": is_current,
-            "claude_5h": null,
-            "claude_weekly": null,
-            "gemini_5h": null,
-            "gemini_weekly": null
-        });
-        return (Some(tier), Some(details));
+    // 2. Fallback to account envelope's quota.models if cache file was missing or empty
+    if !found_metrics {
+        if let Some(models) = acc_quota.as_ref().and_then(|q| q.get("models")).and_then(|m| m.as_array()) {
+            for m in models {
+                let name = m.get("name").and_then(|x| x.as_str()).unwrap_or("");
+                let pct = m.get("percentage").and_then(|x| x.as_i64()).unwrap_or(0);
+                let rt = m.get("reset_time").and_then(|x| x.as_str()).unwrap_or("");
+                let tl = format_time_left(rt);
+                let obj = serde_json::json!({
+                    "percent": pct,
+                    "reset_time": rt,
+                    "time_left": tl
+                });
+                match name {
+                    "3p-5h" | "claude:5h" => c_5h = Some(obj),
+                    "3p-weekly" | "claude:weekly" => c_weekly = Some(obj),
+                    "gemini-5h" | "gemini:5h" => g_5h = Some(obj),
+                    "gemini-weekly" | "gemini:weekly" => g_weekly = Some(obj),
+                    _ => {}
+                }
+            }
+            found_metrics = c_weekly.is_some() || g_weekly.is_some() || c_5h.is_some() || g_5h.is_some();
+        }
     }
 
-    (Some("FREE".to_string()), None)
+    let final_tier = detected_tier.unwrap_or_else(|| "FREE".to_string());
+    if found_metrics {
+        let details = serde_json::json!({
+            "plan_tier": final_tier,
+            "is_current": is_current,
+            "claude_5h": c_5h,
+            "claude_weekly": c_weekly,
+            "gemini_5h": g_5h,
+            "gemini_weekly": g_weekly
+        });
+        (Some(final_tier), Some(details))
+    } else {
+        (Some(final_tier), None)
+    }
 }
 
 fn get_copilot_account_detail(item: &serde_json::Value) -> (Option<String>, Option<serde_json::Value>) {
@@ -209,13 +226,21 @@ fn load_cockpit_platform_accounts(home: &str) -> Vec<AccountInfo> {
     }
 
     let files = [
+        ("accounts.json", "antigravity.google.com"),
         ("github_copilot_accounts.json", "github.com/copilot"),
         ("cursor_accounts.json", "cursor.com"),
         ("windsurf_accounts.json", "codeium.com"),
         ("trae_accounts.json", "trae.ai"),
         ("zed_accounts.json", "cloud.zed.dev"),
-        ("accounts.json", "antigravity.google.com"),
         ("codebuddy_accounts.json", "codebuddy.ai"),
+        ("codebuddy_cn_accounts.json", "codebuddy.cn"),
+        ("workbuddy_accounts.json", "workbuddy.cn"),
+        ("claude_accounts.json", "anthropic.com/claude"),
+        ("codex_accounts.json", "openai.com/codex"),
+        ("grok_accounts.json", "x.ai/grok"),
+        ("kiro_accounts.json", "kiro.ai"),
+        ("qoder_accounts.json", "qoder.ai"),
+        ("zcode_accounts.json", "zcode.ai"),
     ];
 
     let key_path = cockpit_dir.join("secure-account-storage.key");
@@ -565,6 +590,18 @@ pub struct InjectAccountRequest {
     pub uid: String,
     #[serde(default)]
     pub platform: String,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn refresh_antigravity_quota(
+    request: Req<AccountUidRequest>,
+) -> IpcResult<Option<serde_json::Value>> {
+    let (request_id, payload) = request.validate()?;
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let cockpit_dir = std::path::Path::new(&home).join(".cockpit_tools");
+    let quota = crate::core::antigravity_quota::refresh_antigravity_account_quota(&cockpit_dir, &payload.uid)
+        .map_err(|e| from_string(format!("Lỗi làm mới Quota Antigravity: {e}")))?;
+    Ok(respond(request_id, Some(quota)))
 }
 
 #[derive(Serialize)]
@@ -1181,30 +1218,37 @@ pub fn get_providers_overview(
 
     let antigravity_count = count_json("accounts.json");
     let copilot_count = count_json("github_copilot_accounts.json");
-    let codebuddy_count = state.pool.status_json().len().max(count_json("codebuddy_accounts.json"));
+    let codebuddy_count = state.pool.status_json().len().max(count_json("codebuddy_accounts.json") + count_json("codebuddy_cn_accounts.json") + count_json("workbuddy_accounts.json"));
     let cursor_count = count_json("cursor_accounts.json");
     let windsurf_count = count_json("windsurf_accounts.json");
     let trae_count = count_json("trae_accounts.json");
     let zed_count = count_json("zed_accounts.json");
+    let claude_count = count_json("claude_accounts.json");
+    let codex_count = count_json("codex_accounts.json");
+    let grok_count = count_json("grok_accounts.json");
+    let kiro_count = count_json("kiro_accounts.json");
+    let qoder_count = count_json("qoder_accounts.json");
+    let zcode_count = count_json("zcode_accounts.json");
 
-    let total = antigravity_count + copilot_count + codebuddy_count + cursor_count + windsurf_count + trae_count + zed_count;
+    let total = antigravity_count + copilot_count + codebuddy_count + cursor_count + windsurf_count + trae_count + zed_count
+        + claude_count + codex_count + grok_count + kiro_count + qoder_count + zcode_count;
 
     let stats = vec![
-        ProviderStat { id: "total".into(), name: "Total accounts".into(), count: total.max(6), badge: None },
+        ProviderStat { id: "total".into(), name: "Total accounts".into(), count: total, badge: None },
         ProviderStat { id: "relay".into(), name: "Relay".into(), count: 1, badge: None },
-        ProviderStat { id: "claude".into(), name: "Claude".into(), count: 0, badge: None },
-        ProviderStat { id: "codex".into(), name: "Codex".into(), count: 0, badge: Some("+1".into()) },
-        ProviderStat { id: "antigravity".into(), name: "Antigravity".into(), count: antigravity_count.max(4), badge: Some("+1".into()) },
+        ProviderStat { id: "claude".into(), name: "Claude".into(), count: claude_count, badge: None },
+        ProviderStat { id: "codex".into(), name: "Codex".into(), count: codex_count, badge: None },
+        ProviderStat { id: "antigravity".into(), name: "Antigravity".into(), count: antigravity_count, badge: None },
         ProviderStat { id: "zed".into(), name: "Zed".into(), count: zed_count, badge: None },
-        ProviderStat { id: "github_copilot".into(), name: "GitHub Copilot".into(), count: copilot_count.max(1), badge: None },
+        ProviderStat { id: "github_copilot".into(), name: "GitHub Copilot".into(), count: copilot_count, badge: None },
         ProviderStat { id: "windsurf".into(), name: "Windsurf".into(), count: windsurf_count, badge: None },
-        ProviderStat { id: "kiro".into(), name: "Kiro".into(), count: 0, badge: None },
+        ProviderStat { id: "kiro".into(), name: "Kiro".into(), count: kiro_count, badge: None },
         ProviderStat { id: "cursor".into(), name: "Cursor".into(), count: cursor_count, badge: None },
-        ProviderStat { id: "grok".into(), name: "Grok CLI".into(), count: 0, badge: None },
-        ProviderStat { id: "codebuddy".into(), name: "CodeBuddy".into(), count: codebuddy_count.max(1), badge: Some("+2".into()) },
-        ProviderStat { id: "qoder".into(), name: "Qoder".into(), count: 0, badge: None },
-        ProviderStat { id: "zcode".into(), name: "ZCode".into(), count: 0, badge: None },
-        ProviderStat { id: "trae".into(), name: "Trae".into(), count: trae_count, badge: Some("+3".into()) },
+        ProviderStat { id: "grok".into(), name: "Grok CLI".into(), count: grok_count, badge: None },
+        ProviderStat { id: "codebuddy".into(), name: "CodeBuddy".into(), count: codebuddy_count, badge: None },
+        ProviderStat { id: "qoder".into(), name: "Qoder".into(), count: qoder_count, badge: None },
+        ProviderStat { id: "zcode".into(), name: "ZCode".into(), count: zcode_count, badge: None },
+        ProviderStat { id: "trae".into(), name: "Trae".into(), count: trae_count, badge: None },
     ];
 
     Ok(respond(request_id, stats))

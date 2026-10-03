@@ -367,3 +367,75 @@ export interface ScheduleConfig {
     keepalive_hours: number[];
     keepalive_enabled: boolean;
 }
+
+export interface TokenKeeperReport {
+    timestamp: string;
+    checkedCount: number;
+    refreshedCount: number;
+    failedCount: number;
+    details: string[];
+}
+
+export interface AutoCheckinConfig {
+    enabled: boolean;
+    lastCheckedDate?: string | null;
+}
+
+export interface AutoCheckinLogRecord {
+    id: string;
+    timestamp: string;
+    date: string;
+    accountId: string;
+    email: string;
+    status: string;
+    message: string;
+    creditAwarded?: number | null;
+}
+
+export interface AutoCheckinStatusResponse {
+    config: AutoCheckinConfig;
+    logs: AutoCheckinLogRecord[];
+}
+
+export interface OrphanInstanceItem {
+    path: string;
+    platform: string;
+    sizeBytes: number;
+}
+
+export interface CacheFolderItem {
+    instancePath: string;
+    cachePath: string;
+    platform: string;
+    folderName: string;
+    sizeBytes: number;
+}
+
+export interface StorageScanReport {
+    orphanDirectories: OrphanInstanceItem[];
+    cacheFolders: CacheFolderItem[];
+    totalOrphanBytes: number;
+    totalCacheBytes: number;
+    totalReclaimableBytes: number;
+}
+
+export interface StorageCleanReport {
+    freedBytes: number;
+    deletedPaths: string[];
+    failedPaths: string[];
+}
+
+export interface WebdavSettings {
+    url: string;
+    username: string;
+    password?: string;
+    remoteDir?: string;
+    enabled: boolean;
+    lastBackupAt?: string | null;
+}
+
+export interface WebdavRemoteFile {
+    fileName: string;
+    sizeBytes: number;
+    modifiedAt?: string | null;
+}
