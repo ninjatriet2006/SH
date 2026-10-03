@@ -72,6 +72,7 @@ pub fn run() {
             api::accounts::import_from_local_ide,
             api::accounts::get_antigravity_overview,
             api::accounts::get_providers_overview,
+            api::accounts::get_antigravity_installed_version_info,
             // ==================
             // BROWSER DEVICE-LOGIN (port Go cmd/login)
             // ==================
@@ -137,6 +138,7 @@ pub fn run() {
             // ==================
             api::settings::get_gui_settings,
             api::settings::save_gui_settings,
+            api::settings::auto_detect_ide_path,
             api::lang::get_available_langs,
             api::lang::get_lang_content,
             api::theme::get_available_themes,

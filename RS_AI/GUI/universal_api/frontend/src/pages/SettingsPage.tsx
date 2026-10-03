@@ -10,7 +10,10 @@ import {
     AlertCircle,
     Download,
     RefreshCw,
+    FolderOpen,
+    Sparkles,
 } from 'lucide-react';
+import { open } from '@tauri-apps/plugin-dialog';
 import { ipcErrorMessage } from '../../../bridge/ipc';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useThemeStore } from '../store/useThemeStore';
@@ -44,6 +47,41 @@ export function SettingsPage() {
             showMsg('Đã lưu cấu hình thành công!', true);
         } catch (e) {
             showMsg(ipcErrorMessage(e), false);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleBrowse = async (fieldKey: keyof GuiSettings) => {
+        try {
+            const selected = await open({
+                multiple: false,
+                directory: false,
+                title: 'Chọn tệp thực thi ứng dụng',
+            });
+            if (selected && typeof selected === 'string') {
+                await saveField(fieldKey, selected);
+            }
+        } catch (e: any) {
+            showMsg(e.message || 'Lỗi khi mở hộp thoại chọn tệp', false);
+        }
+    };
+
+    const handleAutoDetect = async (target: string, fieldKey: keyof GuiSettings) => {
+        try {
+            setSaving(true);
+            const res = await invokeIpc<{ found: boolean; path: string | null; message: string }>(
+                'auto_detect_ide_path',
+                { target }
+            );
+            if (res.found && res.path) {
+                await saveField(fieldKey, res.path);
+                showMsg(res.message, true);
+            } else {
+                showMsg(res.message || 'Không tự động tìm thấy ứng dụng qua tệp .desktop. Vui lòng bấm Browse để chọn thủ công.', false);
+            }
+        } catch (e: any) {
+            showMsg(ipcErrorMessage(e) || 'Lỗi khi tự động quét ứng dụng', false);
         } finally {
             setSaving(false);
         }
@@ -448,32 +486,175 @@ export function SettingsPage() {
                                         <div className="setting-label">VS Code Executable Path</div>
                                         <div className="setting-hint">Đường dẫn tệp thực thi của Visual Studio Code.</div>
                                     </div>
-                                    <div className="setting-control" style={{ width: 280 }}>
+                                    <div className="setting-control" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', width: 440 }}>
                                         <input
                                             type="text"
                                             className="input"
                                             value={settings.vscode_app_path || '/usr/bin/code'}
                                             onChange={(e) => void saveField('vscode_app_path', e.target.value)}
                                             disabled={saving}
-                                            style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}
+                                            style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}
                                         />
+                                        <button
+                                            className="btn"
+                                            style={{ padding: '0 0.65rem', height: 32, fontSize: '0.75rem', gap: '0.25rem', whiteSpace: 'nowrap' }}
+                                            onClick={() => handleBrowse('vscode_app_path')}
+                                            disabled={saving}
+                                            title="Duyệt tệp thực thi trên hệ thống"
+                                        >
+                                            <FolderOpen size={13} /> Browse
+                                        </button>
+                                        <button
+                                            className="btn"
+                                            style={{ padding: '0 0.65rem', height: 32, fontSize: '0.75rem', gap: '0.25rem', whiteSpace: 'nowrap' }}
+                                            onClick={() => handleAutoDetect('vscode', 'vscode_app_path')}
+                                            disabled={saving}
+                                            title="Tự động quét tệp .desktop để tìm ứng dụng"
+                                        >
+                                            <Sparkles size={13} /> Auto Detect
+                                        </button>
                                     </div>
                                 </div>
 
                                 <div className="setting-row">
                                     <div className="setting-info">
                                         <div className="setting-label">Antigravity IDE Executable Path</div>
-                                        <div className="setting-hint">Đường dẫn nhị phân của Antigravity IDE desktop.</div>
+                                        <div className="setting-hint">Đường dẫn nhị phân của Antigravity IDE desktop (VS Code based).</div>
                                     </div>
-                                    <div className="setting-control" style={{ width: 280 }}>
+                                    <div className="setting-control" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', width: 440 }}>
                                         <input
                                             type="text"
                                             className="input"
                                             value={settings.antigravity_app_path || '/home/bimatkeo/Applications/antigravity-ide/antigravity-ide'}
                                             onChange={(e) => void saveField('antigravity_app_path', e.target.value)}
                                             disabled={saving}
-                                            style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}
+                                            style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}
                                         />
+                                        <button
+                                            className="btn"
+                                            style={{ padding: '0 0.65rem', height: 32, fontSize: '0.75rem', gap: '0.25rem', whiteSpace: 'nowrap' }}
+                                            onClick={() => handleBrowse('antigravity_app_path')}
+                                            disabled={saving}
+                                            title="Duyệt tệp thực thi trên hệ thống"
+                                        >
+                                            <FolderOpen size={13} /> Browse
+                                        </button>
+                                        <button
+                                            className="btn"
+                                            style={{ padding: '0 0.65rem', height: 32, fontSize: '0.75rem', gap: '0.25rem', whiteSpace: 'nowrap' }}
+                                            onClick={() => handleAutoDetect('antigravity_ide', 'antigravity_app_path')}
+                                            disabled={saving}
+                                            title="Tự động quét tệp .desktop để tìm ứng dụng"
+                                        >
+                                            <Sparkles size={13} /> Auto Detect
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="setting-row">
+                                    <div className="setting-info">
+                                        <div className="setting-label">Antigravity Desktop Executable Path</div>
+                                        <div className="setting-hint">Đường dẫn nhị phân của ứng dụng Antigravity Desktop thường (App Legacy).</div>
+                                    </div>
+                                    <div className="setting-control" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', width: 440 }}>
+                                        <input
+                                            type="text"
+                                            className="input"
+                                            value={settings.antigravity_desktop_app_path || '/home/bimatkeo/Applications/antigravity/antigravity'}
+                                            onChange={(e) => void saveField('antigravity_desktop_app_path', e.target.value)}
+                                            disabled={saving}
+                                            style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}
+                                        />
+                                        <button
+                                            className="btn"
+                                            style={{ padding: '0 0.65rem', height: 32, fontSize: '0.75rem', gap: '0.25rem', whiteSpace: 'nowrap' }}
+                                            onClick={() => handleBrowse('antigravity_desktop_app_path')}
+                                            disabled={saving}
+                                            title="Duyệt tệp thực thi trên hệ thống"
+                                        >
+                                            <FolderOpen size={13} /> Browse
+                                        </button>
+                                        <button
+                                            className="btn"
+                                            style={{ padding: '0 0.65rem', height: 32, fontSize: '0.75rem', gap: '0.25rem', whiteSpace: 'nowrap' }}
+                                            onClick={() => handleAutoDetect('antigravity_desktop', 'antigravity_desktop_app_path')}
+                                            disabled={saving}
+                                            title="Tự động quét tệp .desktop để tìm ứng dụng"
+                                        >
+                                            <Sparkles size={13} /> Auto Detect
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="setting-row">
+                                    <div className="setting-info">
+                                        <div className="setting-label">Cursor Executable Path</div>
+                                        <div className="setting-hint">Đường dẫn nhị phân của trình soạn thảo Cursor AI.</div>
+                                    </div>
+                                    <div className="setting-control" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', width: 440 }}>
+                                        <input
+                                            type="text"
+                                            className="input"
+                                            placeholder="/usr/share/cursor/cursor"
+                                            value={settings.cursor_app_path || ''}
+                                            onChange={(e) => void saveField('cursor_app_path', e.target.value)}
+                                            disabled={saving}
+                                            style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}
+                                        />
+                                        <button
+                                            className="btn"
+                                            style={{ padding: '0 0.65rem', height: 32, fontSize: '0.75rem', gap: '0.25rem', whiteSpace: 'nowrap' }}
+                                            onClick={() => handleBrowse('cursor_app_path')}
+                                            disabled={saving}
+                                            title="Duyệt tệp thực thi trên hệ thống"
+                                        >
+                                            <FolderOpen size={13} /> Browse
+                                        </button>
+                                        <button
+                                            className="btn"
+                                            style={{ padding: '0 0.65rem', height: 32, fontSize: '0.75rem', gap: '0.25rem', whiteSpace: 'nowrap' }}
+                                            onClick={() => handleAutoDetect('cursor', 'cursor_app_path')}
+                                            disabled={saving}
+                                            title="Tự động quét tệp .desktop để tìm ứng dụng"
+                                        >
+                                            <Sparkles size={13} /> Auto Detect
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="setting-row">
+                                    <div className="setting-info">
+                                        <div className="setting-label">Zed Cloud Executable Path</div>
+                                        <div className="setting-hint">Đường dẫn nhị phân của Zed Editor.</div>
+                                    </div>
+                                    <div className="setting-control" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', width: 440 }}>
+                                        <input
+                                            type="text"
+                                            className="input"
+                                            placeholder="/home/bimatkeo/.local/zed.app/bin/zed"
+                                            value={settings.zed_app_path || ''}
+                                            onChange={(e) => void saveField('zed_app_path', e.target.value)}
+                                            disabled={saving}
+                                            style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}
+                                        />
+                                        <button
+                                            className="btn"
+                                            style={{ padding: '0 0.65rem', height: 32, fontSize: '0.75rem', gap: '0.25rem', whiteSpace: 'nowrap' }}
+                                            onClick={() => handleBrowse('zed_app_path')}
+                                            disabled={saving}
+                                            title="Duyệt tệp thực thi trên hệ thống"
+                                        >
+                                            <FolderOpen size={13} /> Browse
+                                        </button>
+                                        <button
+                                            className="btn"
+                                            style={{ padding: '0 0.65rem', height: 32, fontSize: '0.75rem', gap: '0.25rem', whiteSpace: 'nowrap' }}
+                                            onClick={() => handleAutoDetect('zed', 'zed_app_path')}
+                                            disabled={saving}
+                                            title="Tự động quét tệp .desktop để tìm ứng dụng"
+                                        >
+                                            <Sparkles size={13} /> Auto Detect
+                                        </button>
                                     </div>
                                 </div>
                             </div>

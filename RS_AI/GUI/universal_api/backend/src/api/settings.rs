@@ -13,6 +13,10 @@ fn default_no_proxy() -> String { "127.0.0.1,localhost,::1".to_string() }
 fn default_ws_port() -> u16 { 19528 }
 fn default_vscode_path() -> String { "/usr/bin/code".to_string() }
 fn default_antigravity_path() -> String { "/home/bimatkeo/Applications/antigravity-ide/antigravity-ide".to_string() }
+fn default_antigravity_desktop_path() -> String {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    format!("{}/Applications/antigravity/antigravity", home)
+}
 fn default_alert_threshold() -> u32 { 20 }
 fn default_switch_threshold() -> u32 { 5 }
 fn default_retention_days() -> u32 { 15 }
@@ -65,6 +69,8 @@ pub struct GuiSettings {
     pub vscode_app_path: String,
     #[serde(default = "default_antigravity_path")]
     pub antigravity_app_path: String,
+    #[serde(default = "default_antigravity_desktop_path")]
+    pub antigravity_desktop_app_path: String,
     #[serde(default)]
     pub cursor_app_path: String,
     #[serde(default)]
@@ -123,6 +129,7 @@ impl Default for GuiSettings {
             ws_port: default_ws_port(),
             vscode_app_path: default_vscode_path(),
             antigravity_app_path: default_antigravity_path(),
+            antigravity_desktop_app_path: default_antigravity_desktop_path(),
             cursor_app_path: String::new(),
             trae_app_path: String::new(),
             zed_app_path: String::new(),
@@ -188,4 +195,151 @@ pub fn save_gui_settings(request: Req<GuiSettings>) -> IpcResult<Empty> {
     let (request_id, payload) = request.validate()?;
     save_settings_inner(&payload).map_err(from_string)?;
     Ok(respond(request_id, Empty {}))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DetectIdePathRequest {
+    pub target: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DetectIdePathResponse {
+    pub found: bool,
+    pub path: Option<String>,
+    pub message: String,
+}
+
+fn scan_desktop_files_for_exec(target_key: &str) -> Option<String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let search_dirs = [
+        std::path::PathBuf::from("/usr/share/applications"),
+        std::path::PathBuf::from(&home).join(".local/share/applications"),
+        std::path::PathBuf::from("/var/lib/flatpak/exports/share/applications"),
+        std::path::PathBuf::from("/var/lib/snapd/desktop/applications"),
+    ];
+
+    let target_lower = target_key.to_lowercase();
+
+    for dir in &search_dirs {
+        if !dir.is_dir() {
+            continue;
+        }
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.extension().map_or(false, |ext| ext == "desktop") {
+                    let filename = p
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_lowercase();
+
+                    let matched = match target_lower.as_str() {
+                        "antigravity_ide" => filename.contains("antigravity-ide"),
+                        "antigravity_desktop" => {
+                            filename.contains("antigravity") && !filename.contains("antigravity-ide")
+                        }
+                        "vscode" => {
+                            filename == "code.desktop"
+                                || filename.contains("visual-studio-code")
+                                || filename.contains("com.microsoft.vscode")
+                        }
+                        "cursor" => filename.contains("cursor") && !filename.contains("url-handler"),
+                        "zed" => filename.contains("zed"),
+                        "trae" => filename.contains("trae"),
+                        _ => false,
+                    };
+
+                    if let Ok(content) = std::fs::read_to_string(&p) {
+                        let is_match = matched
+                            || match target_lower.as_str() {
+                                "antigravity_ide" => content.contains("Name=Antigravity IDE"),
+                                "antigravity_desktop" => {
+                                    content.contains("Name=Antigravity")
+                                        && !content.contains("Name=Antigravity IDE")
+                                }
+                                "vscode" => {
+                                    content.contains("Name=Visual Studio Code")
+                                        || content.contains("Name=Code")
+                                }
+                                "cursor" => content.contains("Name=Cursor"),
+                                "zed" => content.contains("Name=Zed"),
+                                "trae" => content.contains("Name=Trae"),
+                                _ => false,
+                            };
+
+                        if is_match {
+                            for line in content.lines() {
+                                if let Some(exec_part) = line.strip_prefix("Exec=") {
+                                    let trimmed = exec_part.trim();
+                                    let raw_path = if trimmed.starts_with('"') {
+                                        if let Some(end_quote) = trimmed[1..].find('"') {
+                                            &trimmed[1..=end_quote]
+                                        } else {
+                                            trimmed.split_whitespace().next().unwrap_or(trimmed)
+                                        }
+                                    } else {
+                                        trimmed.split_whitespace().next().unwrap_or(trimmed)
+                                    };
+                                    let path_clean = raw_path.trim_matches('"');
+                                    if std::path::Path::new(path_clean).is_file() {
+                                        return Some(path_clean.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: check `which` binary command
+    let binary_name = match target_lower.as_str() {
+        "vscode" => Some("code"),
+        "antigravity_ide" => Some("antigravity-ide"),
+        "antigravity_desktop" => Some("antigravity"),
+        "cursor" => Some("cursor"),
+        "trae" => Some("trae"),
+        "zed" => Some("zed"),
+        _ => None,
+    };
+    if let Some(cmd) = binary_name {
+        if let Ok(out) = std::process::Command::new("which").arg(cmd).output() {
+            if out.status.success() {
+                let path_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if !path_str.is_empty() && std::path::Path::new(&path_str).is_file() {
+                    return Some(path_str);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn auto_detect_ide_path(
+    request: Req<DetectIdePathRequest>,
+) -> IpcResult<DetectIdePathResponse> {
+    let (request_id, payload) = request.validate()?;
+    if let Some(found_path) = scan_desktop_files_for_exec(&payload.target) {
+        Ok(respond(
+            request_id,
+            DetectIdePathResponse {
+                found: true,
+                path: Some(found_path.clone()),
+                message: format!("Đã phát hiện thành công qua tệp .desktop: {}", found_path),
+            },
+        ))
+    } else {
+        Ok(respond(
+            request_id,
+            DetectIdePathResponse {
+                found: false,
+                path: None,
+                message: "Không tự động tìm thấy ứng dụng qua tệp .desktop. Vui lòng bấm 'Browse' để chọn tệp thủ công.".into(),
+            },
+        ))
+    }
 }

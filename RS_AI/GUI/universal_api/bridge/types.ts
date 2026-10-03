@@ -99,6 +99,7 @@ export interface GuiSettings {
     // 4. IDE Paths & Automation
     vscode_app_path?: string;
     antigravity_app_path?: string;
+    antigravity_desktop_app_path?: string;
     cursor_app_path?: string;
     trae_app_path?: string;
     zed_app_path?: string;

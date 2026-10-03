@@ -89,3 +89,15 @@ export async function getProvidersOverview(): Promise<ProviderStat[]> {
   return invokeIpc<ProviderStat[]>('get_providers_overview');
 }
 
+export interface InstalledAppInfo {
+  installed: boolean;
+  name: string;
+  version: string;
+  exec_path: string;
+  target_kind: string;
+}
+
+export async function getAntigravityInstalledVersionInfo(): Promise<InstalledAppInfo> {
+  return invokeIpc<InstalledAppInfo>('get_antigravity_installed_version_info');
+}
+

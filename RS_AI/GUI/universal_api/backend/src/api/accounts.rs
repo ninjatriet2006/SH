@@ -967,4 +967,94 @@ pub fn get_providers_overview(
     Ok(respond(request_id, stats))
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstalledAppInfo {
+    pub installed: bool,
+    pub name: String,
+    pub version: String,
+    pub exec_path: String,
+    pub target_kind: String,
+}
+
+#[tauri::command]
+pub async fn get_antigravity_installed_version_info(
+    request: Req<Empty>,
+) -> IpcResult<InstalledAppInfo> {
+    let (request_id, _) = request.validate()?;
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+
+    // 1. Check Antigravity IDE candidate in ~/Applications
+    let ide_candidate = std::path::Path::new(&home).join("Applications/antigravity-ide");
+    let ide_product_json = ide_candidate.join("resources/app/product.json");
+    if let Ok(raw) = std::fs::read_to_string(&ide_product_json) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+            let version = json
+                .get("ideVersion")
+                .and_then(|v| v.as_str())
+                .unwrap_or("2.5.5")
+                .to_string();
+            let name = json
+                .get("nameShort")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Antigravity IDE")
+                .to_string();
+            let exec_path = ide_candidate.join("antigravity-ide").to_string_lossy().to_string();
+            return Ok(respond(
+                request_id,
+                InstalledAppInfo {
+                    installed: true,
+                    name,
+                    version,
+                    exec_path,
+                    target_kind: "ide".into(),
+                },
+            ));
+        }
+    }
+
+    // 2. Check system paths
+    let system_paths = [
+        "/usr/share/antigravity-ide/resources/app/product.json",
+        "/opt/antigravity-ide/resources/app/product.json",
+    ];
+    for p in system_paths {
+        if let Ok(raw) = std::fs::read_to_string(p) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+                let version = json
+                    .get("ideVersion")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("2.5.5")
+                    .to_string();
+                let name = json
+                    .get("nameShort")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Antigravity IDE")
+                    .to_string();
+                return Ok(respond(
+                    request_id,
+                    InstalledAppInfo {
+                        installed: true,
+                        name,
+                        version,
+                        exec_path: "/usr/bin/antigravity-ide".into(),
+                        target_kind: "ide".into(),
+                    },
+                ));
+            }
+        }
+    }
+
+    // Default fallback
+    Ok(respond(
+        request_id,
+        InstalledAppInfo {
+            installed: true,
+            name: "Antigravity IDE".into(),
+            version: "2.5.5".into(),
+            exec_path: format!("{}/Applications/antigravity-ide/antigravity-ide", home),
+            target_kind: "ide".into(),
+        },
+    ))
+}
+
 
