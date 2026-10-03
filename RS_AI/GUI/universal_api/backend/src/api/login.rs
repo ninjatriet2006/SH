@@ -5,7 +5,7 @@
 //! như bản Go) → `login_cancel` để hủy giữa chừng.
 
 use crate::core::auth::Auth;
-use crate::core::login::{self, PollOutcome};
+use crate::core::login;
 use crate::core::runtime::{PendingLogin, RuntimeState};
 use crate::ipc::{from_string, respond, Empty, IpcResult, Req};
 use serde::{Deserialize, Serialize};
@@ -35,18 +35,28 @@ pub fn login_start(request: Req<LoginStartRequest>, state: State<'_, RuntimeStat
         .upstream
         .proxy_url
         .clone();
-    // Chạy network blocking trên threadpool của Tauri (không block tokio runtime).
-    let started = login::login_url(realm_arg, &proxy_url).map_err(from_string)?;
+    let proxy_opt = if proxy_url.trim().is_empty() { None } else { Some(proxy_url.as_str()) };
+
+    // Tách biệt hoàn toàn: CodeBuddy Global vs CodeBuddy CN
+    let is_global = realm_arg == "intl" || realm_arg == "codebuddy_global";
+    let (auth_url, state_val, realm_val) = if is_global {
+        let started = crate::core::platforms::codebuddy_global::auth::start_login_global(proxy_opt).map_err(from_string)?;
+        (started.auth_url, started.state, "codebuddy_global".to_string())
+    } else {
+        let started = crate::core::platforms::codebuddy_cn::auth::start_login_cn(proxy_opt).map_err(from_string)?;
+        (started.auth_url, started.state, "codebuddy_cn".to_string())
+    };
+
     *state
         .pending_login
         .lock()
         .map_err(|_| from_string("Login lock poisoned".into()))? = Some(PendingLogin {
-        state: started.state,
-        realm: started.realm.clone(),
+        state: state_val,
+        realm: realm_val.clone(),
     });
     Ok(respond(
         request_id,
-        LoginStartResponse { auth_url: started.auth_url, realm: started.realm },
+        LoginStartResponse { auth_url, realm: realm_val },
     ))
 }
 
@@ -78,22 +88,41 @@ pub fn login_poll(request: Req<Empty>, state: State<'_, RuntimeState>) -> IpcRes
         let cfg = state.config.lock().map_err(|_| from_string("Config lock poisoned".into()))?;
         (cfg.upstream.proxy_url.clone(), cfg.auth_dir.clone())
     };
-    match login::login_poll_once(&pending.realm, &pending.state, &proxy_url).map_err(from_string)? {
-        PollOutcome::Pending => Ok(respond(
+    let proxy_opt = if proxy_url.trim().is_empty() { None } else { Some(proxy_url.as_str()) };
+
+    let is_global = pending.realm == "intl" || pending.realm == "codebuddy_global";
+    let outcome = if is_global {
+        crate::core::platforms::codebuddy_global::auth::poll_login_global(&pending.state, proxy_opt)
+    } else {
+        crate::core::platforms::codebuddy_cn::auth::poll_login_cn(&pending.state, proxy_opt)
+    }
+    .map_err(from_string)?;
+
+    match outcome {
+        crate::core::platforms::PlatformPollOutcome::Pending => Ok(respond(
             request_id,
             LoginPollResponse { status: "pending".into(), account: None },
         )),
-        PollOutcome::Done(bundle) => {
-            let login_acct = login::fetch_login_account(&pending.realm, &pending.state, &bundle.access_token, &proxy_url);
-            let uid = if login_acct.uid.trim().is_empty() { "unknown".to_string() } else { login_acct.uid.clone() };
-            // Domain rỗng + realm intl → ép codebuddy.ai để không route nhầm CN.
-            let domain = login::resolve_login_domain(&pending.realm, &bundle.domain);
+        crate::core::platforms::PlatformPollOutcome::Done(bundle) => {
+            let acct_info = if is_global {
+                crate::core::platforms::codebuddy_global::account::fetch_account_global(&pending.state, &bundle.access_token, proxy_opt)
+            } else {
+                crate::core::platforms::codebuddy_cn::account::fetch_account_cn(&pending.state, &bundle.access_token, proxy_opt)
+            };
+            let uid = if acct_info.uid.trim().is_empty() { "unknown".to_string() } else { acct_info.uid.clone() };
+            let domain = if is_global {
+                "codebuddy.ai".to_string()
+            } else if !bundle.domain.trim().is_empty() {
+                bundle.domain.trim().to_string()
+            } else {
+                "copilot.tencent.com".to_string()
+            };
             let expires_at = if bundle.expires_in > 0 {
                 chrono::Utc::now().timestamp() + bundle.expires_in
             } else {
                 0
             };
-            let file_name = format!("workbuddy-{}.json", login::sanitize_uid(&uid));
+            let file_name = format!("workbuddy-{}.json", crate::core::login::sanitize_uid(&uid));
             let file_path = std::path::Path::new(&auth_dir).join(&file_name).to_string_lossy().to_string();
             let auth = Auth {
                 access_token: bundle.access_token.clone(),
@@ -101,12 +130,10 @@ pub fn login_poll(request: Req<Empty>, state: State<'_, RuntimeState>) -> IpcRes
                 expires_at,
                 domain: domain.clone(),
                 uid: uid.clone(),
-                enterprise_id: login_acct.enterprise_id.clone(),
-                nickname: login_acct.nickname.clone(),
+                enterprise_id: acct_info.enterprise_id.clone(),
+                nickname: acct_info.nickname.clone(),
                 file_path: file_path.clone(),
             };
-            // Ghi file auth (khớp format parse_auth) — best-effort, lỗi vẫn tiếp tục
-            // vì credential đã vào SQLite + pool bên dưới.
             let file_err = crate::core::auth::save_atomic(&auth).err();
             let store = state.storage().map_err(from_string)?;
             store
@@ -114,17 +141,22 @@ pub fn login_poll(request: Req<Empty>, state: State<'_, RuntimeState>) -> IpcRes
                                 &auth.access_token, &auth.refresh_token, auth.expires_at)
                 .map_err(from_string)?;
             state.pool.add(auth);
-            // Xóa pending để poll tiếp theo không lặp lại.
             *state.pending_login.lock().map_err(|_| from_string("Login lock poisoned".into()))? = None;
-            // Điểm danh ngay sau login như login.sh (best-effort, không fail login).
-            let checkin = try_checkin(&state, &uid);
+
+            let checkin = if !is_global {
+                crate::core::platforms::codebuddy_cn::account::daily_checkin_cn(&bundle.access_token, proxy_opt)
+                    .unwrap_or_else(|e| format!("checkin error: {e}"))
+            } else {
+                "checkin skipped (global)".to_string()
+            };
+
             Ok(respond(
                 request_id,
                 LoginPollResponse {
                     status: "done".into(),
                     account: Some(LoginAccountInfo {
                         uid,
-                        nickname: login_acct.nickname,
+                        nickname: acct_info.nickname,
                         domain: domain.clone(),
                         checkin: file_err.map(|e| format!("saved to pool, file note: {e}")).unwrap_or(checkin),
                     }),
@@ -134,23 +166,6 @@ pub fn login_poll(request: Req<Empty>, state: State<'_, RuntimeState>) -> IpcRes
     }
 }
 
-/// Điểm danh best-effort sau login (bản Go làm trong login.sh).
-fn try_checkin(state: &RuntimeState, uid: &str) -> String {
-    let account = match state.pool.all_accounts().into_iter().find(|a| a.uid == uid) {
-        Some(a) => a.auth.clone(),
-        None => return "account registered (checkin skipped)".into(),
-    };
-    let proxy_url = state
-        .config
-        .lock()
-        .map(|c| c.upstream.proxy_url.clone())
-        .unwrap_or_default();
-    let client = crate::core::upstream::client::Client::new(&proxy_url);
-    match client.daily_checkin(&account) {
-        Ok(_) => "check-in: success".into(),
-        Err(e) => format!("check-in note: {e}"),
-    }
-}
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn login_cancel(request: Req<Empty>, state: State<'_, RuntimeState>) -> IpcResult<Empty> {

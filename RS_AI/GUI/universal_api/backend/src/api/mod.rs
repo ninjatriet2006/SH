@@ -12,3 +12,4 @@ pub mod settings;
 pub mod zed;
 pub mod theme;
 pub mod usage;
+pub mod profiles;

@@ -137,6 +137,16 @@ pub fn run() {
             api::lang::get_lang_content,
             api::theme::get_available_themes,
             api::font::get_available_fonts,
+            // ==================
+            // PROFILES & INSTANCES API
+            // ==================
+            api::profiles::list_profiles,
+            api::profiles::create_new_profile,
+            api::profiles::remove_profile,
+            api::profiles::duplicate_profile,
+            api::profiles::bind_account_to_profile,
+            api::profiles::launch_profile_instance,
+            api::profiles::kill_running_instance,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
