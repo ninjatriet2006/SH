@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Search,
@@ -31,6 +31,7 @@ import {
     ShieldCheck,
     ExternalLink,
     TerminalSquare,
+    Pencil,
 } from 'lucide-react';
 import type { AccountInfo } from '../../../bridge/types';
 import {
@@ -124,6 +125,145 @@ export function CockpitAccountManagerView({
     const [verifyingUid, setVerifyingUid] = useState<string | null>(null);
     const [verificationCode, setVerificationCode] = useState<Record<string, string>>({});
 
+    const switcherRef = useRef<HTMLDivElement | null>(null);
+
+    // Close switcher dropdown on outside click or Esc
+    useEffect(() => {
+        if (!platformMenuOpen) return;
+        const handleMouseDown = (e: MouseEvent) => {
+            if (switcherRef.current && !switcherRef.current.contains(e.target as Node)) {
+                setPlatformMenuOpen(false);
+            }
+        };
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setPlatformMenuOpen(false);
+        };
+        document.addEventListener('mousedown', handleMouseDown);
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('mousedown', handleMouseDown);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [platformMenuOpen]);
+
+    // Cockpit 1:1: Platform variants within the active group suite
+    const groupVariants = useMemo(() => {
+        if (platformId === 'antigravity') {
+            return [
+                {
+                    id: 'ide',
+                    label: 'Antigravity IDE',
+                    subtext: `VS Code based (v${installedAppInfo?.version || '2.5.5'})`,
+                    icon: antigravityIcon,
+                    isActive: antigravitySubVariant === 'ide',
+                    onSelect: () => setAntigravitySubVariant('ide'),
+                },
+                {
+                    id: 'desktop',
+                    label: 'Antigravity Desktop',
+                    subtext: 'Desktop App Legacy (v2.0.1)',
+                    icon: antigravityIcon,
+                    isActive: antigravitySubVariant === 'desktop',
+                    onSelect: () => {
+                        setAntigravitySubVariant('desktop');
+                        if (activeTab === 'wakeups' || activeTab === 'verification') {
+                            setActiveTab('overview');
+                        }
+                    },
+                },
+            ];
+        }
+        if (platformId === 'codebuddy' || platformId === 'codebuddy_global' || platformId === 'codebuddy_cn') {
+            return [
+                {
+                    id: 'global',
+                    label: 'CodeBuddy Global',
+                    subtext: 'codebuddy.ai',
+                    icon: codebuddyIcon,
+                    isActive: codebuddySubRegion === 'global',
+                    onSelect: () => setCodebuddySubRegion('global'),
+                },
+                {
+                    id: 'cn',
+                    label: 'CodeBuddy CN',
+                    subtext: 'copilot.tencent.com',
+                    icon: codebuddyIcon,
+                    isActive: codebuddySubRegion === 'cn',
+                    onSelect: () => setCodebuddySubRegion('cn'),
+                },
+            ];
+        }
+        if (platformId === 'codex') {
+            return [
+                {
+                    id: 'codex',
+                    label: 'Codex (Web / CLI)',
+                    subtext: 'OpenAI session client',
+                    icon: codexIcon,
+                    isActive: true,
+                    onSelect: () => {},
+                },
+                {
+                    id: 'codex_api',
+                    label: 'Codex API Service',
+                    subtext: 'REST / Proxy gateway',
+                    icon: codexIcon,
+                    isActive: false,
+                    onSelect: () => {},
+                },
+            ];
+        }
+        if (platformId === 'trae') {
+            return [
+                {
+                    id: 'trae_global',
+                    label: 'Trae Global',
+                    subtext: 'trae.ai',
+                    icon: traeIcon,
+                    isActive: true,
+                    onSelect: () => {},
+                },
+                {
+                    id: 'trae_solo',
+                    label: 'TRAE SOLO',
+                    subtext: 'Single agent IDE',
+                    icon: traeIcon,
+                    isActive: false,
+                    onSelect: () => {},
+                },
+                {
+                    id: 'trae_cn',
+                    label: 'Trae CN',
+                    subtext: 'trae.cn',
+                    icon: traeIcon,
+                    isActive: false,
+                    onSelect: () => {},
+                },
+            ];
+        }
+        return [
+            {
+                id: platformId,
+                label: platformLabel,
+                subtext: 'Official client',
+                icon: platformIcon,
+                isActive: true,
+                onSelect: () => {},
+            },
+        ];
+    }, [platformId, antigravitySubVariant, codebuddySubRegion, installedAppInfo, activeTab]);
+
+    // Active label on trigger button (matches Cockpit image: "Antigravity")
+    const currentActiveTriggerLabel = useMemo(() => {
+        if (platformId === 'antigravity') {
+            return antigravitySubVariant === 'ide' ? 'Antigravity' : 'Antigravity Desktop';
+        }
+        if (platformId === 'codebuddy' || platformId === 'codebuddy_global' || platformId === 'codebuddy_cn') {
+            return codebuddySubRegion === 'global' ? 'CodeBuddy' : 'CodeBuddy CN';
+        }
+        return platformLabel;
+    }, [platformId, antigravitySubVariant, codebuddySubRegion, platformLabel]);
+
     const [accounts, setAccounts] = useState<AccountInfo[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -213,7 +353,7 @@ export function CockpitAccountManagerView({
 
     useEffect(() => {
         loadAccounts();
-    }, [platformId, codebuddySubRegion]);
+    }, [platformId, codebuddySubRegion, antigravitySubVariant]);
 
     // Privacy Masking
     const maskValue = (val: string) => {
@@ -367,69 +507,149 @@ export function CockpitAccountManagerView({
     return (
         <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', flexDirection: 'column' }}>
             {/* Top Strip */}
+            {/* Top Strip (Cockpit 1:1) */}
             <div className="page-top-strip">
-                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                    Account Management
-                </span>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    Cockpit Suite
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                        Account Management
+                    </span>
+                    <button
+                        type="button"
+                        className="platform-header-help"
+                        title="Hướng dẫn & Thiết lập"
+                        onClick={() => navigate('/settings')}
+                    >
+                        ?
+                    </button>
+                </div>
+                <div className="page-top-strip-right">
+                    {/* Version Check Badge (1:1 with Cockpit Tools) */}
+                    <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.45rem',
+                        padding: '0.3rem 0.75rem',
+                        borderRadius: '9999px',
+                        background: 'rgba(30, 41, 59, 0.75)',
+                        border: '1px solid rgba(255, 255, 255, 0.12)',
+                        fontSize: '0.76rem',
+                        fontWeight: 600,
+                        color: '#e2e8f0',
+                        backdropFilter: 'blur(8px)',
+                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.25)',
+                    }}>
+                        <span style={{
+                            width: 7,
+                            height: 7,
+                            borderRadius: '50%',
+                            background: '#10b981',
+                            boxShadow: '0 0 8px #10b981',
+                        }} />
+                        <span>{platformId === 'antigravity' ? (installedAppInfo?.name || (antigravitySubVariant === 'ide' ? 'Antigravity IDE' : 'Antigravity Desktop')) : platformLabel}</span>
+                        <span style={{ color: '#38bdf8', fontWeight: 700, marginLeft: '0.15rem' }}>
+                            v{platformId === 'antigravity' ? (installedAppInfo?.version || (antigravitySubVariant === 'ide' ? '2.5.5' : '2.0.1')) : '1.0.0'}
+                        </span>
+                    </div>
+                </div>
             </div>
 
-            {/* Platform Selector & Center Tabs Row */}
-            <div className="page-tabs-row">
-                {/* Left: Interactive Platform Dropdown */}
-                <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {/* Platform Selector & Center Tabs Row (Cockpit 1:1) */}
+            <div className="page-tabs-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', marginBottom: '1.25rem' }}>
+                {/* Left: Interactive PlatformGroupSwitcher Dropdown */}
+                <div className="platform-group-switcher" ref={switcherRef}>
                     <button
-                        className="platform-dropdown-btn"
+                        type="button"
+                        className={`platform-group-switcher-trigger ${platformMenuOpen ? 'is-open' : ''}`}
                         onClick={() => setPlatformMenuOpen(!platformMenuOpen)}
+                        aria-label="Chuyển đổi phân loại / nền tảng cùng nhóm"
                     >
-                        <img src={platformIcon} alt="" className="nav-item-icon" style={{ width: 18, height: 18 }} />
-                        <span>{platformLabel}</span>
-                        <ChevronDown size={14} color="var(--text-secondary)" style={{ transform: platformMenuOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                        <span className="platform-group-switcher-trigger-icon">
+                            <img src={platformIcon} alt="" style={{ width: 16, height: 16, objectFit: 'contain' }} />
+                        </span>
+                        <span className="platform-group-switcher-trigger-label">
+                            {currentActiveTriggerLabel}
+                        </span>
+                        <ChevronDown size={14} className="platform-group-switcher-trigger-caret" />
                     </button>
+
                     {platformMenuOpen && (
-                        <div
-                            className="platform-dropdown-menu"
-                            style={{
-                                position: 'absolute',
-                                top: 'calc(100% + 6px)',
-                                left: 0,
-                                zIndex: 100,
-                                background: '#0d131f',
-                                border: '1px solid rgba(255, 255, 255, 0.12)',
-                                borderRadius: 8,
-                                boxShadow: '0 10px 25px rgba(0, 0, 0, 0.5)',
-                                minWidth: 200,
-                                padding: '0.35rem 0',
-                            }}
-                        >
-                            {ALL_PLATFORMS.map((p) => (
+                        <div className="platform-group-switcher-dropdown">
+                            {/* Group Variants Section (Phân loại ứng dụng) */}
+                            <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', padding: '4px 10px 2px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Phân loại ứng dụng ({platformLabel})
+                            </div>
+                            {groupVariants.map((v) => (
                                 <button
-                                    key={p.id}
+                                    key={v.id}
+                                    type="button"
+                                    className={`platform-group-switcher-option ${v.isActive ? 'is-active' : ''}`}
                                     onClick={() => {
+                                        v.onSelect();
                                         setPlatformMenuOpen(false);
-                                        navigate(p.path);
-                                    }}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '0.6rem',
-                                        width: '100%',
-                                        padding: '0.55rem 0.85rem',
-                                        background: p.id === platformId ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
-                                        color: p.id === platformId ? 'var(--primary)' : 'var(--text-primary)',
-                                        border: 'none',
-                                        textAlign: 'left',
-                                        cursor: 'pointer',
-                                        fontSize: '0.85rem',
-                                        fontWeight: p.id === platformId ? 600 : 400,
                                     }}
                                 >
-                                    <img src={p.icon} alt="" style={{ width: 16, height: 16, objectFit: 'contain' }} />
-                                    <span>{p.label}</span>
+                                    <span className="platform-group-switcher-option-icon">
+                                        <img src={v.icon || platformIcon} alt="" style={{ width: 16, height: 16, objectFit: 'contain' }} />
+                                    </span>
+                                    <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                                        <span className="platform-group-switcher-option-label">{v.label}</span>
+                                        {v.subtext && (
+                                            <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', lineHeight: 1.1 }}>{v.subtext}</span>
+                                        )}
+                                    </div>
+                                    <span className="platform-group-switcher-option-check">
+                                        {v.isActive ? <Check size={16} /> : null}
+                                    </span>
                                 </button>
                             ))}
+
+                            <div className="platform-group-switcher-divider" />
+
+                            {/* Other Platform Groups */}
+                            <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', padding: '4px 10px 2px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Chuyển nền tảng
+                            </div>
+                            <div style={{ maxHeight: 200, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                {ALL_PLATFORMS.filter(p => p.id !== platformId).map((p) => (
+                                    <button
+                                        key={p.id}
+                                        type="button"
+                                        className="platform-group-switcher-option"
+                                        onClick={() => {
+                                            setPlatformMenuOpen(false);
+                                            navigate(p.path);
+                                        }}
+                                        style={{ minHeight: 34, padding: '4px 10px' }}
+                                    >
+                                        <span className="platform-group-switcher-option-icon">
+                                            <img src={p.icon} alt="" style={{ width: 15, height: 15, objectFit: 'contain' }} />
+                                        </span>
+                                        <span className="platform-group-switcher-option-label" style={{ fontSize: '0.8rem' }}>
+                                            {p.label}
+                                        </span>
+                                        <span />
+                                    </button>
+                                ))}
+                            </div>
+
+                            <div className="platform-group-switcher-divider" />
+
+                            {/* Group Management action */}
+                            <button
+                                type="button"
+                                className="platform-group-switcher-action"
+                                onClick={() => {
+                                    setPlatformMenuOpen(false);
+                                    navigate('/settings');
+                                }}
+                            >
+                                <span className="platform-group-switcher-action-icon">
+                                    <Pencil size={14} />
+                                </span>
+                                <span className="platform-group-switcher-action-label">
+                                    Quản lý nhóm nền tảng (Group Settings)
+                                </span>
+                            </button>
                         </div>
                     )}
                 </div>
@@ -451,20 +671,24 @@ export function CockpitAccountManagerView({
                             <Layers size={15} />
                             <span>Instances</span>
                         </button>
-                        <button
-                            className={`filter-tab ${activeTab === 'wakeups' ? 'active' : ''}`}
-                            onClick={() => setActiveTab('wakeups')}
-                        >
-                            <Clock size={15} />
-                            <span>Wakeups</span>
-                        </button>
-                        <button
-                            className={`filter-tab ${activeTab === 'verification' ? 'active' : ''}`}
-                            onClick={() => setActiveTab('verification')}
-                        >
-                            <ShieldCheck size={15} />
-                            <span>Verification</span>
-                        </button>
+                        {antigravitySubVariant === 'ide' && (
+                            <>
+                                <button
+                                    className={`filter-tab ${activeTab === 'wakeups' ? 'active' : ''}`}
+                                    onClick={() => setActiveTab('wakeups')}
+                                >
+                                    <Clock size={15} />
+                                    <span>Wakeups</span>
+                                </button>
+                                <button
+                                    className={`filter-tab ${activeTab === 'verification' ? 'active' : ''}`}
+                                    onClick={() => setActiveTab('verification')}
+                                >
+                                    <ShieldCheck size={15} />
+                                    <span>Verification</span>
+                                </button>
+                            </>
+                        )}
                     </div>
                 ) : (platformId === 'codebuddy' || platformId === 'codebuddy_global' || platformId === 'codebuddy_cn' || platformId === 'codex') ? (
                     <div className="filter-tabs">
@@ -508,125 +732,7 @@ export function CockpitAccountManagerView({
                         </button>
                     </div>
                 )}
-
-                {/* Right: Version Check Badge (1:1 with Cockpit Tools) */}
-                <div style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '0.45rem',
-                    padding: '0.35rem 0.85rem',
-                    borderRadius: '9999px',
-                    background: 'rgba(30, 41, 59, 0.75)',
-                    border: '1px solid rgba(255, 255, 255, 0.12)',
-                    fontSize: '0.78rem',
-                    fontWeight: 600,
-                    color: '#e2e8f0',
-                    backdropFilter: 'blur(8px)',
-                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.25)',
-                }}>
-                    <span style={{
-                        width: 7,
-                        height: 7,
-                        borderRadius: '50%',
-                        background: '#10b981',
-                        boxShadow: '0 0 8px #10b981',
-                    }} />
-                    <span>{platformId === 'antigravity' ? (installedAppInfo?.name || 'Antigravity IDE') : platformLabel}</span>
-                    <span style={{ color: '#38bdf8', fontWeight: 700, marginLeft: '0.15rem' }}>
-                        v{platformId === 'antigravity' ? (installedAppInfo?.version || '2.5.5') : '1.0.0'}
-                    </span>
-                </div>
             </div>
-
-            {/* Group Provider Region Switcher for CodeBuddy */}
-            {(platformId === 'codebuddy' || platformId === 'codebuddy_global' || platformId === 'codebuddy_cn') && (
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem',
-                    background: 'rgba(13, 19, 31, 0.7)',
-                    padding: '0.4rem 0.6rem',
-                    borderRadius: 10,
-                    border: '1px solid rgba(255, 255, 255, 0.08)',
-                    marginBottom: '1rem',
-                    width: 'fit-content'
-                }}>
-                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600, marginRight: '0.25rem' }}>
-                        Group Provider:
-                    </span>
-                    <button
-                        className={`btn ${codebuddySubRegion === 'global' ? 'btn-primary' : ''}`}
-                        style={{
-                            padding: '0.25rem 0.75rem',
-                            fontSize: '0.78rem',
-                            borderRadius: 6,
-                            border: codebuddySubRegion === 'global' ? 'none' : '1px solid rgba(255, 255, 255, 0.1)',
-                            background: codebuddySubRegion === 'global' ? 'var(--primary)' : 'transparent',
-                        }}
-                        onClick={() => setCodebuddySubRegion('global')}
-                    >
-                        CodeBuddy Global (codebuddy.ai)
-                    </button>
-                    <button
-                        className={`btn ${codebuddySubRegion === 'cn' ? 'btn-primary' : ''}`}
-                        style={{
-                            padding: '0.25rem 0.75rem',
-                            fontSize: '0.78rem',
-                            borderRadius: 6,
-                            border: codebuddySubRegion === 'cn' ? 'none' : '1px solid rgba(255, 255, 255, 0.1)',
-                            background: codebuddySubRegion === 'cn' ? 'var(--primary)' : 'transparent',
-                        }}
-                        onClick={() => setCodebuddySubRegion('cn')}
-                    >
-                        CodeBuddy CN (copilot.tencent.com)
-                    </button>
-                </div>
-            )}
-
-            {/* Group Provider Variant Switcher for Antigravity (IDE vs Desktop Legacy) */}
-            {platformId === 'antigravity' && (
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem',
-                    background: 'rgba(13, 19, 31, 0.7)',
-                    padding: '0.4rem 0.6rem',
-                    borderRadius: 10,
-                    border: '1px solid rgba(255, 255, 255, 0.08)',
-                    marginBottom: '1rem',
-                    width: 'fit-content'
-                }}>
-                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600, marginRight: '0.25rem' }}>
-                        Phân loại ứng dụng:
-                    </span>
-                    <button
-                        className={`btn ${antigravitySubVariant === 'ide' ? 'btn-primary' : ''}`}
-                        style={{
-                            padding: '0.25rem 0.75rem',
-                            fontSize: '0.78rem',
-                            borderRadius: 6,
-                            border: antigravitySubVariant === 'ide' ? 'none' : '1px solid rgba(255, 255, 255, 0.1)',
-                            background: antigravitySubVariant === 'ide' ? 'var(--primary)' : 'transparent',
-                        }}
-                        onClick={() => setAntigravitySubVariant('ide')}
-                    >
-                        Antigravity IDE (VS Code based - v2.5.5)
-                    </button>
-                    <button
-                        className={`btn ${antigravitySubVariant === 'desktop' ? 'btn-primary' : ''}`}
-                        style={{
-                            padding: '0.25rem 0.75rem',
-                            fontSize: '0.78rem',
-                            borderRadius: 6,
-                            border: antigravitySubVariant === 'desktop' ? 'none' : '1px solid rgba(255, 255, 255, 0.1)',
-                            background: antigravitySubVariant === 'desktop' ? 'var(--primary)' : 'transparent',
-                        }}
-                        onClick={() => setAntigravitySubVariant('desktop')}
-                    >
-                        Antigravity Desktop (App Legacy - v2.0.1)
-                    </button>
-                </div>
-            )}
 
             {actionMsg && (
                 <div

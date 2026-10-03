@@ -458,6 +458,215 @@ table tr:hover td {
   box-shadow: var(--shadow-sm);
 }
 
+/* Cockpit 1:1 Platform Group Switcher */
+.platform-group-switcher {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.platform-group-switcher-trigger {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  background: rgba(17, 24, 39, 0.75);
+  backdrop-filter: blur(12px);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  transition: all 0.16s ease;
+  color: var(--text-primary);
+}
+
+.platform-group-switcher-trigger:hover {
+  background: rgba(30, 41, 59, 0.9);
+  border-color: rgba(59, 130, 246, 0.5);
+  transform: translateY(-1px);
+}
+
+.platform-group-switcher-trigger.is-open {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.platform-group-switcher-trigger-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.platform-group-switcher-trigger-label {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: inherit;
+}
+
+.platform-group-switcher-trigger-caret {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  transition: transform 0.2s ease, color 0.16s ease;
+}
+
+.platform-group-switcher-trigger.is-open .platform-group-switcher-trigger-caret {
+  transform: rotate(180deg);
+  color: var(--primary);
+}
+
+.platform-group-switcher-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 270px;
+  max-width: min(320px, calc(100vw - 16px));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  background: #0f172a;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  padding: 8px;
+  animation: dropdownFadeIn 0.15s ease-out;
+}
+
+@keyframes dropdownFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.platform-group-switcher-option {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  border-radius: 10px;
+  min-height: 42px;
+  padding: 6px 10px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  color: var(--text-primary);
+}
+
+.platform-group-switcher-option:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.platform-group-switcher-option.is-active {
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.platform-group-switcher-option-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.platform-group-switcher-option-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+
+.platform-group-switcher-option.is-active .platform-group-switcher-option-label {
+  color: var(--primary);
+}
+
+.platform-group-switcher-option-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+}
+
+.platform-group-switcher-divider {
+  height: 1px;
+  margin: 4px 2px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.platform-group-switcher-action {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  border-radius: 10px;
+  min-height: 36px;
+  padding: 0 10px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  color: var(--text-secondary);
+}
+
+.platform-group-switcher-action:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-primary);
+}
+
+.platform-group-switcher-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+}
+
+.platform-group-switcher-action-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.platform-header-help {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 700;
+  transition: all 0.2s ease;
+}
+
+.platform-header-help:hover {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: var(--primary);
+  color: var(--primary);
+  transform: scale(1.08);
+}
+
 .filter-tabs {
   display: inline-flex;
   background: rgba(17, 24, 39, 0.7);

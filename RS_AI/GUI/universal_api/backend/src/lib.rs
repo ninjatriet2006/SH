@@ -139,6 +139,7 @@ pub fn run() {
             api::settings::get_gui_settings,
             api::settings::save_gui_settings,
             api::settings::auto_detect_ide_path,
+            api::settings::open_data_folder,
             api::lang::get_available_langs,
             api::lang::get_lang_content,
             api::theme::get_available_themes,

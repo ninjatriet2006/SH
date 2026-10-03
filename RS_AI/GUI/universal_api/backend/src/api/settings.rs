@@ -21,6 +21,10 @@ fn default_alert_threshold() -> u32 { 20 }
 fn default_switch_threshold() -> u32 { 5 }
 fn default_retention_days() -> u32 { 15 }
 fn default_webdav_dir() -> String { "cockpit-tools".to_string() }
+fn default_default_terminal() -> String { "system".to_string() }
+fn default_side_nav_layout() -> String { "classic".to_string() }
+fn default_startup_page() -> String { "last".to_string() }
+fn default_color_pack() -> String { "default".to_string() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GuiSettings {
@@ -43,6 +47,26 @@ pub struct GuiSettings {
     pub app_auto_launch_enabled: bool,
     #[serde(default)]
     pub reduced_motion_enabled: bool,
+    #[serde(default = "default_default_terminal")]
+    pub default_terminal: String,
+    #[serde(default = "default_side_nav_layout")]
+    pub side_nav_layout_mode: String,
+    #[serde(default)]
+    pub remember_main_window_state: bool,
+    #[serde(default)]
+    pub floating_card_show_on_startup: bool,
+    #[serde(default)]
+    pub floating_card_always_on_top: bool,
+    #[serde(default)]
+    pub show_top_promo: bool,
+    #[serde(default = "default_startup_page")]
+    pub startup_page: String,
+    #[serde(default = "default_color_pack")]
+    pub color_pack: String,
+    #[serde(default = "default_true")]
+    pub allow_external_network: bool,
+    #[serde(default)]
+    pub webdav_allowed_domains: String,
 
     // 2. Session Keeper & Background Refresh
     #[serde(default = "default_true")]
@@ -77,6 +101,10 @@ pub struct GuiSettings {
     pub trae_app_path: String,
     #[serde(default)]
     pub zed_app_path: String,
+    #[serde(default)]
+    pub codebuddy_app_path: String,
+    #[serde(default)]
+    pub codebuddy_cn_app_path: String,
     #[serde(default = "default_true")]
     pub launch_on_switch: bool,
 
@@ -119,6 +147,16 @@ impl Default for GuiSettings {
             startup_minimized: false,
             app_auto_launch_enabled: false,
             reduced_motion_enabled: false,
+            default_terminal: default_default_terminal(),
+            side_nav_layout_mode: default_side_nav_layout(),
+            remember_main_window_state: false,
+            floating_card_show_on_startup: false,
+            floating_card_always_on_top: false,
+            show_top_promo: false,
+            startup_page: default_startup_page(),
+            color_pack: default_color_pack(),
+            allow_external_network: true,
+            webdav_allowed_domains: String::new(),
             token_keeper_enabled: true,
             auto_refresh_minutes: default_auto_refresh_minutes(),
             auto_import_from_local_enabled: false,
@@ -133,6 +171,8 @@ impl Default for GuiSettings {
             cursor_app_path: String::new(),
             trae_app_path: String::new(),
             zed_app_path: String::new(),
+            codebuddy_app_path: String::new(),
+            codebuddy_cn_app_path: String::new(),
             launch_on_switch: true,
             quota_alert_enabled: false,
             quota_alert_threshold: default_alert_threshold(),
@@ -302,6 +342,8 @@ fn scan_desktop_files_for_exec(target_key: &str) -> Option<String> {
         "cursor" => Some("cursor"),
         "trae" => Some("trae"),
         "zed" => Some("zed"),
+        "codebuddy" => Some("codebuddy"),
+        "codebuddy_cn" => Some("codebuddy-cn"),
         _ => None,
     };
     if let Some(cmd) = binary_name {
@@ -342,4 +384,29 @@ pub fn auto_detect_ide_path(
             },
         ))
     }
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn open_data_folder(request: Req<Empty>) -> IpcResult<String> {
+    let (request_id, _) = request.validate()?;
+    let data_dir = match crate::core::paths::config_dir() {
+        Some(dir) => dir,
+        None => std::path::PathBuf::from("./data"),
+    };
+    let _ = std::fs::create_dir_all(&data_dir);
+
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(&data_dir).spawn();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("explorer").arg(&data_dir).spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open").arg(&data_dir).spawn();
+    }
+
+    Ok(respond(request_id, data_dir.to_string_lossy().to_string()))
 }

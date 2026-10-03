@@ -83,6 +83,16 @@ export interface GuiSettings {
     startup_minimized?: boolean;
     app_auto_launch_enabled?: boolean;
     reduced_motion_enabled?: boolean;
+    default_terminal?: string;
+    side_nav_layout_mode?: 'classic' | 'original' | string;
+    remember_main_window_state?: boolean;
+    floating_card_show_on_startup?: boolean;
+    floating_card_always_on_top?: boolean;
+    show_top_promo?: boolean;
+    startup_page?: string;
+    color_pack?: string;
+    allow_external_network?: boolean;
+    webdav_allowed_domains?: string;
 
     // 2. Session Keeper & Background Refresh
     token_keeper_enabled?: boolean;
@@ -103,6 +113,8 @@ export interface GuiSettings {
     cursor_app_path?: string;
     trae_app_path?: string;
     zed_app_path?: string;
+    codebuddy_app_path?: string;
+    codebuddy_cn_app_path?: string;
     launch_on_switch?: boolean;
 
     // 5. Quota Alerts & Auto Switch
