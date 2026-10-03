@@ -132,7 +132,7 @@ fn write_instance_store(platform_id: &str, store: &InstanceStore) -> Result<(), 
     paths::ensure_parent(&target)?;
     let json = serde_json::to_string_pretty(store)
         .map_err(|e| format!("serialize instance store error: {e}"))?;
-    fs::write(&target, json).map_err(|e| format!("write instance store {}: {e}", target.display()))?;
+    crate::core::secure_account_storage::write_string_atomic(&target, &json)?;
     Ok(())
 }
 
@@ -163,7 +163,7 @@ pub fn load_platform_instances(platform_id: &str) -> Result<Vec<InstanceProfile>
             bound_account_id,
             extra_args: def.extra_args.map(ExtraArgsVal::Text).unwrap_or_default(),
             hardware_fingerprint: None,
-            created_at: String::new(),
+            created_at: 0,
             last_launched_at: None,
             last_pid: def.last_pid,
             is_default: true,
@@ -231,7 +231,7 @@ pub fn create_platform_instance(
         bound_account_id,
         extra_args: extra_args.map(ExtraArgsVal::Text).unwrap_or_default(),
         hardware_fingerprint: Some(fingerprint),
-        created_at: Utc::now().to_rfc3339(),
+        created_at: Utc::now().timestamp(),
         last_launched_at: None,
         last_pid: None,
         is_default: false,
@@ -302,7 +302,7 @@ pub fn record_platform_instance_launch(
         }
     } else if let Some(inst) = store.instances.iter_mut().find(|p| p.id == instance_id) {
         inst.last_pid = Some(pid);
-        inst.last_launched_at = Some(Utc::now().to_rfc3339());
+        inst.last_launched_at = Some(Utc::now().timestamp());
     }
 
     write_instance_store(platform_id, &store)?;

@@ -118,6 +118,53 @@ pub fn serialize_account_file<T: Serialize>(kind: &str, account: &T) -> Result<S
     serde_json::to_string_pretty(&envelope).map_err(|e| format!("Format JSON thất bại: {}", e))
 }
 
+pub fn write_string_atomic(path: &Path, content: &str) -> Result<(), String> {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let parent = path.parent().ok_or_else(|| "Không tìm thấy thư mục cha".to_string())?;
+    fs::create_dir_all(parent).map_err(|e| format!("Tạo thư mục thất bại: {}", e))?;
+
+    if path.exists() {
+        let bak = path.with_extension("bak");
+        let _ = fs::copy(path, &bak);
+    }
+
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let temp_name = format!(
+        ".{}.tmp.{}.{}.atomic",
+        path.file_name().and_then(|x| x.to_str()).unwrap_or("file"),
+        std::process::id(),
+        nanos
+    );
+    let temp_path = parent.join(temp_name);
+
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp_path)
+        .map_err(|e| format!("Mở file tạm {} thất bại: {}", temp_path.display(), e))?;
+
+    file.write_all(content.as_bytes())
+        .map_err(|e| format!("Ghi file tạm {} thất bại: {}", temp_path.display(), e))?;
+    file.sync_all()
+        .map_err(|e| format!("Đồng bộ file tạm {} thất bại: {}", temp_path.display(), e))?;
+    drop(file);
+
+    fs::rename(&temp_path, path).map_err(|e| {
+        let _ = fs::remove_file(&temp_path);
+        format!("Đổi tên file tạm sang {} thất bại: {}", path.display(), e)
+    })?;
+
+    Ok(())
+}
+
+pub fn save_account_envelope_atomic<T: Serialize>(path: &Path, kind: &str, account: &T) -> Result<(), String> {
+    let content = serialize_account_file(kind, account)?;
+    write_string_atomic(path, &content)
+}
+
 pub fn deserialize_account_file<T: DeserializeOwned>(
     _path: &Path,
     content: &str,

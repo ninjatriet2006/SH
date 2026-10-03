@@ -6,11 +6,20 @@
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum ExtraArgsVal {
     Text(String),
     List(Vec<String>),
+}
+
+impl Serialize for ExtraArgsVal {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string_lossy())
+    }
 }
 
 impl Default for ExtraArgsVal {
@@ -34,6 +43,51 @@ impl ExtraArgsVal {
     }
 }
 
+fn deserialize_timestamp<'de, D>(deserializer: D) -> Result<i64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    let v = serde_json::Value::deserialize(deserializer)?;
+    match v {
+        serde_json::Value::Number(n) => n.as_i64().ok_or_else(|| D::Error::custom("invalid integer timestamp")),
+        serde_json::Value::String(s) => {
+            if let Ok(ts) = s.parse::<i64>() {
+                Ok(ts)
+            } else if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&s) {
+                Ok(dt.timestamp())
+            } else {
+                Ok(chrono::Utc::now().timestamp())
+            }
+        }
+        _ => Ok(chrono::Utc::now().timestamp()),
+    }
+}
+
+fn deserialize_optional_timestamp<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let v = Option::<serde_json::Value>::deserialize(deserializer)?;
+    match v {
+        Some(serde_json::Value::Number(n)) => Ok(n.as_i64()),
+        Some(serde_json::Value::String(s)) => {
+            if let Ok(ts) = s.parse::<i64>() {
+                Ok(Some(ts))
+            } else if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&s) {
+                Ok(Some(dt.timestamp()))
+            } else {
+                Ok(None)
+            }
+        }
+        _ => Ok(None),
+    }
+}
+
+fn default_now_timestamp() -> i64 {
+    chrono::Utc::now().timestamp()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct HardwareFingerprint {
     /// SHA-256 hash giả lập cho ID máy (`telemetry.machineId`)
@@ -51,72 +105,75 @@ pub struct HardwareFingerprint {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InstanceProfile {
     #[serde(default)]
     pub id: String,
     #[serde(default)]
     pub name: String,
     /// Định danh nền tảng IDE (ví dụ: "antigravity", "codex", "claude", "cursor", "vscode", "windsurf", "zed")
-    #[serde(default, alias = "platformId", alias = "platform_id")]
+    #[serde(default, alias = "platform_id")]
     pub platform_id: String,
     /// Thư mục dữ liệu người dùng cô lập (`--user-data-dir`)
-    #[serde(default, alias = "userDataDir", alias = "user_data_dir")]
+    #[serde(default, alias = "user_data_dir")]
     pub user_data_dir: PathBuf,
     /// Thư mục làm việc working dir
-    #[serde(default, alias = "workingDir", alias = "working_dir")]
+    #[serde(default, alias = "working_dir")]
     pub working_dir: Option<PathBuf>,
-    /// ID tài khoản được gán chết cho profile này (nếu có)
-    #[serde(default, alias = "bindAccountId", alias = "bound_account_id")]
+    /// ID tài khoản được gán chết cho profile này (nếu có, xuất ra bindAccountId chuẩn Cockpit)
+    #[serde(default, rename = "bindAccountId", alias = "bound_account_id", alias = "bind_account_id")]
     pub bound_account_id: Option<String>,
-    /// Các cờ dòng lệnh bổ sung (hỗ trợ cả chuỗi và danh sách chuỗi)
-    #[serde(default, alias = "extraArgs", alias = "extra_args")]
+    /// Các cờ dòng lệnh bổ sung (luôn serialize thành chuỗi cho Cockpit)
+    #[serde(default, alias = "extra_args")]
     pub extra_args: ExtraArgsVal,
     /// Bộ mã máy ảo riêng biệt để chống phát hiện multi-account
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hardware_fingerprint: Option<HardwareFingerprint>,
-    /// Thời điểm khởi tạo
-    #[serde(default, alias = "createdAt", alias = "created_at")]
-    pub created_at: String,
+    /// Thời điểm khởi tạo (Unix timestamp i64, tương thích tuyệt đối Cockpit)
+    #[serde(default = "default_now_timestamp", alias = "created_at", deserialize_with = "deserialize_timestamp")]
+    pub created_at: i64,
     /// Thời điểm khởi chạy gần nhất
-    #[serde(default, alias = "lastLaunchedAt", alias = "last_launched_at")]
-    pub last_launched_at: Option<String>,
+    #[serde(default, alias = "last_launched_at", deserialize_with = "deserialize_optional_timestamp")]
+    pub last_launched_at: Option<i64>,
     /// PID của tiến trình gần nhất
-    #[serde(default, alias = "lastPid", alias = "last_pid")]
+    #[serde(default, alias = "last_pid")]
     pub last_pid: Option<u32>,
     /// Đây có phải là Default Instance đại diện cho app chính không
-    #[serde(default, alias = "isDefault", alias = "is_default")]
+    #[serde(default, alias = "is_default")]
     pub is_default: bool,
     /// Trạng thái đang chạy thực tế hay đã tắt (kiểm tra qua PID)
-    #[serde(default, alias = "isRunning", alias = "is_running")]
+    #[serde(default, alias = "is_running")]
     pub is_running: bool,
     /// Chế độ khởi chạy: app hoặc cli
-    #[serde(default, alias = "launchMode", alias = "launch_mode")]
+    #[serde(default, alias = "launch_mode")]
     pub launch_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct DefaultInstanceSettings {
-    #[serde(default, alias = "bindAccountId", alias = "bind_account_id")]
+    #[serde(default, alias = "bind_account_id", alias = "bound_account_id")]
     pub bind_account_id: Option<String>,
-    #[serde(default, alias = "extraArgs", alias = "extra_args")]
+    #[serde(default, alias = "extra_args")]
     pub extra_args: Option<String>,
-    #[serde(default, alias = "workingDir", alias = "working_dir")]
+    #[serde(default, alias = "working_dir")]
     pub working_dir: Option<String>,
-    #[serde(default, alias = "launchMode", alias = "launch_mode")]
+    #[serde(default, alias = "launch_mode")]
     pub launch_mode: Option<String>,
-    #[serde(default, alias = "followLocalAccount", alias = "follow_local_account")]
+    #[serde(default, alias = "follow_local_account")]
     pub follow_local_account: Option<bool>,
-    #[serde(default, alias = "autoSyncThreads", alias = "auto_sync_threads")]
+    #[serde(default, alias = "auto_sync_threads")]
     pub auto_sync_threads: Option<bool>,
-    #[serde(default, alias = "lastPid", alias = "last_pid")]
+    #[serde(default, alias = "last_pid")]
     pub last_pid: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct InstanceStore {
     #[serde(default, alias = "profiles")]
     pub instances: Vec<InstanceProfile>,
-    #[serde(default, alias = "defaultSettings", alias = "default_settings")]
+    #[serde(default, alias = "default_settings")]
     pub default_settings: Option<DefaultInstanceSettings>,
 }
 

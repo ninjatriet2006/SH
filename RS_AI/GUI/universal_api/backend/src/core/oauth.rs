@@ -499,9 +499,11 @@ pub fn poll_github_copilot_oauth(
         Err(_) => None,
     };
 
+    let github_id = user_info.id;
     save_copilot_account_to_cockpit(
         cockpit_dir,
         &account_id,
+        github_id,
         &login,
         &email,
         &gh_access_token,
@@ -688,8 +690,13 @@ fn save_cursor_account_to_cockpit(
             || item.get("email").and_then(|x| x.as_str()) == Some(email)
         {
             if let Some(obj) = item.as_object_mut() {
-                obj.insert("access_token".to_string(), serde_json::json!(access_token));
-                obj.insert("refresh_token".to_string(), serde_json::json!(refresh_token));
+                obj.insert("last_used".to_string(), serde_json::json!(now));
+                if !auth_id.is_empty() {
+                    obj.insert("auth_id".to_string(), serde_json::json!(auth_id));
+                }
+                // Strip raw tokens from summary index
+                obj.remove("access_token");
+                obj.remove("refresh_token");
             }
             existing_found = true;
             break;
@@ -697,44 +704,54 @@ fn save_cursor_account_to_cockpit(
     }
 
     if !existing_found {
-        accounts_arr.push(serde_json::json!({
-            "id": account_id,
-            "email": email,
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "created_at": now
-        }));
+        let mut summary_obj = serde_json::Map::new();
+        summary_obj.insert("id".to_string(), serde_json::json!(account_id));
+        summary_obj.insert("email".to_string(), serde_json::json!(email));
+        if !auth_id.is_empty() {
+            summary_obj.insert("auth_id".to_string(), serde_json::json!(auth_id));
+        }
+        summary_obj.insert("created_at".to_string(), serde_json::json!(now));
+        summary_obj.insert("last_used".to_string(), serde_json::json!(now));
+        accounts_arr.push(serde_json::Value::Object(summary_obj));
     }
 
     if doc.get("current_account_id").is_none() {
         doc["current_account_id"] = serde_json::json!(account_id);
     }
 
-    std::fs::write(
-        &cursor_json_path,
-        serde_json::to_string_pretty(&doc).unwrap_or_default(),
-    )
-    .map_err(|e| format!("Không thể ghi cursor_accounts.json: {e}"))?;
+    let summary_content = serde_json::to_string_pretty(&doc).unwrap_or_default();
+    crate::core::secure_account_storage::write_string_atomic(&cursor_json_path, &summary_content)
+        .map_err(|e| format!("Không thể ghi cursor_accounts.json: {e}"))?;
 
     let acc_dir = cockpit_dir.join("cursor_accounts");
-    let _ = std::fs::create_dir_all(&acc_dir);
+    std::fs::create_dir_all(&acc_dir).ok();
     let detail_file = acc_dir.join(format!("{account_id}.json"));
+
     let mut auth_raw = serde_json::Map::new();
     auth_raw.insert("accessToken".to_string(), serde_json::json!(access_token));
     auth_raw.insert("refreshToken".to_string(), serde_json::json!(refresh_token));
     if !auth_id.is_empty() {
         auth_raw.insert("authId".to_string(), serde_json::json!(auth_id));
     }
-    let detail_doc = serde_json::json!({
-        "id": account_id,
-        "email": email,
-        "auth_id": auth_id,
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "cursor_auth_raw": serde_json::Value::Object(auth_raw),
-        "created_at": now
-    });
-    let _ = std::fs::write(detail_file, serde_json::to_string_pretty(&detail_doc).unwrap_or_default());
+
+    let mut detail_doc = serde_json::Map::new();
+    detail_doc.insert("id".to_string(), serde_json::json!(account_id));
+    detail_doc.insert("email".to_string(), serde_json::json!(email));
+    if !auth_id.is_empty() {
+        detail_doc.insert("auth_id".to_string(), serde_json::json!(auth_id));
+    }
+    detail_doc.insert("access_token".to_string(), serde_json::json!(access_token));
+    if !refresh_token.is_empty() {
+        detail_doc.insert("refresh_token".to_string(), serde_json::json!(refresh_token));
+    }
+    detail_doc.insert("cursor_auth_raw".to_string(), serde_json::Value::Object(auth_raw));
+    detail_doc.insert("status".to_string(), serde_json::json!("active"));
+    detail_doc.insert("created_at".to_string(), serde_json::json!(now));
+    detail_doc.insert("last_used".to_string(), serde_json::json!(now));
+
+    let detail_val = serde_json::Value::Object(detail_doc);
+    crate::core::secure_account_storage::save_account_envelope_atomic(&detail_file, "cursor", &detail_val)
+        .map_err(|e| format!("Không thể ghi cursor account detail file: {e}"))?;
 
     Ok(())
 }
@@ -809,7 +826,12 @@ fn save_antigravity_account_to_cockpit(
         {
             if let Some(obj) = item.as_object_mut() {
                 obj.insert("last_used".to_string(), serde_json::json!(now));
-                obj.insert("name".to_string(), serde_json::json!(name));
+                if !name.is_empty() {
+                    obj.insert("name".to_string(), serde_json::json!(name));
+                }
+                // Strip legacy raw token fields if any
+                obj.remove("token");
+                obj.remove("token_encrypted");
             }
             existing_found = true;
             break;
@@ -817,13 +839,15 @@ fn save_antigravity_account_to_cockpit(
     }
 
     if !existing_found {
-        accounts_arr.push(serde_json::json!({
-            "id": account_id,
-            "email": email,
-            "name": name,
-            "created_at": now,
-            "last_used": now
-        }));
+        let mut summary = serde_json::Map::new();
+        summary.insert("id".to_string(), serde_json::json!(account_id));
+        summary.insert("email".to_string(), serde_json::json!(email));
+        if !name.is_empty() {
+            summary.insert("name".to_string(), serde_json::json!(name));
+        }
+        summary.insert("created_at".to_string(), serde_json::json!(now));
+        summary.insert("last_used".to_string(), serde_json::json!(now));
+        accounts_arr.push(serde_json::Value::Object(summary));
     }
 
     // Set current account if none
@@ -833,42 +857,44 @@ fn save_antigravity_account_to_cockpit(
         index_val["current_account_id"] = serde_json::json!(account_id);
     }
 
-    std::fs::write(
-        &accounts_json_path,
-        serde_json::to_string_pretty(&index_val).unwrap_or_default(),
-    )
-    .map_err(|e| format!("Không thể ghi accounts.json: {e}"))?;
+    let summary_content = serde_json::to_string_pretty(&index_val).unwrap_or_default();
+    crate::core::secure_account_storage::write_string_atomic(&accounts_json_path, &summary_content)
+        .map_err(|e| format!("Không thể ghi accounts.json: {e}"))?;
 
-    // Write ~/.cockpit_tools/accounts/<id>.json
+    // Write ~/.cockpit_tools/accounts/<id>.json encrypted with AES-256-GCM
     let accounts_dir = cockpit_dir.join("accounts");
     std::fs::create_dir_all(&accounts_dir).ok();
     let account_file = accounts_dir.join(format!("{account_id}.json"));
 
     let expiry_timestamp = now + token.expires_in;
-    let account_doc = serde_json::json!({
-        "id": account_id,
-        "email": email,
-        "name": name,
-        "created_at": now,
-        "last_used": now,
-        "disabled": false,
-        "token": {
-            "access_token": token.access_token,
-            "refresh_token": token.refresh_token.clone().unwrap_or_default(),
-            "expires_in": token.expires_in,
-            "expiry_timestamp": expiry_timestamp,
-            "token_type": "Bearer",
-            "email": email,
-            "session_id": user_id,
-            "id_token": token.id_token.clone()
-        }
-    });
+    let mut token_obj = serde_json::Map::new();
+    token_obj.insert("access_token".to_string(), serde_json::json!(token.access_token));
+    token_obj.insert("refresh_token".to_string(), serde_json::json!(token.refresh_token.clone().unwrap_or_default()));
+    token_obj.insert("expires_in".to_string(), serde_json::json!(token.expires_in));
+    token_obj.insert("expiry_timestamp".to_string(), serde_json::json!(expiry_timestamp));
+    token_obj.insert("token_type".to_string(), serde_json::json!("Bearer"));
+    token_obj.insert("email".to_string(), serde_json::json!(email));
+    if let Some(sid) = user_id {
+        token_obj.insert("session_id".to_string(), serde_json::json!(sid));
+    }
+    if let Some(id_tok) = &token.id_token {
+        token_obj.insert("id_token".to_string(), serde_json::json!(id_tok));
+    }
 
-    std::fs::write(
-        &account_file,
-        serde_json::to_string_pretty(&account_doc).unwrap_or_default(),
-    )
-    .map_err(|e| format!("Không thể ghi account detail file: {e}"))?;
+    let mut account_doc = serde_json::Map::new();
+    account_doc.insert("id".to_string(), serde_json::json!(account_id));
+    account_doc.insert("email".to_string(), serde_json::json!(email));
+    if !name.is_empty() {
+        account_doc.insert("name".to_string(), serde_json::json!(name));
+    }
+    account_doc.insert("created_at".to_string(), serde_json::json!(now));
+    account_doc.insert("last_used".to_string(), serde_json::json!(now));
+    account_doc.insert("disabled".to_string(), serde_json::json!(false));
+    account_doc.insert("token".to_string(), serde_json::Value::Object(token_obj));
+
+    let account_val = serde_json::Value::Object(account_doc);
+    crate::core::secure_account_storage::save_account_envelope_atomic(&account_file, "antigravity", &account_val)
+        .map_err(|e| format!("Không thể ghi account detail file: {e}"))?;
 
     Ok(())
 }
@@ -876,6 +902,7 @@ fn save_antigravity_account_to_cockpit(
 fn save_copilot_account_to_cockpit(
     cockpit_dir: &std::path::Path,
     account_id: &str,
+    github_id: u64,
     login: &str,
     email: &str,
     gh_access_token: &str,
@@ -900,14 +927,30 @@ fn save_copilot_account_to_cockpit(
         .unwrap_or("")
         .to_string();
 
+    let copilot_expires_at = copilot_token
+        .and_then(|t| t.get("expires_at"))
+        .and_then(|v| v.as_i64());
+
+    let copilot_plan = copilot_token
+        .and_then(|t| t.get("sku"))
+        .or_else(|| copilot_token.and_then(|t| t.get("plan")))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| Some("individual".to_string()));
+
     let mut existing_found = false;
     for item in accounts_arr.iter_mut() {
         if item.get("id").and_then(|x| x.as_str()) == Some(account_id)
             || item.get("github_login").and_then(|x| x.as_str()) == Some(login)
         {
             if let Some(obj) = item.as_object_mut() {
-                obj.insert("github_access_token".to_string(), serde_json::json!(gh_access_token));
-                obj.insert("copilot_token".to_string(), serde_json::json!(copilot_jwt));
+                obj.insert("last_used".to_string(), serde_json::json!(now));
+                if let Some(plan) = &copilot_plan {
+                    obj.insert("copilot_plan".to_string(), serde_json::json!(plan));
+                }
+                // Strip raw tokens from summary index
+                obj.remove("github_access_token");
+                obj.remove("copilot_token");
             }
             existing_found = true;
             break;
@@ -915,25 +958,54 @@ fn save_copilot_account_to_cockpit(
     }
 
     if !existing_found {
-        accounts_arr.push(serde_json::json!({
-            "id": account_id,
-            "github_login": login,
-            "github_email": email,
-            "github_access_token": gh_access_token,
-            "copilot_token": copilot_jwt,
-            "created_at": now
-        }));
+        let mut summary = serde_json::Map::new();
+        summary.insert("id".to_string(), serde_json::json!(account_id));
+        summary.insert("github_login".to_string(), serde_json::json!(login));
+        if !email.is_empty() {
+            summary.insert("github_email".to_string(), serde_json::json!(email));
+        }
+        if let Some(plan) = &copilot_plan {
+            summary.insert("copilot_plan".to_string(), serde_json::json!(plan));
+        }
+        summary.insert("created_at".to_string(), serde_json::json!(now));
+        summary.insert("last_used".to_string(), serde_json::json!(now));
+        accounts_arr.push(serde_json::Value::Object(summary));
     }
 
     if doc.get("current_account_id").is_none() {
         doc["current_account_id"] = serde_json::json!(account_id);
     }
 
-    std::fs::write(
-        &copilot_json_path,
-        serde_json::to_string_pretty(&doc).unwrap_or_default(),
-    )
-    .map_err(|e| format!("Không thể ghi github_copilot_accounts.json: {e}"))?;
+    let summary_content = serde_json::to_string_pretty(&doc).unwrap_or_default();
+    crate::core::secure_account_storage::write_string_atomic(&copilot_json_path, &summary_content)
+        .map_err(|e| format!("Không thể ghi github_copilot_accounts.json: {e}"))?;
+
+    // Write ~/.cockpit_tools/github_copilot_accounts/<id>.json encrypted with AES-256-GCM
+    let gh_dir = cockpit_dir.join("github_copilot_accounts");
+    std::fs::create_dir_all(&gh_dir).ok();
+    let detail_file = gh_dir.join(format!("{account_id}.json"));
+
+    let mut detail_doc = serde_json::Map::new();
+    detail_doc.insert("id".to_string(), serde_json::json!(account_id));
+    detail_doc.insert("github_login".to_string(), serde_json::json!(login));
+    detail_doc.insert("github_id".to_string(), serde_json::json!(github_id));
+    if !email.is_empty() {
+        detail_doc.insert("github_email".to_string(), serde_json::json!(email));
+    }
+    detail_doc.insert("github_access_token".to_string(), serde_json::json!(gh_access_token));
+    detail_doc.insert("copilot_token".to_string(), serde_json::json!(copilot_jwt));
+    if let Some(plan) = &copilot_plan {
+        detail_doc.insert("copilot_plan".to_string(), serde_json::json!(plan));
+    }
+    if let Some(exp) = copilot_expires_at {
+        detail_doc.insert("copilot_expires_at".to_string(), serde_json::json!(exp));
+    }
+    detail_doc.insert("created_at".to_string(), serde_json::json!(now));
+    detail_doc.insert("last_used".to_string(), serde_json::json!(now));
+
+    let detail_val = serde_json::Value::Object(detail_doc);
+    crate::core::secure_account_storage::save_account_envelope_atomic(&detail_file, "github_copilot", &detail_val)
+        .map_err(|e| format!("Không thể ghi copilot account detail file: {e}"))?;
 
     Ok(())
 }

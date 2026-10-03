@@ -49,9 +49,37 @@ fn format_time_left(reset_time_str: &str) -> String {
 
 fn get_antigravity_account_detail(
     cockpit_dir: &std::path::Path,
+    account_id: &str,
     email: &str,
     is_current: bool,
 ) -> (Option<String>, Option<serde_json::Value>) {
+    let key_path = cockpit_dir.join("secure-account-storage.key");
+
+    // 1. Try reading the actual account detail file first
+    let mut detected_tier: Option<String> = None;
+
+    if !account_id.is_empty() {
+        let acc_file = cockpit_dir.join("accounts").join(format!("{account_id}.json"));
+        if let Some(acc_val) = read_cockpit_secure_json(&acc_file, &key_path) {
+            if let Some(q) = acc_val.get("quota") {
+                if let Some(tier) = q.get("subscription_tier").and_then(|t| t.as_str()) {
+                    if !tier.is_empty() {
+                        detected_tier = Some(tier.to_uppercase());
+                    }
+                }
+                if detected_tier.is_none() {
+                    if let Some(tier_id) = q.get("tier_id").and_then(|t| t.as_str()) {
+                        if tier_id.to_lowercase().contains("pro") {
+                            detected_tier = Some("PRO".to_string());
+                        } else if tier_id.to_lowercase().contains("ultra") {
+                            detected_tier = Some("ULTRA".to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     use sha2::{Digest, Sha256};
     let hash = format!("{:x}", Sha256::digest(email.trim().to_lowercase().as_bytes()));
     let cache_file = cockpit_dir
@@ -97,17 +125,17 @@ fn get_antigravity_account_detail(
                     }
                 }
 
+                let final_tier = detected_tier.unwrap_or_else(|| "PRO".to_string());
                 let details = serde_json::json!({
-                    "plan_tier": "PRO",
+                    "plan_tier": final_tier,
                     "is_current": is_current,
                     "claude_5h": c_5h,
                     "claude_weekly": c_weekly,
                     "gemini_5h": g_5h,
                     "gemini_weekly": g_weekly
                 });
-                return (Some("PRO".to_string()), Some(details));
+                return (Some(final_tier), Some(details));
             } else if let Some(models) = payload.and_then(|p| p.get("models")) {
-                // FREE tier
                 let get_model_bucket = |m_name: &str| -> Option<serde_json::Value> {
                     let qi = models.get(m_name)?.get("quotaInfo")?;
                     let rf = qi.get("remainingFraction").and_then(|x| x.as_f64()).unwrap_or(1.0);
@@ -126,18 +154,32 @@ fn get_antigravity_account_detail(
                 let g_weekly = get_model_bucket("gemini-2.5-flash")
                     .or_else(|| get_model_bucket("gemini-2.5-flash-thinking"));
 
+                let final_tier = detected_tier.unwrap_or_else(|| "FREE".to_string());
                 let details = serde_json::json!({
-                    "plan_tier": "FREE",
+                    "plan_tier": final_tier,
                     "is_current": is_current,
                     "claude_5h": null,
                     "claude_weekly": c_weekly,
                     "gemini_5h": null,
                     "gemini_weekly": g_weekly
                 });
-                return (Some("FREE".to_string()), Some(details));
+                return (Some(final_tier), Some(details));
             }
         }
     }
+
+    if let Some(tier) = detected_tier {
+        let details = serde_json::json!({
+            "plan_tier": tier,
+            "is_current": is_current,
+            "claude_5h": null,
+            "claude_weekly": null,
+            "gemini_5h": null,
+            "gemini_weekly": null
+        });
+        return (Some(tier), Some(details));
+    }
+
     (Some("FREE".to_string()), None)
 }
 
@@ -202,7 +244,8 @@ fn load_cockpit_platform_accounts(home: &str) -> Vec<AccountInfo> {
 
                         if file_name == "accounts.json" {
                             is_current = id == current_account_id;
-                            let (tier, details) = get_antigravity_account_detail(&cockpit_dir, nickname, is_current);
+                            let actual_email = item.get("email").and_then(|x| x.as_str()).unwrap_or(nickname);
+                            let (tier, details) = get_antigravity_account_detail(&cockpit_dir, id, actual_email, is_current);
                             plan_tier = tier;
                             quota_details = details;
                         } else if file_name == "github_copilot_accounts.json" {
@@ -1066,7 +1109,7 @@ pub fn get_antigravity_overview(
                         }
                     }
 
-                    let (detected_tier, _) = get_antigravity_account_detail(&cockpit_dir, email, is_curr);
+                    let (detected_tier, _) = get_antigravity_account_detail(&cockpit_dir, id, email, is_curr);
                     let is_pro = if let Some(ref t) = detected_tier {
                         t.eq_ignore_ascii_case("PRO")
                     } else {
