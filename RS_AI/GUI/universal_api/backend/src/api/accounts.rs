@@ -586,35 +586,7 @@ pub struct ImportLocalResult {
 }
 
 fn read_cockpit_secure_json(path: &std::path::Path, key_path: &std::path::Path) -> Option<serde_json::Value> {
-    use aes_gcm::aead::Aead;
-    use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
-    use base64::engine::general_purpose::STANDARD;
-    use base64::Engine;
-
-    let content = std::fs::read_to_string(path).ok()?;
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
-        if v.get("ciphertext").is_some() && v.get("nonce").is_some() {
-            if let Ok(key_raw) = std::fs::read_to_string(key_path) {
-                if let Ok(key_bytes) = STANDARD.decode(key_raw.trim()) {
-                    if key_bytes.len() == 32 {
-                        if let Ok(cipher) = Aes256Gcm::new_from_slice(&key_bytes) {
-                            let nonce_raw = v.get("nonce").and_then(|n| n.as_str()).unwrap_or("");
-                            let cipher_raw = v.get("ciphertext").and_then(|c| c.as_str()).unwrap_or("");
-                            if let (Ok(nonce), Ok(ciphertext)) = (STANDARD.decode(nonce_raw.trim()), STANDARD.decode(cipher_raw.trim())) {
-                                if nonce.len() == 12 {
-                                    if let Ok(plaintext) = cipher.decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref()) {
-                                        return serde_json::from_slice(&plaintext).ok();
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return Some(v);
-    }
-    None
+    crate::core::secure_account_storage::read_account_file_readonly::<serde_json::Value>(path, key_path).ok()
 }
 
 pub fn sync_cockpit_accounts_to_storage_and_pool(state: &RuntimeState, platform: Option<&str>) -> usize {

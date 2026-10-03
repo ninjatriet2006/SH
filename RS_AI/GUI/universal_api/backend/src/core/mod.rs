@@ -23,3 +23,4 @@ pub mod profiles;
 pub mod inject;
 pub mod instance;
 pub mod oauth;
+pub mod secure_account_storage;
