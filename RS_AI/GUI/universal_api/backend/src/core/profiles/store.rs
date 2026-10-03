@@ -28,26 +28,30 @@ pub fn is_pid_alive(pid: u32) -> bool {
     }
 }
 
-pub fn get_platform_file_name(platform_id: &str) -> &'static str {
+pub fn get_platform_file_name(platform_id: &str) -> String {
     match platform_id.to_lowercase().as_str() {
-        "antigravity" | "antigravity_ide" | "antigravity_desktop" => "instances.json",
-        "codex" => "codex_instances.json",
-        "claude" => "claude_instances.json",
-        "windsurf" | "devin" => "windsurf_instances.json",
-        "cursor" => "cursor_instances.json",
-        "kiro" => "kiro_instances.json",
-        "codebuddy" => "codebuddy_instances.json",
-        "codebuddy_cn" => "codebuddy_cn_instances.json",
-        "workbuddy" => "workbuddy_instances.json",
-        "trae" => "trae_instances.json",
-        "trae_solo" => "trae_solo_instances.json",
-        "trae_cn" => "trae_cn_instances.json",
-        "trae_solo_cn" => "trae_solo_cn_instances.json",
-        "qoder" => "qoder_instances.json",
-        "zcode" => "zcode_instances.json",
-        "grok" => "grok_instances.json",
-        "vscode" | "github_copilot" | "ghcp" => "github_copilot_instances.json",
-        _ => "instances.json",
+        "antigravity" | "antigravity_ide" | "antigravity_desktop" => "instances.json".to_string(),
+        "codex" => "codex_instances.json".to_string(),
+        "claude" => "claude_instances.json".to_string(),
+        "windsurf" | "devin" => "windsurf_instances.json".to_string(),
+        "cursor" => "cursor_instances.json".to_string(),
+        "kiro" => "kiro_instances.json".to_string(),
+        "codebuddy" => "codebuddy_instances.json".to_string(),
+        "codebuddy_cn" => "codebuddy_cn_instances.json".to_string(),
+        "workbuddy" => "workbuddy_instances.json".to_string(),
+        "trae" => "trae_instances.json".to_string(),
+        "trae_solo" => "trae_solo_instances.json".to_string(),
+        "trae_cn" => "trae_cn_instances.json".to_string(),
+        "trae_solo_cn" => "trae_solo_cn_instances.json".to_string(),
+        "qoder" => "qoder_instances.json".to_string(),
+        "zcode" => "zcode_instances.json".to_string(),
+        "grok" => "grok_instances.json".to_string(),
+        "vscode" | "github_copilot" | "ghcp" => "github_copilot_instances.json".to_string(),
+        "zed" | "zed_cloud" => "zed_instances.json".to_string(),
+        other => {
+            let clean = other.replace('/', "_").replace('\\', "_");
+            format!("{}_instances.json", clean)
+        }
     }
 }
 
@@ -64,8 +68,8 @@ pub fn get_instances_root_dir(platform_id: &str) -> PathBuf {
 /// Tìm file cấu hình instance ưu tiên data_base rồi đến ~/.cockpit_tools
 fn find_instance_file(platform_id: &str) -> (PathBuf, Option<PathBuf>) {
     let filename = get_platform_file_name(platform_id);
-    let primary = paths::data_base().join(filename);
-    let mut fallback = paths::cockpit_dir().map(|d| d.join(filename));
+    let primary = paths::data_base().join(&filename);
+    let mut fallback = paths::cockpit_dir().map(|d| d.join(&filename));
 
     // Đặc thù Antigravity: nếu không thấy instances.json có thể fallback sang antigravity_legacy_instances.json
     if (platform_id.starts_with("antigravity")) && !primary.exists() {
@@ -141,13 +145,22 @@ pub fn load_platform_instances(platform_id: &str) -> Result<Vec<InstanceProfile>
     // 1. Thêm Default Instance nếu có
     if let Some(def) = store.default_settings {
         let is_running = def.last_pid.map(is_pid_alive).unwrap_or(false);
+        let bound_account_id = if !platform_id.starts_with("antigravity")
+            && (platform_id == "zed" || platform_id == "zed_cloud")
+            && def.bind_account_id.as_deref().map(|id| id.contains("@gmail.com")).unwrap_or(false)
+        {
+            None
+        } else {
+            def.bind_account_id
+        };
+
         result.push(InstanceProfile {
             id: "default".to_string(),
             name: "Default Instance".to_string(),
             platform_id: platform_id.to_string(),
             user_data_dir: PathBuf::from("default"),
             working_dir: def.working_dir.as_ref().map(PathBuf::from),
-            bound_account_id: def.bind_account_id,
+            bound_account_id,
             extra_args: def.extra_args.map(ExtraArgsVal::Text).unwrap_or_default(),
             hardware_fingerprint: None,
             created_at: String::new(),
@@ -469,5 +482,14 @@ mod tests {
         assert!(!list.is_empty(), "Should load at least default instance");
         let def = list.iter().find(|i| i.is_default).expect("Default instance must exist");
         assert_eq!(def.name, "Default Instance");
+    }
+
+    #[test]
+    fn test_load_zed_instances_isolation() {
+        let list = load_platform_instances("zed").expect("Should load instances");
+        assert!(!list.is_empty(), "Should load default instance for zed");
+        let def = list.iter().find(|i| i.is_default).expect("Default instance must exist");
+        assert_eq!(def.name, "Default Instance");
+        assert_ne!(def.bound_account_id.as_deref(), Some("vuk560269@gmail.com"), "Zed must never inherit Antigravity bound account");
     }
 }

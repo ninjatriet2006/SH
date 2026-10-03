@@ -1426,4 +1426,86 @@ table tr:hover td {
   transform: translateX(20px);
 }
 
+.toggle-switch input:disabled + .toggle-slider {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Custom Select Dropdown */
+.select {
+  padding: 0.45rem 0.85rem;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.select:hover {
+  border-color: rgba(148, 163, 184, 0.4);
+}
+
+.select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+.select option {
+  background: #0f172a;
+  color: #f1f5f9;
+}
+
+.platform-settings-card {
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0.5rem 1.25rem;
+  margin-bottom: 1.25rem;
+  transition: border-color 0.2s ease;
+}
+
+.platform-settings-card:hover {
+  border-color: rgba(148, 163, 184, 0.28);
+}
+
+.platform-title-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 1.25rem;
+  margin-bottom: 0.65rem;
+}
+
+.platform-title-bar-bar {
+  width: 3.5px;
+  height: 16px;
+  background: var(--primary);
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.platform-title-bar-text {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: -0.01em;
+}
+
+.sub-section-header {
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--primary);
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+
 

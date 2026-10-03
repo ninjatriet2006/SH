@@ -176,11 +176,11 @@ fn load_cockpit_platform_accounts(home: &str) -> Vec<AccountInfo> {
         ("codebuddy_accounts.json", "codebuddy.ai"),
     ];
 
+    let key_path = cockpit_dir.join("secure-account-storage.key");
     for (file_name, domain) in files {
         let p = cockpit_dir.join(file_name);
-        if let Ok(raw) = std::fs::read_to_string(&p) {
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
-                let current_account_id = v.get("current_account_id").and_then(|x| x.as_str()).unwrap_or("");
+        if let Some(v) = read_cockpit_secure_json(&p, &key_path) {
+            let current_account_id = v.get("current_account_id").and_then(|x| x.as_str()).unwrap_or("");
                 if let Some(arr) = v.get("accounts").and_then(|a| a.as_array()) {
                     for item in arr {
                         let id = item.get("id").and_then(|x| x.as_str()).unwrap_or("");
@@ -244,7 +244,6 @@ fn load_cockpit_platform_accounts(home: &str) -> Vec<AccountInfo> {
                 }
             }
         }
-    }
 
     results
 }
@@ -586,33 +585,25 @@ pub struct ImportLocalResult {
     pub message: String,
 }
 
-#[tauri::command(rename_all = "snake_case")]
-pub fn import_from_local_ide(
-    request: Req<ImportLocalRequest>,
-    state: State<'_, RuntimeState>,
-) -> IpcResult<ImportLocalResult> {
-    let (request_id, payload) = request.validate()?;
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let mut imported = 0;
+fn read_cockpit_secure_json(path: &std::path::Path, key_path: &std::path::Path) -> Option<serde_json::Value> {
+    use aes_gcm::aead::Aead;
+    use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
 
-    // 1. Import Zed Accounts
-    if payload.platform.is_empty() || payload.platform == "zed" || payload.platform == "all" {
-        let zed_dir = std::path::Path::new(&home).join(".cockpit_tools/zed_accounts");
-        if zed_dir.is_dir() {
-            if let Ok(entries) = std::fs::read_dir(zed_dir) {
-                for entry in entries.flatten() {
-                    let p = entry.path();
-                    if p.extension().map_or(false, |ext| ext == "json") {
-                        if let Ok(raw) = std::fs::read_to_string(&p) {
-                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
-                                let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("");
-                                let label = v.get("label").or_else(|| v.get("github_login")).and_then(|x| x.as_str()).unwrap_or("");
-                                let token = v.get("access_token").or_else(|| v.get("token")).and_then(|x| x.as_str()).unwrap_or("");
-                                let org_id = v.get("org_id").and_then(|x| x.as_str()).unwrap_or("");
-                                if !id.is_empty() {
-                                    if let Ok(store) = state.storage() {
-                                        let _ = store.upsert_zed_account(id, label, token, org_id);
-                                        imported += 1;
+    let content = std::fs::read_to_string(path).ok()?;
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+        if v.get("ciphertext").is_some() && v.get("nonce").is_some() {
+            if let Ok(key_raw) = std::fs::read_to_string(key_path) {
+                if let Ok(key_bytes) = STANDARD.decode(key_raw.trim()) {
+                    if key_bytes.len() == 32 {
+                        if let Ok(cipher) = Aes256Gcm::new_from_slice(&key_bytes) {
+                            let nonce_raw = v.get("nonce").and_then(|n| n.as_str()).unwrap_or("");
+                            let cipher_raw = v.get("ciphertext").and_then(|c| c.as_str()).unwrap_or("");
+                            if let (Ok(nonce), Ok(ciphertext)) = (STANDARD.decode(nonce_raw.trim()), STANDARD.decode(cipher_raw.trim())) {
+                                if nonce.len() == 12 {
+                                    if let Ok(plaintext) = cipher.decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref()) {
+                                        return serde_json::from_slice(&plaintext).ok();
                                     }
                                 }
                             }
@@ -621,22 +612,241 @@ pub fn import_from_local_ide(
                 }
             }
         }
+        return Some(v);
+    }
+    None
+}
 
-        // Also check ~/.cockpit_tools/zed_accounts.json
-        let zed_json = std::path::Path::new(&home).join(".cockpit_tools/zed_accounts.json");
-        if let Ok(raw) = std::fs::read_to_string(&zed_json) {
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
-                if let Some(arr) = v.get("accounts").and_then(|a| a.as_array()) {
-                    for item in arr {
-                        let id = item.get("id").and_then(|x| x.as_str()).unwrap_or("");
-                        let label = item.get("label").or_else(|| item.get("github_login")).and_then(|x| x.as_str()).unwrap_or("");
-                        let token = item.get("access_token").or_else(|| item.get("token")).and_then(|x| x.as_str()).unwrap_or("");
-                        let org_id = item.get("org_id").and_then(|x| x.as_str()).unwrap_or("");
-                        if !id.is_empty() {
-                            if let Ok(store) = state.storage() {
-                                let _ = store.upsert_zed_account(id, label, token, org_id);
+pub fn sync_cockpit_accounts_to_storage_and_pool(state: &RuntimeState, platform: Option<&str>) -> usize {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let cockpit_dir = std::path::Path::new(&home).join(".cockpit_tools");
+    let key_path = cockpit_dir.join("secure-account-storage.key");
+    let mut imported = 0;
+    let target = platform.unwrap_or("all");
+
+    let import_one = |uid: &str, domain: &str, nickname: &str, enterprise_id: &str, access_token: &str, refresh_token: &str, expires_at: i64, file_path: &str| -> bool {
+        if uid.is_empty() {
+            return false;
+        }
+        let auth = crate::core::auth::Auth {
+            file_path: file_path.to_string(),
+            uid: uid.to_string(),
+            domain: domain.to_string(),
+            nickname: nickname.to_string(),
+            enterprise_id: enterprise_id.to_string(),
+            access_token: access_token.to_string(),
+            refresh_token: refresh_token.to_string(),
+            expires_at,
+        };
+        if let Ok(store) = state.storage() {
+            let _ = store.upsert_account(
+                &auth.uid,
+                &auth.domain,
+                &auth.nickname,
+                &auth.enterprise_id,
+                &auth.access_token,
+                &auth.refresh_token,
+                auth.expires_at,
+            );
+        }
+        state.pool.add(auth);
+        true
+    };
+
+    // 1. Antigravity Google Accounts
+    if target.is_empty() || target == "antigravity" || target == "all" {
+        let acc_dir = cockpit_dir.join("accounts");
+        if acc_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&acc_dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.extension().map_or(false, |ext| ext == "json") {
+                        if let Some(v) = read_cockpit_secure_json(&p, &key_path) {
+                            let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("");
+                            let email = v.get("email").or_else(|| v.get("name")).and_then(|x| x.as_str()).unwrap_or(id);
+                            let access_token = v.pointer("/token/access_token").or_else(|| v.get("access_token")).and_then(|x| x.as_str()).unwrap_or("");
+                            let refresh_token = v.pointer("/token/refresh_token").or_else(|| v.get("refresh_token")).and_then(|x| x.as_str()).unwrap_or("");
+                            let expires_at = v.pointer("/token/expiry_timestamp").or_else(|| v.get("expires_at")).and_then(|x| x.as_i64()).unwrap_or(0);
+                            if import_one(id, "antigravity.google.com", email, "", access_token, refresh_token, expires_at, &p.to_string_lossy()) {
                                 imported += 1;
                             }
+                        }
+                    }
+                }
+            }
+        }
+        let acc_json = cockpit_dir.join("accounts.json");
+        if let Some(v) = read_cockpit_secure_json(&acc_json, &key_path) {
+            if let Some(arr) = v.get("accounts").and_then(|a| a.as_array()) {
+                for item in arr {
+                    let id = item.get("id").and_then(|x| x.as_str()).unwrap_or("");
+                    let email = item.get("email").or_else(|| item.get("name")).and_then(|x| x.as_str()).unwrap_or(id);
+                    let access_token = item.pointer("/token/access_token").or_else(|| item.get("access_token")).and_then(|x| x.as_str()).unwrap_or("");
+                    let refresh_token = item.pointer("/token/refresh_token").or_else(|| item.get("refresh_token")).and_then(|x| x.as_str()).unwrap_or("");
+                    let expires_at = item.pointer("/token/expiry_timestamp").or_else(|| item.get("expires_at")).and_then(|x| x.as_i64()).unwrap_or(0);
+                    if import_one(id, "antigravity.google.com", email, "", access_token, refresh_token, expires_at, &acc_json.to_string_lossy()) {
+                        imported += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. GitHub Copilot Accounts
+    if target.is_empty() || target == "github_copilot" || target == "copilot" || target == "all" {
+        let gh_dir = cockpit_dir.join("github_copilot_accounts");
+        if gh_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&gh_dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.extension().map_or(false, |ext| ext == "json") {
+                        if let Some(v) = read_cockpit_secure_json(&p, &key_path) {
+                            let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("");
+                            let login = v.get("github_email").or_else(|| v.get("github_login")).and_then(|x| x.as_str()).unwrap_or(id);
+                            let access_token = v.get("copilot_token")
+                                .or_else(|| v.get("github_access_token"))
+                                .or_else(|| v.pointer("/token/access_token"))
+                                .or_else(|| v.get("access_token"))
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("");
+                            let refresh_token = v.get("github_refresh_token").and_then(|x| x.as_str()).unwrap_or("");
+                            let expires_at = v.get("copilot_expires_at").and_then(|x| x.as_i64()).unwrap_or(0);
+                            if !access_token.is_empty() {
+                                if import_one(id, "github.com/copilot", login, "", access_token, refresh_token, expires_at, &p.to_string_lossy()) {
+                                    imported += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let gh_json = cockpit_dir.join("github_copilot_accounts.json");
+        if let Some(v) = read_cockpit_secure_json(&gh_json, &key_path) {
+            if let Some(arr) = v.get("accounts").and_then(|a| a.as_array()) {
+                for item in arr {
+                    let id = item.get("id").and_then(|x| x.as_str()).unwrap_or("");
+                    let login = item.get("github_login").or_else(|| item.get("github_email")).and_then(|x| x.as_str()).unwrap_or(id);
+                    let access_token = item.get("github_access_token").or_else(|| item.get("copilot_token")).and_then(|x| x.as_str()).unwrap_or("");
+                    if !access_token.is_empty() {
+                        if import_one(id, "github.com/copilot", login, "", access_token, "", 0, &gh_json.to_string_lossy()) {
+                            imported += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Cursor Accounts
+    if target.is_empty() || target == "cursor" || target == "all" {
+        let cursor_dir = cockpit_dir.join("cursor_accounts");
+        if cursor_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&cursor_dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.extension().map_or(false, |ext| ext == "json") {
+                        if let Some(v) = read_cockpit_secure_json(&p, &key_path) {
+                            let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("");
+                            let email = v.get("email").or_else(|| v.get("auth_id")).and_then(|x| x.as_str()).unwrap_or(id);
+                            let access_token = v.get("access_token").and_then(|x| x.as_str()).unwrap_or("");
+                            let refresh_token = v.get("refresh_token").and_then(|x| x.as_str()).unwrap_or("");
+                            if import_one(id, "cursor.com", email, "", access_token, refresh_token, 0, &p.to_string_lossy()) {
+                                imported += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let cursor_json = cockpit_dir.join("cursor_accounts.json");
+        if let Some(v) = read_cockpit_secure_json(&cursor_json, &key_path) {
+            if let Some(arr) = v.get("accounts").and_then(|a| a.as_array()) {
+                for item in arr {
+                    let id = item.get("id").and_then(|x| x.as_str()).unwrap_or("");
+                    let email = item.get("email").or_else(|| item.get("auth_id")).and_then(|x| x.as_str()).unwrap_or(id);
+                    let access_token = item.get("access_token").and_then(|x| x.as_str()).unwrap_or("");
+                    let refresh_token = item.get("refresh_token").and_then(|x| x.as_str()).unwrap_or("");
+                    if import_one(id, "cursor.com", email, "", access_token, refresh_token, 0, &cursor_json.to_string_lossy()) {
+                        imported += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Windsurf Accounts
+    if target.is_empty() || target == "windsurf" || target == "all" {
+        let ws_dir = cockpit_dir.join("windsurf_accounts");
+        if ws_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&ws_dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.extension().map_or(false, |ext| ext == "json") {
+                        if let Some(v) = read_cockpit_secure_json(&p, &key_path) {
+                            let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("");
+                            let email = v.get("email").or_else(|| v.get("name")).and_then(|x| x.as_str()).unwrap_or(id);
+                            let token = v.get("api_key").or_else(|| v.get("access_token")).and_then(|x| x.as_str()).unwrap_or("");
+                            if import_one(id, "codeium.com", email, "", token, "", 0, &p.to_string_lossy()) {
+                                imported += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let ws_json = cockpit_dir.join("windsurf_accounts.json");
+        if let Some(v) = read_cockpit_secure_json(&ws_json, &key_path) {
+            if let Some(arr) = v.get("accounts").and_then(|a| a.as_array()) {
+                for item in arr {
+                    let id = item.get("id").and_then(|x| x.as_str()).unwrap_or("");
+                    let email = item.get("email").or_else(|| item.get("name")).and_then(|x| x.as_str()).unwrap_or(id);
+                    let token = item.get("api_key").or_else(|| item.get("access_token")).and_then(|x| x.as_str()).unwrap_or("");
+                    if import_one(id, "codeium.com", email, "", token, "", 0, &ws_json.to_string_lossy()) {
+                        imported += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // 5. Import Zed Accounts
+    if target.is_empty() || target == "zed" || target == "all" {
+        let zed_dir = cockpit_dir.join("zed_accounts");
+        if zed_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(zed_dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.extension().map_or(false, |ext| ext == "json") {
+                        if let Some(v) = read_cockpit_secure_json(&p, &key_path) {
+                            let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("");
+                            let label = v.get("label").or_else(|| v.get("github_login")).and_then(|x| x.as_str()).unwrap_or("");
+                            let token = v.get("access_token").or_else(|| v.get("token")).and_then(|x| x.as_str()).unwrap_or("");
+                            let org_id = v.get("org_id").and_then(|x| x.as_str()).unwrap_or("");
+                            if !id.is_empty() {
+                                if let Ok(store) = state.storage() {
+                                    let _ = store.upsert_zed_account(id, label, token, org_id);
+                                    imported += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let zed_json = cockpit_dir.join("zed_accounts.json");
+        if let Some(v) = read_cockpit_secure_json(&zed_json, &key_path) {
+            if let Some(arr) = v.get("accounts").and_then(|a| a.as_array()) {
+                for item in arr {
+                    let id = item.get("id").and_then(|x| x.as_str()).unwrap_or("");
+                    let label = item.get("label").or_else(|| item.get("github_login")).and_then(|x| x.as_str()).unwrap_or("");
+                    let token = item.get("access_token").or_else(|| item.get("token")).and_then(|x| x.as_str()).unwrap_or("");
+                    let org_id = item.get("org_id").and_then(|x| x.as_str()).unwrap_or("");
+                    if !id.is_empty() {
+                        if let Ok(store) = state.storage() {
+                            let _ = store.upsert_zed_account(id, label, token, org_id);
+                            imported += 1;
                         }
                     }
                 }
@@ -645,7 +855,7 @@ pub fn import_from_local_ide(
     }
 
     // 2. Import CodeBuddy & CodeBuddy CN Accounts
-    if payload.platform.is_empty() || payload.platform.starts_with("codebuddy") || payload.platform == "all" {
+    if target.is_empty() || target.starts_with("codebuddy") || target == "all" {
         for sub_dir in &["codebuddy_accounts", "codebuddy_cn_accounts"] {
             let cockpit_cb_dir = std::path::Path::new(&home).join(".cockpit_tools").join(sub_dir);
             if cockpit_cb_dir.is_dir() {
@@ -750,6 +960,16 @@ pub fn import_from_local_ide(
         }
     }
 
+    imported
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn import_from_local_ide(
+    request: Req<ImportLocalRequest>,
+    state: State<'_, RuntimeState>,
+) -> IpcResult<ImportLocalResult> {
+    let (request_id, payload) = request.validate()?;
+    let imported = sync_cockpit_accounts_to_storage_and_pool(&state, Some(&payload.platform));
     Ok(respond(
         request_id,
         ImportLocalResult {
@@ -874,11 +1094,19 @@ pub fn get_antigravity_overview(
                         }
                     }
 
+                    let (detected_tier, _) = get_antigravity_account_detail(&cockpit_dir, email, is_curr);
+                    let is_pro = if let Some(ref t) = detected_tier {
+                        t.eq_ignore_ascii_case("PRO")
+                    } else {
+                        buckets.iter().any(|b| b.bucket_id.contains("5h") || b.bucket_id.starts_with("3p"))
+                    };
+                    let plan_tier = if is_pro { "PRO" } else { "FREE" };
+
                     if is_curr && current_card.is_none() {
                         current_card = Some(AntigravityOverviewCard {
                             id: id.to_string(),
                             email: email.to_string(),
-                            plan_tier: "PRO".to_string(),
+                            plan_tier: plan_tier.to_string(),
                             buckets: buckets.clone(),
                         });
                     } else if recommended_card.is_none() && !is_curr {
@@ -899,7 +1127,7 @@ pub fn get_antigravity_overview(
                         recommended_card = Some(AntigravityOverviewCard {
                             id: id.to_string(),
                             email: email.to_string(),
-                            plan_tier: "FREE".to_string(),
+                            plan_tier: plan_tier.to_string(),
                             buckets: if buckets.is_empty() { rec_buckets } else { buckets },
                         });
                     }
@@ -1322,6 +1550,99 @@ mod tests {
         assert_eq!(windsurf_info.name, "Windsurf");
         assert_eq!(windsurf_info.version, "Not Found");
         assert!(!windsurf_info.installed);
+    }
+
+    #[test]
+    fn test_read_cockpit_secure_json_envelope() {
+        use aes_gcm::aead::Aead;
+        use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+        use base64::engine::general_purpose::STANDARD;
+        use base64::Engine;
+
+        let temp_dir = std::env::temp_dir().join(format!("test_cockpit_decrypt_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let key_path = temp_dir.join("secure-account-storage.key");
+        let account_path = temp_dir.join("test_acc.json");
+
+        let raw_key = [7u8; 32];
+        let key_b64 = STANDARD.encode(raw_key);
+        std::fs::write(&key_path, key_b64).unwrap();
+
+        let original_data = serde_json::json!({
+            "id": "antigravity_12345",
+            "email": "tester@example.com",
+            "token": {
+                "access_token": "ya29.test_token_secret",
+                "refresh_token": "1//04test_refresh"
+            }
+        });
+
+        let cipher = Aes256Gcm::new_from_slice(&raw_key).unwrap();
+        let nonce_bytes = [3u8; 12];
+        let ciphertext = cipher
+            .encrypt(Nonce::from_slice(&nonce_bytes), serde_json::to_vec(&original_data).unwrap().as_ref())
+            .unwrap();
+
+        let envelope = serde_json::json!({
+            "version": 1,
+            "kind": "account",
+            "algorithm": "AES-256-GCM",
+            "key_id": "local-secure-account-storage-v1",
+            "nonce": STANDARD.encode(nonce_bytes),
+            "ciphertext": STANDARD.encode(ciphertext),
+            "encrypted_at": 1700000000i64
+        });
+
+        std::fs::write(&account_path, serde_json::to_string(&envelope).unwrap()).unwrap();
+
+        let decrypted = read_cockpit_secure_json(&account_path, &key_path);
+        assert!(decrypted.is_some(), "Decryption must succeed");
+        let val = decrypted.unwrap();
+        assert_eq!(val["id"], "antigravity_12345");
+        assert_eq!(val["email"], "tester@example.com");
+        assert_eq!(val["token"]["access_token"], "ya29.test_token_secret");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_decrypt_real_cockpit_if_present() {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let cockpit_dir = std::path::Path::new(&home).join(".cockpit_tools");
+        let key_path = cockpit_dir.join("secure-account-storage.key");
+        if !key_path.exists() {
+            return;
+        }
+        let accounts_dir = cockpit_dir.join("accounts");
+        if let Ok(entries) = std::fs::read_dir(accounts_dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.extension().map_or(false, |e| e == "json") {
+                    let decrypted = read_cockpit_secure_json(&p, &key_path);
+                    assert!(decrypted.is_some(), "Failed to decrypt actual file: {:?}", p);
+                    let val = decrypted.unwrap();
+                    assert!(val.get("id").is_some());
+                    println!("Successfully decrypted real account ID: {:?}", val.get("id"));
+                    break;
+                }
+            }
+        }
+        let copilot_dir = cockpit_dir.join("github_copilot_accounts");
+        if let Ok(entries) = std::fs::read_dir(copilot_dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.extension().map_or(false, |e| e == "json") {
+                    let decrypted = read_cockpit_secure_json(&p, &key_path);
+                    assert!(decrypted.is_some(), "Failed to decrypt actual copilot file: {:?}", p);
+                    let val = decrypted.unwrap();
+                    println!("Successfully decrypted real copilot account ID: {:?}", val.get("id"));
+                    let keys: Vec<String> = val.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
+                    println!("Copilot keys: {:?}", keys);
+                    break;
+                }
+            }
+        }
     }
 }
 

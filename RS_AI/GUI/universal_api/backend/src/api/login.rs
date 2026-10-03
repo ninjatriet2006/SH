@@ -37,14 +37,27 @@ pub fn login_start(request: Req<LoginStartRequest>, state: State<'_, RuntimeStat
         .clone();
     let proxy_opt = if proxy_url.trim().is_empty() { None } else { Some(proxy_url.as_str()) };
 
-    // Tách biệt hoàn toàn: CodeBuddy Global vs CodeBuddy CN
-    let is_global = realm_arg == "intl" || realm_arg == "codebuddy_global";
-    let (auth_url, state_val, realm_val) = if is_global {
-        let started = crate::core::platforms::codebuddy_global::auth::start_login_global(proxy_opt).map_err(from_string)?;
-        (started.auth_url, started.state, "codebuddy_global".to_string())
-    } else {
-        let started = crate::core::platforms::codebuddy_cn::auth::start_login_cn(proxy_opt).map_err(from_string)?;
-        (started.auth_url, started.state, "codebuddy_cn".to_string())
+    let (auth_url, state_val, realm_val) = match realm_arg {
+        "antigravity" => {
+            let (url, state) = crate::core::oauth::start_antigravity_oauth().map_err(from_string)?;
+            (url, state, "antigravity".to_string())
+        }
+        "github_copilot" | "copilot" => {
+            let (url, state) = crate::core::oauth::start_github_copilot_oauth().map_err(from_string)?;
+            (url, state, "github_copilot".to_string())
+        }
+        "cursor" => {
+            let (url, state) = crate::core::oauth::start_cursor_oauth().map_err(from_string)?;
+            (url, state, "cursor".to_string())
+        }
+        "intl" | "codebuddy_global" => {
+            let started = crate::core::platforms::codebuddy_global::auth::start_login_global(proxy_opt).map_err(from_string)?;
+            (started.auth_url, started.state, "codebuddy_global".to_string())
+        }
+        _ => {
+            let started = crate::core::platforms::codebuddy_cn::auth::start_login_cn(proxy_opt).map_err(from_string)?;
+            (started.auth_url, started.state, "codebuddy_cn".to_string())
+        }
     };
 
     *state
@@ -89,6 +102,130 @@ pub fn login_poll(request: Req<Empty>, state: State<'_, RuntimeState>) -> IpcRes
         (cfg.upstream.proxy_url.clone(), cfg.auth_dir.clone())
     };
     let proxy_opt = if proxy_url.trim().is_empty() { None } else { Some(proxy_url.as_str()) };
+    let cockpit_dir = crate::core::paths::cockpit_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+
+    // Antigravity Google OAuth
+    if pending.realm == "antigravity" {
+        let outcome = crate::core::oauth::poll_antigravity_oauth(&pending.state, &cockpit_dir).map_err(from_string)?;
+        return match outcome {
+            None => Ok(respond(
+                request_id,
+                LoginPollResponse { status: "pending".into(), account: None },
+            )),
+            Some(res) => {
+                *state.pending_login.lock().map_err(|_| from_string("Login lock poisoned".into()))? = None;
+                let auth = Auth {
+                    access_token: res.access_token.clone(),
+                    refresh_token: res.refresh_token.clone(),
+                    expires_at: if res.expires_in > 0 { chrono::Utc::now().timestamp() + res.expires_in } else { 0 },
+                    domain: res.domain.clone(),
+                    uid: res.uid.clone(),
+                    enterprise_id: String::new(),
+                    nickname: res.nickname.clone(),
+                    file_path: format!("antigravity-{}.json", res.uid),
+                };
+                if let Ok(store) = state.storage() {
+                    let _ = store.upsert_account(&auth.uid, &auth.domain, &auth.nickname, &auth.enterprise_id,
+                                                &auth.access_token, &auth.refresh_token, auth.expires_at);
+                }
+                state.pool.add(auth);
+                Ok(respond(
+                    request_id,
+                    LoginPollResponse {
+                        status: "done".into(),
+                        account: Some(LoginAccountInfo {
+                            uid: res.uid,
+                            nickname: res.nickname,
+                            domain: res.domain,
+                            checkin: "Google Antigravity OAuth thành công!".to_string(),
+                        }),
+                    },
+                ))
+            }
+        };
+    }
+
+    // GitHub Copilot OAuth
+    if pending.realm == "github_copilot" || pending.realm == "copilot" {
+        let outcome = crate::core::oauth::poll_github_copilot_oauth(&pending.state, &cockpit_dir).map_err(from_string)?;
+        return match outcome {
+            None => Ok(respond(
+                request_id,
+                LoginPollResponse { status: "pending".into(), account: None },
+            )),
+            Some(res) => {
+                *state.pending_login.lock().map_err(|_| from_string("Login lock poisoned".into()))? = None;
+                let auth = Auth {
+                    access_token: res.access_token.clone(),
+                    refresh_token: res.refresh_token.clone(),
+                    expires_at: if res.expires_in > 0 { chrono::Utc::now().timestamp() + res.expires_in } else { 0 },
+                    domain: res.domain.clone(),
+                    uid: res.uid.clone(),
+                    enterprise_id: String::new(),
+                    nickname: res.nickname.clone(),
+                    file_path: format!("ghcp-{}.json", res.uid),
+                };
+                if let Ok(store) = state.storage() {
+                    let _ = store.upsert_account(&auth.uid, &auth.domain, &auth.nickname, &auth.enterprise_id,
+                                                &auth.access_token, &auth.refresh_token, auth.expires_at);
+                }
+                state.pool.add(auth);
+                Ok(respond(
+                    request_id,
+                    LoginPollResponse {
+                        status: "done".into(),
+                        account: Some(LoginAccountInfo {
+                            uid: res.uid,
+                            nickname: res.nickname,
+                            domain: res.domain,
+                            checkin: "GitHub Copilot OAuth thành công!".to_string(),
+                        }),
+                    },
+                ))
+            }
+        };
+    }
+
+    // Cursor OAuth
+    if pending.realm == "cursor" {
+        let outcome = crate::core::oauth::poll_cursor_oauth(&pending.state, &cockpit_dir).map_err(from_string)?;
+        return match outcome {
+            None => Ok(respond(
+                request_id,
+                LoginPollResponse { status: "pending".into(), account: None },
+            )),
+            Some(res) => {
+                *state.pending_login.lock().map_err(|_| from_string("Login lock poisoned".into()))? = None;
+                let auth = Auth {
+                    access_token: res.access_token.clone(),
+                    refresh_token: res.refresh_token.clone(),
+                    expires_at: if res.expires_in > 0 { chrono::Utc::now().timestamp() + res.expires_in } else { 0 },
+                    domain: res.domain.clone(),
+                    uid: res.uid.clone(),
+                    enterprise_id: String::new(),
+                    nickname: res.nickname.clone(),
+                    file_path: format!("cursor-{}.json", res.uid),
+                };
+                if let Ok(store) = state.storage() {
+                    let _ = store.upsert_account(&auth.uid, &auth.domain, &auth.nickname, &auth.enterprise_id,
+                                                &auth.access_token, &auth.refresh_token, auth.expires_at);
+                }
+                state.pool.add(auth);
+                Ok(respond(
+                    request_id,
+                    LoginPollResponse {
+                        status: "done".into(),
+                        account: Some(LoginAccountInfo {
+                            uid: res.uid,
+                            nickname: res.nickname,
+                            domain: res.domain,
+                            checkin: "Cursor OAuth thành công!".to_string(),
+                        }),
+                    },
+                ))
+            }
+        };
+    }
 
     let is_global = pending.realm == "intl" || pending.realm == "codebuddy_global";
     let outcome = if is_global {
@@ -166,10 +303,10 @@ pub fn login_poll(request: Req<Empty>, state: State<'_, RuntimeState>) -> IpcRes
     }
 }
 
-
 #[tauri::command(rename_all = "snake_case")]
 pub fn login_cancel(request: Req<Empty>, state: State<'_, RuntimeState>) -> IpcResult<Empty> {
     let (request_id, _) = request.validate()?;
+    crate::core::oauth::cancel_oauth();
     *state.pending_login.lock().map_err(|_| from_string("Login lock poisoned".into()))? = None;
     Ok(respond(request_id, Empty {}))
 }

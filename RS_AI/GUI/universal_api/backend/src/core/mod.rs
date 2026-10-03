@@ -22,3 +22,4 @@ pub mod platforms;
 pub mod profiles;
 pub mod inject;
 pub mod instance;
+pub mod oauth;

@@ -322,8 +322,25 @@ export function CockpitAccountManagerView({
     const [modalTab, setModalTab] = useState<'oauth' | 'token' | 'local'>('oauth');
     const [oauthPolling, setOauthPolling] = useState(false);
     const [oauthUrl, setOauthUrl] = useState('');
+    const [oauthError, setOauthError] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
     const [tokenInput, setTokenInput] = useState('');
+
+    const hasNativeOAuth = (pid: string) => {
+        return pid === 'antigravity' || pid === 'github_copilot' || pid === 'cursor' || pid === 'codebuddy' || pid === 'codebuddy_cn' || pid === 'codebuddy_global';
+    };
+
+    const openAddModal = (tab?: 'oauth' | 'token' | 'local') => {
+        if (tab) {
+            setModalTab(tab);
+        } else if (hasNativeOAuth(platformId)) {
+            setModalTab('oauth');
+        } else {
+            setModalTab('local');
+        }
+        setOauthError(null);
+        setModalOpen(true);
+    };
 
     const showMsg = (text: string, ok: boolean) => {
         setActionMsg({ text, ok });
@@ -440,9 +457,73 @@ export function CockpitAccountManagerView({
     // Start OAuth Flow (Cockpit style: auto-start and show URL)
     const startOAuthFlow = async () => {
         try {
-            if (platformId === 'codebuddy_cn' || platformId === 'codebuddy_global') {
+            setOauthError(null);
+            if (platformId === 'antigravity') {
                 setOauthPolling(true);
-                const realm = platformId === 'codebuddy_cn' ? 'cn' : 'intl';
+                const res = await loginStart('antigravity');
+                setOauthUrl(res.auth_url);
+
+                const interval = setInterval(async () => {
+                    try {
+                        const outcome = await loginPoll();
+                        if (outcome.status === 'done') {
+                            clearInterval(interval);
+                            setOauthPolling(false);
+                            setModalOpen(false);
+                            showMsg('Đăng nhập Google Antigravity OAuth thành công!', true);
+                            loadAccounts();
+                        }
+                    } catch (err: any) {
+                        clearInterval(interval);
+                        setOauthPolling(false);
+                        setOauthError(err.message || 'Lỗi khi chờ OAuth');
+                    }
+                }, 1500);
+            } else if (platformId === 'github_copilot') {
+                setOauthPolling(true);
+                const res = await loginStart('github_copilot');
+                setOauthUrl(res.auth_url);
+
+                const interval = setInterval(async () => {
+                    try {
+                        const outcome = await loginPoll();
+                        if (outcome.status === 'done') {
+                            clearInterval(interval);
+                            setOauthPolling(false);
+                            setModalOpen(false);
+                            showMsg('Đăng nhập GitHub Copilot thành công!', true);
+                            loadAccounts();
+                        }
+                    } catch (err: any) {
+                        clearInterval(interval);
+                        setOauthPolling(false);
+                        setOauthError(err.message || 'Lỗi khi chờ GitHub Copilot OAuth');
+                    }
+                }, 1500);
+            } else if (platformId === 'cursor') {
+                setOauthPolling(true);
+                const res = await loginStart('cursor');
+                setOauthUrl(res.auth_url);
+
+                const interval = setInterval(async () => {
+                    try {
+                        const outcome = await loginPoll();
+                        if (outcome.status === 'done') {
+                            clearInterval(interval);
+                            setOauthPolling(false);
+                            setModalOpen(false);
+                            showMsg('Đăng nhập Cursor OAuth thành công!', true);
+                            loadAccounts();
+                        }
+                    } catch (err: any) {
+                        clearInterval(interval);
+                        setOauthPolling(false);
+                        setOauthError(err.message || 'Lỗi khi chờ Cursor OAuth');
+                    }
+                }, 2000);
+            } else if (platformId === 'codebuddy' || platformId === 'codebuddy_cn' || platformId === 'codebuddy_global') {
+                setOauthPolling(true);
+                const realm = (platformId === 'codebuddy_cn' || codebuddySubRegion === 'cn') ? 'cn' : 'intl';
                 const res = await loginStart(realm);
                 setOauthUrl(res.auth_url);
 
@@ -453,32 +534,36 @@ export function CockpitAccountManagerView({
                             clearInterval(interval);
                             setOauthPolling(false);
                             setModalOpen(false);
-                            showMsg('Đăng nhập OAuth thành công!', true);
+                            showMsg('Đăng nhập CodeBuddy OAuth thành công!', true);
                             loadAccounts();
                         }
-                    } catch {
+                    } catch (err: any) {
                         clearInterval(interval);
                         setOauthPolling(false);
+                        setOauthError(err.message || 'Lỗi khi chờ CodeBuddy OAuth');
                     }
                 }, 2000);
-            } else if (platformId === 'zed') {
-                setOauthUrl('https://cloud.zed.dev');
+            } else {
                 setOauthPolling(false);
-            } else if (platformId === 'github_copilot') {
-                setOauthUrl('https://github.com/login/device');
-                setOauthPolling(false);
-            } else if (platformId === 'cursor') {
-                setOauthUrl('https://authenticator.cursor.sh');
-                setOauthPolling(false);
-            } else if (platformId === 'windsurf') {
-                setOauthUrl('https://codeium.com/account/login');
-                setOauthPolling(false);
-            } else if (platformId === 'trae') {
-                setOauthUrl('https://trae.ai/login');
-                setOauthPolling(false);
+                if (platformId === 'zed') {
+                    setOauthUrl('https://cloud.zed.dev');
+                } else if (platformId === 'windsurf') {
+                    setOauthUrl('https://codeium.com/account/login');
+                } else if (platformId === 'trae') {
+                    setOauthUrl('https://trae.ai/login');
+                } else if (platformId === 'claude') {
+                    setOauthUrl('https://claude.ai');
+                } else if (platformId === 'codex') {
+                    setOauthUrl('https://platform.openai.com/api-keys');
+                } else if (platformId === 'kiro') {
+                    setOauthUrl('https://kiro.dev');
+                } else if (platformId === 'qoder') {
+                    setOauthUrl('https://qoder.com');
+                }
             }
         } catch (e: any) {
             setOauthPolling(false);
+            setOauthError(e.message || 'Lỗi bắt đầu đăng nhập OAuth');
             showMsg(e.message || 'Lỗi bắt đầu đăng nhập OAuth', false);
         }
     };
@@ -489,12 +574,13 @@ export function CockpitAccountManagerView({
             if (oauthPolling) void loginCancel();
             setOauthPolling(false);
             setOauthUrl('');
+            setOauthError(null);
             return;
         }
         if (modalTab === 'oauth' && !oauthUrl && !oauthPolling) {
             void startOAuthFlow();
         }
-    }, [modalOpen, modalTab]);
+    }, [modalOpen, modalTab, platformId, codebuddySubRegion]);
 
     const handleCopyUrl = () => {
         if (!oauthUrl) return;
@@ -866,7 +952,7 @@ export function CockpitAccountManagerView({
                     {/* Circular Add Button */}
                     <button
                         className="toolbar-circle-add"
-                        onClick={() => setModalOpen(true)}
+                        onClick={() => openAddModal()}
                         title="Add Account"
                     >
                         <Plus size={18} />
@@ -903,7 +989,7 @@ export function CockpitAccountManagerView({
                     {/* Import */}
                     <button
                         className="toolbar-icon-btn"
-                        onClick={() => setModalOpen(true)}
+                        onClick={() => openAddModal('local')}
                         title="Import Accounts"
                     >
                         <Upload size={15} />
@@ -960,7 +1046,7 @@ export function CockpitAccountManagerView({
                     <button
                         className="btn btn-primary"
                         style={{ marginTop: '1rem' }}
-                        onClick={() => setModalOpen(true)}
+                        onClick={() => openAddModal()}
                     >
                         <Plus size={14} /> Đăng nhập / Thêm tài khoản
                     </button>
@@ -1626,38 +1712,93 @@ export function CockpitAccountManagerView({
                             </button>
                         </div>
 
-                        {/* Tab 1: OAuth Authorization */}
+                        {/* Tab 1: OAuth / Web Authorization */}
                         {modalTab === 'oauth' && (
                             <div>
                                 <div className="cockpit-modal-desc">
-                                    Click the button below to open the {platformLabel} authorization page in your browser.
+                                    {hasNativeOAuth(platformId)
+                                        ? `Click the button below to open the ${platformLabel} authorization page in your browser.`
+                                        : `Truy cập cổng chính thức của ${platformLabel} để đăng nhập hoặc lấy khóa API / Token.`}
                                 </div>
 
+                                {oauthError && (
+                                    <div style={{
+                                        background: 'rgba(239, 68, 68, 0.12)',
+                                        border: '1px solid rgba(239, 68, 68, 0.3)',
+                                        color: '#fca5a5',
+                                        padding: '0.65rem 0.85rem',
+                                        borderRadius: '8px',
+                                        marginBottom: '1rem',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        fontSize: '0.82rem',
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                            <AlertCircle size={16} color="var(--danger)" />
+                                            <span>{oauthError}</span>
+                                        </div>
+                                        <button
+                                            className="btn btn-outline"
+                                            style={{ fontSize: '0.72rem', padding: '0.2rem 0.6rem' }}
+                                            onClick={startOAuthFlow}
+                                        >
+                                            Thử lại
+                                        </button>
+                                    </div>
+                                )}
+
                                 <div className="cockpit-callout">
-                                    <div className="cockpit-callout-title">IDE sign-in & session management</div>
+                                    <div className="cockpit-callout-title">
+                                        {hasNativeOAuth(platformId)
+                                            ? 'IDE sign-in & session management'
+                                            : `Quy trình xác thực ${platformLabel}`}
+                                    </div>
                                     <ul className="cockpit-callout-list">
-                                        <li>Add the account after completing OAuth in your browser, then use it for IDE switching.</li>
-                                        <li>Resource-package quota data will refresh automatically after authorization.</li>
-                                        <li>Account cards show quota amount, progress, and refresh/expiry time by resource package.</li>
+                                        {hasNativeOAuth(platformId) ? (
+                                            <>
+                                                <li>Add the account after completing OAuth in your browser, then use it for IDE switching.</li>
+                                                <li>Resource-package quota data will refresh automatically after authorization.</li>
+                                                <li>Account cards show quota amount, progress, and refresh/expiry time by resource package.</li>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <li>{platformLabel} sử dụng cấu hình khóa API riêng hoặc phiên làm việc đã lưu từ IDE cục bộ.</li>
+                                                <li>Nhấn <strong>Open in Browser</strong> để mở trang đăng nhập / tạo khóa API của {platformLabel}.</li>
+                                                <li>Sau khi có Token, chuyển sang tab <strong>Token / JSON</strong> để dán trực tiếp, hoặc tab <strong>Local Import</strong> để tự động quét từ IDE máy bạn.</li>
+                                            </>
+                                        )}
                                     </ul>
                                 </div>
 
                                 <div className="cockpit-url-box">
                                     <div className="cockpit-url-text">
-                                        {oauthUrl || `${platformLabel} Sign-in URL (Generating...)`}
+                                        {oauthUrl ? (
+                                            oauthUrl
+                                        ) : oauthPolling ? (
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-muted)' }}>
+                                                <RefreshCw size={14} className="spin" /> Đang khởi tạo luồng OAuth & cổng lắng nghe...
+                                            </span>
+                                        ) : (
+                                            `${platformLabel} Portal URL`
+                                        )}
                                     </div>
-                                    <button
-                                        className="cockpit-url-copy"
-                                        onClick={handleCopyUrl}
-                                        title={copied ? 'Đã sao chép!' : 'Sao chép URL'}
-                                    >
-                                        {copied ? <Check size={15} color="var(--success)" /> : <Copy size={15} />}
-                                    </button>
+                                    {oauthUrl && (
+                                        <button
+                                            className="cockpit-url-copy"
+                                            onClick={handleCopyUrl}
+                                            title={copied ? 'Đã sao chép!' : 'Sao chép URL'}
+                                        >
+                                            {copied ? <Check size={15} color="var(--success)" /> : <Copy size={15} />}
+                                        </button>
+                                    )}
                                 </div>
 
-                                <div className="cockpit-expiry-meta">
-                                    Expires in: 600s; Poll interval: 2s
-                                </div>
+                                {hasNativeOAuth(platformId) && (
+                                    <div className="cockpit-expiry-meta">
+                                        Expires in: 600s; Poll interval: 2s
+                                    </div>
+                                )}
 
                                 <button
                                     className="cockpit-btn-browser"
@@ -1668,14 +1809,35 @@ export function CockpitAccountManagerView({
                                     <span>Open in Browser</span>
                                 </button>
 
-                                <div className="cockpit-polling-bar">
-                                    <RefreshCw size={15} className="spin" />
-                                    <span className="cockpit-polling-text">Waiting for authorization...</span>
-                                </div>
+                                {hasNativeOAuth(platformId) && oauthPolling && (
+                                    <div className="cockpit-polling-bar">
+                                        <RefreshCw size={15} className="spin" />
+                                        <span className="cockpit-polling-text">Waiting for authorization...</span>
+                                    </div>
+                                )}
 
-                                <div className="cockpit-footer-hint">
-                                    Once authorized, this window will update automatically
-                                </div>
+                                {hasNativeOAuth(platformId) ? (
+                                    <div className="cockpit-footer-hint">
+                                        Once authorized, this window will update automatically
+                                    </div>
+                                ) : (
+                                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                                        <button
+                                            className="btn"
+                                            style={{ flex: 1, padding: '0.5rem', fontSize: '0.78rem' }}
+                                            onClick={() => setModalTab('token')}
+                                        >
+                                            <Key size={14} /> Chuyển sang Token / JSON
+                                        </button>
+                                        <button
+                                            className="btn"
+                                            style={{ flex: 1, padding: '0.5rem', fontSize: '0.78rem' }}
+                                            onClick={() => setModalTab('local')}
+                                        >
+                                            <Database size={14} /> Chuyển sang Local Import
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         )}
 
