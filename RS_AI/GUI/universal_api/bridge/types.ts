@@ -43,6 +43,9 @@ export interface AccountInfo {
     success_count: number;
     err_total: number;
     in_flight: number;
+    plan_tier?: string | null;
+    is_current?: boolean;
+    quota_details?: any;
 }
 
 export interface TrafficAuditLog {
@@ -70,9 +73,51 @@ export interface TaskResult {
 }
 
 export interface GuiSettings {
+    // 1. Appearance & UI
     language: string;
     theme: string;
     font: string;
+    theme_color?: string;
+    ui_scale?: number;
+    close_behavior?: string;
+    startup_minimized?: boolean;
+    app_auto_launch_enabled?: boolean;
+    reduced_motion_enabled?: boolean;
+
+    // 2. Session Keeper & Background Refresh
+    token_keeper_enabled?: boolean;
+    auto_refresh_minutes?: number;
+    auto_import_from_local_enabled?: boolean;
+    share_sessions_on_switch?: boolean;
+
+    // 3. Network & Proxy
+    global_proxy_enabled?: boolean;
+    global_proxy_url?: string;
+    global_proxy_no_proxy?: string;
+    ws_port?: number;
+
+    // 4. IDE Paths & Automation
+    vscode_app_path?: string;
+    antigravity_app_path?: string;
+    cursor_app_path?: string;
+    trae_app_path?: string;
+    zed_app_path?: string;
+    launch_on_switch?: boolean;
+
+    // 5. Quota Alerts & Auto Switch
+    quota_alert_enabled?: boolean;
+    quota_alert_threshold?: number;
+    auto_switch_enabled?: boolean;
+    auto_switch_threshold?: number;
+
+    // 6. Backup & Cloud Sync (WebDAV)
+    auto_backup_enabled?: boolean;
+    auto_backup_retention_days?: number;
+    webdav_sync_enabled?: boolean;
+    webdav_sync_url?: string;
+    webdav_sync_username?: string;
+    webdav_sync_password?: string;
+    webdav_sync_remote_dir?: string;
 }
 
 export interface ThemeInfo {

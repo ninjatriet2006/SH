@@ -25,14 +25,60 @@ import {
     AlertCircle,
     CheckCircle2,
     X,
+    Clock,
+    Calendar,
+    FileText,
 } from 'lucide-react';
 import type { AccountInfo } from '../../../bridge/types';
 import { listAccounts, removeAccount } from '../../../bridge/accounts_bridge';
 import { loginStart, loginPoll, loginCancel, openLoginUrl } from '../../../bridge/login_bridge';
 import { invokeIpc } from '../../../bridge/ipc';
 
+// Platform icons
+import antigravityIcon from '../assets/icons/antigravity-menu.png';
+import codebuddyIcon from '../assets/icons/codebuddy.png';
+import zedIcon from '../assets/icons/zed.png';
+import copilotIcon from '../assets/icons/github-copilot.svg';
+import cursorIcon from '../assets/icons/cursor-menu.png';
+import windsurfIcon from '../assets/icons/windsurf.svg';
+import traeIcon from '../assets/icons/trae.png';
+import claudeIcon from '../assets/icons/claude.png';
+import codexIcon from '../assets/icons/codex.svg';
+import kiroIcon from '../assets/icons/kiro-menu.png';
+import qoderIcon from '../assets/icons/qoder.png';
+
+export type CockpitPlatformId =
+    | 'antigravity'
+    | 'codebuddy'
+    | 'codebuddy_cn'
+    | 'codebuddy_global'
+    | 'zed'
+    | 'github_copilot'
+    | 'cursor'
+    | 'windsurf'
+    | 'trae'
+    | 'claude'
+    | 'codex'
+    | 'kiro'
+    | 'qoder'
+    | 'all';
+
+export const ALL_PLATFORMS = [
+    { id: 'antigravity', label: 'Antigravity', icon: antigravityIcon, path: '/platforms/antigravity' },
+    { id: 'codebuddy', label: 'CodeBuddy', icon: codebuddyIcon, path: '/platforms/codebuddy' },
+    { id: 'zed', label: 'Zed Cloud', icon: zedIcon, path: '/platforms/zed' },
+    { id: 'github_copilot', label: 'GitHub Copilot', icon: copilotIcon, path: '/platforms/github-copilot' },
+    { id: 'cursor', label: 'Cursor', icon: cursorIcon, path: '/platforms/cursor' },
+    { id: 'windsurf', label: 'Windsurf', icon: windsurfIcon, path: '/platforms/windsurf' },
+    { id: 'trae', label: 'Trae', icon: traeIcon, path: '/platforms/trae' },
+    { id: 'claude', label: 'Claude', icon: claudeIcon, path: '/platforms/claude' },
+    { id: 'codex', label: 'Codex', icon: codexIcon, path: '/platforms/codex' },
+    { id: 'kiro', label: 'Kiro', icon: kiroIcon, path: '/platforms/kiro' },
+    { id: 'qoder', label: 'Qoder', icon: qoderIcon, path: '/platforms/qoder' },
+];
+
 interface CockpitAccountManagerViewProps {
-    platformId: 'codebuddy_cn' | 'codebuddy_global' | 'zed' | 'all';
+    platformId: CockpitPlatformId;
     platformLabel: string;
     platformIcon: string;
     noticeTitle: string;
@@ -49,6 +95,7 @@ export function CockpitAccountManagerView({
     networkScope,
 }: CockpitAccountManagerViewProps) {
     const navigate = useNavigate();
+    const [platformMenuOpen, setPlatformMenuOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<'overview' | 'sessions' | 'instances'>('overview');
     const [noticeExpanded, setNoticeExpanded] = useState(true);
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -56,6 +103,9 @@ export function CockpitAccountManagerView({
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [activeTag, setActiveTag] = useState<string>('all');
+    const [codebuddySubRegion, setCodebuddySubRegion] = useState<'global' | 'cn'>(
+        platformId === 'codebuddy_cn' ? 'cn' : 'global'
+    );
 
     const [accounts, setAccounts] = useState<AccountInfo[]>([]);
     const [loading, setLoading] = useState(true);
@@ -80,12 +130,32 @@ export function CockpitAccountManagerView({
             setRefreshing(true);
             const all = await listAccounts();
             let filtered = all;
-            if (platformId === 'codebuddy_cn') {
-                filtered = all.filter((a) => a.domain?.includes('tencent') || a.domain?.includes('cn'));
-            } else if (platformId === 'codebuddy_global') {
-                filtered = all.filter((a) => a.domain?.includes('codebuddy.ai') || a.domain?.includes('global'));
+            if (platformId === 'antigravity') {
+                filtered = all.filter((a) => a.domain?.includes('antigravity') || a.uid?.startsWith('antigravity_'));
+            } else if (platformId === 'codebuddy' || platformId === 'codebuddy_global' || platformId === 'codebuddy_cn') {
+                if (codebuddySubRegion === 'cn') {
+                    filtered = all.filter((a) => a.domain?.includes('tencent') || a.domain?.includes('cn'));
+                } else {
+                    filtered = all.filter((a) => (a.domain?.includes('codebuddy') || a.domain?.includes('global') || a.uid?.startsWith('codebuddy_')) && !a.domain?.includes('tencent') && !a.domain?.includes('cn'));
+                }
             } else if (platformId === 'zed') {
-                filtered = all.filter((a) => a.domain?.includes('zed'));
+                filtered = all.filter((a) => a.domain?.includes('zed') || a.uid?.startsWith('zed_'));
+            } else if (platformId === 'github_copilot') {
+                filtered = all.filter((a) => a.domain?.includes('github') || a.domain?.includes('copilot') || a.uid?.startsWith('ghcp_'));
+            } else if (platformId === 'cursor') {
+                filtered = all.filter((a) => a.domain?.includes('cursor') || a.uid?.startsWith('cursor_'));
+            } else if (platformId === 'windsurf') {
+                filtered = all.filter((a) => a.domain?.includes('codeium') || a.domain?.includes('windsurf') || a.uid?.startsWith('windsurf_'));
+            } else if (platformId === 'trae') {
+                filtered = all.filter((a) => a.domain?.includes('trae') || a.uid?.startsWith('trae_'));
+            } else if (platformId === 'claude') {
+                filtered = all.filter((a) => a.domain?.includes('claude') || a.uid?.startsWith('claude_'));
+            } else if (platformId === 'codex') {
+                filtered = all.filter((a) => a.domain?.includes('codex') || a.domain?.includes('openai') || a.uid?.startsWith('codex_'));
+            } else if (platformId === 'kiro') {
+                filtered = all.filter((a) => a.domain?.includes('kiro') || a.uid?.startsWith('kiro_'));
+            } else if (platformId === 'qoder') {
+                filtered = all.filter((a) => a.domain?.includes('qoder') || a.uid?.startsWith('qoder_'));
             }
             setAccounts(filtered);
         } catch (e) {
@@ -98,7 +168,7 @@ export function CockpitAccountManagerView({
 
     useEffect(() => {
         loadAccounts();
-    }, [platformId]);
+    }, [platformId, codebuddySubRegion]);
 
     // Privacy Masking
     const maskValue = (val: string) => {
@@ -165,26 +235,43 @@ export function CockpitAccountManagerView({
     // Start OAuth Flow (Cockpit style: auto-start and show URL)
     const startOAuthFlow = async () => {
         try {
-            setOauthPolling(true);
-            const realm = platformId === 'codebuddy_cn' ? 'cn' : 'intl';
-            const res = await loginStart(realm);
-            setOauthUrl(res.auth_url);
+            if (platformId === 'codebuddy_cn' || platformId === 'codebuddy_global') {
+                setOauthPolling(true);
+                const realm = platformId === 'codebuddy_cn' ? 'cn' : 'intl';
+                const res = await loginStart(realm);
+                setOauthUrl(res.auth_url);
 
-            const interval = setInterval(async () => {
-                try {
-                    const outcome = await loginPoll();
-                    if (outcome.status === 'done') {
+                const interval = setInterval(async () => {
+                    try {
+                        const outcome = await loginPoll();
+                        if (outcome.status === 'done') {
+                            clearInterval(interval);
+                            setOauthPolling(false);
+                            setModalOpen(false);
+                            showMsg('Đăng nhập OAuth thành công!', true);
+                            loadAccounts();
+                        }
+                    } catch {
                         clearInterval(interval);
                         setOauthPolling(false);
-                        setModalOpen(false);
-                        showMsg('Đăng nhập OAuth thành công!', true);
-                        loadAccounts();
                     }
-                } catch {
-                    clearInterval(interval);
-                    setOauthPolling(false);
-                }
-            }, 2000);
+                }, 2000);
+            } else if (platformId === 'zed') {
+                setOauthUrl('https://cloud.zed.dev');
+                setOauthPolling(false);
+            } else if (platformId === 'github_copilot') {
+                setOauthUrl('https://github.com/login/device');
+                setOauthPolling(false);
+            } else if (platformId === 'cursor') {
+                setOauthUrl('https://authenticator.cursor.sh');
+                setOauthPolling(false);
+            } else if (platformId === 'windsurf') {
+                setOauthUrl('https://codeium.com/account/login');
+                setOauthPolling(false);
+            } else if (platformId === 'trae') {
+                setOauthUrl('https://trae.ai/login');
+                setOauthPolling(false);
+            }
         } catch (e: any) {
             setOauthPolling(false);
             showMsg(e.message || 'Lỗi bắt đầu đăng nhập OAuth', false);
@@ -246,13 +333,60 @@ export function CockpitAccountManagerView({
 
             {/* Platform Selector & Center Tabs Row */}
             <div className="page-tabs-row">
-                {/* Left: Platform Dropdown */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <button className="platform-dropdown-btn">
+                {/* Left: Interactive Platform Dropdown */}
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <button
+                        className="platform-dropdown-btn"
+                        onClick={() => setPlatformMenuOpen(!platformMenuOpen)}
+                    >
                         <img src={platformIcon} alt="" className="nav-item-icon" style={{ width: 18, height: 18 }} />
                         <span>{platformLabel}</span>
-                        <ChevronDown size={14} color="var(--text-secondary)" />
+                        <ChevronDown size={14} color="var(--text-secondary)" style={{ transform: platformMenuOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
                     </button>
+                    {platformMenuOpen && (
+                        <div
+                            className="platform-dropdown-menu"
+                            style={{
+                                position: 'absolute',
+                                top: 'calc(100% + 6px)',
+                                left: 0,
+                                zIndex: 100,
+                                background: '#0d131f',
+                                border: '1px solid rgba(255, 255, 255, 0.12)',
+                                borderRadius: 8,
+                                boxShadow: '0 10px 25px rgba(0, 0, 0, 0.5)',
+                                minWidth: 200,
+                                padding: '0.35rem 0',
+                            }}
+                        >
+                            {ALL_PLATFORMS.map((p) => (
+                                <button
+                                    key={p.id}
+                                    onClick={() => {
+                                        setPlatformMenuOpen(false);
+                                        navigate(p.path);
+                                    }}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.6rem',
+                                        width: '100%',
+                                        padding: '0.55rem 0.85rem',
+                                        background: p.id === platformId ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+                                        color: p.id === platformId ? 'var(--primary)' : 'var(--text-primary)',
+                                        border: 'none',
+                                        textAlign: 'left',
+                                        cursor: 'pointer',
+                                        fontSize: '0.85rem',
+                                        fontWeight: p.id === platformId ? 600 : 400,
+                                    }}
+                                >
+                                    <img src={p.icon} alt="" style={{ width: 16, height: 16, objectFit: 'contain' }} />
+                                    <span>{p.label}</span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 {/* Center Tabs: Overview | Session Manager | Instances */}
@@ -282,6 +416,51 @@ export function CockpitAccountManagerView({
 
                 <div style={{ width: 100 }} />
             </div>
+
+            {/* Group Provider Region Switcher for CodeBuddy */}
+            {(platformId === 'codebuddy' || platformId === 'codebuddy_global' || platformId === 'codebuddy_cn') && (
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    background: 'rgba(13, 19, 31, 0.7)',
+                    padding: '0.4rem 0.6rem',
+                    borderRadius: 10,
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    marginBottom: '1rem',
+                    width: 'fit-content'
+                }}>
+                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600, marginRight: '0.25rem' }}>
+                        Group Provider:
+                    </span>
+                    <button
+                        className={`btn ${codebuddySubRegion === 'global' ? 'btn-primary' : ''}`}
+                        style={{
+                            padding: '0.25rem 0.75rem',
+                            fontSize: '0.78rem',
+                            borderRadius: 6,
+                            border: codebuddySubRegion === 'global' ? 'none' : '1px solid rgba(255, 255, 255, 0.1)',
+                            background: codebuddySubRegion === 'global' ? 'var(--primary)' : 'transparent',
+                        }}
+                        onClick={() => setCodebuddySubRegion('global')}
+                    >
+                        CodeBuddy Global (codebuddy.ai)
+                    </button>
+                    <button
+                        className={`btn ${codebuddySubRegion === 'cn' ? 'btn-primary' : ''}`}
+                        style={{
+                            padding: '0.25rem 0.75rem',
+                            fontSize: '0.78rem',
+                            borderRadius: 6,
+                            border: codebuddySubRegion === 'cn' ? 'none' : '1px solid rgba(255, 255, 255, 0.1)',
+                            background: codebuddySubRegion === 'cn' ? 'var(--primary)' : 'transparent',
+                        }}
+                        onClick={() => setCodebuddySubRegion('cn')}
+                    >
+                        CodeBuddy CN (copilot.tencent.com)
+                    </button>
+                </div>
+            )}
 
             {actionMsg && (
                 <div
@@ -489,7 +668,7 @@ export function CockpitAccountManagerView({
                 <div className="accounts-grid">
                     {displayedAccounts.map((account) => {
                         const isSelected = selectedIds.has(account.uid);
-                        const isCurrent = account.healthy;
+                        const isCurrent = Boolean(account.is_current);
 
                         return (
                             <div
@@ -497,50 +676,230 @@ export function CockpitAccountManagerView({
                                 className={`account-card ${isCurrent ? 'current' : ''}`}
                             >
                                 {/* Top Row */}
-                                <div className="card-top">
+                                <div className="card-top" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                     <input
                                         type="checkbox"
                                         checked={isSelected}
                                         onChange={() => toggleSelect(account.uid)}
                                     />
-                                    <div className="card-email-label" style={{ flex: 1 }}>
+                                    <div className="card-email-label" style={{ flex: 1, fontWeight: 600, fontSize: '0.88rem' }}>
                                         {maskValue(account.nickname || account.uid)}
                                     </div>
-                                    <span className="badge badge-info" style={{ fontSize: '0.65rem' }}>
-                                        FREE
-                                    </span>
+                                    {platformId === 'github_copilot' ? (
+                                        <div style={{ display: 'flex', gap: '0.35rem' }}>
+                                            <span className="badge" style={{ background: '#22c55e', color: '#fff', fontSize: '0.65rem', fontWeight: 600, padding: '0.15rem 0.45rem', borderRadius: 4 }}>
+                                                Current
+                                            </span>
+                                            <span className="badge" style={{ background: '#0284c7', color: '#fff', fontSize: '0.65rem', fontWeight: 600, padding: '0.15rem 0.45rem', borderRadius: 4 }}>
+                                                PRO
+                                            </span>
+                                        </div>
+                                    ) : platformId === 'antigravity' ? (
+                                        <div style={{ display: 'flex', gap: '0.35rem' }}>
+                                            {isCurrent && (
+                                                <span className="badge" style={{ background: '#22c55e', color: '#fff', fontSize: '0.65rem', fontWeight: 600, padding: '0.15rem 0.45rem', borderRadius: 4 }}>
+                                                    Current
+                                                </span>
+                                            )}
+                                            <span className="badge" style={{ background: (account.plan_tier === 'PRO' || account.quota_details?.plan_tier === 'PRO') ? '#0284c7' : '#475569', color: '#fff', fontSize: '0.65rem', fontWeight: 600, padding: '0.15rem 0.45rem', borderRadius: 4 }}>
+                                                {account.plan_tier || account.quota_details?.plan_tier || 'FREE'}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <span className="badge badge-info" style={{ fontSize: '0.65rem' }}>
+                                            {account.plan_tier || 'FREE'}
+                                        </span>
+                                    )}
                                 </div>
 
-                                {/* Usage Status */}
-                                <div className="card-status-row">
-                                    <span>Usage Status</span>
-                                    <span className="card-status-val">Normal</span>
-                                </div>
+                                {/* Quota Content based on platform */}
+                                {platformId === 'github_copilot' ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', marginTop: '0.85rem' }}>
+                                        <div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: 3 }}>
+                                                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--text-secondary)' }}>
+                                                    <Clock size={13} color="#94a3b8" /> Inline Suggestions
+                                                </span>
+                                                <span style={{ color: '#22c55e', fontWeight: 600 }}>Included</span>
+                                            </div>
+                                            <div className="quota-track" style={{ height: 4, background: '#1e293b' }}>
+                                                <div className="quota-fill" style={{ width: '100%', background: '#22c55e' }} />
+                                            </div>
+                                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textAlign: 'right', marginTop: 2 }}>
+                                                28d 15h (11/01 07:00)
+                                            </div>
+                                        </div>
 
-                                {/* Quota Query Box */}
-                                <div className="card-quota-box">
-                                    <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                                        Quota Query
-                                    </div>
-                                    <div className="card-quota-title-row">
-                                        <span className="card-quota-title">Free Plan Subscription</span>
-                                        <span className="card-quota-val">0 / 100</span>
-                                    </div>
+                                        <div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: 3 }}>
+                                                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--text-secondary)' }}>
+                                                    <Calendar size={13} color="#94a3b8" /> Chat messages
+                                                </span>
+                                                <span style={{ color: '#22c55e', fontWeight: 600 }}>Included</span>
+                                            </div>
+                                            <div className="quota-track" style={{ height: 4, background: '#1e293b' }}>
+                                                <div className="quota-fill" style={{ width: '100%', background: '#22c55e' }} />
+                                            </div>
+                                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textAlign: 'right', marginTop: 2 }}>
+                                                28d 15h (11/01 07:00)
+                                            </div>
+                                        </div>
 
-                                    {/* Progress Bar */}
-                                    <div className="quota-track">
-                                        <div className="quota-fill" style={{ width: '10%' }} />
+                                        <div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: 3 }}>
+                                                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--text-secondary)' }}>
+                                                    <AlertCircle size={13} color="#94a3b8" /> Premium requests
+                                                </span>
+                                                <span style={{ color: '#22c55e', fontWeight: 600 }}>0 / 200</span>
+                                            </div>
+                                            <div className="quota-track" style={{ height: 4, background: '#1e293b' }}>
+                                                <div className="quota-fill" style={{ width: '0%', background: '#3b82f6' }} />
+                                            </div>
+                                        </div>
                                     </div>
+                                ) : platformId === 'antigravity' ? (
+                                    (() => {
+                                        const details = account.quota_details;
+                                        const isPro = account.plan_tier === 'PRO' || details?.plan_tier === 'PRO';
+                                        const claude5h = details?.claude_5h;
+                                        const claudeWeekly = details?.claude_weekly;
+                                        const gemini5h = details?.gemini_5h;
+                                        const geminiWeekly = details?.gemini_weekly;
 
-                                    <div className="card-quota-meta">
-                                        Next refresh time: 11/01/2026, 00:00:00
-                                    </div>
+                                        return (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', marginTop: '0.5rem' }}>
+                                                {/* Add Note Button (Image 2) */}
+                                                <button
+                                                    className="btn"
+                                                    style={{
+                                                        alignSelf: 'flex-start',
+                                                        padding: '0.2rem 0.6rem',
+                                                        fontSize: '0.72rem',
+                                                        background: 'rgba(255, 255, 255, 0.04)',
+                                                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                                                        color: '#94a3b8',
+                                                        borderRadius: 6,
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '0.35rem',
+                                                    }}
+                                                >
+                                                    <FileText size={12} /> Add Note
+                                                </button>
 
-                                    <div className="card-quota-title-row" style={{ marginTop: 2 }}>
-                                        <span className="card-quota-title" style={{ fontSize: '0.75rem' }}>Credit Package</span>
-                                        <span className="card-quota-val" style={{ fontSize: '0.75rem' }}>0 / 0</span>
-                                    </div>
-                                </div>
+                                                {/* Two Columns: Claude | Gemini (Image 2) */}
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '0.25rem' }}>
+                                                    {/* Claude Column */}
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                                                        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#e2e8f0' }}>Claude</div>
+
+                                                        {isPro && claude5h && (
+                                                            <div>
+                                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem', marginBottom: 2 }}>
+                                                                    <span style={{ color: 'var(--text-secondary)' }}>5h</span>
+                                                                    <span style={{ color: claude5h.percent >= 50 ? '#22c55e' : '#f97316', fontWeight: 600 }}>{claude5h.percent}%</span>
+                                                                </div>
+                                                                <div className="quota-track" style={{ height: 4, background: '#1e293b' }}>
+                                                                    <div className="quota-fill" style={{ width: `${claude5h.percent}%`, background: claude5h.percent >= 50 ? '#22c55e' : '#f97316' }} />
+                                                                </div>
+                                                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                                                                    {claude5h.time_left}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {claudeWeekly && (
+                                                            <div>
+                                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem', marginBottom: 2 }}>
+                                                                    <span style={{ color: 'var(--text-secondary)' }}>Weekly</span>
+                                                                    <span style={{ color: claudeWeekly.percent >= 50 ? '#22c55e' : '#f97316', fontWeight: 600 }}>{claudeWeekly.percent}%</span>
+                                                                </div>
+                                                                <div className="quota-track" style={{ height: 4, background: '#1e293b' }}>
+                                                                    <div className="quota-fill" style={{ width: `${claudeWeekly.percent}%`, background: claudeWeekly.percent >= 50 ? '#22c55e' : '#f97316' }} />
+                                                                </div>
+                                                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                                                                    {claudeWeekly.time_left}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Gemini Column */}
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                                                        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#e2e8f0' }}>Gemini</div>
+
+                                                        {isPro && gemini5h && (
+                                                            <div>
+                                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem', marginBottom: 2 }}>
+                                                                    <span style={{ color: 'var(--text-secondary)' }}>5h</span>
+                                                                    <span style={{ color: gemini5h.percent >= 50 ? '#22c55e' : '#ef4444', fontWeight: 600 }}>{gemini5h.percent}%</span>
+                                                                </div>
+                                                                <div className="quota-track" style={{ height: 4, background: '#1e293b' }}>
+                                                                    <div className="quota-fill" style={{ width: `${gemini5h.percent}%`, background: gemini5h.percent >= 50 ? '#22c55e' : '#ef4444' }} />
+                                                                </div>
+                                                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                                                                    {gemini5h.time_left}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {geminiWeekly && (
+                                                            <div>
+                                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem', marginBottom: 2 }}>
+                                                                    <span style={{ color: 'var(--text-secondary)' }}>Weekly</span>
+                                                                    <span style={{ color: geminiWeekly.percent >= 50 ? '#22c55e' : '#ef4444', fontWeight: 600 }}>{geminiWeekly.percent}%</span>
+                                                                </div>
+                                                                <div className="quota-track" style={{ height: 4, background: '#1e293b' }}>
+                                                                    <div className="quota-fill" style={{ width: `${geminiWeekly.percent}%`, background: geminiWeekly.percent >= 50 ? '#22c55e' : '#ef4444' }} />
+                                                                </div>
+                                                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                                                                    {geminiWeekly.time_left}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
+                                                    Available AI Credits:
+                                                </div>
+                                            </div>
+                                        );
+                                    })()
+                                ) : (
+                                    <>
+                                        {/* Usage Status */}
+                                        <div className="card-status-row">
+                                            <span>Usage Status</span>
+                                            <span className="card-status-val">Normal</span>
+                                        </div>
+
+                                        {/* Quota Query Box */}
+                                        <div className="card-quota-box">
+                                            <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                                                Quota Query
+                                            </div>
+                                            <div className="card-quota-title-row">
+                                                <span className="card-quota-title">Free Plan Subscription</span>
+                                                <span className="card-quota-val">0 / 100</span>
+                                            </div>
+
+                                            {/* Progress Bar */}
+                                            <div className="quota-track">
+                                                <div className="quota-fill" style={{ width: '10%' }} />
+                                            </div>
+
+                                            <div className="card-quota-meta">
+                                                Next refresh time: 11/01/2026, 00:00:00
+                                            </div>
+
+                                            <div className="card-quota-title-row" style={{ marginTop: 2 }}>
+                                                <span className="card-quota-title" style={{ fontSize: '0.75rem' }}>Credit Package</span>
+                                                <span className="card-quota-val" style={{ fontSize: '0.75rem' }}>0 / 0</span>
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
 
                                 {/* Card Footer with Actions */}
                                 <div className="card-footer">
@@ -550,17 +909,29 @@ export function CockpitAccountManagerView({
 
                                     <div className="card-actions">
                                         <button
-                                            className="card-action-btn play"
-                                            onClick={() => handleSwitchAccount(account)}
-                                            title="Khởi chạy / Chuyển tài khoản vào IDE"
+                                            className="card-action-btn"
+                                            title="Thông tin chi tiết"
                                         >
-                                            <Play size={12} />
+                                            <AlertCircle size={12} />
                                         </button>
                                         <button
                                             className="card-action-btn"
                                             title="Sửa nhãn tag"
                                         >
                                             <Tag size={12} />
+                                        </button>
+                                        <button
+                                            className="card-action-btn"
+                                            title="Ghi chú"
+                                        >
+                                            <FileText size={12} />
+                                        </button>
+                                        <button
+                                            className="card-action-btn play"
+                                            onClick={() => handleSwitchAccount(account)}
+                                            title="Khởi chạy / Chuyển tài khoản vào IDE"
+                                        >
+                                            <Play size={12} />
                                         </button>
                                         <button
                                             className="card-action-btn"
@@ -571,7 +942,7 @@ export function CockpitAccountManagerView({
                                         </button>
                                         <button
                                             className="card-action-btn"
-                                            title="Xuất JSON"
+                                            title="Xuất JSON / Upload"
                                         >
                                             <Upload size={12} />
                                         </button>
@@ -669,7 +1040,7 @@ export function CockpitAccountManagerView({
                         {/* Header */}
                         <div className="cockpit-modal-header">
                             <h3 className="cockpit-modal-title">
-                                Add {platformLabel.includes('CN') ? 'CodeBuddy CN' : 'CodeBuddy'} Account
+                                Add {platformLabel} Account
                             </h3>
                             <button
                                 className="cockpit-modal-close"
@@ -712,11 +1083,11 @@ export function CockpitAccountManagerView({
                         {modalTab === 'oauth' && (
                             <div>
                                 <div className="cockpit-modal-desc">
-                                    Click the button below to open the {platformLabel.includes('CN') ? 'CodeBuddy CN' : 'CodeBuddy'} authorization page in your browser.
+                                    Click the button below to open the {platformLabel} authorization page in your browser.
                                 </div>
 
                                 <div className="cockpit-callout">
-                                    <div className="cockpit-callout-title">IDE sign-in only</div>
+                                    <div className="cockpit-callout-title">IDE sign-in & session management</div>
                                     <ul className="cockpit-callout-list">
                                         <li>Add the account after completing OAuth in your browser, then use it for IDE switching.</li>
                                         <li>Resource-package quota data will refresh automatically after authorization.</li>
@@ -726,7 +1097,7 @@ export function CockpitAccountManagerView({
 
                                 <div className="cockpit-url-box">
                                     <div className="cockpit-url-text">
-                                        {oauthUrl || 'https://www.codebuddy.ai/login?platform=ide&state=... (Generating...)'}
+                                        {oauthUrl || `${platformLabel} Sign-in URL (Generating...)`}
                                     </div>
                                     <button
                                         className="cockpit-url-copy"
@@ -818,11 +1189,11 @@ export function CockpitAccountManagerView({
                                 </div>
 
                                 <div className="cockpit-callout">
-                                    <div className="cockpit-callout-title">Supported Local Sources</div>
+                                    <div className="cockpit-callout-title">Supported Local Sources for {platformLabel}</div>
                                     <ul className="cockpit-callout-list">
-                                        <li>Cockpit Storage: ~/.cockpit_tools/codebuddy_accounts and auto-backups.</li>
-                                        <li>VS Code & IDEs: ~/.config/Antigravity IDE, Trae, and VS Code globalStorage (state.vscdb).</li>
-                                        <li>All extracted sessions will be decrypted and imported locally without uploading.</li>
+                                        <li>Cockpit Vaults: ~/.cockpit_tools/{platformId === 'zed' ? 'zed_accounts' : platformId === 'github_copilot' ? 'github_copilot_accounts' : platformId === 'cursor' ? 'cursor_accounts' : platformId === 'windsurf' ? 'windsurf_accounts' : platformId === 'trae' ? 'trae_accounts' : 'codebuddy_accounts'} and backup archives.</li>
+                                        <li>IDE Storage: ~/.config/{platformId === 'zed' ? 'zed' : platformId === 'cursor' ? 'Cursor' : platformId === 'windsurf' ? 'Windsurf' : 'Code'} and globalStorage state databases.</li>
+                                        <li>All extracted sessions are decrypted and imported locally without uploading.</li>
                                     </ul>
                                 </div>
 

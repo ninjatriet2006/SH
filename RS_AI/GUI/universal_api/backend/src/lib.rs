@@ -70,6 +70,8 @@ pub fn run() {
             api::accounts::probe_account,
             api::accounts::inject_account_to_local_ide,
             api::accounts::import_from_local_ide,
+            api::accounts::get_antigravity_overview,
+            api::accounts::get_providers_overview,
             // ==================
             // BROWSER DEVICE-LOGIN (port Go cmd/login)
             // ==================

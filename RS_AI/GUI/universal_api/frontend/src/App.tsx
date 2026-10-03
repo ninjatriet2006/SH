@@ -12,8 +12,6 @@ import {
 } from 'lucide-react';
 import { DashboardPage } from './pages/DashboardPage';
 import { InstancesPage } from './pages/InstancesPage';
-import { CodebuddyCnPage } from './pages/platforms/CodebuddyCnPage';
-import { CodebuddyGlobalPage } from './pages/platforms/CodebuddyGlobalPage';
 import { AccountsPage } from './pages/AccountsPage';
 import { ApiRelayPage } from './pages/ApiRelayPage';
 import { ConfigPage } from './pages/ConfigPage';
@@ -30,8 +28,28 @@ import { useProfileStore } from './store/useProfileStore';
 import { useTranslation } from './utils/i18n';
 
 // Cockpit Platform Native Icons
+import antigravityIcon from './assets/icons/antigravity-menu.png';
 import codebuddyIcon from './assets/icons/codebuddy.png';
 import zedIcon from './assets/icons/zed.png';
+import copilotIcon from './assets/icons/github-copilot.svg';
+import cursorIcon from './assets/icons/cursor-menu.png';
+import windsurfIcon from './assets/icons/windsurf.svg';
+import traeIcon from './assets/icons/trae.png';
+import claudeIcon from './assets/icons/claude.png';
+import codexIcon from './assets/icons/codex.svg';
+import kiroIcon from './assets/icons/kiro-menu.png';
+import qoderIcon from './assets/icons/qoder.png';
+
+import { AntigravityPage } from './pages/platforms/AntigravityPage';
+import { CodebuddyPage } from './pages/platforms/CodebuddyPage';
+import { GitHubCopilotPage } from './pages/platforms/GitHubCopilotPage';
+import { CursorPage } from './pages/platforms/CursorPage';
+import { WindsurfPage } from './pages/platforms/WindsurfPage';
+import { TraePage } from './pages/platforms/TraePage';
+import { ClaudePage } from './pages/platforms/ClaudePage';
+import { CodexPage } from './pages/platforms/CodexPage';
+import { KiroPage } from './pages/platforms/KiroPage';
+import { QoderPage } from './pages/platforms/QoderPage';
 
 const SIDEBAR_STORAGE_KEY = 'universal-api:sidebar-width';
 const SIDEBAR_MIN = 200;
@@ -102,14 +120,38 @@ function App() {
                     </NavLink>
 
                     <div className="nav-group">Nền tảng Quản lý</div>
-                    <NavLink to="/platforms/codebuddy-cn" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-                        <img src={codebuddyIcon} alt="" className="nav-item-icon" /> CodeBuddy CN
+                    <NavLink to="/platforms/antigravity" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                        <img src={antigravityIcon} alt="" className="nav-item-icon" /> Antigravity
                     </NavLink>
-                    <NavLink to="/platforms/codebuddy-global" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-                        <img src={codebuddyIcon} alt="" className="nav-item-icon" /> CodeBuddy Global
+                    <NavLink to="/platforms/codebuddy" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                        <img src={codebuddyIcon} alt="" className="nav-item-icon" /> CodeBuddy
                     </NavLink>
-                    <NavLink to="/zed/accounts" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                    <NavLink to="/platforms/zed" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                         <img src={zedIcon} alt="" className="nav-item-icon" /> Zed Cloud
+                    </NavLink>
+                    <NavLink to="/platforms/github-copilot" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                        <img src={copilotIcon} alt="" className="nav-item-icon" /> GitHub Copilot
+                    </NavLink>
+                    <NavLink to="/platforms/cursor" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                        <img src={cursorIcon} alt="" className="nav-item-icon" /> Cursor
+                    </NavLink>
+                    <NavLink to="/platforms/windsurf" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                        <img src={windsurfIcon} alt="" className="nav-item-icon" /> Windsurf
+                    </NavLink>
+                    <NavLink to="/platforms/trae" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                        <img src={traeIcon} alt="" className="nav-item-icon" /> Trae
+                    </NavLink>
+                    <NavLink to="/platforms/claude" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                        <img src={claudeIcon} alt="" className="nav-item-icon" /> Claude
+                    </NavLink>
+                    <NavLink to="/platforms/codex" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                        <img src={codexIcon} alt="" className="nav-item-icon" /> Codex
+                    </NavLink>
+                    <NavLink to="/platforms/kiro" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                        <img src={kiroIcon} alt="" className="nav-item-icon" /> Kiro
+                    </NavLink>
+                    <NavLink to="/platforms/qoder" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                        <img src={qoderIcon} alt="" className="nav-item-icon" /> Qoder
                     </NavLink>
                     <NavLink to="/accounts" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                         <Shield size={18} /> Kho Vault Accounts
@@ -147,8 +189,19 @@ function App() {
                 <Routes>
                     <Route path="/" element={<DashboardPage />} />
                     <Route path="/instances" element={<InstancesPage />} />
-                    <Route path="/platforms/codebuddy-cn" element={<CodebuddyCnPage />} />
-                    <Route path="/platforms/codebuddy-global" element={<CodebuddyGlobalPage />} />
+                    <Route path="/platforms/antigravity" element={<AntigravityPage />} />
+                    <Route path="/platforms/codebuddy" element={<CodebuddyPage />} />
+                    <Route path="/platforms/codebuddy-cn" element={<CodebuddyPage />} />
+                    <Route path="/platforms/codebuddy-global" element={<CodebuddyPage />} />
+                    <Route path="/platforms/zed" element={<ZedAccountsPage />} />
+                    <Route path="/platforms/github-copilot" element={<GitHubCopilotPage />} />
+                    <Route path="/platforms/cursor" element={<CursorPage />} />
+                    <Route path="/platforms/windsurf" element={<WindsurfPage />} />
+                    <Route path="/platforms/trae" element={<TraePage />} />
+                    <Route path="/platforms/claude" element={<ClaudePage />} />
+                    <Route path="/platforms/codex" element={<CodexPage />} />
+                    <Route path="/platforms/kiro" element={<KiroPage />} />
+                    <Route path="/platforms/qoder" element={<QoderPage />} />
                     <Route path="/accounts" element={<AccountsPage />} />
                     <Route path="/api-relay" element={<ApiRelayPage />} />
                     <Route path="/zed/accounts" element={<ZedAccountsPage />} />

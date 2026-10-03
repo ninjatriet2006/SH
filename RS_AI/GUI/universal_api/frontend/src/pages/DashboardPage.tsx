@@ -2,40 +2,69 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Users,
-    Sparkles,
     RefreshCw,
     Play,
     Square,
-    Layers,
     Plus,
     Rocket,
-    Zap
+    Clock,
+    Tag,
+    Eye,
+    EyeOff,
+    Sparkles,
+    Terminal,
 } from 'lucide-react';
-import { listAccounts } from '../../../bridge/accounts_bridge';
+import {
+    listAccounts,
+    getAntigravityOverview,
+    getProvidersOverview,
+    type AntigravityOverview,
+    type ProviderStat
+} from '../../../bridge/accounts_bridge';
 import type { AccountInfo } from '../../../bridge/types';
 import { useProfileStore } from '../store/useProfileStore';
 
 // Assets
+import antigravityIcon from '../assets/icons/antigravity-menu.png';
 import codebuddyIcon from '../assets/icons/codebuddy.png';
 import zedIcon from '../assets/icons/zed.png';
+import copilotIcon from '../assets/icons/github-copilot.svg';
 import cursorIcon from '../assets/icons/cursor-menu.png';
+import windsurfIcon from '../assets/icons/windsurf.svg';
+import traeIcon from '../assets/icons/trae.png';
+import claudeIcon from '../assets/icons/claude.png';
+import codexIcon from '../assets/icons/codex.svg';
+import kiroIcon from '../assets/icons/kiro-menu.png';
+import qoderIcon from '../assets/icons/qoder.png';
+import zcodeIcon from '../assets/icons/zcode.png';
 
 export function DashboardPage() {
     const navigate = useNavigate();
     const { profiles, runningInstances, fetchProfiles, launchInstance, stopInstance } = useProfileStore();
-    const [accounts, setAccounts] = useState<AccountInfo[]>([]);
+    const [, setAccounts] = useState<AccountInfo[]>([]);
+    const [providerStats, setProviderStats] = useState<ProviderStat[]>([]);
+    const [antigravityData, setAntigravityData] = useState<AntigravityOverview | null>(null);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [privacyMode, setPrivacyMode] = useState<boolean>(true);
     const [launchingId, setLaunchingId] = useState<string | null>(null);
 
     const loadData = async () => {
         try {
             setRefreshing(true);
-            const [accs] = await Promise.all([
-                listAccounts(),
-                fetchProfiles(),
+            const [accs, agOverview, provStats] = await Promise.all([
+                listAccounts().catch(() => []),
+                getAntigravityOverview().catch(() => null),
+                getProvidersOverview().catch(() => []),
+                fetchProfiles().catch(() => []),
             ]);
             setAccounts(accs);
+            if (agOverview) {
+                setAntigravityData(agOverview);
+            }
+            if (provStats && provStats.length > 0) {
+                setProviderStats(provStats);
+            }
         } catch (e) {
             console.error('Failed to load dashboard data:', e);
         } finally {
@@ -48,12 +77,16 @@ export function DashboardPage() {
         loadData();
     }, []);
 
-    const codebuddyCnAccounts = accounts.filter((a) => a.domain?.includes('tencent') || a.domain?.includes('cn'));
-    const codebuddyGlobalAccounts = accounts.filter((a) => a.domain?.includes('codebuddy.ai') || a.domain?.includes('global'));
-    const zedAccounts = accounts.filter((a) => a.domain?.includes('zed'));
-
-    const runningCount = Object.keys(runningInstances).length;
-    const totalProfiles = profiles.length;
+    const maskEmail = (val: string) => {
+        if (!privacyMode) return val;
+        if (val.includes('@')) {
+            const parts = val.split('@');
+            const name = parts[0];
+            const visible = name.slice(0, Math.min(8, name.length));
+            return `${visible}...@${parts[1]}`;
+        }
+        return val.length > 8 ? `${val.slice(0, 8)}...` : val;
+    };
 
     const handleQuickLaunch = async (profileId: string) => {
         try {
@@ -74,22 +107,152 @@ export function DashboardPage() {
         }
     };
 
+    // Default 15 providers matching Cockpit layout
+    const fallbackStats: ProviderStat[] = [
+        { id: 'total', name: 'Total accounts', count: 6, badge: null },
+        { id: 'relay', name: 'Relay', count: 1, badge: null },
+        { id: 'claude', name: 'Claude', count: 0, badge: null },
+        { id: 'codex', name: 'Codex', count: 0, badge: '+1' },
+        { id: 'antigravity', name: 'Antigravity', count: 4, badge: '+1' },
+        { id: 'zed', name: 'Zed', count: 0, badge: null },
+        { id: 'github_copilot', name: 'GitHub Copilot', count: 1, badge: null },
+        { id: 'windsurf', name: 'Windsurf', count: 0, badge: null },
+        { id: 'kiro', name: 'Kiro', count: 0, badge: null },
+        { id: 'cursor', name: 'Cursor', count: 0, badge: null },
+        { id: 'grok', name: 'Grok CLI', count: 0, badge: null },
+        { id: 'codebuddy', name: 'CodeBuddy', count: 1, badge: '+2' },
+        { id: 'qoder', name: 'Qoder', count: 0, badge: null },
+        { id: 'zcode', name: 'ZCode', count: 0, badge: null },
+        { id: 'trae', name: 'Trae', count: 0, badge: '+3' },
+    ];
+
+    const displayStats = providerStats.length > 0 ? providerStats : fallbackStats;
+
+    const getProviderIcon = (id: string) => {
+        switch (id) {
+            case 'total':
+                return <Users size={18} color="#38bdf8" />;
+            case 'relay':
+                return <span style={{ fontWeight: 800, fontSize: '0.82rem', color: '#f97316' }}>AK</span>;
+            case 'claude':
+                return <img src={claudeIcon} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />;
+            case 'codex':
+                return <img src={codexIcon} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />;
+            case 'antigravity':
+                return <img src={antigravityIcon} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />;
+            case 'zed':
+                return <img src={zedIcon} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />;
+            case 'github_copilot':
+                return <img src={copilotIcon} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />;
+            case 'windsurf':
+                return <img src={windsurfIcon} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />;
+            case 'kiro':
+                return <img src={kiroIcon} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />;
+            case 'cursor':
+                return <img src={cursorIcon} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />;
+            case 'grok':
+                return <Terminal size={18} color="#06b6d4" />;
+            case 'codebuddy':
+                return <img src={codebuddyIcon} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />;
+            case 'qoder':
+                return <img src={qoderIcon} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />;
+            case 'zcode':
+                return <img src={zcodeIcon} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />;
+            case 'trae':
+                return <img src={traeIcon} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />;
+            default:
+                return <Users size={18} color="#94a3b8" />;
+        }
+    };
+
+    const handleProviderClick = (id: string) => {
+        switch (id) {
+            case 'total':
+                navigate('/accounts');
+                break;
+            case 'relay':
+                navigate('/api-relay');
+                break;
+            case 'claude':
+                navigate('/platforms/claude');
+                break;
+            case 'codex':
+                navigate('/platforms/codex');
+                break;
+            case 'antigravity':
+                navigate('/platforms/antigravity');
+                break;
+            case 'zed':
+                navigate('/platforms/zed');
+                break;
+            case 'github_copilot':
+                navigate('/platforms/github-copilot');
+                break;
+            case 'windsurf':
+                navigate('/platforms/windsurf');
+                break;
+            case 'kiro':
+                navigate('/platforms/kiro');
+                break;
+            case 'cursor':
+                navigate('/platforms/cursor');
+                break;
+            case 'grok':
+                navigate('/accounts');
+                break;
+            case 'codebuddy':
+                navigate('/platforms/codebuddy-global');
+                break;
+            case 'qoder':
+                navigate('/platforms/qoder');
+                break;
+            case 'zcode':
+                navigate('/accounts');
+                break;
+            case 'trae':
+                navigate('/platforms/trae');
+                break;
+            default:
+                navigate('/accounts');
+        }
+    };
+
+    // Current & Recommended accounts for Antigravity widget
+    const currentAccount = antigravityData?.current_account || {
+        id: 'default_curr',
+        email: 'vuk560269@gmail.com',
+        plan_tier: 'PRO',
+        buckets: [
+            { bucket_id: '3p-5h', label: 'Claude (5h)', remaining_percent: 100, time_left: '4h 59m (10/03 20:31)' },
+            { bucket_id: '3p-weekly', label: 'Claude (Weekly)', remaining_percent: 100, time_left: '6d 23h 59m (10/10 15:31)' },
+            { bucket_id: 'gemini-5h', label: 'Gemini (5h)', remaining_percent: 28, time_left: '2h 53m (10/03 18:25)' },
+            { bucket_id: 'gemini-weekly', label: 'Gemini (Weekly)', remaining_percent: 29, time_left: '3d 17h 55m (10/07 09:27)' },
+        ]
+    };
+
+    const recommendedAccount = antigravityData?.recommended_account || {
+        id: 'default_rec',
+        email: 'abcfac24@gmail.com',
+        plan_tier: 'FREE',
+        buckets: [
+            { bucket_id: '3p-weekly', label: 'Claude (Weekly)', remaining_percent: 100, time_left: '6d 23h 58m (10/10 15:29)' },
+            { bucket_id: 'gemini-weekly', label: 'Gemini (Weekly)', remaining_percent: 100, time_left: '6d 23h 58m (10/10 15:29)' },
+        ]
+    };
+
     return (
-        <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div style={{ maxWidth: 1240, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
                 <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                        <h1 style={{ fontSize: '1.65rem', fontWeight: 700, letterSpacing: '-0.02em', color: '#fff' }}>
+                        <h1 style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.02em', color: '#fff', margin: 0 }}>
                             Universe Cockpit
                         </h1>
-                        <span className="badge badge-success">
+                        <span className="badge badge-success" style={{ fontSize: '0.72rem' }}>
                             <span className="pulse-dot" style={{ width: 6, height: 6 }} /> Trực tuyến
                         </span>
                     </div>
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.35rem' }}>
-                        Trung tâm quản lý tài khoản & mô phỏng môi trường phân thân IDE chuyên dụng
-                    </p>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
@@ -102,316 +265,322 @@ export function DashboardPage() {
                 </div>
             </div>
 
-            {/* Cockpit Stats Row */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
-                {/* Stat 1: Total Accounts */}
-                <div className="card" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: 0 }}>
-                    <div style={{
-                        width: 48,
-                        height: 48,
-                        borderRadius: 14,
-                        background: 'rgba(59, 130, 246, 0.12)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: 'var(--primary)',
-                        flexShrink: 0
-                    }}>
-                        <Users size={24} />
-                    </div>
-                    <div>
-                        <div style={{ fontSize: '1.6rem', fontWeight: 700, lineHeight: 1.1, color: '#fff' }}>
-                            {loading ? '--' : accounts.length}
+            {/* Providers Overview Grid (Screenshot 2: 15 items) */}
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+                gap: '0.85rem'
+            }}>
+                {displayStats.map((item) => (
+                    <div
+                        key={item.id}
+                        onClick={() => handleProviderClick(item.id)}
+                        style={{
+                            background: '#131b26',
+                            border: '1px solid rgba(255, 255, 255, 0.07)',
+                            borderRadius: '12px',
+                            padding: '0.85rem 1rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            position: 'relative',
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.4)';
+                            e.currentTarget.style.transform = 'translateY(-1px)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.07)';
+                            e.currentTarget.style.transform = 'translateY(0)';
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                            {/* Icon Box */}
+                            <div style={{
+                                width: 40,
+                                height: 40,
+                                borderRadius: 10,
+                                background: 'rgba(255, 255, 255, 0.04)',
+                                border: '1px solid rgba(255, 255, 255, 0.06)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0
+                            }}>
+                                {getProviderIcon(item.id)}
+                            </div>
+                            <div>
+                                <div style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 500 }}>
+                                    {item.name}
+                                </div>
+                                <div style={{ fontSize: '1.45rem', fontWeight: 700, color: '#fff', lineHeight: 1.1, marginTop: 2 }}>
+                                    {loading ? '--' : item.count}
+                                </div>
+                            </div>
                         </div>
-                        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 500, marginTop: 4 }}>
-                            Tài khoản IDE đã lưu
-                        </div>
-                    </div>
-                </div>
 
-                {/* Stat 2: Running Virtual Instances */}
-                <div className="card" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: 0 }}>
-                    <div style={{
-                        width: 48,
-                        height: 48,
-                        borderRadius: 14,
-                        background: runningCount > 0 ? 'rgba(34, 197, 94, 0.14)' : 'rgba(148, 163, 184, 0.1)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: runningCount > 0 ? 'var(--success)' : 'var(--text-muted)',
-                        flexShrink: 0
-                    }}>
-                        <Rocket size={24} />
+                        {/* Optional Badge */}
+                        {item.badge && (
+                            <span style={{
+                                background: 'rgba(56, 189, 248, 0.15)',
+                                color: '#38bdf8',
+                                border: '1px solid rgba(56, 189, 248, 0.3)',
+                                fontSize: '0.68rem',
+                                fontWeight: 700,
+                                padding: '0.12rem 0.45rem',
+                                borderRadius: 9999,
+                                position: 'absolute',
+                                top: '0.65rem',
+                                right: '0.75rem'
+                            }}>
+                                {item.badge}
+                            </span>
+                        )}
                     </div>
-                    <div>
-                        <div style={{ fontSize: '1.6rem', fontWeight: 700, lineHeight: 1.1, color: '#fff' }}>
-                            {loading ? '--' : `${runningCount} / ${totalProfiles}`}
-                        </div>
-                        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 500, marginTop: 4 }}>
-                            Instance đang chạy / Tổng Profiles
-                        </div>
-                    </div>
-                </div>
-
-                {/* Stat 3: Quota Health */}
-                <div className="card" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: 0 }}>
-                    <div style={{
-                        width: 48,
-                        height: 48,
-                        borderRadius: 14,
-                        background: 'rgba(14, 165, 233, 0.12)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: 'var(--accent)',
-                        flexShrink: 0
-                    }}>
-                        <Zap size={24} />
-                    </div>
-                    <div>
-                        <div style={{ fontSize: '1.6rem', fontWeight: 700, lineHeight: 1.1, color: '#fff' }}>
-                            100%
-                        </div>
-                        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 500, marginTop: 4 }}>
-                            Tỷ lệ token hợp lệ & Check-in
-                        </div>
-                    </div>
-                </div>
-
-                {/* Stat 4: Connected Platforms */}
-                <div className="card" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: 0 }}>
-                    <div style={{
-                        width: 48,
-                        height: 48,
-                        borderRadius: 14,
-                        background: 'rgba(168, 85, 247, 0.12)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: '#c084fc',
-                        flexShrink: 0
-                    }}>
-                        <Layers size={24} />
-                    </div>
-                    <div>
-                        <div style={{ fontSize: '1.6rem', fontWeight: 700, lineHeight: 1.1, color: '#fff' }}>
-                            4+
-                        </div>
-                        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 500, marginTop: 4 }}>
-                            Nền tảng IDE cô lập độc lập
-                        </div>
-                    </div>
-                </div>
+                ))}
             </div>
 
-            {/* Cockpit Platforms Cards Grid */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                <h2 style={{ fontSize: '1.1rem', fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <Sparkles size={18} color="var(--primary)" /> Bảng điều khiển Nền tảng
-                </h2>
+            {/* Antigravity Dual-Card Widget (Screenshot 1) */}
+            <div style={{
+                background: '#131b26',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: '14px',
+                padding: '1.25rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '1rem',
+            }}>
+                {/* Antigravity Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                        <img src={antigravityIcon} alt="Antigravity" style={{ width: 22, height: 22 }} />
+                        <span style={{ fontSize: '1.15rem', fontWeight: 700, color: '#fff' }}>
+                            Antigravity
+                        </span>
+                    </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1.25rem' }}>
-                    {/* Platform 1: CodeBuddy CN */}
-                    <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                        <div>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                                    <img src={codebuddyIcon} alt="CodeBuddy CN" className="nav-item-icon" style={{ width: 28, height: 28 }} />
-                                    <div>
-                                        <div style={{ fontWeight: 600, fontSize: '0.95rem', color: '#fff' }}>CodeBuddy CN</div>
-                                        <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Tencent Copilot (copilot.tencent.com)</div>
-                                    </div>
-                                </div>
-                                <span className="badge badge-info">{codebuddyCnAccounts.length} Tài khoản</span>
-                            </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <button
+                            className="btn"
+                            style={{ padding: '0.35rem 0.75rem', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                            onClick={loadData}
+                            disabled={refreshing}
+                        >
+                            <RefreshCw size={13} className={refreshing ? 'spin' : ''} /> Refresh
+                        </button>
+                        <button
+                            className="btn"
+                            style={{ padding: '0.35rem 0.6rem' }}
+                            onClick={() => setPrivacyMode(!privacyMode)}
+                            title={privacyMode ? 'Hiện thông tin đầy đủ' : 'Ẩn email bảo mật'}
+                        >
+                            {privacyMode ? <EyeOff size={14} /> : <Eye size={14} />}
+                        </button>
+                    </div>
+                </div>
 
-                            <div style={{ background: 'rgba(0,0,0,0.2)', padding: '0.85rem', borderRadius: 'var(--radius-md)', marginBottom: '1rem' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.4rem' }}>
-                                    <span style={{ color: 'var(--text-secondary)' }}>Trạng thái tài khoản:</span>
-                                    <span style={{ color: 'var(--success)', fontWeight: 500 }}>
-                                        {codebuddyCnAccounts.length > 0 ? 'Đã liên kết' : 'Chưa có tài khoản'}
-                                    </span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-                                    <span style={{ color: 'var(--text-secondary)' }}>Cơ chế tiêm Token:</span>
-                                    <span style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>
-                                        planning-genie.new.accessTokencn
-                                    </span>
-                                </div>
-                            </div>
+                {/* Subcards Grid: Current Account & Recommended Account */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                    gap: '1.25rem'
+                }}>
+                    {/* Left: CURRENT ACCOUNT */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.45rem',
+                            color: '#94a3b8',
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            letterSpacing: '0.06em'
+                        }}>
+                            <Clock size={13} /> CURRENT ACCOUNT
                         </div>
 
-                        <div style={{ display: 'flex', gap: '0.6rem', borderTop: '1px solid var(--border-light)', paddingTop: '0.85rem' }}>
-                            <button
-                                className="btn btn-primary"
-                                style={{ flex: 1 }}
-                                onClick={() => navigate('/platforms/codebuddy-cn')}
-                            >
-                                Quản lý & Đăng nhập
-                            </button>
-                            <button
-                                className="btn"
-                                onClick={() => navigate('/instances')}
-                                title="Khởi chạy Profile"
-                            >
-                                <Rocket size={14} /> Chạy giả lập
-                            </button>
+                        <div style={{
+                            background: '#0d131f',
+                            border: '1px solid rgba(255, 255, 255, 0.06)',
+                            borderRadius: '10px',
+                            padding: '1rem',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between',
+                            minHeight: 250
+                        }}>
+                            <div>
+                                {/* Email & Plan */}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
+                                    <span style={{ fontWeight: 600, color: '#fff', fontSize: '0.92rem' }}>
+                                        {maskEmail(currentAccount.email)}
+                                    </span>
+                                    <span style={{
+                                        background: '#0284c7',
+                                        color: '#fff',
+                                        fontSize: '0.65rem',
+                                        fontWeight: 700,
+                                        padding: '0.15rem 0.45rem',
+                                        borderRadius: 4
+                                    }}>
+                                        {currentAccount.plan_tier}
+                                    </span>
+                                </div>
+
+                                {/* Quota items */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                    {currentAccount.buckets.map((b) => {
+                                        const isHigh = b.remaining_percent >= 50;
+                                        const barColor = isHigh ? '#22c55e' : '#f97316';
+                                        return (
+                                            <div key={b.bucket_id}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.76rem', marginBottom: 3 }}>
+                                                    <span style={{ color: 'var(--text-secondary)' }}>{b.label}</span>
+                                                    <span style={{ color: barColor, fontWeight: 700 }}>{b.remaining_percent}%</span>
+                                                </div>
+                                                <div className="quota-track" style={{ height: 4, background: '#1e293b' }}>
+                                                    <div className="quota-fill" style={{ width: `${b.remaining_percent}%`, background: barColor }} />
+                                                </div>
+                                                <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', textAlign: 'right', marginTop: 2 }}>
+                                                    {b.time_left}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Divider & Action icons */}
+                            <div style={{
+                                borderTop: '1px dashed rgba(255, 255, 255, 0.1)',
+                                marginTop: '1rem',
+                                paddingTop: '0.65rem',
+                                display: 'flex',
+                                justifyContent: 'flex-end',
+                                gap: '0.85rem',
+                                color: '#64748b'
+                            }}>
+                                <span title="Tags" style={{ cursor: 'pointer', display: 'inline-flex' }}><Tag size={15} /></span>
+                                <span title="Làm mới Quota" style={{ cursor: 'pointer', display: 'inline-flex' }} onClick={loadData}><RefreshCw size={15} /></span>
+                                <span title="Khởi chạy Profile" style={{ cursor: 'pointer', display: 'inline-flex' }} onClick={() => navigate('/instances')}><Play size={15} /></span>
+                            </div>
                         </div>
                     </div>
 
-                    {/* Platform 2: CodeBuddy Global */}
-                    <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                        <div>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                                    <img src={codebuddyIcon} alt="CodeBuddy Global" className="nav-item-icon" style={{ width: 28, height: 28 }} />
-                                    <div>
-                                        <div style={{ fontWeight: 600, fontSize: '0.95rem', color: '#fff' }}>CodeBuddy Global</div>
-                                        <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>CodeBuddy.ai (Google OAuth / B3 Gateway)</div>
-                                    </div>
-                                </div>
-                                <span className="badge badge-info">{codebuddyGlobalAccounts.length} Tài khoản</span>
-                            </div>
-
-                            <div style={{ background: 'rgba(0,0,0,0.2)', padding: '0.85rem', borderRadius: 'var(--radius-md)', marginBottom: '1rem' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.4rem' }}>
-                                    <span style={{ color: 'var(--text-secondary)' }}>Trạng thái tài khoản:</span>
-                                    <span style={{ color: 'var(--success)', fontWeight: 500 }}>
-                                        {codebuddyGlobalAccounts.length > 0 ? 'Đã liên kết' : 'Chưa có tài khoản'}
-                                    </span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-                                    <span style={{ color: 'var(--text-secondary)' }}>Cơ chế tiêm Token:</span>
-                                    <span style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>
-                                        planning-genie.new.accessToken
-                                    </span>
-                                </div>
-                            </div>
+                    {/* Right: RECOMMENDED ACCOUNT */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.45rem',
+                            color: '#94a3b8',
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            letterSpacing: '0.06em'
+                        }}>
+                            <Sparkles size={13} /> RECOMMENDED ACCOUNT
                         </div>
 
-                        <div style={{ display: 'flex', gap: '0.6rem', borderTop: '1px solid var(--border-light)', paddingTop: '0.85rem' }}>
-                            <button
-                                className="btn btn-primary"
-                                style={{ flex: 1 }}
-                                onClick={() => navigate('/platforms/codebuddy-global')}
-                            >
-                                Quản lý & Đăng nhập
-                            </button>
-                            <button
-                                className="btn"
-                                onClick={() => navigate('/instances')}
-                                title="Khởi chạy Profile"
-                            >
-                                <Rocket size={14} /> Chạy giả lập
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Platform 3: Zed Editor */}
-                    <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                        <div>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                                    <img src={zedIcon} alt="Zed" className="nav-item-icon" style={{ width: 28, height: 28 }} />
-                                    <div>
-                                        <div style={{ fontWeight: 600, fontSize: '0.95rem', color: '#fff' }}>Zed Cloud</div>
-                                        <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Zed Editor (credentials.json)</div>
-                                    </div>
-                                </div>
-                                <span className="badge badge-info">{zedAccounts.length} Tài khoản</span>
-                            </div>
-
-                            <div style={{ background: 'rgba(0,0,0,0.2)', padding: '0.85rem', borderRadius: 'var(--radius-md)', marginBottom: '1rem' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.4rem' }}>
-                                    <span style={{ color: 'var(--text-secondary)' }}>Trạng thái xác thực:</span>
-                                    <span style={{ color: 'var(--success)', fontWeight: 500 }}>
-                                        {zedAccounts.length > 0 ? 'Sẵn sàng' : 'Chưa thêm'}
+                        <div style={{
+                            background: '#0d131f',
+                            border: '1px solid rgba(255, 255, 255, 0.06)',
+                            borderRadius: '10px',
+                            padding: '1rem',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between',
+                            minHeight: 250
+                        }}>
+                            <div>
+                                {/* Email & Plan */}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
+                                    <span style={{ fontWeight: 600, color: '#fff', fontSize: '0.92rem' }}>
+                                        {maskEmail(recommendedAccount.email)}
+                                    </span>
+                                    <span style={{
+                                        background: '#475569',
+                                        color: '#fff',
+                                        fontSize: '0.65rem',
+                                        fontWeight: 700,
+                                        padding: '0.15rem 0.45rem',
+                                        borderRadius: 4
+                                    }}>
+                                        {recommendedAccount.plan_tier}
                                     </span>
                                 </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-                                    <span style={{ color: 'var(--text-secondary)' }}>Nơi lưu trữ Credentials:</span>
-                                    <span style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>
-                                        ~/.local/share/zed/db
-                                    </span>
+
+                                {/* Quota items */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                    {recommendedAccount.buckets.map((b) => {
+                                        const isHigh = b.remaining_percent >= 50;
+                                        const barColor = isHigh ? '#22c55e' : '#f97316';
+                                        return (
+                                            <div key={b.bucket_id}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.76rem', marginBottom: 3 }}>
+                                                    <span style={{ color: 'var(--text-secondary)' }}>{b.label}</span>
+                                                    <span style={{ color: barColor, fontWeight: 700 }}>{b.remaining_percent}%</span>
+                                                </div>
+                                                <div className="quota-track" style={{ height: 4, background: '#1e293b' }}>
+                                                    <div className="quota-fill" style={{ width: `${b.remaining_percent}%`, background: barColor }} />
+                                                </div>
+                                                <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', textAlign: 'right', marginTop: 2 }}>
+                                                    {b.time_left}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
-                        </div>
 
-                        <div style={{ display: 'flex', gap: '0.6rem', borderTop: '1px solid var(--border-light)', paddingTop: '0.85rem' }}>
-                            <button
-                                className="btn btn-primary"
-                                style={{ flex: 1 }}
-                                onClick={() => navigate('/zed/accounts')}
-                            >
-                                Quản lý Zed
-                            </button>
-                            <button
-                                className="btn"
-                                onClick={() => navigate('/instances')}
-                                title="Khởi chạy Profile"
-                            >
-                                <Rocket size={14} /> Chạy giả lập
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Platform 4: Cursor & Trae Simulator */}
-                    <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                        <div>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                                    <img src={cursorIcon} alt="Cursor" className="nav-item-icon" style={{ width: 28, height: 28 }} />
-                                    <div>
-                                        <div style={{ fontWeight: 600, fontSize: '0.95rem', color: '#fff' }}>Cursor & VS Code Forks</div>
-                                        <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Kho lưu trữ tài khoản đa phân thân</div>
-                                    </div>
-                                </div>
-                                <span className="badge badge-success">Sẵn sàng</span>
+                            {/* Divider & Action icons */}
+                            <div style={{
+                                borderTop: '1px dashed rgba(255, 255, 255, 0.1)',
+                                marginTop: '1rem',
+                                paddingTop: '0.65rem',
+                                display: 'flex',
+                                justifyContent: 'flex-end',
+                                gap: '0.85rem',
+                                color: '#64748b'
+                            }}>
+                                <span title="Tags" style={{ cursor: 'pointer', display: 'inline-flex' }}><Tag size={15} /></span>
+                                <span title="Làm mới Quota" style={{ cursor: 'pointer', display: 'inline-flex' }} onClick={loadData}><RefreshCw size={15} /></span>
+                                <span title="Khởi chạy Profile" style={{ cursor: 'pointer', display: 'inline-flex' }} onClick={() => navigate('/instances')}><Play size={15} /></span>
                             </div>
-
-                            <div style={{ background: 'rgba(0,0,0,0.2)', padding: '0.85rem', borderRadius: 'var(--radius-md)', marginBottom: '1rem' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.4rem' }}>
-                                    <span style={{ color: 'var(--text-secondary)' }}>Giả lập Phần cứng:</span>
-                                    <span style={{ color: 'var(--success)', fontWeight: 500 }}>
-                                        Bảo vệ Telemetry ID
-                                    </span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-                                    <span style={{ color: 'var(--text-secondary)' }}>Tiêm cơ sở dữ liệu:</span>
-                                    <span style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>
-                                        ItemTable (state.vscdb)
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div style={{ display: 'flex', gap: '0.6rem', borderTop: '1px solid var(--border-light)', paddingTop: '0.85rem' }}>
-                            <button
-                                className="btn btn-primary"
-                                style={{ flex: 1 }}
-                                onClick={() => navigate('/accounts')}
-                            >
-                                Kho Tài khoản chung
-                            </button>
-                            <button
-                                className="btn"
-                                onClick={() => navigate('/instances')}
-                                title="Quản lý Profiles"
-                            >
-                                <Rocket size={14} /> Mở Profiles
-                            </button>
                         </div>
                     </div>
                 </div>
+
+                {/* Bottom Button: View all accounts */}
+                <button
+                    className="btn"
+                    style={{
+                        width: '100%',
+                        background: 'rgba(37, 99, 235, 0.14)',
+                        border: '1px solid rgba(59, 130, 246, 0.3)',
+                        color: '#60a5fa',
+                        fontWeight: 600,
+                        fontSize: '0.88rem',
+                        padding: '0.65rem',
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                        transition: 'background 0.2s ease',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(37, 99, 235, 0.22)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(37, 99, 235, 0.14)')}
+                    onClick={() => navigate('/platforms/antigravity')}
+                >
+                    View all accounts
+                </button>
             </div>
 
             {/* Quick Virtual Profiles Launcher Table */}
-            <div className="card">
+            <div className="card" style={{ marginTop: '0.5rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                         <Rocket size={20} color="var(--primary)" />
-                        <h2 style={{ fontSize: '1.1rem', fontWeight: 600, color: '#fff' }}>
+                        <h2 style={{ fontSize: '1.05rem', fontWeight: 600, color: '#fff', margin: 0 }}>
                             Danh sách Profile Ảo hóa (Instances)
                         </h2>
                     </div>

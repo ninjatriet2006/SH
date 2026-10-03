@@ -53,3 +53,39 @@ export interface ProbeAccountResult {
 export async function probeAccount(uid: string): Promise<ProbeAccountResult> {
   return invokeIpc<ProbeAccountResult>('probe_account', { uid });
 }
+
+export interface AntigravityQuotaBucket {
+  bucket_id: string;
+  label: string;
+  remaining_percent: number;
+  time_left: string;
+}
+
+export interface AntigravityOverviewCard {
+  id: string;
+  email: string;
+  plan_tier: string;
+  buckets: AntigravityQuotaBucket[];
+}
+
+export interface AntigravityOverview {
+  current_account: AntigravityOverviewCard | null;
+  recommended_account: AntigravityOverviewCard | null;
+  total_accounts: number;
+}
+
+export interface ProviderStat {
+  id: string;
+  name: string;
+  count: number;
+  badge: string | null;
+}
+
+export async function getAntigravityOverview(): Promise<AntigravityOverview> {
+  return invokeIpc<AntigravityOverview>('get_antigravity_overview');
+}
+
+export async function getProvidersOverview(): Promise<ProviderStat[]> {
+  return invokeIpc<ProviderStat[]>('get_providers_overview');
+}
+

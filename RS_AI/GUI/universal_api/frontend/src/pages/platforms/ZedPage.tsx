@@ -1,7 +1,7 @@
-import { CockpitAccountManagerView } from '../components/CockpitAccountManagerView';
-import zedIcon from '../assets/icons/zed.png';
+import { CockpitAccountManagerView } from '../../components/CockpitAccountManagerView';
+import zedIcon from '../../assets/icons/zed.png';
 
-export function ZedAccountsPage() {
+export function ZedPage() {
     return (
         <CockpitAccountManagerView
             platformId="zed"
