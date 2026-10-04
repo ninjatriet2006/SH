@@ -110,7 +110,7 @@ pub fn run() {
             // ==================
             actions::settings::get_gui_settings,
             actions::settings::save_gui_settings,
-            actions::settings::auto_detect_ide_path,
+            actions::ide_detector::auto_detect_ide_path,
             actions::settings::open_data_folder,
             actions::lang::get_available_langs,
             actions::lang::get_lang_content,
@@ -182,12 +182,12 @@ pub fn run() {
             providers::antigravity::accounts::export_accounts,
             providers::antigravity::accounts::import_from_json,
             // ==================
-            // PROVIDERS: CODEBUDDY (Browser device-login & OAuth)
+            // ACTIONS: LOGIN & OAUTH (Browser device-login & OAuth)
             // ==================
-            providers::codebuddy::login::login_start,
-            providers::codebuddy::login::login_poll,
-            providers::codebuddy::login::login_cancel,
-            providers::codebuddy::login::open_login_url,
+            actions::login::login_start,
+            actions::login::login_poll,
+            actions::login::login_cancel,
+            actions::login::open_login_url,
             // ==================
             // PROVIDERS: ZED (Native account & config)
             // ==================

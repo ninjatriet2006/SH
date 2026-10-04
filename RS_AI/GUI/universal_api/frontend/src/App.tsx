@@ -16,8 +16,6 @@ import { AccountsPage } from './pages/AccountsPage';
 import { ApiRelayPage } from './pages/ApiRelayPage';
 import { ConfigPage } from './pages/ConfigPage';
 import { ProvidersPage } from './pages/ProvidersPage';
-import { ZedAccountsPage } from './pages/ZedAccountsPage';
-import { ZedConfigPage } from './pages/ZedConfigPage';
 import { SchedulerPage } from './pages/SchedulerPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { TrafficLogsPage } from './pages/TrafficLogsPage';
@@ -50,6 +48,8 @@ import { ClaudePage } from './pages/platforms/ClaudePage';
 import { CodexPage } from './pages/platforms/CodexPage';
 import { KiroPage } from './pages/platforms/KiroPage';
 import { QoderPage } from './pages/platforms/QoderPage';
+import { ZedPage } from './pages/platforms/ZedPage';
+import { ZedConfigPage } from './pages/platforms/ZedConfigPage';
 
 const SIDEBAR_STORAGE_KEY = 'universal-api:sidebar-width';
 const SIDEBAR_MIN = 200;
@@ -193,7 +193,7 @@ function App() {
                     <Route path="/platforms/codebuddy" element={<CodebuddyPage />} />
                     <Route path="/platforms/codebuddy-cn" element={<CodebuddyPage />} />
                     <Route path="/platforms/codebuddy-global" element={<CodebuddyPage />} />
-                    <Route path="/platforms/zed" element={<ZedAccountsPage />} />
+                    <Route path="/platforms/zed" element={<ZedPage />} />
                     <Route path="/platforms/github-copilot" element={<GitHubCopilotPage />} />
                     <Route path="/platforms/cursor" element={<CursorPage />} />
                     <Route path="/platforms/windsurf" element={<WindsurfPage />} />
@@ -204,7 +204,7 @@ function App() {
                     <Route path="/platforms/qoder" element={<QoderPage />} />
                     <Route path="/accounts" element={<AccountsPage />} />
                     <Route path="/api-relay" element={<ApiRelayPage />} />
-                    <Route path="/zed/accounts" element={<ZedAccountsPage />} />
+                    <Route path="/zed/accounts" element={<ZedPage />} />
                     <Route path="/zed/config" element={<ZedConfigPage />} />
                     <Route path="/traffic" element={<TrafficLogsPage />} />
                     <Route path="/providers" element={<ProvidersPage />} />
