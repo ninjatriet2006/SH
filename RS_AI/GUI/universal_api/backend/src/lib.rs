@@ -67,6 +67,10 @@ pub fn run() {
             api::system_tools::backup_to_webdav_now,
             api::system_tools::list_webdav_backups_cmd,
             api::system_tools::restore_from_webdav_cmd,
+            api::system_tools::execute_wakeup_tasks,
+            api::system_tools::single_account_wakeup,
+            api::system_tools::sync_platform_sessions,
+            api::system_tools::clean_platform_sessions,
             // ==================
             // GATEWAY API
             // ==================

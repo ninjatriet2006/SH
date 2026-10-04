@@ -109,6 +109,8 @@ fn read_instance_store(platform_id: &str) -> InstanceStore {
             extra_args: Some(String::new()),
             working_dir: None,
             launch_mode: Some("app".to_string()),
+            model_routing: None,
+            app_speed: None,
             follow_local_account: Some(false),
             auto_sync_threads: Some(false),
             last_pid: None,
@@ -169,6 +171,8 @@ pub fn load_platform_instances(platform_id: &str) -> Result<Vec<InstanceProfile>
             is_default: true,
             is_running,
             launch_mode: def.launch_mode,
+            model_routing: def.model_routing,
+            app_speed: def.app_speed,
         });
     }
 
@@ -237,6 +241,8 @@ pub fn create_platform_instance(
         is_default: false,
         is_running: false,
         launch_mode: Some("app".to_string()),
+        model_routing: None,
+        app_speed: None,
     };
 
     store.instances.push(profile.clone());

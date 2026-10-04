@@ -211,7 +211,7 @@ pub fn fetch_and_save_antigravity_quota(
         "customSource": "desktop",
         "email": email,
         "projectId": project_id,
-        "updatedAt": now,
+        "updatedAt": chrono::Utc::now().timestamp_millis(),
         "payload": cache_payload
     });
     if let Ok(c_str) = serde_json::to_string_pretty(&cache_envelope) {

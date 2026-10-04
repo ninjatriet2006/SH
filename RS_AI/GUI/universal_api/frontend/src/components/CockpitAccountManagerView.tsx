@@ -305,17 +305,34 @@ export function CockpitAccountManagerView({
             ...prev,
         ]);
         try {
-            await new Promise((r) => setTimeout(r, 1000));
+            const res = await invokeIpc<any>('execute_wakeup_tasks', {});
+            if (res && res.logs && Array.isArray(res.logs)) {
+                setWakeupLogs((prev) => [...[...res.logs].reverse(), ...prev]);
+            }
             await loadAccounts();
-            setWakeupLogs((prev) => [
-                `[${new Date().toLocaleTimeString()}] Đánh thức thành công ${accounts.length} tài khoản (HTTP 200 OK)`,
-                ...prev,
-            ]);
-            showMsg('Đã hoàn tất đánh thức phiên làm việc cho tất cả tài khoản!', true);
+            showMsg(`Đã hoàn tất đánh thức phiên làm việc (${res?.successCount ?? accounts.length} tài khoản OK)!`, true);
         } catch (e: any) {
             showMsg(e.message || 'Lỗi khi gửi tín hiệu wakeup', false);
         } finally {
             setWakeupRunning(false);
+        }
+    };
+
+    const handleSyncSessions = async () => {
+        try {
+            const res = await invokeIpc<any>('sync_platform_sessions', { platform_id: platformId });
+            showMsg(res?.message || 'Đã đồng bộ session giữa các instance!', true);
+        } catch (e: any) {
+            showMsg(e.message || 'Lỗi đồng bộ session', false);
+        }
+    };
+
+    const handleCleanSessions = async () => {
+        try {
+            const res = await invokeIpc<any>('clean_platform_sessions', { platform_id: platformId });
+            showMsg(res?.message || 'Thùng rác session và cache đã được dọn sạch!', true);
+        } catch (e: any) {
+            showMsg(e.message || 'Lỗi khi dọn session', false);
         }
     };
 
@@ -1568,9 +1585,15 @@ export function CockpitAccountManagerView({
                                             <button
                                                 className="btn"
                                                 style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem', gap: '0.3rem' }}
-                                                onClick={() => {
-                                                    showMsg(`Đã gửi tín hiệu Keep-Alive cho ${maskValue(a.nickname || a.uid)}`, true);
-                                                    setWakeupLogs((prev) => [`[${new Date().toLocaleTimeString()}] Wakeup riêng lẻ: ${maskValue(a.nickname || a.uid)} thành công (HTTP 200)`, ...prev]);
+                                                onClick={async () => {
+                                                    try {
+                                                        await invokeIpc('single_account_wakeup', { uid: a.uid, platform: platformId });
+                                                        showMsg(`Đã gửi tín hiệu Keep-Alive cho ${maskValue(a.nickname || a.uid)}`, true);
+                                                        setWakeupLogs((prev) => [`[${new Date().toLocaleTimeString()}] Wakeup riêng lẻ: ${maskValue(a.nickname || a.uid)} thành công (HTTP 200)`, ...prev]);
+                                                        await loadAccounts();
+                                                    } catch (e: any) {
+                                                        showMsg(e.message || 'Lỗi khi wakeup', false);
+                                                    }
                                                 }}
                                             >
                                                 <RefreshCw size={12} /> Wakeup
@@ -1704,10 +1727,10 @@ export function CockpitAccountManagerView({
                             Quản lý các phiên trò chuyện AI, đồng bộ lịch sử hội thoại giữa các cửa sổ IDE và dọn dẹp các session rác để tiết kiệm dung lượng.
                         </p>
                         <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
-                            <button className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => showMsg('Đã đồng bộ session giữa các instance!', true)}>
+                            <button className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={handleSyncSessions}>
                                 Đồng bộ Session giữa các Instance
                             </button>
-                            <button className="btn" style={{ fontSize: '0.8rem' }} onClick={() => showMsg('Thùng rác session đã được dọn sạch!', true)}>
+                            <button className="btn" style={{ fontSize: '0.8rem' }} onClick={handleCleanSessions}>
                                 Dọn dẹp Session rác
                             </button>
                         </div>

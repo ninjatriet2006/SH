@@ -293,20 +293,95 @@ fn load_cockpit_platform_accounts(home: &str) -> Vec<AccountInfo> {
                             plan_tier = tier;
                             quota_details = details;
                         } else if file_name == "github_copilot_accounts.json" {
-                            is_current = true;
+                            is_current = current_account_id.is_empty() || id == current_account_id;
                             let (tier, details) = get_copilot_account_detail(item);
                             plan_tier = tier;
                             quota_details = details;
-                        } else if file_name == "codebuddy_accounts.json" {
-                            plan_tier = Some("FREE".to_string());
+                        } else if file_name == "codebuddy_accounts.json" || file_name == "codebuddy_cn_accounts.json" {
+                            is_current = id == current_account_id;
+                            let tier = item.get("plan_type").or_else(|| item.get("plan")).and_then(|x| x.as_str()).unwrap_or("FREE");
+                            plan_tier = Some(tier.to_string());
                             quota_details = Some(serde_json::json!({
-                                "plan_tier": "FREE",
+                                "plan_tier": tier,
                                 "subscription": "Free Plan Subscription",
                                 "subscription_val": "0 / 100",
                                 "credit_package": "Credit Package",
                                 "credit_package_val": "0 / 0",
                                 "next_refresh": "11/01/2026, 00:00:00"
                             }));
+                        } else if file_name == "claude_accounts.json" {
+                            is_current = id == current_account_id;
+                            let tier = item.get("plan_type").and_then(|x| x.as_str()).unwrap_or("PRO");
+                            plan_tier = Some(tier.to_string());
+                            let five_hour = item.pointer("/quota/five_hour_percentage").and_then(|x| x.as_i64()).unwrap_or(100);
+                            let seven_day = item.pointer("/quota/seven_day_percentage").and_then(|x| x.as_i64()).unwrap_or(100);
+                            quota_details = Some(serde_json::json!({
+                                "plan_tier": tier,
+                                "claude_5h": { "percent": five_hour, "reset_time": "", "time_left": "5h" },
+                                "claude_weekly": { "percent": seven_day, "reset_time": "", "time_left": "7d" }
+                            }));
+                        } else if file_name == "codex_accounts.json" {
+                            is_current = id == current_account_id;
+                            let tier = item.get("plan_type").and_then(|x| x.as_str()).unwrap_or("PRO");
+                            plan_tier = Some(tier.to_string());
+                            let five_hour = item.pointer("/quota/five_hour_percentage").and_then(|x| x.as_i64()).unwrap_or(100);
+                            let seven_day = item.pointer("/quota/seven_day_percentage").and_then(|x| x.as_i64()).unwrap_or(100);
+                            quota_details = Some(serde_json::json!({
+                                "plan_tier": tier,
+                                "five_hour": { "percent": five_hour },
+                                "seven_day": { "percent": seven_day }
+                            }));
+                        } else if file_name == "kiro_accounts.json" {
+                            is_current = id == current_account_id;
+                            let tier = item.get("plan_tier").or_else(|| item.get("plan_name")).and_then(|x| x.as_str()).unwrap_or("FREE");
+                            plan_tier = Some(tier.to_string());
+                            let total = item.get("credits_total").and_then(|x| x.as_f64()).unwrap_or(100.0);
+                            let used = item.get("credits_used").and_then(|x| x.as_f64()).unwrap_or(0.0);
+                            quota_details = Some(serde_json::json!({
+                                "plan_tier": tier,
+                                "credits_total": total,
+                                "credits_used": used,
+                                "credits_remaining": (total - used).max(0.0)
+                            }));
+                        } else if file_name == "qoder_accounts.json" {
+                            is_current = id == current_account_id;
+                            let tier = item.get("plan_type").and_then(|x| x.as_str()).unwrap_or("FREE");
+                            plan_tier = Some(tier.to_string());
+                            let total = item.get("credits_total").and_then(|x| x.as_f64()).unwrap_or(100.0);
+                            let used = item.get("credits_used").and_then(|x| x.as_f64()).unwrap_or(0.0);
+                            quota_details = Some(serde_json::json!({
+                                "plan_tier": tier,
+                                "credits_total": total,
+                                "credits_used": used,
+                                "credits_remaining": (total - used).max(0.0)
+                            }));
+                        } else if file_name == "cursor_accounts.json" {
+                            is_current = id == current_account_id;
+                            let tier = item.get("plan_type").or_else(|| item.get("membership_type")).and_then(|x| x.as_str()).unwrap_or("PRO");
+                            plan_tier = Some(tier.to_string());
+                        } else if file_name == "windsurf_accounts.json" {
+                            is_current = id == current_account_id;
+                            let tier = item.get("plan").or_else(|| item.get("plan_type")).and_then(|x| x.as_str()).unwrap_or("PRO");
+                            plan_tier = Some(tier.to_string());
+                        } else if file_name == "trae_accounts.json" {
+                            is_current = id == current_account_id;
+                            let tier = item.get("plan_type").and_then(|x| x.as_str()).unwrap_or("PRO");
+                            plan_tier = Some(tier.to_string());
+                        } else if file_name == "workbuddy_accounts.json" {
+                            is_current = id == current_account_id;
+                            let tier = item.get("plan_type").and_then(|x| x.as_str()).unwrap_or("VIP");
+                            plan_tier = Some(tier.to_string());
+                        } else if file_name == "zed_accounts.json" {
+                            is_current = id == current_account_id;
+                            plan_tier = Some("PRO".to_string());
+                        } else if file_name == "zcode_accounts.json" {
+                            is_current = id == current_account_id;
+                            let tier = item.get("plan_type").and_then(|x| x.as_str()).unwrap_or("PRO");
+                            plan_tier = Some(tier.to_string());
+                        } else if file_name == "grok_accounts.json" {
+                            is_current = id == current_account_id;
+                            let tier = item.get("plan_type").and_then(|x| x.as_str()).unwrap_or("PRO");
+                            plan_tier = Some(tier.to_string());
                         }
 
                         results.push(AccountInfo {
@@ -553,26 +628,37 @@ fn delete_from_cockpit_storage(home: &str, uid: &str) {
         let _ = std::fs::remove_file(cache_file);
     }
 
-    // 3. Also remove from other platform account index files (github_copilot, cursor, etc.)
-    let platform_files = [
-        "github_copilot_accounts.json",
-        "cursor_accounts.json",
-        "windsurf_accounts.json",
-        "trae_accounts.json",
-        "zed_accounts.json",
-        "codebuddy_accounts.json",
-        "codebuddy_cn_accounts.json",
-        "workbuddy_accounts.json",
-        "claude_accounts.json",
-        "codex_accounts.json",
-        "grok_accounts.json",
-        "kiro_accounts.json",
-        "qoder_accounts.json",
-        "zcode_accounts.json",
+    // 3. Also remove from other platform account index files and account detail folders
+    let platform_mappings = [
+        ("github_copilot_accounts.json", "github_copilot_accounts"),
+        ("cursor_accounts.json", "cursor_accounts"),
+        ("windsurf_accounts.json", "windsurf_accounts"),
+        ("trae_accounts.json", "trae_accounts"),
+        ("zed_accounts.json", "zed_accounts"),
+        ("codebuddy_accounts.json", "codebuddy_accounts"),
+        ("codebuddy_cn_accounts.json", "codebuddy_cn_accounts"),
+        ("workbuddy_accounts.json", "workbuddy_accounts"),
+        ("claude_accounts.json", "claude_accounts"),
+        ("codex_accounts.json", "codex_accounts"),
+        ("grok_accounts.json", "grok_accounts"),
+        ("kiro_accounts.json", "kiro_accounts"),
+        ("qoder_accounts.json", "qoder_accounts"),
+        ("zcode_accounts.json", "zcode_accounts"),
     ];
 
     let key_path = cockpit_dir.join("secure-account-storage.key");
-    for pf in platform_files {
+    for (pf, sub_dir) in platform_mappings {
+        // Remove detail file in platform folder to prevent Cockpit Auto Repair from resurrecting it
+        let detail_dir = cockpit_dir.join(sub_dir);
+        let detail_file = detail_dir.join(format!("{uid}.json"));
+        let _ = std::fs::remove_file(&detail_file);
+        if uid.contains('@') {
+            use sha2::{Digest, Sha256};
+            let hash = format!("{:x}", Sha256::digest(uid.trim().to_lowercase().as_bytes()));
+            let _ = std::fs::remove_file(detail_dir.join(format!("{hash}.json")));
+        }
+
+        // Update platform index file (PLAINTEXT JSON, exactly as Cockpit expects)
         let p = cockpit_dir.join(pf);
         if let Some(mut v) = read_cockpit_secure_json(&p, &key_path) {
             let mut changed = false;
@@ -580,15 +666,16 @@ fn delete_from_cockpit_storage(home: &str, uid: &str) {
                 let orig_len = arr.len();
                 arr.retain(|item| {
                     let id = item.get("id").and_then(|x| x.as_str()).unwrap_or("");
-                    id != uid
+                    let email = item.get("email").and_then(|x| x.as_str()).unwrap_or("");
+                    id != uid && email != uid
                 });
                 if arr.len() != orig_len {
                     changed = true;
                 }
             }
             if changed {
-                let kind = pf.trim_end_matches(".json");
-                let _ = crate::core::secure_account_storage::save_account_envelope_atomic(&p, kind, &v);
+                let content = serde_json::to_string_pretty(&v).unwrap_or_default();
+                let _ = crate::core::secure_account_storage::write_string_atomic(&p, &content);
             }
         }
     }
@@ -820,12 +907,83 @@ pub struct InjectAccountResult {
     pub message: String,
 }
 
+fn set_cockpit_current_account(home: &str, platform: &str, uid: &str) {
+    let cockpit_dir = std::path::Path::new(home).join(".cockpit_tools");
+    if !cockpit_dir.is_dir() {
+        return;
+    }
+
+    let file_name = match platform {
+        "antigravity" => "accounts.json",
+        "github_copilot" | "copilot" => "github_copilot_accounts.json",
+        "cursor" => "cursor_accounts.json",
+        "windsurf" => "windsurf_accounts.json",
+        "trae" => "trae_accounts.json",
+        "zed" => "zed_accounts.json",
+        "codebuddy" | "codebuddy_global" => "codebuddy_accounts.json",
+        "codebuddy_cn" => "codebuddy_cn_accounts.json",
+        "workbuddy" => "workbuddy_accounts.json",
+        "claude" => "claude_accounts.json",
+        "codex" => "codex_accounts.json",
+        "grok" => "grok_accounts.json",
+        "kiro" => "kiro_accounts.json",
+        "qoder" => "qoder_accounts.json",
+        "zcode" => "zcode_accounts.json",
+        _ => if platform.contains("copilot") {
+            "github_copilot_accounts.json"
+        } else if platform.contains("codebuddy_cn") {
+            "codebuddy_cn_accounts.json"
+        } else if platform.contains("codebuddy") {
+            "codebuddy_accounts.json"
+        } else {
+            "accounts.json"
+        },
+    };
+
+    let p = cockpit_dir.join(file_name);
+    if let Ok(raw) = std::fs::read_to_string(&p) {
+        if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&raw) {
+            v["current_account_id"] = serde_json::json!(uid);
+            let _ = crate::core::secure_account_storage::write_string_atomic(
+                &p,
+                &serde_json::to_string_pretty(&v).unwrap_or_default(),
+            );
+
+            // Antigravity standard: also write current_account.json
+            if file_name == "accounts.json" {
+                let mut email = uid.to_string();
+                if let Some(arr) = v.get("accounts").and_then(|a| a.as_array()) {
+                    for item in arr {
+                        if item.get("id").and_then(|x| x.as_str()) == Some(uid) {
+                            if let Some(em) = item.get("email").and_then(|x| x.as_str()) {
+                                email = em.to_string();
+                                break;
+                            }
+                        }
+                    }
+                }
+                let cur_account_payload = serde_json::json!({
+                    "email": email,
+                    "updated_at": chrono::Utc::now().timestamp()
+                });
+                let cur_file = cockpit_dir.join("current_account.json");
+                let _ = crate::core::secure_account_storage::write_string_atomic(
+                    &cur_file,
+                    &serde_json::to_string_pretty(&cur_account_payload).unwrap_or_default(),
+                );
+            }
+        }
+    }
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub fn inject_account_to_local_ide(
     request: Req<InjectAccountRequest>,
     state: State<'_, RuntimeState>,
 ) -> IpcResult<InjectAccountResult> {
     let (request_id, payload) = request.validate()?;
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    set_cockpit_current_account(&home, &payload.platform, &payload.uid);
     
     // 1. Zed account activation
     if payload.platform == "zed" || payload.uid.starts_with("zed_") {
@@ -853,7 +1011,7 @@ pub fn inject_account_to_local_ide(
         ));
     }
 
-    // 3. Multi-platform activation (GitHub Copilot, Cursor, Windsurf, Trae)
+    // 3. Multi-platform activation (GitHub Copilot, Cursor, Windsurf, Trae, etc.)
     Ok(respond(
         request_id,
         InjectAccountResult {
@@ -1167,7 +1325,93 @@ pub fn sync_cockpit_accounts_to_storage_and_pool(state: &RuntimeState, platform:
         }
     }
 
-    // 3. Scan Cockpit Backups
+    // 3. Import Claude, Codex, Grok, Kiro, Qoder, Trae, Workbuddy, and Zcode Accounts
+    let generic_platforms = [
+        ("claude", "claude_accounts", "claude_accounts.json", "anthropic.com/claude"),
+        ("codex", "codex_accounts", "codex_accounts.json", "openai.com/codex"),
+        ("grok", "grok_accounts", "grok_accounts.json", "x.ai/grok"),
+        ("kiro", "kiro_accounts", "kiro_accounts.json", "kiro.ai"),
+        ("qoder", "qoder_accounts", "qoder_accounts.json", "qoder.ai"),
+        ("trae", "trae_accounts", "trae_accounts.json", "trae.ai"),
+        ("workbuddy", "workbuddy_accounts", "workbuddy_accounts.json", "workbuddy.cn"),
+        ("zcode", "zcode_accounts", "zcode_accounts.json", "zcode.ai"),
+    ];
+
+    for (plat_name, dir_name, index_file, dom) in generic_platforms {
+        if target.is_empty() || target == plat_name || target == "all" {
+            let plat_dir = cockpit_dir.join(dir_name);
+            if plat_dir.is_dir() {
+                if let Ok(entries) = std::fs::read_dir(&plat_dir) {
+                    for entry in entries.flatten() {
+                        let p = entry.path();
+                        if p.extension().map_or(false, |ext| ext == "json") {
+                            if let Some(v) = read_cockpit_secure_json(&p, &key_path) {
+                                let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("");
+                                let email = v.get("email")
+                                    .or_else(|| v.get("nickname"))
+                                    .or_else(|| v.get("display_name"))
+                                    .and_then(|x| x.as_str())
+                                    .unwrap_or(id);
+                                let access_token = v.pointer("/tokens/access_token")
+                                    .or_else(|| v.pointer("/claude_credentials_raw/access_token"))
+                                    .or_else(|| v.pointer("/auth_user_info_raw/access_token"))
+                                    .or_else(|| v.get("access_token"))
+                                    .or_else(|| v.get("api_key"))
+                                    .or_else(|| v.get("openai_api_key"))
+                                    .or_else(|| v.get("zcode_jwt_token"))
+                                    .and_then(|x| x.as_str())
+                                    .unwrap_or("");
+                                let refresh_token = v.pointer("/tokens/refresh_token")
+                                    .or_else(|| v.get("refresh_token"))
+                                    .and_then(|x| x.as_str())
+                                    .unwrap_or("");
+                                let expires_at = v.get("expires_at").and_then(|x| x.as_i64()).unwrap_or(0);
+                                if !id.is_empty() && !access_token.is_empty() {
+                                    if import_one(id, dom, email, "", access_token, refresh_token, expires_at, &p.to_string_lossy()) {
+                                        imported += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let idx_p = cockpit_dir.join(index_file);
+            if let Some(v) = read_cockpit_secure_json(&idx_p, &key_path) {
+                if let Some(arr) = v.get("accounts").and_then(|a| a.as_array()) {
+                    for item in arr {
+                        let id = item.get("id").and_then(|x| x.as_str()).unwrap_or("");
+                        let email = item.get("email")
+                            .or_else(|| item.get("nickname"))
+                            .or_else(|| item.get("display_name"))
+                            .and_then(|x| x.as_str())
+                            .unwrap_or(id);
+                        let access_token = item.pointer("/tokens/access_token")
+                            .or_else(|| item.pointer("/claude_credentials_raw/access_token"))
+                            .or_else(|| item.pointer("/auth_user_info_raw/access_token"))
+                            .or_else(|| item.get("access_token"))
+                            .or_else(|| item.get("api_key"))
+                            .or_else(|| item.get("openai_api_key"))
+                            .or_else(|| item.get("zcode_jwt_token"))
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("");
+                        let refresh_token = item.pointer("/tokens/refresh_token")
+                            .or_else(|| item.get("refresh_token"))
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("");
+                        let expires_at = item.get("expires_at").and_then(|x| x.as_i64()).unwrap_or(0);
+                        if !id.is_empty() && !access_token.is_empty() {
+                            if import_one(id, dom, email, "", access_token, refresh_token, expires_at, &idx_p.to_string_lossy()) {
+                                imported += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Scan Cockpit Backups
     let backups_dir = std::path::Path::new(&home).join(".cockpit_tools/backups");
     if backups_dir.is_dir() {
         if let Ok(entries) = std::fs::read_dir(backups_dir) {

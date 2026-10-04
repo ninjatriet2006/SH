@@ -147,6 +147,12 @@ pub struct InstanceProfile {
     /// Chế độ khởi chạy: app hoặc cli
     #[serde(default, alias = "launch_mode")]
     pub launch_mode: Option<String>,
+    /// Định tuyến mô hình (Cockpit 1:1)
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "model_routing")]
+    pub model_routing: Option<serde_json::Value>,
+    /// Tốc độ xử lý ứng dụng (Cockpit 1:1)
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "app_speed")]
+    pub app_speed: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -160,6 +166,10 @@ pub struct DefaultInstanceSettings {
     pub working_dir: Option<String>,
     #[serde(default, alias = "launch_mode")]
     pub launch_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "model_routing")]
+    pub model_routing: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "app_speed")]
+    pub app_speed: Option<serde_json::Value>,
     #[serde(default, alias = "follow_local_account")]
     pub follow_local_account: Option<bool>,
     #[serde(default, alias = "auto_sync_threads")]
