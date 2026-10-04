@@ -7,9 +7,12 @@
   + `core`: Domain logic (CodeBuddy gateway + anti-api bridge).
 */
 
-pub mod api;
+pub mod actions;
 pub mod core;
 pub mod ipc;
+pub mod providers;
+
+pub use providers as provider;
 
 use tauri::Manager;
 
@@ -53,152 +56,149 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             // ==================
-            // SYSTEM TOOLS (COCKPIT PARITY)
+            // ACTIONS: SYSTEM TOOLS (COCKPIT PARITY)
             // ==================
-            api::system_tools::trigger_token_keeper,
-            api::system_tools::get_auto_checkin_status,
-            api::system_tools::toggle_auto_checkin,
-            api::system_tools::run_auto_checkin_now,
-            api::system_tools::scan_instance_storage,
-            api::system_tools::execute_instance_storage_clean,
-            api::system_tools::get_webdav_config,
-            api::system_tools::save_webdav_config,
-            api::system_tools::test_webdav_connection_cmd,
-            api::system_tools::backup_to_webdav_now,
-            api::system_tools::list_webdav_backups_cmd,
-            api::system_tools::restore_from_webdav_cmd,
-            api::system_tools::execute_wakeup_tasks,
-            api::system_tools::single_account_wakeup,
-            api::system_tools::sync_platform_sessions,
-            api::system_tools::clean_platform_sessions,
+            actions::system_tools::trigger_token_keeper,
+            actions::system_tools::get_auto_checkin_status,
+            actions::system_tools::toggle_auto_checkin,
+            actions::system_tools::run_auto_checkin_now,
+            actions::system_tools::scan_instance_storage,
+            actions::system_tools::execute_instance_storage_clean,
+            actions::system_tools::get_webdav_config,
+            actions::system_tools::save_webdav_config,
+            actions::system_tools::test_webdav_connection_cmd,
+            actions::system_tools::backup_to_webdav_now,
+            actions::system_tools::list_webdav_backups_cmd,
+            actions::system_tools::restore_from_webdav_cmd,
+            actions::system_tools::execute_wakeup_tasks,
+            actions::system_tools::single_account_wakeup,
+            actions::system_tools::sync_platform_sessions,
+            actions::system_tools::clean_platform_sessions,
             // ==================
-            // GATEWAY API
+            // ACTIONS: GATEWAY
             // ==================
-            api::gateway::get_gateway_status,
-            api::gateway::start_gateway,
-            api::gateway::stop_gateway,
-            api::gateway::get_debug_traces,
-            api::gateway::get_serving_account,
-            api::gateway::refresh_gateway_models,
+            actions::gateway::get_gateway_status,
+            actions::gateway::start_gateway,
+            actions::gateway::stop_gateway,
+            actions::gateway::get_debug_traces,
+            actions::gateway::get_serving_account,
+            actions::gateway::refresh_gateway_models,
             // ==================
-            // ACCOUNTS API
+            // ACTIONS: ACCESS KEYS
             // ==================
-            api::accounts::list_accounts,
-            api::accounts::get_account_status,
-            api::accounts::add_account,
-            api::accounts::remove_account,
-            api::accounts::disable_account,
-            api::accounts::enable_account,
-            api::accounts::test_account,
-            api::accounts::refresh_antigravity_quota,
-            api::accounts::probe_account,
-            api::accounts::inject_account_to_local_ide,
-            api::accounts::import_from_local_ide,
-            api::accounts::get_antigravity_overview,
-            api::accounts::get_providers_overview,
-            api::accounts::get_antigravity_installed_version_info,
-            api::accounts::get_installed_app_version_info,
-            api::accounts::load_antigravity_switch_history,
-            api::accounts::clear_antigravity_switch_history,
-            api::accounts::get_provider_current_account_id,
-            api::accounts::load_account_groups,
-            api::accounts::save_account_groups,
-            api::accounts::load_platform_account_groups,
-            api::accounts::save_platform_account_groups,
-            api::accounts::update_account_tags,
-            api::accounts::update_account_notes,
-            api::accounts::update_account_note,
-            api::accounts::reorder_accounts,
-            api::accounts::export_accounts,
-            api::accounts::import_from_json,
+            actions::access_keys::list_access_keys,
+            actions::access_keys::create_access_key,
+            actions::access_keys::revoke_access_key,
             // ==================
-            // BROWSER DEVICE-LOGIN (port Go cmd/login)
+            // ACTIONS: USAGE & AUDIT LOGS
             // ==================
-            api::login::login_start,
-            api::login::login_poll,
-            api::login::login_cancel,
-            api::login::open_login_url,
+            actions::usage::list_usage_logs,
+            actions::usage::get_usage_summary,
+            actions::audit::get_traffic_logs,
+            actions::audit::clear_traffic_logs,
             // ==================
-            // ACCESS KEYS API
+            // ACTIONS: CONFIG & SCHEDULER
             // ==================
-            api::access_keys::list_access_keys,
-            api::access_keys::create_access_key,
-            api::access_keys::revoke_access_key,
+            actions::config::get_config,
+            actions::config::save_config,
+            actions::config::get_default_config,
+            actions::scheduler::run_keepalive_now,
+            actions::scheduler::get_schedule,
+            actions::scheduler::save_schedule,
             // ==================
-            // USAGE API
+            // ACTIONS: SETTINGS / APPEARANCE / LANG / THEME / FONT
             // ==================
-            api::usage::list_usage_logs,
-            api::usage::get_usage_summary,
+            actions::settings::get_gui_settings,
+            actions::settings::save_gui_settings,
+            actions::settings::auto_detect_ide_path,
+            actions::settings::open_data_folder,
+            actions::lang::get_available_langs,
+            actions::lang::get_lang_content,
+            actions::theme::get_available_themes,
+            actions::font::get_available_fonts,
             // ==================
-            // AUDIT LOG API
+            // ACTIONS: PROFILES & INSTANCES
             // ==================
-            api::audit_api::get_traffic_logs,
-            api::audit_api::clear_traffic_logs,
+            actions::profiles::list_profiles,
+            actions::profiles::create_new_profile,
+            actions::profiles::remove_profile,
+            actions::profiles::duplicate_profile,
+            actions::profiles::bind_account_to_profile,
+            actions::profiles::launch_profile_instance,
+            actions::profiles::kill_running_instance,
+            actions::profiles::list_platform_instances,
+            actions::profiles::create_platform_instance,
+            actions::profiles::update_platform_instance,
+            actions::profiles::delete_platform_instance,
+            actions::profiles::launch_platform_instance,
+            actions::profiles::stop_platform_instance,
+            actions::profiles::open_instance_folder,
             // ==================
-            // CONFIG API
+            // ACTIONS: EXTERNAL PROVIDERS
             // ==================
-            api::config_api::get_config,
-            api::config_api::save_config,
-            api::config_api::get_default_config,
+            actions::external::get_external_config,
+            actions::external::save_external_config,
+            actions::external::get_external_status,
+            actions::external::refresh_external_models,
+            actions::external::check_port_available,
+            actions::external::suggest_free_port,
+            actions::external::normalize_external_url,
+            actions::external::get_providers,
+            actions::external::save_providers,
+            actions::external::get_provider_status,
+            actions::external::refresh_provider_models,
             // ==================
-            // EXTERNAL PROVIDERS (multi-provider: Account + Configuration)
+            // PROVIDERS: GENERAL ACCOUNTS & AGGREGATOR
             // ==================
-            api::external::get_external_config,
-            api::external::save_external_config,
-            api::external::get_external_status,
-            api::external::refresh_external_models,
-            api::external::check_port_available,
-            api::external::suggest_free_port,
-            api::external::normalize_external_url,
-            api::external::get_providers,
-            api::external::save_providers,
-            api::external::get_provider_status,
-            api::external::refresh_provider_models,
+            providers::list_accounts,
+            providers::get_account_status,
+            providers::add_account,
+            providers::remove_account,
+            providers::disable_account,
+            providers::enable_account,
+            providers::test_account,
+            providers::antigravity::quota::refresh_antigravity_quota,
+            providers::probe_account,
+            providers::inject_account_to_local_ide,
+            providers::import_from_local_ide,
+            providers::get_antigravity_overview,
+            providers::get_providers_overview,
+            providers::get_antigravity_installed_version_info,
+            providers::get_installed_app_version_info,
+            providers::get_provider_current_account_id,
+            providers::load_account_groups,
+            providers::save_account_groups,
+            providers::load_platform_account_groups,
+            providers::save_platform_account_groups,
             // ==================
-            // ZED NATIVE (Account + Configuration, no scheduler)
+            // PROVIDERS: ANTIGRAVITY
             // ==================
-            api::zed::list_zed_accounts,
-            api::zed::import_zed_account,
-            api::zed::set_zed_enabled,
-            api::zed::remove_zed_account,
-            api::zed::test_zed_account,
-            api::zed::refresh_zed_models,
-            api::zed::get_zed_config,
-            api::zed::save_zed_config,
+            providers::antigravity::switch::load_antigravity_switch_history,
+            providers::antigravity::switch::clear_antigravity_switch_history,
+            providers::antigravity::accounts::update_account_tags,
+            providers::antigravity::accounts::update_account_notes,
+            providers::antigravity::accounts::update_account_note,
+            providers::antigravity::accounts::reorder_accounts,
+            providers::antigravity::accounts::export_accounts,
+            providers::antigravity::accounts::import_from_json,
             // ==================
-            // SCHEDULER API
+            // PROVIDERS: CODEBUDDY (Browser device-login & OAuth)
             // ==================
-            api::scheduler_api::run_keepalive_now,
-            api::scheduler_api::get_schedule,
-            api::scheduler_api::save_schedule,
+            providers::codebuddy::login::login_start,
+            providers::codebuddy::login::login_poll,
+            providers::codebuddy::login::login_cancel,
+            providers::codebuddy::login::open_login_url,
             // ==================
-            // SETTINGS / LANG / THEME / FONT
+            // PROVIDERS: ZED (Native account & config)
             // ==================
-            api::settings::get_gui_settings,
-            api::settings::save_gui_settings,
-            api::settings::auto_detect_ide_path,
-            api::settings::open_data_folder,
-            api::lang::get_available_langs,
-            api::lang::get_lang_content,
-            api::theme::get_available_themes,
-            api::font::get_available_fonts,
-            // ==================
-            // PROFILES & INSTANCES API
-            // ==================
-            api::profiles::list_profiles,
-            api::profiles::create_new_profile,
-            api::profiles::remove_profile,
-            api::profiles::duplicate_profile,
-            api::profiles::bind_account_to_profile,
-            api::profiles::launch_profile_instance,
-            api::profiles::kill_running_instance,
-            api::profiles::list_platform_instances,
-            api::profiles::create_platform_instance,
-            api::profiles::update_platform_instance,
-            api::profiles::delete_platform_instance,
-            api::profiles::launch_platform_instance,
-            api::profiles::stop_platform_instance,
-            api::profiles::open_instance_folder,
+            providers::zed::accounts::list_zed_accounts,
+            providers::zed::accounts::import_zed_account,
+            providers::zed::accounts::set_zed_enabled,
+            providers::zed::accounts::remove_zed_account,
+            providers::zed::accounts::test_zed_account,
+            providers::zed::config::refresh_zed_models,
+            providers::zed::config::get_zed_config,
+            providers::zed::config::save_zed_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -63,7 +63,7 @@ pub fn start_gateway(
     // rỗng) từ state.json — phải nạp token thật từ vault, không thì mọi request
     // 401 với token rỗng.
     // Tự động giải mã và nạp tài khoản Cockpit vào storage & pool
-    let _ = crate::api::accounts::sync_cockpit_accounts_to_storage_and_pool(&runtime, None);
+    let _ = crate::providers::sync_cockpit_accounts_to_storage_and_pool(&runtime, None);
 
     if let Ok(store) = runtime.storage() {
         if let Ok(saved) = store.list_accounts() {
