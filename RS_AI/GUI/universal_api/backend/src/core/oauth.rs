@@ -241,6 +241,13 @@ pub fn start_antigravity_oauth() -> Result<(String, String), String> {
     Ok((auth_url, state_token))
 }
 
+/// Canonical Antigravity account storage ID algorithm directly matching Cockpit Tools
+/// (`crates/cockpit-core/src/modules/account.rs:389`).
+pub fn build_antigravity_storage_id(email: &str) -> String {
+    let seed = email.trim().to_lowercase();
+    format!("antigravity_{:x}", md5::compute(seed.as_bytes()))
+}
+
 pub fn poll_antigravity_oauth(
     state_token: &str,
     cockpit_dir: &std::path::Path,
@@ -299,8 +306,7 @@ pub fn poll_antigravity_oauth(
 
     let email = user_info.email.trim().to_string();
     let name = user_info.name.unwrap_or_else(|| email.clone());
-    use sha2::{Digest, Sha256};
-    let account_id = format!("antigravity_{:x}", Sha256::digest(email.to_lowercase().as_bytes()));
+    let account_id = build_antigravity_storage_id(&email);
 
     // Save into Cockpit tools directory (~/.cockpit_tools/)
     save_antigravity_account_to_cockpit(

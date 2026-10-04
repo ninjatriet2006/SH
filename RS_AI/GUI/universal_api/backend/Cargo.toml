@@ -40,6 +40,8 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 aes-gcm = "0.10"
 base64 = "0.22"
 keyring = "3"
+md5 = "0.7"
+dirs = "5.0"
 
 [target.'cfg(unix)'.dependencies]
 libc = "=0.2.189"

@@ -17,7 +17,9 @@ use std::path::{Path, PathBuf};
 const APP_DIR: &str = "universal-api";
 
 fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty())
+    dirs::home_dir().or_else(|| {
+        std::env::var_os("HOME").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty())
+    })
 }
 
 /// `$XDG_CONFIG_HOME` hoặc `~/.config`. None khi không xác định được HOME.

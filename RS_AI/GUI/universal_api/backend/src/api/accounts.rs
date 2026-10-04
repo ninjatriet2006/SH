@@ -62,12 +62,18 @@ fn get_antigravity_account_detail(
     let computed_acc_file = if !account_id.is_empty() && cockpit_dir.join("accounts").join(format!("{account_id}.json")).exists() {
         Some(cockpit_dir.join("accounts").join(format!("{account_id}.json")))
     } else if !email.is_empty() {
-        let hash = format!("antigravity_{:x}", Sha256::digest(email.trim().to_lowercase().as_bytes()));
-        let p = cockpit_dir.join("accounts").join(format!("{hash}.json"));
-        if p.exists() {
-            Some(p)
+        let md5_id = format!("antigravity_{:x}", md5::compute(email.trim().to_lowercase().as_bytes()));
+        let p_md5 = cockpit_dir.join("accounts").join(format!("{md5_id}.json"));
+        if p_md5.exists() {
+            Some(p_md5)
         } else {
-            None
+            let sha_id = format!("antigravity_{:x}", Sha256::digest(email.trim().to_lowercase().as_bytes()));
+            let p_sha = cockpit_dir.join("accounts").join(format!("{sha_id}.json"));
+            if p_sha.exists() {
+                Some(p_sha)
+            } else {
+                None
+            }
         }
     } else {
         None
@@ -613,49 +619,52 @@ fn delete_from_cockpit_storage(home: &str, uid: &str) {
     let acc_file = cockpit_dir.join("accounts").join(format!("{uid}.json"));
     let _ = std::fs::remove_file(&acc_file);
 
-    // Also check with sha256 if uid looks like an email
+    // Also check with md5 and sha256 if uid looks like an email
     if uid.contains('@') {
+        let norm_email = uid.trim().to_lowercase();
+        let md5_hash = format!("{:x}", md5::compute(norm_email.as_bytes()));
         use sha2::{Digest, Sha256};
-        let hash = format!("{:x}", Sha256::digest(uid.trim().to_lowercase().as_bytes()));
-        let acc_file_hashed = cockpit_dir.join("accounts").join(format!("antigravity_{hash}.json"));
-        let _ = std::fs::remove_file(&acc_file_hashed);
+        let sha_hash = format!("{:x}", Sha256::digest(norm_email.as_bytes()));
 
-        let cache_file = cockpit_dir
-            .join("cache")
-            .join("quota_api_v1_desktop")
-            .join("authorized")
-            .join(format!("{hash}.json"));
-        let _ = std::fs::remove_file(cache_file);
+        let _ = std::fs::remove_file(cockpit_dir.join("accounts").join(format!("antigravity_{md5_hash}.json")));
+        let _ = std::fs::remove_file(cockpit_dir.join("accounts").join(format!("antigravity_{sha_hash}.json")));
+
+        let _ = std::fs::remove_file(cockpit_dir.join("cache/quota_api_v1_desktop/authorized").join(format!("{sha_hash}.json")));
     }
 
     // 3. Also remove from other platform account index files and account detail folders
     let platform_mappings = [
-        ("github_copilot_accounts.json", "github_copilot_accounts"),
-        ("cursor_accounts.json", "cursor_accounts"),
-        ("windsurf_accounts.json", "windsurf_accounts"),
-        ("trae_accounts.json", "trae_accounts"),
-        ("zed_accounts.json", "zed_accounts"),
-        ("codebuddy_accounts.json", "codebuddy_accounts"),
-        ("codebuddy_cn_accounts.json", "codebuddy_cn_accounts"),
-        ("workbuddy_accounts.json", "workbuddy_accounts"),
-        ("claude_accounts.json", "claude_accounts"),
-        ("codex_accounts.json", "codex_accounts"),
-        ("grok_accounts.json", "grok_accounts"),
-        ("kiro_accounts.json", "kiro_accounts"),
-        ("qoder_accounts.json", "qoder_accounts"),
-        ("zcode_accounts.json", "zcode_accounts"),
+        ("github_copilot_accounts.json", "github_copilot_accounts", "github_copilot"),
+        ("cursor_accounts.json", "cursor_accounts", "cursor"),
+        ("windsurf_accounts.json", "windsurf_accounts", "windsurf"),
+        ("trae_accounts.json", "trae_accounts", "trae"),
+        ("zed_accounts.json", "zed_accounts", "zed"),
+        ("codebuddy_accounts.json", "codebuddy_accounts", "codebuddy"),
+        ("codebuddy_cn_accounts.json", "codebuddy_cn_accounts", "codebuddy_cn"),
+        ("workbuddy_accounts.json", "workbuddy_accounts", "workbuddy"),
+        ("claude_accounts.json", "claude_accounts", "claude"),
+        ("codex_accounts.json", "codex_accounts", "codex"),
+        ("grok_accounts.json", "grok_accounts", "grok"),
+        ("kiro_accounts.json", "kiro_accounts", "kiro"),
+        ("qoder_accounts.json", "qoder_accounts", "qoder"),
+        ("zcode_accounts.json", "zcode_accounts", "zcode"),
     ];
 
     let key_path = cockpit_dir.join("secure-account-storage.key");
-    for (pf, sub_dir) in platform_mappings {
+    for (pf, sub_dir, prefix) in platform_mappings {
         // Remove detail file in platform folder to prevent Cockpit Auto Repair from resurrecting it
         let detail_dir = cockpit_dir.join(sub_dir);
         let detail_file = detail_dir.join(format!("{uid}.json"));
         let _ = std::fs::remove_file(&detail_file);
         if uid.contains('@') {
+            let norm = uid.trim().to_lowercase();
+            let md5_hash = format!("{:x}", md5::compute(norm.as_bytes()));
+            let _ = std::fs::remove_file(detail_dir.join(format!("{prefix}_{md5_hash}.json")));
+            let _ = std::fs::remove_file(detail_dir.join(format!("{md5_hash}.json")));
             use sha2::{Digest, Sha256};
-            let hash = format!("{:x}", Sha256::digest(uid.trim().to_lowercase().as_bytes()));
-            let _ = std::fs::remove_file(detail_dir.join(format!("{hash}.json")));
+            let sha_hash = format!("{:x}", Sha256::digest(norm.as_bytes()));
+            let _ = std::fs::remove_file(detail_dir.join(format!("{prefix}_{sha_hash}.json")));
+            let _ = std::fs::remove_file(detail_dir.join(format!("{sha_hash}.json")));
         }
 
         // Update platform index file (PLAINTEXT JSON, exactly as Cockpit expects)

@@ -26,8 +26,9 @@ pub struct SecureAccountEnvelope {
 }
 
 pub fn get_cockpit_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    Path::new(&home).join(".cockpit_tools")
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".cockpit_tools")
 }
 
 pub fn key_path() -> PathBuf {
@@ -127,7 +128,11 @@ pub fn write_string_atomic(path: &Path, content: &str) -> Result<(), String> {
     fs::create_dir_all(parent).map_err(|e| format!("Tạo thư mục thất bại: {}", e))?;
 
     if path.exists() {
-        let bak = path.with_extension("bak");
+        let file_name = path
+            .file_name()
+            .and_then(|item| item.to_str())
+            .unwrap_or("file");
+        let bak = parent.join(format!("{}.bak", file_name));
         let _ = fs::copy(path, &bak);
     }
 

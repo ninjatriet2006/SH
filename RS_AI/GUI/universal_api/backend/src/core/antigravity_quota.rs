@@ -241,8 +241,14 @@ pub fn refresh_antigravity_account_quota(
     let acc_file = if cockpit_dir.join("accounts").join(format!("{account_id}.json")).exists() {
         cockpit_dir.join("accounts").join(format!("{account_id}.json"))
     } else if account_id.contains('@') {
-        let hash = format!("antigravity_{:x}", Sha256::digest(account_id.trim().to_lowercase().as_bytes()));
-        cockpit_dir.join("accounts").join(format!("{hash}.json"))
+        let md5_id = format!("antigravity_{:x}", md5::compute(account_id.trim().to_lowercase().as_bytes()));
+        let p_md5 = cockpit_dir.join("accounts").join(format!("{md5_id}.json"));
+        if p_md5.exists() {
+            p_md5
+        } else {
+            let sha_id = format!("antigravity_{:x}", Sha256::digest(account_id.trim().to_lowercase().as_bytes()));
+            cockpit_dir.join("accounts").join(format!("{sha_id}.json"))
+        }
     } else {
         cockpit_dir.join("accounts").join(format!("{account_id}.json"))
     };
