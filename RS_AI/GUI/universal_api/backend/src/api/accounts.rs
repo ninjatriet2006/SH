@@ -58,9 +58,29 @@ fn get_antigravity_account_detail(
     let mut detected_tier: Option<String> = None;
     let mut acc_quota: Option<serde_json::Value> = None;
 
-    if !account_id.is_empty() {
-        let acc_file = cockpit_dir.join("accounts").join(format!("{account_id}.json"));
+    use sha2::{Digest, Sha256};
+    let computed_acc_file = if !account_id.is_empty() && cockpit_dir.join("accounts").join(format!("{account_id}.json")).exists() {
+        Some(cockpit_dir.join("accounts").join(format!("{account_id}.json")))
+    } else if !email.is_empty() {
+        let hash = format!("antigravity_{:x}", Sha256::digest(email.trim().to_lowercase().as_bytes()));
+        let p = cockpit_dir.join("accounts").join(format!("{hash}.json"));
+        if p.exists() {
+            Some(p)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let mut resolved_email = email.trim().to_lowercase();
+    if let Some(acc_file) = computed_acc_file {
         if let Some(acc_val) = read_cockpit_secure_json(&acc_file, &key_path) {
+            if let Some(em) = acc_val.get("email").and_then(|x| x.as_str()) {
+                if !em.is_empty() {
+                    resolved_email = em.trim().to_lowercase();
+                }
+            }
             if let Some(q) = acc_val.get("quota") {
                 acc_quota = Some(q.clone());
                 if let Some(tier) = q.get("subscription_tier").and_then(|t| t.as_str()) {
@@ -97,8 +117,7 @@ fn get_antigravity_account_detail(
     let mut found_metrics = false;
 
     // 1. Try reading from quota API cache file
-    use sha2::{Digest, Sha256};
-    let hash = format!("{:x}", Sha256::digest(email.trim().to_lowercase().as_bytes()));
+    let hash = format!("{:x}", Sha256::digest(resolved_email.as_bytes()));
     let cache_file = cockpit_dir
         .join("cache")
         .join("quota_api_v1_desktop")
@@ -348,8 +367,53 @@ pub fn list_accounts(request: Req<Empty>, state: State<'_, RuntimeState>) -> Ipc
     // Merge accounts from Cockpit directory (~/.cockpit_tools/*.json)
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     for c_acc in load_cockpit_platform_accounts(&home) {
-        if !list.iter().any(|a| a.uid == c_acc.uid) {
+        if let Some(existing) = list.iter_mut().find(|a| {
+            a.uid == c_acc.uid
+                || (!a.nickname.is_empty() && a.nickname.eq_ignore_ascii_case(&c_acc.nickname))
+        }) {
+            if !c_acc.nickname.is_empty() {
+                existing.nickname = c_acc.nickname.clone();
+            }
+            if c_acc.plan_tier.is_some() {
+                existing.plan_tier = c_acc.plan_tier;
+            }
+            if c_acc.is_current {
+                existing.is_current = true;
+            }
+            if c_acc.quota_details.is_some() {
+                existing.quota_details = c_acc.quota_details;
+            }
+        } else {
             list.push(c_acc);
+        }
+    }
+
+    // Secondary guarantee: for any Antigravity account in list:
+    // 1. If nickname is an internal hash (antigravity_xxx), resolve real email from account envelope
+    // 2. If quota_details is still None, load directly
+    let cockpit_dir = std::path::Path::new(&home).join(".cockpit_tools");
+    let key_path = cockpit_dir.join("secure-account-storage.key");
+    for acc in list.iter_mut() {
+        if acc.domain == "antigravity.google.com" || acc.uid.starts_with("antigravity_") {
+            if acc.nickname.starts_with("antigravity_") || !acc.nickname.contains('@') {
+                let acc_file = cockpit_dir.join("accounts").join(format!("{}.json", acc.uid));
+                if let Some(doc) = read_cockpit_secure_json(&acc_file, &key_path) {
+                    if let Some(em) = doc.get("email").and_then(|x| x.as_str()) {
+                        if !em.is_empty() {
+                            acc.nickname = em.to_string();
+                        }
+                    }
+                }
+            }
+            if acc.quota_details.is_none() {
+                let (tier, details) = get_antigravity_account_detail(&cockpit_dir, &acc.uid, &acc.nickname, acc.is_current);
+                if tier.is_some() {
+                    acc.plan_tier = tier;
+                }
+                if details.is_some() {
+                    acc.quota_details = details;
+                }
+            }
         }
     }
 
@@ -364,7 +428,32 @@ pub struct AccountUidRequest {
 #[tauri::command(rename_all = "snake_case")]
 pub fn get_account_status(request: Req<AccountUidRequest>, state: State<'_, RuntimeState>) -> IpcResult<Option<AccountInfo>> {
     let (request_id, payload) = request.validate()?;
-    Ok(respond(request_id, state.pool.status_json().into_iter().find(|a| a.uid == payload.uid).map(to_info)))
+    let mut info = state.pool.status_json().into_iter().find(|a| a.uid == payload.uid).map(to_info);
+    if let Some(ref mut acc) = info {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let cockpit_dir = std::path::Path::new(&home).join(".cockpit_tools");
+        let key_path = cockpit_dir.join("secure-account-storage.key");
+        if acc.domain == "antigravity.google.com" || acc.uid.starts_with("antigravity_") {
+            if acc.nickname.starts_with("antigravity_") || !acc.nickname.contains('@') {
+                let acc_file = cockpit_dir.join("accounts").join(format!("{}.json", acc.uid));
+                if let Some(doc) = read_cockpit_secure_json(&acc_file, &key_path) {
+                    if let Some(em) = doc.get("email").and_then(|x| x.as_str()) {
+                        if !em.is_empty() {
+                            acc.nickname = em.to_string();
+                        }
+                    }
+                }
+            }
+            let (tier, details) = get_antigravity_account_detail(&cockpit_dir, &acc.uid, &acc.nickname, acc.is_current);
+            if tier.is_some() {
+                acc.plan_tier = tier;
+            }
+            if details.is_some() {
+                acc.quota_details = details;
+            }
+        }
+    }
+    Ok(respond(request_id, info))
 }
 
 #[derive(Deserialize)]
@@ -388,6 +477,123 @@ pub fn add_account(request: Req<AddAccountRequest>, state: State<'_, RuntimeStat
     Ok(respond(request_id, Empty {}))
 }
 
+fn delete_from_cockpit_storage(home: &str, uid: &str) {
+    let cockpit_dir = std::path::Path::new(home).join(".cockpit_tools");
+    if !cockpit_dir.is_dir() {
+        return;
+    }
+
+    // 1. Remove from accounts.json
+    let accounts_json_path = cockpit_dir.join("accounts.json");
+    if let Ok(content) = std::fs::read_to_string(&accounts_json_path) {
+        if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&content) {
+            let mut removed_email: Option<String> = None;
+            if let Some(arr) = v.get_mut("accounts").and_then(|a| a.as_array_mut()) {
+                arr.retain(|item| {
+                    let id = item.get("id").and_then(|x| x.as_str()).unwrap_or("");
+                    let email = item.get("email").and_then(|x| x.as_str()).unwrap_or("");
+                    if id == uid || email == uid {
+                        if !email.is_empty() {
+                            removed_email = Some(email.to_string());
+                        }
+                        false
+                    } else {
+                        true
+                    }
+                });
+            }
+            if v.get("current_account_id").and_then(|x| x.as_str()) == Some(uid) {
+                let first_id = v.get("accounts")
+                    .and_then(|a| a.as_array())
+                    .and_then(|a| a.first())
+                    .and_then(|i| i.get("id"))
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string());
+                if let Some(fid) = first_id {
+                    v["current_account_id"] = serde_json::json!(fid);
+                } else {
+                    v["current_account_id"] = serde_json::json!("");
+                }
+            }
+            let _ = crate::core::secure_account_storage::write_string_atomic(
+                &accounts_json_path,
+                &serde_json::to_string_pretty(&v).unwrap_or_default(),
+            );
+
+            // Also clean up quota cache if we found an email
+            if let Some(em) = removed_email {
+                use sha2::{Digest, Sha256};
+                let hash = format!("{:x}", Sha256::digest(em.trim().to_lowercase().as_bytes()));
+                let cache_file = cockpit_dir
+                    .join("cache")
+                    .join("quota_api_v1_desktop")
+                    .join("authorized")
+                    .join(format!("{}.json", hash));
+                let _ = std::fs::remove_file(cache_file);
+            }
+        }
+    }
+
+    // 2. Remove encrypted account envelope ~/.cockpit_tools/accounts/<uid>.json
+    let acc_file = cockpit_dir.join("accounts").join(format!("{uid}.json"));
+    let _ = std::fs::remove_file(&acc_file);
+
+    // Also check with sha256 if uid looks like an email
+    if uid.contains('@') {
+        use sha2::{Digest, Sha256};
+        let hash = format!("{:x}", Sha256::digest(uid.trim().to_lowercase().as_bytes()));
+        let acc_file_hashed = cockpit_dir.join("accounts").join(format!("antigravity_{hash}.json"));
+        let _ = std::fs::remove_file(&acc_file_hashed);
+
+        let cache_file = cockpit_dir
+            .join("cache")
+            .join("quota_api_v1_desktop")
+            .join("authorized")
+            .join(format!("{hash}.json"));
+        let _ = std::fs::remove_file(cache_file);
+    }
+
+    // 3. Also remove from other platform account index files (github_copilot, cursor, etc.)
+    let platform_files = [
+        "github_copilot_accounts.json",
+        "cursor_accounts.json",
+        "windsurf_accounts.json",
+        "trae_accounts.json",
+        "zed_accounts.json",
+        "codebuddy_accounts.json",
+        "codebuddy_cn_accounts.json",
+        "workbuddy_accounts.json",
+        "claude_accounts.json",
+        "codex_accounts.json",
+        "grok_accounts.json",
+        "kiro_accounts.json",
+        "qoder_accounts.json",
+        "zcode_accounts.json",
+    ];
+
+    let key_path = cockpit_dir.join("secure-account-storage.key");
+    for pf in platform_files {
+        let p = cockpit_dir.join(pf);
+        if let Some(mut v) = read_cockpit_secure_json(&p, &key_path) {
+            let mut changed = false;
+            if let Some(arr) = v.get_mut("accounts").and_then(|a| a.as_array_mut()) {
+                let orig_len = arr.len();
+                arr.retain(|item| {
+                    let id = item.get("id").and_then(|x| x.as_str()).unwrap_or("");
+                    id != uid
+                });
+                if arr.len() != orig_len {
+                    changed = true;
+                }
+            }
+            if changed {
+                let kind = pf.trim_end_matches(".json");
+                let _ = crate::core::secure_account_storage::save_account_envelope_atomic(&p, kind, &v);
+            }
+        }
+    }
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub fn remove_account(request: Req<AccountUidRequest>, state: State<'_, RuntimeState>) -> IpcResult<Empty> {
     let (request_id, payload) = request.validate()?;
@@ -396,6 +602,10 @@ pub fn remove_account(request: Req<AccountUidRequest>, state: State<'_, RuntimeS
         let _ = store.delete_zed_account(&payload.uid);
     }
     state.pool.remove(&payload.uid);
+
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    delete_from_cockpit_storage(&home, &payload.uid);
+
     Ok(respond(request_id, Empty {}))
 }
 
@@ -1700,6 +1910,124 @@ mod tests {
                     println!("Copilot keys: {:?}", keys);
                     break;
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn test_pool_accounts_enriched_with_cockpit_quota() {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let cockpit_accounts = load_cockpit_platform_accounts(&home);
+        println!("Loaded {} accounts from Cockpit", cockpit_accounts.len());
+        for acc in &cockpit_accounts {
+            println!("Cockpit acc: uid={}, tier={:?}, has_quota={}", acc.uid, acc.plan_tier, acc.quota_details.is_some());
+        }
+
+        // Simulate a pool account that has FREE stub and None quota
+        if let Some(target) = cockpit_accounts.iter().find(|a| a.quota_details.is_some()) {
+            let mut list = vec![AccountInfo {
+                uid: target.uid.clone(),
+                nickname: target.nickname.clone(),
+                domain: target.domain.clone(),
+                credits: 100,
+                healthy: true,
+                cooling: false,
+                cool_kind: None,
+                cool_remaining_sec: None,
+                disabled: false,
+                disabled_reason: None,
+                success_count: 0,
+                err_total: 0,
+                in_flight: 0,
+                plan_tier: Some("FREE".to_string()),
+                is_current: false,
+                quota_details: None,
+            }];
+
+            // Run the merge logic
+            for c_acc in &cockpit_accounts {
+                if let Some(existing) = list.iter_mut().find(|a| {
+                    a.uid == c_acc.uid
+                        || (!a.nickname.is_empty() && a.nickname.eq_ignore_ascii_case(&c_acc.nickname))
+                }) {
+                    if c_acc.plan_tier.is_some() {
+                        existing.plan_tier = c_acc.plan_tier.clone();
+                    }
+                    if c_acc.is_current {
+                        existing.is_current = true;
+                    }
+                    if c_acc.quota_details.is_some() {
+                        existing.quota_details = c_acc.quota_details.clone();
+                    }
+                } else {
+                    list.push(c_acc.clone());
+                }
+            }
+
+            let enriched = list.iter().find(|a| a.uid == target.uid).unwrap();
+            assert!(enriched.quota_details.is_some(), "Account should be enriched with quota_details");
+            assert_eq!(enriched.plan_tier, target.plan_tier, "Plan tier should match Cockpit plan tier");
+            println!("Enrichment verified successfully for: {}", enriched.uid);
+        }
+    }
+
+    #[allow(dead_code)]
+    #[derive(Debug, serde::Deserialize)]
+    struct CockpitAccountTest {
+        pub id: String,
+        pub email: String,
+        pub token: CockpitTokenTest,
+        pub quota: Option<CockpitQuotaTest>,
+    }
+
+    #[allow(dead_code)]
+    #[derive(Debug, serde::Deserialize)]
+    struct CockpitTokenTest {
+        pub access_token: String,
+        pub refresh_token: String,
+        pub expires_in: i64,
+        pub expiry_timestamp: i64,
+        pub token_type: String,
+    }
+
+    #[allow(dead_code)]
+    #[derive(Debug, serde::Deserialize)]
+    struct CockpitQuotaTest {
+        pub models: Vec<CockpitModelQuotaTest>,
+        pub last_updated: i64,
+        #[serde(default)]
+        pub credits: Vec<CockpitCreditInfoTest>,
+    }
+
+    #[allow(dead_code)]
+    #[derive(Debug, serde::Deserialize)]
+    struct CockpitModelQuotaTest {
+        pub name: String,
+        pub percentage: i32,
+        pub reset_time: String,
+    }
+
+    #[allow(dead_code)]
+    #[derive(Debug, serde::Deserialize)]
+    struct CockpitCreditInfoTest {
+        pub credit_type: String,
+        #[serde(default)]
+        pub credit_amount: Option<String>,
+        #[serde(default)]
+        pub minimum_credit_amount_for_usage: Option<String>,
+    }
+
+    #[test]
+    fn test_cockpit_account_schema_compatibility() {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let cockpit_dir = std::path::Path::new(&home).join(".cockpit_tools");
+        let key_path = cockpit_dir.join("secure-account-storage.key");
+
+        let p_new = cockpit_dir.join("accounts").join("antigravity_6be5791cc624f0e33a885fdd531b14500e917c6f5b1f85d104480c36345a98c5.json");
+        if p_new.exists() && key_path.exists() {
+            if let Some(reread) = read_cockpit_secure_json(&p_new, &key_path) {
+                let parsed = serde_json::from_value::<CockpitAccountTest>(reread);
+                assert!(parsed.is_ok(), "Account file must be deserializable by Cockpit Tools: {:?}", parsed.err());
             }
         }
     }

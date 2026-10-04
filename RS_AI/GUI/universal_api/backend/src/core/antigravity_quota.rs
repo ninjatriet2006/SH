@@ -83,10 +83,23 @@ pub fn fetch_and_save_antigravity_quota(
         .or_else(|| load_data.get("project"))
         .and_then(|x| x.as_str());
 
-    let credits_raw = load_data.pointer("/paidTier/availableCredits")
-        .and_then(|x| x.as_array())
-        .cloned()
-        .unwrap_or_default();
+    let mut normalized_credits = Vec::new();
+    if let Some(arr) = load_data.pointer("/paidTier/availableCredits").and_then(|c| c.as_array()) {
+        for c in arr {
+            let c_type = c.get("creditType").or_else(|| c.get("credit_type")).and_then(|x| x.as_str());
+            let c_amt = c.get("creditAmount").or_else(|| c.get("credit_amount")).and_then(|x| x.as_str());
+            let min_amt = c.get("minimumCreditAmountForUsage").or_else(|| c.get("minimum_credit_amount_for_usage")).and_then(|x| x.as_str());
+            if let Some(ct) = c_type {
+                if let Some(amt) = c_amt {
+                    normalized_credits.push(json!({
+                        "credit_type": ct,
+                        "credit_amount": amt,
+                        "minimum_credit_amount_for_usage": min_amt
+                    }));
+                }
+            }
+        }
+    }
 
     // 2. fetchAvailableModels
     let models_payload = if let Some(pid) = project_id {
@@ -177,7 +190,7 @@ pub fn fetch_and_save_antigravity_quota(
     let quota_obj = json!({
         "subscription_tier": detected_tier,
         "models": quota_models,
-        "credits": credits_raw,
+        "credits": normalized_credits,
         "last_updated": now,
         "quota_summary_stale": false,
         "quota_summary_updated_at": now,
@@ -225,11 +238,19 @@ pub fn refresh_antigravity_account_quota(
     account_id: &str,
 ) -> Result<Value, String> {
     let key_path = cockpit_dir.join("secure-account-storage.key");
-    let acc_file = cockpit_dir.join("accounts").join(format!("{account_id}.json"));
+    let acc_file = if cockpit_dir.join("accounts").join(format!("{account_id}.json")).exists() {
+        cockpit_dir.join("accounts").join(format!("{account_id}.json"))
+    } else if account_id.contains('@') {
+        let hash = format!("antigravity_{:x}", Sha256::digest(account_id.trim().to_lowercase().as_bytes()));
+        cockpit_dir.join("accounts").join(format!("{hash}.json"))
+    } else {
+        cockpit_dir.join("accounts").join(format!("{account_id}.json"))
+    };
     let mut doc = crate::core::secure_account_storage::read_account_file_readonly::<Value>(&acc_file, &key_path)
         .map_err(|e| format!("Không thể đọc tệp tài khoản {account_id}: {e}"))?;
 
     let email = doc.get("email").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let actual_account_id = doc.get("id").and_then(|x| x.as_str()).unwrap_or(account_id).to_string();
     let mut access_token = doc.pointer("/token/access_token").and_then(|x| x.as_str()).unwrap_or("").to_string();
     let refresh_token = doc.pointer("/token/refresh_token").and_then(|x| x.as_str()).unwrap_or("").to_string();
     let expiry = doc.pointer("/token/expiry_timestamp").and_then(|x| x.as_i64()).unwrap_or(0);
@@ -251,7 +272,7 @@ pub fn refresh_antigravity_account_quota(
         }
     }
 
-    let res = fetch_and_save_antigravity_quota(cockpit_dir, account_id, &email, &access_token);
+    let res = fetch_and_save_antigravity_quota(cockpit_dir, &actual_account_id, &email, &access_token);
     if res.is_err() && !refresh_token.is_empty() {
         // Try refreshing token once and retry
         if let Ok((new_acc, new_exp, id_tok)) = refresh_google_access_token(&refresh_token) {
@@ -265,7 +286,7 @@ pub fn refresh_antigravity_account_quota(
                 }
             }
             let _ = crate::core::secure_account_storage::save_account_envelope_atomic(&acc_file, "antigravity", &doc);
-            return fetch_and_save_antigravity_quota(cockpit_dir, account_id, &email, &access_token);
+            return fetch_and_save_antigravity_quota(cockpit_dir, &actual_account_id, &email, &access_token);
         }
     }
     res
