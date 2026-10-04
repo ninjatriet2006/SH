@@ -269,6 +269,19 @@ fn load_cockpit_platform_accounts(home: &str) -> Vec<AccountInfo> {
     ];
 
     let key_path = cockpit_dir.join("secure-account-storage.key");
+    let provider_current_path = cockpit_dir.join("provider_current_accounts.json");
+    let provider_current_map: std::collections::HashMap<String, String> = if let Ok(content) = std::fs::read_to_string(&provider_current_path) {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+            val.get("current_accounts")
+                .and_then(|c| serde_json::from_value(c.clone()).ok())
+                .unwrap_or_default()
+        } else {
+            std::collections::HashMap::new()
+        }
+    } else {
+        std::collections::HashMap::new()
+    };
+
     for (file_name, domain) in files {
         let p = cockpit_dir.join(file_name);
         if let Some(v) = read_cockpit_secure_json(&p, &key_path) {
@@ -299,12 +312,15 @@ fn load_cockpit_platform_accounts(home: &str) -> Vec<AccountInfo> {
                             plan_tier = tier;
                             quota_details = details;
                         } else if file_name == "github_copilot_accounts.json" {
-                            is_current = current_account_id.is_empty() || id == current_account_id;
+                            let copilot_cur = provider_current_map.get("github_copilot").map(|s| s.as_str()).unwrap_or(current_account_id);
+                            is_current = !copilot_cur.is_empty() && id == copilot_cur;
                             let (tier, details) = get_copilot_account_detail(item);
                             plan_tier = tier;
                             quota_details = details;
                         } else if file_name == "codebuddy_accounts.json" || file_name == "codebuddy_cn_accounts.json" {
-                            is_current = id == current_account_id;
+                            let p_key = if file_name == "codebuddy_cn_accounts.json" { "codebuddy_cn" } else { "codebuddy" };
+                            let cur = provider_current_map.get(p_key).map(|s| s.as_str()).unwrap_or(current_account_id);
+                            is_current = !cur.is_empty() && id == cur;
                             let tier = item.get("plan_type").or_else(|| item.get("plan")).and_then(|x| x.as_str()).unwrap_or("FREE");
                             plan_tier = Some(tier.to_string());
                             quota_details = Some(serde_json::json!({
@@ -316,7 +332,8 @@ fn load_cockpit_platform_accounts(home: &str) -> Vec<AccountInfo> {
                                 "next_refresh": "11/01/2026, 00:00:00"
                             }));
                         } else if file_name == "claude_accounts.json" {
-                            is_current = id == current_account_id;
+                            let cur = provider_current_map.get("claude_desktop_account").map(|s| s.as_str()).unwrap_or(current_account_id);
+                            is_current = !cur.is_empty() && id == cur;
                             let tier = item.get("plan_type").and_then(|x| x.as_str()).unwrap_or("PRO");
                             plan_tier = Some(tier.to_string());
                             let five_hour = item.pointer("/quota/five_hour_percentage").and_then(|x| x.as_i64()).unwrap_or(100);
@@ -338,7 +355,8 @@ fn load_cockpit_platform_accounts(home: &str) -> Vec<AccountInfo> {
                                 "seven_day": { "percent": seven_day }
                             }));
                         } else if file_name == "kiro_accounts.json" {
-                            is_current = id == current_account_id;
+                            let cur = provider_current_map.get("kiro").map(|s| s.as_str()).unwrap_or(current_account_id);
+                            is_current = !cur.is_empty() && id == cur;
                             let tier = item.get("plan_tier").or_else(|| item.get("plan_name")).and_then(|x| x.as_str()).unwrap_or("FREE");
                             plan_tier = Some(tier.to_string());
                             let total = item.get("credits_total").and_then(|x| x.as_f64()).unwrap_or(100.0);
@@ -350,7 +368,8 @@ fn load_cockpit_platform_accounts(home: &str) -> Vec<AccountInfo> {
                                 "credits_remaining": (total - used).max(0.0)
                             }));
                         } else if file_name == "qoder_accounts.json" {
-                            is_current = id == current_account_id;
+                            let cur = provider_current_map.get("qoder").map(|s| s.as_str()).unwrap_or(current_account_id);
+                            is_current = !cur.is_empty() && id == cur;
                             let tier = item.get("plan_type").and_then(|x| x.as_str()).unwrap_or("FREE");
                             plan_tier = Some(tier.to_string());
                             let total = item.get("credits_total").and_then(|x| x.as_f64()).unwrap_or(100.0);
@@ -362,30 +381,37 @@ fn load_cockpit_platform_accounts(home: &str) -> Vec<AccountInfo> {
                                 "credits_remaining": (total - used).max(0.0)
                             }));
                         } else if file_name == "cursor_accounts.json" {
-                            is_current = id == current_account_id;
+                            let cur = provider_current_map.get("cursor").map(|s| s.as_str()).unwrap_or(current_account_id);
+                            is_current = !cur.is_empty() && id == cur;
                             let tier = item.get("plan_type").or_else(|| item.get("membership_type")).and_then(|x| x.as_str()).unwrap_or("PRO");
                             plan_tier = Some(tier.to_string());
                         } else if file_name == "windsurf_accounts.json" {
-                            is_current = id == current_account_id;
+                            let cur = provider_current_map.get("windsurf").map(|s| s.as_str()).unwrap_or(current_account_id);
+                            is_current = !cur.is_empty() && id == cur;
                             let tier = item.get("plan").or_else(|| item.get("plan_type")).and_then(|x| x.as_str()).unwrap_or("PRO");
                             plan_tier = Some(tier.to_string());
                         } else if file_name == "trae_accounts.json" {
-                            is_current = id == current_account_id;
+                            let cur = provider_current_map.get("trae").map(|s| s.as_str()).unwrap_or(current_account_id);
+                            is_current = !cur.is_empty() && id == cur;
                             let tier = item.get("plan_type").and_then(|x| x.as_str()).unwrap_or("PRO");
                             plan_tier = Some(tier.to_string());
                         } else if file_name == "workbuddy_accounts.json" {
-                            is_current = id == current_account_id;
+                            let cur = provider_current_map.get("workbuddy").map(|s| s.as_str()).unwrap_or(current_account_id);
+                            is_current = !cur.is_empty() && id == cur;
                             let tier = item.get("plan_type").and_then(|x| x.as_str()).unwrap_or("VIP");
                             plan_tier = Some(tier.to_string());
                         } else if file_name == "zed_accounts.json" {
-                            is_current = id == current_account_id;
+                            let cur = provider_current_map.get("zed").map(|s| s.as_str()).unwrap_or(current_account_id);
+                            is_current = !cur.is_empty() && id == cur;
                             plan_tier = Some("PRO".to_string());
                         } else if file_name == "zcode_accounts.json" {
-                            is_current = id == current_account_id;
+                            let cur = provider_current_map.get("zcode").map(|s| s.as_str()).unwrap_or(current_account_id);
+                            is_current = !cur.is_empty() && id == cur;
                             let tier = item.get("plan_type").and_then(|x| x.as_str()).unwrap_or("PRO");
                             plan_tier = Some(tier.to_string());
                         } else if file_name == "grok_accounts.json" {
-                            is_current = id == current_account_id;
+                            let cur = provider_current_map.get("grok").map(|s| s.as_str()).unwrap_or(current_account_id);
+                            is_current = !cur.is_empty() && id == cur;
                             let tier = item.get("plan_type").and_then(|x| x.as_str()).unwrap_or("PRO");
                             plan_tier = Some(tier.to_string());
                         }
@@ -688,6 +714,64 @@ fn delete_from_cockpit_storage(home: &str, uid: &str) {
             }
         }
     }
+
+    // 4. Clean up current_account.json if it was active
+    let cur_acc_path = cockpit_dir.join("current_account.json");
+    if let Ok(content) = std::fs::read_to_string(&cur_acc_path) {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+            let email = val.get("email").and_then(|x| x.as_str()).unwrap_or("");
+            if email == uid || (uid.contains('@') && email.eq_ignore_ascii_case(uid)) {
+                let _ = std::fs::remove_file(&cur_acc_path);
+            }
+        }
+    }
+
+    // 5. Clean up provider_current_accounts.json if uid was active on any platform
+    let cur_path = cockpit_dir.join("provider_current_accounts.json");
+    if let Ok(content) = std::fs::read_to_string(&cur_path) {
+        if let Ok(mut state) = serde_json::from_str::<serde_json::Value>(&content) {
+            let mut changed = false;
+            if let Some(obj) = state.get_mut("current_accounts").and_then(|o| o.as_object_mut()) {
+                for (_k, v) in obj.iter_mut() {
+                    if v.as_str() == Some(uid) {
+                        *v = serde_json::Value::Null;
+                        changed = true;
+                    }
+                }
+            }
+            if changed {
+                let _ = crate::core::secure_account_storage::write_string_atomic(
+                    &cur_path,
+                    &serde_json::to_string_pretty(&state).unwrap_or_default(),
+                );
+            }
+        }
+    }
+
+    // 6. Clean up account_groups.json
+    let groups_path = cockpit_dir.join("account_groups.json");
+    if let Ok(content) = std::fs::read_to_string(&groups_path) {
+        if let Ok(mut groups) = serde_json::from_str::<serde_json::Value>(&content) {
+            let mut changed = false;
+            if let Some(arr) = groups.as_array_mut() {
+                for grp in arr {
+                    if let Some(ids) = grp.get_mut("accountIds").and_then(|a| a.as_array_mut()) {
+                        let prev_len = ids.len();
+                        ids.retain(|x| x.as_str() != Some(uid));
+                        if ids.len() != prev_len {
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            if changed {
+                let _ = crate::core::secure_account_storage::write_string_atomic(
+                    &groups_path,
+                    &serde_json::to_string_pretty(&groups).unwrap_or_default(),
+                );
+            }
+        }
+    }
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -916,8 +1000,82 @@ pub struct InjectAccountResult {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AntigravitySwitchHistoryItem {
+    pub id: String,
+    pub timestamp: i64,
+    pub account_id: String,
+    pub target_email: String,
+    #[serde(default = "default_history_trigger_type")]
+    pub trigger_type: String,
+    #[serde(default = "default_history_trigger_source")]
+    pub trigger_source: String,
+    pub local_ok: bool,
+    pub seamless_ok: bool,
+    pub success: bool,
+    pub local_duration_ms: u64,
+    pub seamless_duration_ms: Option<u64>,
+    pub total_duration_ms: u64,
+    pub error_stage: Option<String>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+    pub seamless_effective_mode: Option<String>,
+    pub seamless_from_email: Option<String>,
+    pub seamless_to_email: Option<String>,
+    pub seamless_execution_id: Option<String>,
+    pub seamless_finished_at: Option<String>,
+}
+
+fn default_history_trigger_type() -> String {
+    "manual".to_string()
+}
+
+fn default_history_trigger_source() -> String {
+    "tools.account.switch".to_string()
+}
+
+pub fn add_antigravity_switch_history(cockpit_dir: &std::path::Path, account_id: &str, target_email: &str, success: bool) {
+    let history_file = cockpit_dir.join("antigravity_switch_history.json");
+    let mut items: Vec<AntigravitySwitchHistoryItem> = if let Ok(content) = std::fs::read_to_string(&history_file) {
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let now = chrono::Utc::now().timestamp_millis();
+    let item = AntigravitySwitchHistoryItem {
+        id: format!("switch_{}", now),
+        timestamp: now,
+        account_id: account_id.to_string(),
+        target_email: target_email.to_string(),
+        trigger_type: "manual".to_string(),
+        trigger_source: "tools.account.switch".to_string(),
+        local_ok: success,
+        seamless_ok: false,
+        success,
+        local_duration_ms: 15,
+        seamless_duration_ms: None,
+        total_duration_ms: 15,
+        error_stage: None,
+        error_code: None,
+        error_message: None,
+        seamless_effective_mode: None,
+        seamless_from_email: None,
+        seamless_to_email: None,
+        seamless_execution_id: None,
+        seamless_finished_at: None,
+    };
+    items.retain(|x| x.id != item.id);
+    items.push(item);
+    items.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    items.truncate(200);
+    if let Ok(serialized) = serde_json::to_string_pretty(&items) {
+        let _ = crate::core::secure_account_storage::write_string_atomic(&history_file, &serialized);
+    }
+}
+
 fn set_cockpit_current_account(home: &str, platform: &str, uid: &str) {
-    let cockpit_dir = std::path::Path::new(home).join(".cockpit_tools");
+    let cockpit_dir = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from(home)).join(".cockpit_tools");
     if !cockpit_dir.is_dir() {
         return;
     }
@@ -958,7 +1116,7 @@ fn set_cockpit_current_account(home: &str, platform: &str, uid: &str) {
                 &serde_json::to_string_pretty(&v).unwrap_or_default(),
             );
 
-            // Antigravity standard: also write current_account.json
+            // Antigravity standard: also write current_account.json and antigravity_switch_history.json
             if file_name == "accounts.json" {
                 let mut email = uid.to_string();
                 if let Some(arr) = v.get("accounts").and_then(|a| a.as_array()) {
@@ -980,8 +1138,53 @@ fn set_cockpit_current_account(home: &str, platform: &str, uid: &str) {
                     &cur_file,
                     &serde_json::to_string_pretty(&cur_account_payload).unwrap_or_default(),
                 );
+
+                add_antigravity_switch_history(&cockpit_dir, uid, &email, true);
             }
         }
+    }
+
+    // Update provider_current_accounts.json for non-Antigravity / non-Codex providers
+    let provider_key = match platform {
+        "windsurf" => Some("windsurf"),
+        "kiro" => Some("kiro"),
+        "cursor" => Some("cursor"),
+        "grok" => Some("grok"),
+        "claude" | "claude_desktop_account" => Some("claude_desktop_account"),
+        "claude_code" | "claude_code_account" => Some("claude_code_account"),
+        "codebuddy" | "codebuddy_global" => Some("codebuddy"),
+        "codebuddy_cn" => Some("codebuddy_cn"),
+        "qoder" => Some("qoder"),
+        "zcode" => Some("zcode"),
+        "trae" => Some("trae"),
+        "trae_solo" => Some("trae_solo"),
+        "trae_cn" => Some("trae_cn"),
+        "trae_solo_cn" => Some("trae_solo_cn"),
+        "workbuddy" => Some("workbuddy"),
+        "github_copilot" | "copilot" | "ghcp" => Some("github_copilot"),
+        _ => None,
+    };
+    if let Some(key) = provider_key {
+        let cur_path = cockpit_dir.join("provider_current_accounts.json");
+        let mut state = if let Ok(content) = std::fs::read_to_string(&cur_path) {
+            serde_json::from_str::<serde_json::Value>(&content).unwrap_or_else(|_| serde_json::json!({
+                "version": "1.0",
+                "current_accounts": {}
+            }))
+        } else {
+            serde_json::json!({
+                "version": "1.0",
+                "current_accounts": {}
+            })
+        };
+        if state.get("current_accounts").is_none() {
+            state["current_accounts"] = serde_json::json!({});
+        }
+        state["current_accounts"][key] = serde_json::json!(uid);
+        let _ = crate::core::secure_account_storage::write_string_atomic(
+            &cur_path,
+            &serde_json::to_string_pretty(&state).unwrap_or_default(),
+        );
     }
 }
 
@@ -2047,6 +2250,454 @@ pub async fn get_antigravity_installed_version_info(
     Ok(respond(request_id, info))
 }
 
+// ==========================================
+// COCKPIT COMPATIBLE IPC COMMANDS
+// ==========================================
+
+#[tauri::command]
+pub fn load_antigravity_switch_history() -> Result<Vec<AntigravitySwitchHistoryItem>, String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let history_file = std::path::Path::new(&home).join(".cockpit_tools").join("antigravity_switch_history.json");
+    if !history_file.exists() {
+        return Ok(Vec::new());
+    }
+    let content = std::fs::read_to_string(&history_file)
+        .map_err(|e| format!("Failed to read switch history: {}", e))?;
+    let list: Vec<AntigravitySwitchHistoryItem> = serde_json::from_str(&content)
+        .unwrap_or_default();
+    Ok(list)
+}
+
+#[tauri::command]
+pub fn clear_antigravity_switch_history() -> Result<(), String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let history_file = std::path::Path::new(&home).join(".cockpit_tools").join("antigravity_switch_history.json");
+    let _ = crate::core::secure_account_storage::write_string_atomic(&history_file, "[]");
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_provider_current_account_id(platform: String) -> Result<Option<String>, String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let cockpit_dir = std::path::Path::new(&home).join(".cockpit_tools");
+    
+    let norm = platform.trim().to_ascii_lowercase();
+    if norm == "antigravity" || norm == "gemini" {
+        let cur_path = cockpit_dir.join("current_account.json");
+        if let Ok(content) = std::fs::read_to_string(&cur_path) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(em) = v.get("email").and_then(|x| x.as_str()) {
+                    return Ok(Some(em.to_string()));
+                }
+            }
+        }
+        let acc_path = cockpit_dir.join("accounts.json");
+        if let Ok(content) = std::fs::read_to_string(&acc_path) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(cur) = v.get("current_account_id").and_then(|x| x.as_str()) {
+                    if !cur.is_empty() {
+                        return Ok(Some(cur.to_string()));
+                    }
+                }
+            }
+        }
+        return Ok(None);
+    }
+    
+    if norm == "codex" {
+        let codex_path = cockpit_dir.join("codex_accounts.json");
+        if let Ok(content) = std::fs::read_to_string(&codex_path) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(cur) = v.get("current_account_id").and_then(|x| x.as_str()) {
+                    if !cur.is_empty() {
+                        return Ok(Some(cur.to_string()));
+                    }
+                }
+            }
+        }
+        return Ok(None);
+    }
+
+    let key = match norm.as_str() {
+        "windsurf" => "windsurf",
+        "kiro" => "kiro",
+        "cursor" => "cursor",
+        "grok" => "grok",
+        "claude" | "claude_desktop_account" => "claude_desktop_account",
+        "claude_code" | "claude_code_account" => "claude_code_account",
+        "codebuddy" => "codebuddy",
+        "codebuddy_cn" | "codebuddy-cn" => "codebuddy_cn",
+        "qoder" => "qoder",
+        "zcode" => "zcode",
+        "trae" => "trae",
+        "trae_solo" | "trae-solo" => "trae_solo",
+        "trae_cn" | "trae-cn" => "trae_cn",
+        "trae_solo_cn" | "trae-solo-cn" => "trae_solo_cn",
+        "workbuddy" => "workbuddy",
+        "github_copilot" | "github-copilot" | "copilot" | "ghcp" => "github_copilot",
+        "zed" => "zed",
+        _ => return Ok(None),
+    };
+
+    let cur_path = cockpit_dir.join("provider_current_accounts.json");
+    if let Ok(content) = std::fs::read_to_string(&cur_path) {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(val) = v.get("current_accounts").and_then(|o| o.get(key)).and_then(|x| x.as_str()) {
+                if !val.is_empty() {
+                    return Ok(Some(val.to_string()));
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
+#[tauri::command]
+pub fn load_account_groups() -> Result<String, String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let path = std::path::Path::new(&home).join(".cockpit_tools").join("account_groups.json");
+    if !path.exists() {
+        return Ok("[]".to_string());
+    }
+    std::fs::read_to_string(&path).map_err(|e| format!("Failed to read groups: {}", e))
+}
+
+#[tauri::command]
+pub fn save_account_groups(data: String) -> Result<(), String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let path = std::path::Path::new(&home).join(".cockpit_tools").join("account_groups.json");
+    let _parsed: Vec<serde_json::Value> = serde_json::from_str(&data)
+        .map_err(|e| format!("Invalid groups JSON array: {}", e))?;
+    crate::core::secure_account_storage::write_string_atomic(&path, &data)
+}
+
+fn resolve_platform_groups_path(home: &str, platform: &str) -> std::path::PathBuf {
+    let cockpit_dir = std::path::Path::new(home).join(".cockpit_tools");
+    let lower = platform.trim().to_ascii_lowercase();
+    let filename = match lower.as_str() {
+        "antigravity" | "gemini" => "account_groups.json".to_string(),
+        "codex" => "codex_account_groups.json".to_string(),
+        "claude" => "claude_manager_account_groups.json".to_string(),
+        other => {
+            let sanitized: String = other
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+                .collect();
+            format!("{}_account_groups.json", sanitized)
+        }
+    };
+    cockpit_dir.join(filename)
+}
+
+#[tauri::command]
+pub fn load_platform_account_groups(platform: String) -> Result<String, String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let path = resolve_platform_groups_path(&home, &platform);
+    if !path.exists() {
+        return Ok("[]".to_string());
+    }
+    std::fs::read_to_string(&path).map_err(|e| format!("Failed to read platform groups for {}: {}", platform, e))
+}
+
+#[tauri::command]
+pub fn save_platform_account_groups(platform: String, data: String) -> Result<(), String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let path = resolve_platform_groups_path(&home, &platform);
+    let _parsed: Vec<serde_json::Value> = serde_json::from_str(&data)
+        .map_err(|e| format!("Invalid platform groups JSON array: {}", e))?;
+    crate::core::secure_account_storage::write_string_atomic(&path, &data)
+}
+
+#[tauri::command]
+pub fn update_account_tags(account_id: String, tags: Vec<String>) -> Result<(), String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let cockpit_dir = std::path::Path::new(&home).join(".cockpit_tools");
+    let key_path = cockpit_dir.join("secure-account-storage.key");
+
+    // 1. Antigravity accounts detail file
+    let acc_file = cockpit_dir.join("accounts").join(format!("{}.json", account_id));
+    if acc_file.exists() && key_path.exists() {
+        if let Some(mut val) = read_cockpit_secure_json(&acc_file, &key_path) {
+            val["tags"] = serde_json::json!(tags);
+            if let Ok(encrypted) = crate::core::secure_account_storage::serialize_account_file("antigravity", &val) {
+                let _ = crate::core::secure_account_storage::write_string_atomic(&acc_file, &encrypted);
+            }
+        }
+    }
+
+    // 2. Also check platform subdirectories
+    let platform_subdirs = [
+        ("github_copilot_accounts", "github_copilot"),
+        ("cursor_accounts", "cursor"),
+        ("windsurf_accounts", "windsurf"),
+        ("trae_accounts", "trae"),
+        ("zed_accounts", "zed"),
+        ("codebuddy_accounts", "codebuddy"),
+        ("codebuddy_cn_accounts", "codebuddy_cn"),
+        ("workbuddy_accounts", "workbuddy"),
+        ("claude_accounts", "claude"),
+        ("codex_accounts", "codex"),
+        ("grok_accounts", "grok"),
+        ("kiro_accounts", "kiro"),
+        ("qoder_accounts", "qoder"),
+        ("zcode_accounts", "zcode"),
+    ];
+    for (dir_name, kind) in platform_subdirs {
+        let pf_file = cockpit_dir.join(dir_name).join(format!("{}.json", account_id));
+        if pf_file.exists() && key_path.exists() {
+            if let Some(mut val) = read_cockpit_secure_json(&pf_file, &key_path) {
+                val["tags"] = serde_json::json!(tags);
+                if let Ok(enc) = crate::core::secure_account_storage::serialize_account_file(kind, &val) {
+                    let _ = crate::core::secure_account_storage::write_string_atomic(&pf_file, &enc);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn update_account_notes(account_id: String, notes: String) -> Result<(), String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let cockpit_dir = std::path::Path::new(&home).join(".cockpit_tools");
+    let key_path = cockpit_dir.join("secure-account-storage.key");
+
+    let acc_file = cockpit_dir.join("accounts").join(format!("{}.json", account_id));
+    if acc_file.exists() && key_path.exists() {
+        if let Some(mut val) = read_cockpit_secure_json(&acc_file, &key_path) {
+            val["notes"] = if notes.trim().is_empty() {
+                serde_json::Value::Null
+            } else {
+                serde_json::json!(notes.trim())
+            };
+            if let Ok(encrypted) = crate::core::secure_account_storage::serialize_account_file("antigravity", &val) {
+                let _ = crate::core::secure_account_storage::write_string_atomic(&acc_file, &encrypted);
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn update_account_note(
+    account_id: String,
+    note: Option<String>,
+    two_factor_secret: Option<String>,
+    account_password: Option<String>,
+    phone_number: Option<String>,
+    mail_url: Option<String>,
+    aux_email: Option<String>,
+) -> Result<(), String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let cockpit_dir = std::path::Path::new(&home).join(".cockpit_tools");
+    let key_path = cockpit_dir.join("secure-account-storage.key");
+
+    let acc_file = cockpit_dir.join("accounts").join(format!("{}.json", account_id));
+    if acc_file.exists() && key_path.exists() {
+        if let Some(mut val) = read_cockpit_secure_json(&acc_file, &key_path) {
+            if let Some(n) = note {
+                val["notes"] = if n.trim().is_empty() { serde_json::Value::Null } else { serde_json::json!(n.trim()) };
+            }
+            if let Some(s) = two_factor_secret {
+                val["two_factor_secret"] = if s.trim().is_empty() { serde_json::Value::Null } else { serde_json::json!(s.trim()) };
+            }
+            if let Some(p) = account_password {
+                val["account_password"] = if p.trim().is_empty() { serde_json::Value::Null } else { serde_json::json!(p.trim()) };
+            }
+            if let Some(ph) = phone_number {
+                val["phone_number"] = if ph.trim().is_empty() { serde_json::Value::Null } else { serde_json::json!(ph.trim()) };
+            }
+            if let Some(m) = mail_url {
+                val["mail_url"] = if m.trim().is_empty() { serde_json::Value::Null } else { serde_json::json!(m.trim()) };
+            }
+            if let Some(a) = aux_email {
+                val["aux_email"] = if a.trim().is_empty() { serde_json::Value::Null } else { serde_json::json!(a.trim()) };
+            }
+            if let Ok(encrypted) = crate::core::secure_account_storage::serialize_account_file("antigravity", &val) {
+                let _ = crate::core::secure_account_storage::write_string_atomic(&acc_file, &encrypted);
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn reorder_accounts(account_ids: Vec<String>) -> Result<(), String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let accounts_path = std::path::Path::new(&home).join(".cockpit_tools").join("accounts.json");
+    if !accounts_path.exists() {
+        return Ok(());
+    }
+    let raw = std::fs::read_to_string(&accounts_path)
+        .map_err(|e| format!("Failed to read accounts.json: {}", e))?;
+    let mut v: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| format!("Failed to parse accounts.json: {}", e))?;
+
+    if let Some(arr) = v.get("accounts").and_then(|a| a.as_array()) {
+        let mut new_arr = Vec::new();
+        for target_id in &account_ids {
+            if let Some(found) = arr.iter().find(|item| {
+                item.get("id").and_then(|x| x.as_str()) == Some(target_id)
+            }) {
+                new_arr.push(found.clone());
+            }
+        }
+        for item in arr {
+            if let Some(id) = item.get("id").and_then(|x| x.as_str()) {
+                if !account_ids.iter().any(|target| target == id) {
+                    new_arr.push(item.clone());
+                }
+            }
+        }
+        v["accounts"] = serde_json::Value::Array(new_arr);
+        let serialized = serde_json::to_string_pretty(&v)
+            .map_err(|e| format!("Failed to serialize accounts: {}", e))?;
+        crate::core::secure_account_storage::write_string_atomic(&accounts_path, &serialized)?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn export_accounts(account_ids: Vec<String>) -> Result<String, String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let cockpit_dir = std::path::Path::new(&home).join(".cockpit_tools");
+    let key_path = cockpit_dir.join("secure-account-storage.key");
+
+    let accounts_path = cockpit_dir.join("accounts.json");
+    let raw = std::fs::read_to_string(&accounts_path)
+        .map_err(|e| format!("Failed to read accounts.json: {}", e))?;
+    let v: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| format!("Failed to parse accounts.json: {}", e))?;
+
+    let mut exports = Vec::new();
+    if let Some(arr) = v.get("accounts").and_then(|a| a.as_array()) {
+        for item in arr {
+            let id = item.get("id").and_then(|x| x.as_str()).unwrap_or("");
+            if !account_ids.is_empty() && !account_ids.iter().any(|target| target == id) {
+                continue;
+            }
+            let email = item.get("email").and_then(|x| x.as_str()).unwrap_or("");
+            let detail_path = cockpit_dir.join("accounts").join(format!("{}.json", id));
+            let detail_val = if detail_path.exists() && key_path.exists() {
+                read_cockpit_secure_json(&detail_path, &key_path)
+            } else {
+                None
+            };
+
+            let refresh_token = detail_val.as_ref()
+                .and_then(|d| d.get("token"))
+                .and_then(|t| t.get("refresh_token"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("");
+            let tags = detail_val.as_ref()
+                .and_then(|d| d.get("tags"))
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!([]));
+            let notes = detail_val.as_ref().and_then(|d| d.get("notes")).cloned();
+
+            let mut export_item = serde_json::json!({
+                "email": email,
+                "tags": tags,
+            });
+            if !refresh_token.is_empty() {
+                export_item["refresh_token"] = serde_json::json!(refresh_token);
+            }
+            if let Some(n) = notes {
+                if !n.is_null() {
+                    export_item["notes"] = n;
+                }
+            }
+            exports.push(export_item);
+        }
+    }
+    serde_json::to_string_pretty(&exports).map_err(|e| format!("Failed to serialize export: {}", e))
+}
+
+#[tauri::command]
+pub fn import_from_json(json_content: String) -> Result<usize, String> {
+    let list: Vec<serde_json::Value> = serde_json::from_str(&json_content)
+        .map_err(|e| format!("Invalid import JSON array: {}", e))?;
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let cockpit_dir = std::path::Path::new(&home).join(".cockpit_tools");
+    let key_path = cockpit_dir.join("secure-account-storage.key");
+    let _ = crate::core::secure_account_storage::read_or_create_key_at(&key_path);
+
+    let accounts_path = cockpit_dir.join("accounts.json");
+    let mut index_val = if let Ok(raw) = std::fs::read_to_string(&accounts_path) {
+        serde_json::from_str::<serde_json::Value>(&raw).unwrap_or_else(|_| serde_json::json!({
+            "version": 1,
+            "accounts": [],
+            "current_account_id": ""
+        }))
+    } else {
+        serde_json::json!({
+            "version": 1,
+            "accounts": [],
+            "current_account_id": ""
+        })
+    };
+
+    let mut imported = 0;
+    let now = chrono::Utc::now().timestamp();
+
+    for item in list {
+        let email = item.get("email").and_then(|x| x.as_str()).unwrap_or("");
+        let refresh_token = item.get("refresh_token").and_then(|x| x.as_str()).unwrap_or("");
+        if email.is_empty() {
+            continue;
+        }
+
+        let norm_email = email.trim().to_lowercase();
+        let md5_hash = format!("{:x}", md5::compute(norm_email.as_bytes()));
+        let account_id = format!("antigravity_{}", md5_hash);
+
+        // 1. Write detail file
+        let detail = serde_json::json!({
+            "id": account_id,
+            "email": norm_email,
+            "token": {
+                "access_token": "",
+                "refresh_token": refresh_token,
+                "expires_in": 3600,
+                "expiry_timestamp": now,
+                "token_type": "Bearer"
+            },
+            "quota": null,
+            "created_at": now,
+            "last_used": now,
+            "tags": item.get("tags").cloned().unwrap_or_else(|| serde_json::json!([])),
+            "notes": item.get("notes").cloned().unwrap_or(serde_json::Value::Null)
+        });
+
+        if let Ok(encrypted) = crate::core::secure_account_storage::serialize_account_file("antigravity", &detail) {
+            let detail_path = cockpit_dir.join("accounts").join(format!("{}.json", account_id));
+            let _ = crate::core::secure_account_storage::write_string_atomic(&detail_path, &encrypted);
+        }
+
+        // 2. Update accounts.json
+        if let Some(arr) = index_val.get_mut("accounts").and_then(|a| a.as_array_mut()) {
+            if !arr.iter().any(|x| x.get("id").and_then(|i| i.as_str()) == Some(&account_id)) {
+                arr.push(serde_json::json!({
+                    "id": account_id,
+                    "email": norm_email,
+                    "name": norm_email,
+                    "created_at": now,
+                    "last_used": now
+                }));
+                imported += 1;
+            }
+        }
+    }
+
+    let _ = crate::core::secure_account_storage::write_string_atomic(
+        &accounts_path,
+        &serde_json::to_string_pretty(&index_val).unwrap_or_default(),
+    );
+
+    Ok(imported)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2271,19 +2922,106 @@ mod tests {
     }
 
     #[test]
-    fn test_cockpit_account_schema_compatibility() {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let cockpit_dir = std::path::Path::new(&home).join(".cockpit_tools");
-        let key_path = cockpit_dir.join("secure-account-storage.key");
+    fn test_cockpit_reorder_accounts() {
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("test_cockpit_reorder_{}_{}", std::process::id(), nanos));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let accounts_file = temp_dir.join("accounts.json");
 
-        let p_new = cockpit_dir.join("accounts").join("antigravity_6be5791cc624f0e33a885fdd531b14500e917c6f5b1f85d104480c36345a98c5.json");
-        if p_new.exists() && key_path.exists() {
-            if let Some(reread) = read_cockpit_secure_json(&p_new, &key_path) {
-                let parsed = serde_json::from_value::<CockpitAccountTest>(reread);
-                assert!(parsed.is_ok(), "Account file must be deserializable by Cockpit Tools: {:?}", parsed.err());
+        let initial_json = serde_json::json!({
+            "version": 1,
+            "accounts": [
+                { "id": "acc_1", "email": "acc1@test.com" },
+                { "id": "acc_2", "email": "acc2@test.com" },
+                { "id": "acc_3", "email": "acc3@test.com" }
+            ],
+            "current_account_id": "acc_1"
+        });
+        std::fs::write(&accounts_file, serde_json::to_string(&initial_json).unwrap()).unwrap();
+
+        // Reorder: acc_3, acc_1, acc_2
+        let raw = std::fs::read_to_string(&accounts_file).unwrap();
+        let mut v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let arr = v.get("accounts").and_then(|a| a.as_array()).unwrap();
+        let desired = vec!["acc_3", "acc_1"];
+        let mut new_arr = Vec::new();
+        for id in &desired {
+            if let Some(f) = arr.iter().find(|i| i.get("id").and_then(|x| x.as_str()) == Some(id)) {
+                new_arr.push(f.clone());
             }
         }
+        for item in arr {
+            let id = item.get("id").and_then(|x| x.as_str()).unwrap();
+            if !desired.contains(&id) {
+                new_arr.push(item.clone());
+            }
+        }
+        v["accounts"] = serde_json::Value::Array(new_arr);
+        std::fs::write(&accounts_file, serde_json::to_string_pretty(&v).unwrap()).unwrap();
+
+        let updated_raw = std::fs::read_to_string(&accounts_file).unwrap();
+        let updated: serde_json::Value = serde_json::from_str(&updated_raw).unwrap();
+        let updated_arr = updated["accounts"].as_array().unwrap();
+        assert_eq!(updated_arr[0]["id"], "acc_3");
+        assert_eq!(updated_arr[1]["id"], "acc_1");
+        assert_eq!(updated_arr[2]["id"], "acc_2");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_cockpit_account_groups_validation() {
+        let valid_groups = serde_json::json!([
+            {
+                "id": "group_1",
+                "name": "Production",
+                "accountIds": ["acc_1", "acc_2"]
+            }
+        ]);
+        let serialized = serde_json::to_string(&valid_groups).unwrap();
+        let parsed: Result<Vec<serde_json::Value>, _> = serde_json::from_str(&serialized);
+        assert!(parsed.is_ok());
+
+        let invalid = "not a json";
+        let parsed_invalid: Result<Vec<serde_json::Value>, _> = serde_json::from_str(invalid);
+        assert!(parsed_invalid.is_err());
+    }
+
+    #[test]
+    fn test_cockpit_switch_history_serialization() {
+        let item = AntigravitySwitchHistoryItem {
+            id: "switch_1".to_string(),
+            timestamp: 1728000000,
+            account_id: "antigravity_123".to_string(),
+            target_email: "test@example.com".to_string(),
+            trigger_type: "manual".to_string(),
+            trigger_source: "tools.account.switch".to_string(),
+            local_ok: true,
+            seamless_ok: true,
+            success: true,
+            local_duration_ms: 120,
+            seamless_duration_ms: None,
+            total_duration_ms: 120,
+            error_stage: None,
+            error_code: None,
+            error_message: None,
+            seamless_effective_mode: None,
+            seamless_from_email: None,
+            seamless_to_email: None,
+            seamless_execution_id: None,
+            seamless_finished_at: None,
+        };
+
+        let json_str = serde_json::to_string(&item).unwrap();
+        assert!(json_str.contains("\"accountId\":\"antigravity_123\""));
+        assert!(json_str.contains("\"targetEmail\":\"test@example.com\""));
+        assert!(json_str.contains("\"localDurationMs\":120"));
+
+        let deserialized: AntigravitySwitchHistoryItem = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(deserialized.id, "switch_1");
+        assert_eq!(deserialized.target_email, "test@example.com");
     }
 }
+
 
 

@@ -277,6 +277,18 @@ pub fn login_poll(request: Req<Empty>, state: State<'_, RuntimeState>) -> IpcRes
                 .upsert_account(&auth.uid, &auth.domain, &auth.nickname, &auth.enterprise_id,
                                 &auth.access_token, &auth.refresh_token, auth.expires_at)
                 .map_err(from_string)?;
+            let _ = save_codebuddy_to_cockpit(
+                &cockpit_dir,
+                !is_global,
+                &uid,
+                &acct_info.nickname,
+                &domain,
+                &bundle.access_token,
+                &bundle.refresh_token,
+                expires_at,
+                &acct_info.enterprise_id,
+            );
+
             state.pool.add(auth);
             *state.pending_login.lock().map_err(|_| from_string("Login lock poisoned".into()))? = None;
 
@@ -323,3 +335,91 @@ pub fn open_login_url(request: Req<OpenUrlRequest>) -> IpcResult<Empty> {
     login::open_in_browser(&payload.url).map_err(from_string)?;
     Ok(respond(request_id, Empty {}))
 }
+
+fn save_codebuddy_to_cockpit(
+    cockpit_dir: &std::path::Path,
+    is_cn: bool,
+    uid: &str,
+    nickname: &str,
+    domain: &str,
+    access_token: &str,
+    refresh_token: &str,
+    expires_at: i64,
+    enterprise_id: &str,
+) -> Result<(), String> {
+    let now = chrono::Utc::now().timestamp();
+    let file_name = if is_cn { "codebuddy_cn_accounts.json" } else { "codebuddy_accounts.json" };
+    let sub_dir = if is_cn { "codebuddy_cn_accounts" } else { "codebuddy_accounts" };
+    let platform_tag = if is_cn { "codebuddy_cn" } else { "codebuddy" };
+
+    let identity_seed = if !uid.is_empty() && uid != "unknown" {
+        uid.to_lowercase()
+    } else if !nickname.is_empty() {
+        nickname.to_lowercase()
+    } else {
+        "codebuddy_user".to_string()
+    };
+    let account_id = format!("{}_{:x}", platform_tag, md5::compute(identity_seed.as_bytes()));
+
+    let json_path = cockpit_dir.join(file_name);
+    let mut doc = if let Ok(content) = std::fs::read_to_string(&json_path) {
+        serde_json::from_str::<serde_json::Value>(&content).unwrap_or_else(|_| serde_json::json!({ "version": "1.0", "accounts": [] }))
+    } else {
+        serde_json::json!({ "version": "1.0", "accounts": [] })
+    };
+
+    if let Some(arr) = doc.get_mut("accounts").and_then(|a| a.as_array_mut()) {
+        let mut found = false;
+        for item in arr.iter_mut() {
+            if item.get("id").and_then(|x| x.as_str()) == Some(&account_id)
+                || item.get("uid").and_then(|x| x.as_str()) == Some(uid)
+            {
+                if let Some(obj) = item.as_object_mut() {
+                    obj.insert("last_used".into(), serde_json::json!(now));
+                    if !nickname.is_empty() {
+                        obj.insert("nickname".into(), serde_json::json!(nickname));
+                    }
+                }
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            let mut summary = serde_json::Map::new();
+            summary.insert("id".into(), serde_json::json!(&account_id));
+            summary.insert("uid".into(), serde_json::json!(uid));
+            summary.insert("nickname".into(), serde_json::json!(nickname));
+            summary.insert("email".into(), serde_json::json!(uid));
+            summary.insert("created_at".into(), serde_json::json!(now));
+            summary.insert("last_used".into(), serde_json::json!(now));
+            arr.push(serde_json::Value::Object(summary));
+        }
+    }
+
+    let summary_content = serde_json::to_string_pretty(&doc).unwrap_or_default();
+    let _ = crate::core::secure_account_storage::write_string_atomic(&json_path, &summary_content);
+
+    // Save encrypted detail file
+    let dir = cockpit_dir.join(sub_dir);
+    let _ = std::fs::create_dir_all(&dir);
+    let detail_file = dir.join(format!("{}.json", account_id));
+
+    let mut detail_doc = serde_json::Map::new();
+    detail_doc.insert("id".into(), serde_json::json!(&account_id));
+    detail_doc.insert("uid".into(), serde_json::json!(uid));
+    detail_doc.insert("email".into(), serde_json::json!(uid));
+    detail_doc.insert("nickname".into(), serde_json::json!(nickname));
+    detail_doc.insert("enterprise_id".into(), serde_json::json!(enterprise_id));
+    detail_doc.insert("access_token".into(), serde_json::json!(access_token));
+    detail_doc.insert("refresh_token".into(), serde_json::json!(refresh_token));
+    detail_doc.insert("expires_at".into(), serde_json::json!(expires_at));
+    detail_doc.insert("domain".into(), serde_json::json!(domain));
+    detail_doc.insert("created_at".into(), serde_json::json!(now));
+    detail_doc.insert("last_used".into(), serde_json::json!(now));
+
+    let detail_val = serde_json::Value::Object(detail_doc);
+    let _ = crate::core::secure_account_storage::save_account_envelope_atomic(&detail_file, platform_tag, &detail_val);
+
+    Ok(())
+}
+

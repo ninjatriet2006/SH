@@ -98,6 +98,19 @@ pub fn run() {
             api::accounts::get_providers_overview,
             api::accounts::get_antigravity_installed_version_info,
             api::accounts::get_installed_app_version_info,
+            api::accounts::load_antigravity_switch_history,
+            api::accounts::clear_antigravity_switch_history,
+            api::accounts::get_provider_current_account_id,
+            api::accounts::load_account_groups,
+            api::accounts::save_account_groups,
+            api::accounts::load_platform_account_groups,
+            api::accounts::save_platform_account_groups,
+            api::accounts::update_account_tags,
+            api::accounts::update_account_notes,
+            api::accounts::update_account_note,
+            api::accounts::reorder_accounts,
+            api::accounts::export_accounts,
+            api::accounts::import_from_json,
             // ==================
             // BROWSER DEVICE-LOGIN (port Go cmd/login)
             // ==================

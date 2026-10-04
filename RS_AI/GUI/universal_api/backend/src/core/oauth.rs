@@ -502,7 +502,10 @@ pub fn poll_github_copilot_oauth(
 
     let login = user_info.login;
     let email = user_info.email.unwrap_or_else(|| format!("{login}@users.noreply.github.com"));
-    let account_id = format!("ghcp_{}", user_info.id);
+    let account_id = format!(
+        "ghcp_{:x}",
+        md5::compute(format!("{}:{}", login, user_info.id))
+    );
 
     // Fetch Copilot internal token
     let copilot_token = match ureq::get(GITHUB_COPILOT_TOKEN_URL)
@@ -656,7 +659,14 @@ pub fn poll_cursor_oauth(
         format!("cursor_{}@cursor.sh", &flow.login_id[..8])
     };
 
-    let account_id = format!("cursor_{}", &flow.login_id.replace('-', "")[..16]);
+    let identity_seed = if !auth_id.is_empty() {
+        auth_id.to_lowercase()
+    } else if email.contains('@') {
+        email.to_lowercase()
+    } else {
+        access_token.to_lowercase()
+    };
+    let account_id = format!("cursor_{:x}", md5::compute(identity_seed.as_bytes()));
 
     save_cursor_account_to_cockpit(
         cockpit_dir,
